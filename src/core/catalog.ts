@@ -32,14 +32,8 @@ const K = (): Node => comb("K");
 const I = (): Node => comb("I");
 const B = (): Node => app(app(S(), app(K(), S())), K()); // S (K S) K
 const C = (): Node => app(app(S(), app(app(S(), app(K(), B())), S())), app(K(), K())); // S (S (K B) S) (K K)
-const SII = (): Node => app(app(S(), I()), I()); // ω = λx. x x
+const U = (): Node => app(app(S(), I()), I()); // U = S I I = ω = λx. x x
 const PAIR = (): Node => app(app(B(), C()), app(C(), I())); // B C (C I)
-// Turing bird U = λx y. y (x x y) = S (K (S I)) (S (S (K S) (S (K K) (S I I))) (K I))
-const U = (): Node =>
-  app(
-    app(S(), app(K(), app(S(), I()))),
-    app(app(S(), app(app(S(), app(K(), S())), app(app(S(), app(K(), K())), SII()))), app(K(), I())),
-  );
 
 export const CATALOG: Law[] = [
   // ι-cycle (§4): walk it by stacking ι. A/X carry their canonical ι-tree.
@@ -63,13 +57,13 @@ export const CATALOG: Law[] = [
   { sym: "B", lawText: "B x y z = x (y z)", arity: 3, reference: (v) => app(v[0], app(v[1], v[2])), def: B },
   { sym: "C", lawText: "C x y z = x z y", arity: 3, reference: (v) => app(app(v[0], v[2]), v[1]), def: C },
   { sym: "W", lawText: "W x y = x y y", arity: 2, reference: (v) => app(app(v[0], v[1]), v[1]), def: () => app(app(S(), S()), app(K(), I())) },
-  // Recursion: the Turing bird U, and the fixpoint Y = U U.
+  // Recursion: self-application U, and the fixpoint Y built from it.
   {
     sym: "U",
-    lawText: "U x y = y (x x y)",
-    arity: 2,
-    reference: (v) => app(v[1], app(app(v[0], v[0]), v[1])),
-    def: U,
+    lawText: "U x = x x",
+    arity: 1,
+    reference: (v) => app(v[0], v[0]),
+    def: U, // U = S I I = ω
   },
   {
     sym: "Y",
@@ -77,7 +71,8 @@ export const CATALOG: Law[] = [
     arity: 1,
     args: (v) => [app(K(), v[0])], // Y (K a) ≡ a — finite, since Y a diverges
     reference: (v) => v[0],
-    def: () => app(U(), U()),
+    // Y = B U (C B U)
+    def: () => app(app(B(), U()), app(app(C(), B()), U())),
   },
   // Data: a pair, and a Scott list cons.
   {
