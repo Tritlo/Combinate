@@ -120,8 +120,7 @@ export const CATALOG: Law[] = [
     def: () => app(app(B(), M()), app(app(C(), B()), M())), // B M (C B M)
   },
   bird("Z", "Z x y z = x y", 3, (v) => app(v[0], v[1])), // drops its 3rd arg (= B K)
-  bird("Z2T", "Z2T x y z = y x", 3, (v) => app(v[1], v[0])), // = B Z T
-  bird("Z2V", "Z2V x y z w = w x y", 4, (v) => app(app(v[3], v[0]), v[1])), // = B Z V
+  bird("Z2", "Z2 x y z w = x y z", 4, (v) => app(app(v[0], v[1]), v[2])), // = B Z, drops its 4th arg
   bird("Φ", "Φ x y z w = x (y w) (z w)", 4, (v) => app(app(v[0], app(v[1], v[3])), app(v[2], v[3]))), // Phoenix
   bird("Ψ", "Ψ x y z w = x (y z) (y w)", 4, (v) => app(app(v[0], app(v[1], v[2])), app(v[1], v[3]))), // Psi
 ];
@@ -168,8 +167,7 @@ export const META: Record<string, Meta> = {
   X: { blurb: "Logical AND on Church Booleans — true only when both arguments are true.", recipe: "S S K" },
   Y: { bird: "Sage", blurb: "The fixpoint combinator — feeds a function its own output, which is what makes recursion possible.", recipe: "B M (C B M)" },
   Z: { blurb: "Applies a function to two arguments but discards a trailing third — a tool for controlling evaluation order.", recipe: "B K" },
-  Z2T: { blurb: "Reverse application that also swallows an extra trailing argument (the Thrush, padded).", recipe: "B Z T" },
-  Z2V: { blurb: "Pairs its first two values, ignoring an extra argument before the continuation (the Vireo, padded).", recipe: "B Z V" },
+  Z2: { blurb: "Like Z reaching one argument deeper: applies a function to its next two arguments and ignores a trailing fourth.", recipe: "B Z" },
   "Φ": { bird: "Phoenix", blurb: "Feeds a shared argument to two functions, then merges their results with a third.", recipe: "B (B S) B" },
   "Ψ": { bird: "Psi", blurb: "Applies one function to two different arguments, then combines the two results.", recipe: "λx y z w. x (y z) (y w)" },
 };
