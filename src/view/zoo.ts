@@ -339,6 +339,19 @@ function buildPages(): Page[] {
         ["(-)", "Sub", "truncated subtraction, via the predecessor"],
       ]),
     },
+    {
+      name: "Lists",
+      entries: topic([
+        ["A", "nil", "the empty list — also false and zero"],
+        ["cons", "cons", "prepends a head onto a list"],
+        ["head", "head", "the first element"],
+        ["tail", "tail", "everything after the head — the list's predecessor"],
+        ["V", "fold", "right fold — a list is its own fold (the Vireo)"],
+        ["join", "join", "appends one list onto another (++)"],
+        ["map", "map", "applies a function to every element"],
+        ["null", "null", "is the list empty?"],
+      ]),
+    },
   ];
 }
 

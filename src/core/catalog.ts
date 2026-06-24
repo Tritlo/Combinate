@@ -86,6 +86,24 @@ const predBody = ([n, f, x]: Node[]): Node =>
   app(app(app(n, lamN(["g", "h"], ([g, h]) => app(h, app(g, f)))), lamN(["u"], () => x)), lamN(["u"], ([u]) => u));
 const predDef = (): Node => lamN(["n", "f", "x"], predBody);
 
+// ---- Church right-fold lists: a list IS its own right fold (nil = A = KI,
+// fold = V). cons/head/map/null are clean; tail needs a predecessor-style
+// pair-shuffle, and append (join) shares Y's finite probe (so it sits before Y).
+const nilDef = (): Node => app(K(), I()); // the empty list (= false = 0)
+const consBody = ([h, t, c, n]: Node[]): Node => app(app(c, h), app(app(t, c), n));
+const consDef = (): Node => lamN(["h", "t", "c", "n"], consBody);
+const pairDef = (): Node => lamN(["x", "y", "f"], ([x, y, f]) => app(app(f, x), y)); // = V
+const sndDef = (): Node => lamN(["p"], ([p]) => app(p, nilDef())); // second of a pair
+/** tail via the predecessor trick: fold the list building (rest, whole) pairs,
+ *  then take the first component — `fst (l step (nil,nil))`, fst inlined as `· K`. */
+const tailBody = ([l]: Node[]): Node => {
+  const step = lamN(["h", "p"], ([h, p]) => app(app(pairDef(), app(sndDef(), p)), app(app(consDef(), h), app(sndDef(), p))));
+  const base = lamN(["f"], ([f]) => app(app(f, nilDef()), nilDef())); // the (nil, nil) pair, already reduced
+  return app(app(app(l, step), base), K());
+};
+const mapBody = ([f, l]: Node[]): Node =>
+  app(app(l, lamN(["h", "t"], ([h, t]) => app(app(consDef(), app(f, h)), t))), nilDef());
+
 /** A bird whose def is the bracket abstraction of its law (so def ≡ law). */
 function bird(sym: string, lawText: string, arity: number, body: (v: Node[]) => Node): Law {
   return { sym, lawText, arity, reference: body, def: () => lam(arity, body) };
@@ -129,6 +147,14 @@ export const CATALOG: Law[] = [
   bird("V", "V x y z = z x y", 3, (v) => app(app(v[2], v[0]), v[1])), // Vireo (pairing)
   bird("W", "W x y = x y y", 2, (v) => app(app(v[0], v[1]), v[1])), // Warbler
   bird("X", "X x y = x y x", 2, (v) => app(app(v[0], v[1]), v[0])), // Xenops (logical AND, = S S K)
+  // ---- list operations (right-fold encoding); kept together, and join must
+  // precede Y since append shares Y's finite probe.
+  bird("cons", "cons h t c n = c h (t c n)", 4, consBody), // prepend
+  bird("head", "head (h : t) = h", 1, (v) => app(app(v[0], K()), nilDef())),
+  bird("join", "join xs ys = xs ++ ys", 2, (v) => app(app(v[0], consDef()), v[1])), // append
+  bird("map", "map f (h : t) = f h : map f t", 2, mapBody),
+  bird("null", "null [] = K,  null (h : t) = KI", 1, (v) => app(app(v[0], app(K(), app(K(), nilDef()))), K())),
+  bird("tail", "tail (h : t) = t", 1, tailBody),
   // Sage Θ — recursive, so probed as Y (K a) ≡ a (Y a diverges).
   {
     sym: "Y",
@@ -157,6 +183,12 @@ export const META: Record<string, Meta> = {
   "(-)": { blurb: "Truncated subtraction (monus): m minus n, clamped at zero. It applies the predecessor to m, n times over. By far the largest creature in the zoo, its ι-tree alone a tangled nest of hundreds of nodes.", recipe: "λm n. n Pred m" },
   Succ: { blurb: "The successor: it wraps one more application around a Church numeral, turning n into n+1. It is the Starling perched on the Bluebird — a small reminder that all of arithmetic can be grown from a couple of birds.", recipe: "S B" },
   Pred: { blurb: "The predecessor: it strips one application back off a Church numeral, turning n+1 into n (and leaving 0 at 0). Famously hard to define — Stephen Kleene is said to have hit on the trick in 1932 in the dentist's chair, under nitrous oxide. Succ's mirror image, and the engine inside subtraction.", recipe: "λn f x. n (λg h. h (g f)) (λu. x) (λu. u)" },
+  cons: { blurb: "Prepends a head onto a list. In this encoding a list IS its own right fold, so cons just remembers to fold the new head in before the rest. It is the Vireo's pairing instinct grown into a first-class list-builder.", recipe: "λh t c n. c h (t c n)" },
+  head: { blurb: "Takes the first element of a list (or the empty list, if there is none). It folds with the Kestrel, which keeps the head and discards the tail — the very trick that pulls the first value out of a pair.", recipe: "λl. l K nil" },
+  tail: { blurb: "Drops the first element and returns the rest. Like the predecessor for numbers, it is the hard one: a list keeps no direct 'rest', so tail rebuilds it with a pair-shuffling fold. The list world's answer to Pred.", recipe: "λl. fst (l step (nil, nil))" },
+  join: { blurb: "Appends one list onto another (xs ++ ys) by folding xs with cons onto ys. Curiously it passes the exact same finite test as the Sage bird — append and the fixpoint combinator are twins under that probe — so it roosts just ahead of Y.", recipe: "λxs ys. xs cons ys" },
+  map: { blurb: "Applies a function to every element, building a fresh list. A fold that re-conses each transformed head onto the rest — the workhorse of list processing.", recipe: "λf l. l (λh t. cons (f h) t) nil" },
+  null: { blurb: "Tests whether a list is empty, answering with a Church Boolean. Any cons folds its way to false; only the empty list is left as true.", recipe: "λl. l (K (K false)) true" },
   ι: { blurb: "The universal combinator: every other bird grows from it alone — hand it to itself and the Identity bird hatches, keep nesting and out come the Kestrel, then the Starling. Linguist Chris Barker coined it in 2001 and named it for iota, the smallest letter of the Greek alphabet — the smallest possible seed for the calculus.", recipe: "primitive" },
   A: { bird: "Albatross", blurb: "Always answers with its second argument, throwing the first away — the mirror of the Kestrel. That makes it Boolean false, the number zero, and a pair's second projection (snd). It is simply the Kestrel handed an Identity bird; here it takes the letter A and the Albatross.", recipe: "K I" },
   B: { bird: "Bluebird", blurb: "The forest's composition law: it feeds one function's result straight into another. Curry gave it the letter B — relettering Schönfinkel's original composition combinator — and the Bluebird heads a whole dynasty of composers: the Blackbird, Bunting and Becard all grow from it.", recipe: "S (K S) K" },
