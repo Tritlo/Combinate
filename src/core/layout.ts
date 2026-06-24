@@ -1,8 +1,7 @@
 import { type Node, type NodeId } from "./term";
 
-/** Horizontal leaf spacing and vertical depth spacing, from `treedraw.py`. */
-export const XS = 56;
-export const YS = 64;
+/** Radius added per depth level (each ring out from the root). */
+export const RING = 84;
 
 export interface Pos {
   x: number;
@@ -10,7 +9,7 @@ export interface Pos {
 }
 
 export interface Layout {
-  /** Node positions in local coordinates, with the root anchored at (0, 0). */
+  /** Node positions in local coordinates, with the root at the centre (0, 0). */
   pos: Map<NodeId, Pos>;
   width: number;
   height: number;
@@ -21,40 +20,56 @@ export interface Layout {
 }
 
 /**
- * Tidy top-down layout (port of `treedraw.annotate`, §5.1): leaves sit on a
- * regular in-order grid (indices 0, 1, 2, …) and each application hangs at the
- * midpoint of its two children; depth grows downward from the root.
+ * Root-centred radial layout (port of `treedraw.svg_radial`, §5.1 radial mode):
+ * the root sits at the centre, depth maps to radius, and the in-order leaves
+ * spread evenly around the full circle; each application takes the midpoint
+ * angle of its two children. The tree fans out from the centre.
  *
- * Positions are returned in local coordinates offset so the root is at (0, 0),
- * which lets the view position a whole tree by its root anchor and move it as a
- * rigid unit.
+ * Positions are local with the root at (0, 0), so the view can anchor a whole
+ * tree by its root and move it as a rigid unit.
  */
 export function layout(root: Node): Layout {
-  const gridX = new Map<NodeId, number>();
   const depth = new Map<NodeId, number>();
-  let leafIndex = 0;
+  let leafCount = 0;
 
-  const walk = (n: Node, d: number): void => {
+  const measure = (n: Node, d: number): void => {
     depth.set(n.id, d);
     if (n.kind === "app") {
-      walk(n.fn, d + 1);
-      walk(n.arg, d + 1);
-      gridX.set(n.id, 0.5 * (gridX.get(n.fn.id)! + gridX.get(n.arg.id)!));
+      measure(n.fn, d + 1);
+      measure(n.arg, d + 1);
     } else {
-      gridX.set(n.id, leafIndex++);
+      leafCount++;
     }
   };
-  walk(root, 0);
+  measure(root, 0);
 
-  const rootGridX = gridX.get(root.id)!;
+  // Assign angles post-order: leaves spread evenly in in-order, each app node
+  // takes the midpoint angle of its two children.
+  const angle = new Map<NodeId, number>();
+  const total = Math.max(1, leafCount);
+  let leafIndex = 0;
+  const setAngle = (n: Node): void => {
+    if (n.kind === "app") {
+      setAngle(n.fn);
+      setAngle(n.arg);
+      angle.set(n.id, 0.5 * (angle.get(n.fn.id)! + angle.get(n.arg.id)!));
+    } else {
+      angle.set(n.id, (2 * Math.PI * leafIndex) / total);
+      leafIndex++;
+    }
+  };
+  setAngle(root);
+
   const pos = new Map<NodeId, Pos>();
   let minX = 0;
   let maxX = 0;
   let minY = 0;
   let maxY = 0;
-  for (const [id, gx] of gridX) {
-    const x = (gx - rootGridX) * XS;
-    const y = depth.get(id)! * YS;
+  for (const [id, d] of depth) {
+    const r = d * RING;
+    const a = angle.get(id)!;
+    const x = r * Math.cos(a);
+    const y = r * Math.sin(a);
     pos.set(id, { x, y });
     if (x < minX) minX = x;
     if (x > maxX) maxX = x;
