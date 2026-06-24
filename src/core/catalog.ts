@@ -116,6 +116,10 @@ export const CATALOG: Law[] = [
   bird("E", "E x y z w v = x y (z w v)", 5, (v) => app(app(v[0], v[1]), app(app(v[2], v[3]), v[4]))), // Eagle
   bird("B2", "B2 x y z w v = x (y z w v)", 5, (v) => app(v[0], app(app(app(v[1], v[2]), v[3]), v[4]))), // Bunting
 
+  // MicroHs optimizer combinators (definable from the birds above; Z = B K).
+  bird("Z", "Z x y z = x y", 3, (v) => app(v[0], v[1])), // drops its 3rd arg
+  bird("J", "J x y z = z x", 3, (v) => app(v[2], v[0])),
+
   // The fixpoint (Sage Θ — kept as Y). Recursive law, so probed finitely.
   {
     sym: "Y",
