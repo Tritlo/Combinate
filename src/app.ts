@@ -225,10 +225,14 @@ export async function mountApp(): Promise<void> {
     return tree;
   }
 
-  const hotbar = new Hotbar((slot, e) => {
-    hint.visible = false;
-    drag = { kind: "spawn", tree: spawnTree(slot.spawn(), e.global.x, e.global.y) };
-  }, pixi.ticker);
+  const hotbar = new Hotbar(
+    (slot, e) => {
+      hint.visible = false;
+      drag = { kind: "spawn", tree: spawnTree(slot.spawn(), e.global.x, e.global.y) };
+    },
+    pixi.ticker,
+    Math.ceil((CATALOG.length + 1) / 3), // ι + all combinators wrap to 3 rows
+  );
   hotbar.addSlot({ glyph: "ι", spawn: () => iota() }); // slot 0, always present
   hud.addChild(hotbar.container);
   hud.addChild(zoo.container); // last → the Zoo overlay sits on top of the hotbar

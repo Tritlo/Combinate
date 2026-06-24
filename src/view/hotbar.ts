@@ -24,6 +24,8 @@ export class Hotbar {
   constructor(
     private readonly onSpawnStart: (slot: Slot, e: FederatedPointerEvent) => void,
     private readonly ticker: Ticker,
+    /** Cap the slots per row so a full inventory wraps to a fixed number of rows. */
+    private readonly maxPerRow = Infinity,
   ) {}
 
   addSlot(slot: Slot): void {
@@ -60,7 +62,8 @@ export class Hotbar {
    *  rows that stack upward as the inventory grows (slot 0 = ι stays bottom-left). */
   layout(): void {
     const n = this.views.length;
-    const perRow = Math.max(1, Math.floor((window.innerWidth - 2 * MARGIN + GAP) / (SLOT + GAP)));
+    const fit = Math.floor((window.innerWidth - 2 * MARGIN + GAP) / (SLOT + GAP));
+    const perRow = Math.max(1, Math.min(fit, this.maxPerRow));
     this.views.forEach((view, i) => {
       const row = Math.floor(i / perRow);
       const col = i % perRow;
