@@ -40,6 +40,8 @@ export class Hotbar {
     );
     const glyph = new Text({ text: slot.glyph, style: { fontFamily: "monospace", fontSize: 24, fill: accent } });
     glyph.anchor.set(0.5);
+    const maxW = SLOT - 10; // shrink long glyphs (e.g. "Succ") to fit the slot
+    if (glyph.width > maxW) glyph.scale.set(maxW / glyph.width);
     view.addChild(glyph);
 
     view.eventMode = "static";

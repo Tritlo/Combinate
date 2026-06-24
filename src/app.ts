@@ -428,6 +428,8 @@ export async function mountApp(): Promise<void> {
     if (zoo.isOpen) {
       if (e.key === "ArrowDown") return e.preventDefault(), zoo.move(1);
       if (e.key === "ArrowUp") return e.preventDefault(), zoo.move(-1);
+      if (e.key === "ArrowRight") return e.preventDefault(), zoo.cyclePage(1);
+      if (e.key === "ArrowLeft") return e.preventDefault(), zoo.cyclePage(-1);
       if (e.key === "Escape") return zoo.close();
     }
     if (e.key === "r" || e.key === "R") clearCanvas();

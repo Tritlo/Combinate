@@ -11,12 +11,22 @@ const PANEL_LINE = 0x2c3850;
 const TEXT_DIM = 0x8a97ad;
 const TEXT = 0xd6deec;
 const LIST_W = 248;
+const LIST_TOP = 88; // list/detail start below the title + tab row
 
 interface Entry {
   num: number;
   sym: string;
   /** null for ι (the primitive). */
   law: Law | null;
+  /** Topic-page display name (e.g. "True", "Mult"), overriding the symbol. */
+  alias?: string;
+  /** Topic-page one-line note on the role this combinator plays. */
+  role?: string;
+}
+
+interface Page {
+  name: string;
+  entries: Entry[];
 }
 
 /**
@@ -34,11 +44,13 @@ export class Zoo {
   private readonly card = new Graphics();
   private readonly title = new Text({ text: "THE ZOO", style: { fontFamily: "monospace", fontSize: 22, fill: IOTA_COLOR } });
   private readonly closeBtn = new Container();
+  private readonly tabBar = new Container();
   private readonly listView = new Container();
   private readonly listMask = new Graphics();
   private readonly detail = new Container();
 
-  private readonly entries: Entry[];
+  private readonly pages: Page[];
+  private pageIdx = 0;
   private readonly rowH = 30;
   private selected = 0;
   private listScroll = 0;
@@ -48,11 +60,13 @@ export class Zoo {
   private cardW = 0;
   private cardH = 0;
 
+  /** The entries of the currently-selected page. */
+  private get entries(): Entry[] {
+    return this.pages[this.pageIdx].entries;
+  }
+
   constructor(private readonly isDiscovered: (sym: string) => boolean) {
-    this.entries = [
-      { num: 1, sym: "ι", law: null },
-      ...CATALOG.map((law, i) => ({ num: i + 2, sym: law.sym, law })),
-    ];
+    this.pages = buildPages();
     this.buildIcon();
     this.buildPanel();
     this.panel.visible = false;
@@ -74,23 +88,39 @@ export class Zoo {
     return this.panel.visible;
   }
 
+  /** Visible height of the scrolling list window. */
+  private viewH(): number {
+    return this.cardH - LIST_TOP - 24;
+  }
+
   /** Move the selection (arrow-key navigation), scrolling to keep it visible. */
   move(delta: number): void {
     if (!this.panel.visible) return;
     this.selected = Math.max(0, Math.min(this.entries.length - 1, this.selected + delta));
-    const viewH = this.cardH - 80;
+    const viewH = this.viewH();
     const top = this.selected * this.rowH;
     if (top < this.listScroll) this.listScroll = top;
     else if (top + this.rowH > this.listScroll + viewH) this.listScroll = top + this.rowH - viewH;
     const max = Math.max(0, this.entries.length * this.rowH - viewH);
     this.listScroll = Math.max(0, Math.min(max, this.listScroll));
-    this.listView.position.set(this.cardX + 16, this.cardY + 56 - this.listScroll);
+    this.listView.position.set(this.cardX + 16, this.cardY + LIST_TOP - this.listScroll);
     this.refresh();
   }
 
-  /** Rebuild list + detail (after a discovery, unlock, or open). */
+  /** Switch topic page (←/→ navigation), wrapping around. */
+  cyclePage(delta: number): void {
+    if (!this.panel.visible) return;
+    this.pageIdx = (this.pageIdx + delta + this.pages.length) % this.pages.length;
+    this.selected = 0;
+    this.listScroll = 0;
+    this.listView.position.set(this.cardX + 16, this.cardY + LIST_TOP);
+    this.refresh();
+  }
+
+  /** Rebuild tabs + list + detail (after a discovery, unlock, open, or page switch). */
   refresh(): void {
     if (!this.panel.visible) return;
+    this.buildTabs();
     this.buildList();
     this.buildDetail();
   }
@@ -130,9 +160,9 @@ export class Zoo {
     // wheel on the panel (ancestor of the list) scrolls the entry list
     this.panel.eventMode = "static";
     this.panel.on("wheel", (e: { deltaY: number }) => {
-      const max = Math.max(0, this.listH - (this.cardH - 80));
+      const max = Math.max(0, this.listH - this.viewH());
       this.listScroll = Math.min(max, Math.max(0, this.listScroll + e.deltaY));
-      this.listView.position.set(this.cardX + 16, this.cardY + 56 - this.listScroll);
+      this.listView.position.set(this.cardX + 16, this.cardY + LIST_TOP - this.listScroll);
     });
 
     const x = new Text({ text: "✕", style: { fontFamily: "monospace", fontSize: 20, fill: TEXT_DIM } });
@@ -147,8 +177,29 @@ export class Zoo {
     });
 
     this.listView.mask = this.listMask;
-    this.panel.addChild(this.backdrop, this.card, this.title, this.closeBtn, this.listMask, this.listView, this.detail);
+    this.panel.addChild(this.backdrop, this.card, this.title, this.tabBar, this.closeBtn, this.listMask, this.listView, this.detail);
     this.placePanel();
+  }
+
+  /** The topic-page tabs (All / Booleans / Arithmetic). */
+  private buildTabs(): void {
+    for (const c of this.tabBar.removeChildren()) c.destroy({ children: true });
+    let x = this.cardX + 24;
+    const y = this.cardY + 52;
+    this.pages.forEach((page, i) => {
+      const active = i === this.pageIdx;
+      const t = new Text({ text: page.name, style: { fontFamily: "monospace", fontSize: 14, fill: active ? IOTA_COLOR : TEXT_DIM } });
+      t.position.set(x, y);
+      t.eventMode = "static";
+      t.cursor = "pointer";
+      t.on("pointerdown", (e: FederatedPointerEvent) => {
+        e.stopPropagation();
+        this.cyclePage(i - this.pageIdx);
+      });
+      this.tabBar.addChild(t);
+      if (active) this.tabBar.addChild(new Graphics().rect(x, y + 19, t.width, 2).fill({ color: IOTA_COLOR }));
+      x += t.width + 24;
+    });
   }
 
   private placePanel(): void {
@@ -162,9 +213,9 @@ export class Zoo {
     this.card.clear().roundRect(this.cardX, this.cardY, w, h, 14).fill({ color: PANEL_BG }).stroke({ width: 2, color: PANEL_LINE });
     this.title.position.set(this.cardX + 24, this.cardY + 18);
     this.closeBtn.position.set(this.cardX + w - 26, this.cardY + 30);
-    this.listMask.clear().rect(this.cardX + 16, this.cardY + 56, LIST_W, h - 80).fill({ color: 0xffffff });
+    this.listMask.clear().rect(this.cardX + 16, this.cardY + LIST_TOP, LIST_W, this.viewH()).fill({ color: 0xffffff });
     this.listScroll = 0;
-    this.listView.position.set(this.cardX + 16, this.cardY + 56);
+    this.listView.position.set(this.cardX + 16, this.cardY + LIST_TOP);
   }
 
   private buildList(): void {
@@ -177,7 +228,7 @@ export class Zoo {
       if (i === this.selected) row.addChild(new Graphics().roundRect(0, 0, LIST_W, rowH - 4, 5).fill({ color: 0x223052 }));
       const num = new Text({ text: `#${String(entry.num).padStart(2, "0")}`, style: { fontFamily: "monospace", fontSize: 13, fill: TEXT_DIM } });
       num.position.set(10, 7);
-      const name = new Text({ text: known ? entry.sym : "?", style: { fontFamily: "monospace", fontSize: 15, fill: known ? TEXT : TEXT_DIM } });
+      const name = new Text({ text: known ? (entry.alias ?? entry.sym) : "?", style: { fontFamily: "monospace", fontSize: 15, fill: known ? TEXT : TEXT_DIM } });
       name.position.set(64, 6);
       row.addChild(num, name);
       row.eventMode = "static";
@@ -187,7 +238,7 @@ export class Zoo {
         e.stopPropagation();
         // ignore clicks on rows scrolled outside the visible window (the mask
         // clips drawing, not hit-testing)
-        if (i * rowH + rowH < this.listScroll || i * rowH > this.listScroll + (this.cardH - 80)) return;
+        if (i * rowH + rowH < this.listScroll || i * rowH > this.listScroll + this.viewH()) return;
         this.selected = i;
         this.refresh();
       });
@@ -201,7 +252,7 @@ export class Zoo {
     const entry = this.entries[this.selected];
     const known = entry.law === null || this.isDiscovered(entry.sym);
     const dx = this.cardX + 288;
-    const dy = this.cardY + 56;
+    const dy = this.cardY + LIST_TOP;
     const dw = this.cardW - 288 - 28;
 
     const tree: Node = entry.law === null ? iota() : iotaTreeOf(entry.law);
@@ -235,12 +286,59 @@ export class Zoo {
       line("Not yet discovered — build a tree that behaves this way.", TEXT_DIM, 14);
       return;
     }
-    line(`${numStr}   ${meta?.bird ? `${entry.sym}  ·  ${meta.bird}` : entry.sym}`, IOTA_COLOR, 22, 8);
+    const sub = meta?.bird ? `${entry.sym}  ·  ${meta.bird}` : entry.sym;
+    if (entry.alias) {
+      line(`${numStr}   ${entry.alias}`, IOTA_COLOR, 22, 2);
+      line(`= ${sub}`, TEXT_DIM, 14, 8);
+    } else {
+      line(`${numStr}   ${sub}`, IOTA_COLOR, 22, 8);
+    }
+    if (entry.role) line(`role:     ${entry.role}`, TEXT, 15);
     line(`law:      ${lawText}`, TEXT, 15);
     line(`formula:  ${meta?.recipe ?? "—"}`, TEXT, 15);
     line(`iotas:    ${countIotas(tree)}`, TEXT_DIM, 14, 10);
     if (meta?.blurb) line(meta.blurb, TEXT, 15);
   }
+}
+
+/** The Zoo pages: the full catalog, plus curated Boolean / arithmetic views that
+ *  re-present existing combinators under the role they play (most of "Booleans"
+ *  and "Arithmetic" are birds you already know — True is the Kestrel, Mult is the
+ *  Bluebird — only Succ, (+) and (-) are their own entries). */
+function buildPages(): Page[] {
+  const all: Entry[] = [
+    { num: 1, sym: "ι", law: null },
+    ...CATALOG.map((law, i) => ({ num: i + 2, sym: law.sym, law })),
+  ];
+  const byId = new Map(CATALOG.map((l) => [l.sym, l] as const));
+  const topic = (rows: Array<[string, string, string]>): Entry[] =>
+    rows.map(([sym, alias, role], i) => ({ num: i + 1, sym, law: byId.get(sym) ?? null, alias, role }));
+  return [
+    { name: "All", entries: all },
+    {
+      name: "Booleans",
+      entries: topic([
+        ["K", "True", "selects the first of two options"],
+        ["A", "False", "selects the second of two options"],
+        ["C", "Not", "swaps the two options"],
+        ["X", "And", "true only when both are true"],
+        ["M", "Or", "true when either is true"],
+        ["I", "If", "`if c t e` is just `c t e` — a boolean is its own conditional"],
+      ]),
+    },
+    {
+      name: "Arithmetic",
+      entries: topic([
+        ["A", "Zero", "Church 0 — applies f zero times"],
+        ["I", "One", "Church 1 — applies f exactly once"],
+        ["Succ", "Succ", "adds one to a numeral"],
+        ["(+)", "Plus", "adds two numerals"],
+        ["B", "Mult", "multiplies — multiplication is the Bluebird (composition)"],
+        ["T", "Exp", "raises to a power — m^n is just n m"],
+        ["(-)", "Sub", "truncated subtraction, via the predecessor"],
+      ]),
+    },
+  ];
 }
 
 // Draw a term's nodes/edges, scaled to fit `size`, centred at the container origin.

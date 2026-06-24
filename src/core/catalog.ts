@@ -72,6 +72,21 @@ function lam(arity: number, body: (v: Node[]) => Node): Node {
   return t;
 }
 
+/** Bracket abstraction over explicitly-named variables (nests, for the bodies
+ *  that need captured outer vars — e.g. the Church predecessor). */
+function lamN(names: string[], body: (v: Node[]) => Node): Node {
+  let t = body(names.map(freeVar));
+  for (let i = names.length - 1; i >= 0; i--) t = bracket(names[i], t);
+  return t;
+}
+
+/** The Church predecessor, λn f x. n (λg h. h (g f)) (λu. x) (λu. u) — the
+ *  famously intricate "subtract one"; the building block of (-). */
+const predDef = (): Node =>
+  lamN(["n", "f", "x"], ([n, f, x]) =>
+    app(app(app(n, lamN(["g", "h"], ([g, h]) => app(h, app(g, f)))), lamN(["u"], () => x)), lamN(["u"], ([u]) => u)),
+  );
+
 /** A bird whose def is the bracket abstraction of its law (so def ≡ law). */
 function bird(sym: string, lawText: string, arity: number, body: (v: Node[]) => Node): Law {
   return { sym, lawText, arity, reference: body, def: () => lam(arity, body) };
@@ -80,6 +95,8 @@ function bird(sym: string, lawText: string, arity: number, body: (v: Node[]) => 
 // Alphabetical by symbol. I/K/S reduce by built-in rules (no def); Y is the
 // recursive fixpoint (probed finitely); the rest derive their def from their law.
 export const CATALOG: Law[] = [
+  bird("(+)", "(+) m n f x = m f (n f x)", 4, (v) => app(app(v[0], v[2]), app(app(v[1], v[2]), v[3]))), // Church addition
+  bird("(-)", "(-) m n = m ∸ n", 2, (v) => app(app(v[1], predDef()), v[0])), // Church subtraction (monus, via pred)
   bird("A", "A x y = y", 2, (v) => v[1]), // Albatross (= K I; the old Kite)
   bird("B", "B x y z = x (y z)", 3, (v) => app(v[0], app(v[1], v[2]))), // Bluebird
   bird("B1", "B1 x y z w = x (y z w)", 4, (v) => app(v[0], app(app(v[1], v[2]), v[3]))), // Blackbird
@@ -106,6 +123,7 @@ export const CATALOG: Law[] = [
   bird("Q4", "Q4 x y z = z (y x)", 3, (v) => app(v[2], app(v[1], v[0]))), // Quacky
   bird("R", "R x y z = y z x", 3, (v) => app(app(v[1], v[2]), v[0])), // Robin
   { sym: "S", lawText: "S x y z = x z (y z)", arity: 3, reference: (v) => app(app(v[0], v[2]), app(v[1], v[2])) }, // Starling
+  bird("Succ", "Succ n f x = f (n f x)", 3, (v) => app(v[1], app(app(v[0], v[1]), v[2]))), // Church successor (= S B)
   bird("T", "T x y = y x", 2, (v) => app(v[1], v[0])), // Thrush
   bird("U", "U x y = y (x x y)", 2, (v) => app(v[1], app(app(v[0], v[0]), v[1]))), // Turing
   bird("V", "V x y z = z x y", 3, (v) => app(app(v[2], v[0]), v[1])), // Vireo (pairing)
@@ -135,6 +153,9 @@ export interface Meta {
 }
 
 export const META: Record<string, Meta> = {
+  "(+)": { blurb: "Church addition: it runs one numeral's stack of applications, then the other's, on the same arguments. A Starling-and-Bluebird scaffold — or simply Succ fed to a numeral n times. Multiplication needs no new bird at all: that is the Bluebird itself, and exponentiation is the Thrush.", recipe: "λm n f x. m f (n f x)" },
+  "(-)": { blurb: "Truncated subtraction (monus): m minus n, clamped at zero. It leans on the Church predecessor — the famously intricate combinator that peels one application off a numeral — applied n times. By far the largest creature in the zoo, its ι-tree alone a tangled nest of hundreds of nodes.", recipe: "λm n. n pred m" },
+  Succ: { blurb: "The successor: it wraps one more application around a Church numeral, turning n into n+1. It is the Starling perched on the Bluebird — a small reminder that all of arithmetic can be grown from a couple of birds.", recipe: "S B" },
   ι: { blurb: "The universal combinator: every other bird grows from it alone — hand it to itself and the Identity bird hatches, keep nesting and out come the Kestrel, then the Starling. Linguist Chris Barker coined it in 2001 and named it for iota, the smallest letter of the Greek alphabet — the smallest possible seed for the calculus.", recipe: "primitive" },
   A: { bird: "Albatross", blurb: "Always answers with its second argument, throwing the first away — the mirror of the Kestrel. That makes it Boolean false, the number zero, and a pair's second projection (snd). It is simply the Kestrel handed an Identity bird; here it takes the letter A and the Albatross.", recipe: "K I" },
   B: { bird: "Bluebird", blurb: "The forest's composition law: it feeds one function's result straight into another. Curry gave it the letter B — relettering Schönfinkel's original composition combinator — and the Bluebird heads a whole dynasty of composers: the Blackbird, Bunting and Becard all grow from it.", recipe: "S (K S) K" },
