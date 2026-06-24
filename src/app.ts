@@ -50,7 +50,7 @@ export async function mountApp(): Promise<void> {
   let snapTarget: TreeView | null = null;
 
   const hint = new Text({
-    text: "drag ι onto the canvas  ·  snap two trees together  ·  they reduce on their own",
+    text: "drag ι onto the canvas  ·  snap two trees together  ·  they reduce on their own  ·  R clears",
     style: { fontFamily: "monospace", fontSize: 14, fill: 0x6b7a90 },
   });
   hint.position.set(16, 14);
@@ -301,6 +301,22 @@ export async function mountApp(): Promise<void> {
     hotbar.layout();
     placeLegend();
     toast.layout();
+  });
+
+  // Remove every tree from the canvas (discoveries and the hotbar stay).
+  function clearCanvas(): void {
+    for (const t of trees) {
+      cancelAuto(t);
+      auto.delete(t);
+      t.destroy();
+    }
+    trees.length = 0;
+    clearGhost();
+    drag = null;
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "r" || e.key === "R") clearCanvas();
   });
 
   // A small key explaining the two edge styles (which child is the function).
