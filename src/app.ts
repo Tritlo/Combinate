@@ -14,6 +14,7 @@ import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
 import { TreeView, FN_EDGE, ARG_EDGE } from "./view/tree";
 import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
+import { Zoo } from "./view/zoo";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
 const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducing (§6.4)
@@ -121,6 +122,21 @@ export async function mountApp(): Promise<void> {
   // to unfold when applied.
   const collapsedNode = (law: Law): Node => comb(law.sym, law.def?.());
 
+  const zoo = new Zoo(isDiscovered); // added to the HUD last (below) so it overlays everything
+
+  // Reveal every combinator at once (the "U" cheat key + the Zoo unlock).
+  function unlockAll(): void {
+    for (const law of CATALOG) {
+      if (!discovered.has(law.sym)) {
+        discovered.add(law.sym);
+        hotbar.addSlot({ glyph: law.sym, spawn: () => collapsedNode(law) });
+      }
+    }
+    for (const t of trees) t.refresh();
+    zoo.refresh();
+    toast.show("all combinators unlocked");
+  }
+
   // When a tree settles at normal form, recognise what it does: unlock the law
   // if new (§7), then collapse the tree into that single named node so a
   // discovered combinator shows up *as itself* (e.g. I), not as `S K (K K)`.
@@ -138,6 +154,7 @@ export async function mountApp(): Promise<void> {
     toast.show(`${law.lawText}  —  discovered!`);
     hotbar.addSlot({ glyph: law.sym, spawn: () => collapsedNode(law) });
     for (const t of trees) t.refresh(); // reveal newly-known combinators everywhere
+    zoo.refresh();
   }
 
   // ---- auto-reduce on idle (§6.4): each tree, left untouched for a beat,
@@ -214,6 +231,7 @@ export async function mountApp(): Promise<void> {
   }, pixi.ticker);
   hotbar.addSlot({ glyph: "ι", spawn: () => iota() }); // slot 0, always present
   hud.addChild(hotbar.container);
+  hud.addChild(zoo.container); // last → the Zoo overlay sits on top of the hotbar
 
   function onTreeDown(tree: TreeView, e: FederatedPointerEvent): void {
     if (e.button !== 0) return; // left-drag only; right-click is handled separately
@@ -372,6 +390,7 @@ export async function mountApp(): Promise<void> {
 
   const placeLegend = () => legend.position.set(16, window.innerHeight - 64);
   placeLegend();
+  zoo.layout();
 
   window.addEventListener("resize", () => {
     fitStage();
@@ -379,6 +398,7 @@ export async function mountApp(): Promise<void> {
     placeLegend();
     toast.layout();
     placeExpr();
+    zoo.layout();
   });
 
   // Remove every tree from the canvas (discoveries and the hotbar stay).
@@ -403,6 +423,8 @@ export async function mountApp(): Promise<void> {
   window.addEventListener("keydown", (e) => {
     if (e.key === "r" || e.key === "R") clearCanvas();
     else if (e.key === "t" || e.key === "T") toggleLayout();
+    else if (e.key === "u" || e.key === "U") unlockAll();
+    else if (e.key === "z" || e.key === "Z") zoo.toggle();
   });
 
   // Suppress the browser context menu so right-click can delete a node.
@@ -434,7 +456,8 @@ export async function mountApp(): Promise<void> {
       discovered: () => [...discovered],
       mode: () => (layoutFn === layoutRadial ? "radial" : "topdown"),
       expr: () => exprText.text,
-      fillHotbar: () => CATALOG.forEach((l) => hotbar.addSlot({ glyph: l.sym, spawn: () => collapsedNode(l) })),
+      unlockAll: () => unlockAll(),
+      openZoo: () => zoo.open(),
     };
   }
 }
