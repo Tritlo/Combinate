@@ -77,61 +77,53 @@ function bird(sym: string, lawText: string, arity: number, body: (v: Node[]) => 
   return { sym, lawText, arity, reference: body, def: () => lam(arity, body) };
 }
 
+// Alphabetical by symbol. I/K/S reduce by built-in rules (no def); Y is the
+// recursive fixpoint (probed finitely); the rest derive their def from their law.
 export const CATALOG: Law[] = [
-  // Primitive basis — I/K/S reduce by built-in rules (no def).
-  { sym: "I", lawText: "I x = x", arity: 1, reference: (v) => v[0] },
-  { sym: "K", lawText: "K x y = x", arity: 2, reference: (v) => v[0] },
-  { sym: "S", lawText: "S x y z = x z (y z)", arity: 3, reference: (v) => app(app(v[0], v[2]), app(v[1], v[2])) },
-
-  // Two-argument birds.
-  bird("KI", "KI x y = y", 2, (v) => v[1]), // Kite
-  bird("M", "M x = x x", 1, (v) => app(v[0], v[0])), // Mockingbird (ω)
-  bird("W", "W x y = x y y", 2, (v) => app(app(v[0], v[1]), v[1])), // Warbler
-  bird("T", "T x y = y x", 2, (v) => app(v[1], v[0])), // Thrush
-  bird("L", "L x y = x (y y)", 2, (v) => app(v[0], app(v[1], v[1]))), // Lark
-  bird("O", "O x y = y (x y)", 2, (v) => app(v[1], app(v[0], v[1]))), // Owl
-  bird("M2", "M2 x y = x y (x y)", 2, (v) => app(app(v[0], v[1]), app(v[0], v[1]))), // Double Mockingbird
-  bird("U", "U x y = y (x x y)", 2, (v) => app(v[1], app(app(v[0], v[0]), v[1]))), // Turing
-  bird("X", "X x y = x y x", 2, (v) => app(app(v[0], v[1]), v[0])), // logical AND (= S S K)
-
-  // Three-argument birds.
   bird("B", "B x y z = x (y z)", 3, (v) => app(v[0], app(v[1], v[2]))), // Bluebird
+  bird("B1", "B1 x y z w = x (y z w)", 4, (v) => app(v[0], app(app(v[1], v[2]), v[3]))), // Blackbird
+  bird("B2", "B2 x y z w v = x (y z w v)", 5, (v) => app(v[0], app(app(app(v[1], v[2]), v[3]), v[4]))), // Bunting
+  bird("B3", "B3 x y z w = x (y (z w))", 4, (v) => app(v[0], app(v[1], app(v[2], v[3])))), // Becard
   bird("C", "C x y z = x z y", 3, (v) => app(app(v[0], v[2]), v[1])), // Cardinal
-  bird("V", "V x y z = z x y", 3, (v) => app(app(v[2], v[0]), v[1])), // Vireo (pairing)
-  bird("R", "R x y z = y z x", 3, (v) => app(app(v[1], v[2]), v[0])), // Robin
+  bird("D", "D x y z w = x y (z w)", 4, (v) => app(app(v[0], v[1]), app(v[2], v[3]))), // Dove
+  bird("E", "E x y z w v = x y (z w v)", 5, (v) => app(app(v[0], v[1]), app(app(v[2], v[3]), v[4]))), // Eagle
   bird("F", "F x y z = z y x", 3, (v) => app(app(v[2], v[1]), v[0])), // Finch
+  bird("G", "G x y z w = x w (y z)", 4, (v) => app(app(v[0], v[3]), app(v[1], v[2]))), // Goldfinch
+  bird("H", "H x y z = x y z y", 3, (v) => app(app(app(v[0], v[1]), v[2]), v[1])), // Hummingbird
+  { sym: "I", lawText: "I x = x", arity: 1, reference: (v) => v[0] }, // Identity
+  bird("J", "J x y z = z x", 3, (v) => app(v[2], v[0])),
+  { sym: "K", lawText: "K x y = x", arity: 2, reference: (v) => v[0] }, // Kestrel
+  bird("KI", "KI x y = y", 2, (v) => v[1]), // Kite
+  bird("L", "L x y = x (y y)", 2, (v) => app(v[0], app(v[1], v[1]))), // Lark
+  bird("M", "M x = x x", 1, (v) => app(v[0], v[0])), // Mockingbird (ω)
+  bird("M2", "M2 x y = x y (x y)", 2, (v) => app(app(v[0], v[1]), app(v[0], v[1]))), // Double Mockingbird
+  bird("O", "O x y = y (x y)", 2, (v) => app(v[1], app(v[0], v[1]))), // Owl
   bird("Q", "Q x y z = y (x z)", 3, (v) => app(v[1], app(v[0], v[2]))), // Queer
   bird("Q1", "Q1 x y z = x (z y)", 3, (v) => app(v[0], app(v[2], v[1]))), // Quixotic
   bird("Q2", "Q2 x y z = y (z x)", 3, (v) => app(v[1], app(v[2], v[0]))), // Quizzical
   bird("Q3", "Q3 x y z = z (x y)", 3, (v) => app(v[2], app(v[0], v[1]))), // Quirky
   bird("Q4", "Q4 x y z = z (y x)", 3, (v) => app(v[2], app(v[1], v[0]))), // Quacky
-  bird("H", "H x y z = x y z y", 3, (v) => app(app(app(v[0], v[1]), v[2]), v[1])), // Hummingbird
-
-  // Four/five-argument composites.
-  bird("D", "D x y z w = x y (z w)", 4, (v) => app(app(v[0], v[1]), app(v[2], v[3]))), // Dove
-  bird("B1", "B1 x y z w = x (y z w)", 4, (v) => app(v[0], app(app(v[1], v[2]), v[3]))), // Blackbird
-  bird("B2", "B2 x y z w v = x (y z w v)", 5, (v) => app(v[0], app(app(app(v[1], v[2]), v[3]), v[4]))), // Bunting
-  bird("B3", "B3 x y z w = x (y (z w))", 4, (v) => app(v[0], app(v[1], app(v[2], v[3])))), // Becard
-  bird("G", "G x y z w = x w (y z)", 4, (v) => app(app(v[0], v[3]), app(v[1], v[2]))), // Goldfinch
-  bird("Φ", "Φ x y z w = x (y w) (z w)", 4, (v) => app(app(v[0], app(v[1], v[3])), app(v[2], v[3]))), // Phoenix
-  bird("Ψ", "Ψ x y z w = x (y z) (y w)", 4, (v) => app(app(v[0], app(v[1], v[2])), app(v[1], v[3]))), // Psi
-  bird("E", "E x y z w v = x y (z w v)", 5, (v) => app(app(v[0], v[1]), app(app(v[2], v[3]), v[4]))), // Eagle
-
-  // Argument-shuffling / strictness helpers (definable from the birds above; Z = B K).
-  bird("Z", "Z x y z = x y", 3, (v) => app(v[0], v[1])), // drops its 3rd arg
-  bird("J", "J x y z = z x", 3, (v) => app(v[2], v[0])),
-  bird("BZT", "BZT x y z = y x", 3, (v) => app(v[1], v[0])), // = B Z T
-  bird("BZV", "BZV x y z w = w x y", 4, (v) => app(app(v[3], v[0]), v[1])), // = B Z V
-
-  // The fixpoint (Sage Θ — kept as Y). Recursive law, so probed finitely.
+  bird("R", "R x y z = y z x", 3, (v) => app(app(v[1], v[2]), v[0])), // Robin
+  { sym: "S", lawText: "S x y z = x z (y z)", arity: 3, reference: (v) => app(app(v[0], v[2]), app(v[1], v[2])) }, // Starling
+  bird("T", "T x y = y x", 2, (v) => app(v[1], v[0])), // Thrush
+  bird("U", "U x y = y (x x y)", 2, (v) => app(v[1], app(app(v[0], v[0]), v[1]))), // Turing
+  bird("V", "V x y z = z x y", 3, (v) => app(app(v[2], v[0]), v[1])), // Vireo (pairing)
+  bird("W", "W x y = x y y", 2, (v) => app(app(v[0], v[1]), v[1])), // Warbler
+  bird("X", "X x y = x y x", 2, (v) => app(app(v[0], v[1]), v[0])), // logical AND (= S S K)
+  // Sage Θ — recursive, so probed as Y (K a) ≡ a (Y a diverges).
   {
     sym: "Y",
     lawText: "Y f = f (Y f)",
     arity: 1,
-    args: (v) => [app(K(), v[0])], // Y (K a) ≡ a — finite, since Y a diverges
+    args: (v) => [app(K(), v[0])],
     reference: (v) => v[0],
     def: () => app(app(B(), M()), app(app(C(), B()), M())), // B M (C B M)
   },
+  bird("Z", "Z x y z = x y", 3, (v) => app(v[0], v[1])), // drops its 3rd arg (= B K)
+  bird("Z2T", "Z2T x y z = y x", 3, (v) => app(v[1], v[0])), // = B Z T
+  bird("Z2V", "Z2V x y z w = w x y", 4, (v) => app(app(v[3], v[0]), v[1])), // = B Z V
+  bird("Φ", "Φ x y z w = x (y w) (z w)", 4, (v) => app(app(v[0], app(v[1], v[3])), app(v[2], v[3]))), // Phoenix
+  bird("Ψ", "Ψ x y z w = x (y z) (y w)", 4, (v) => app(app(v[0], app(v[1], v[2])), app(v[1], v[3]))), // Psi
 ];
 
 /** Zoo (Pokédex) metadata for a combinator: its Smullyan bird name (if any), a
@@ -143,43 +135,43 @@ export interface Meta {
 }
 
 export const META: Record<string, Meta> = {
-  ι: { blurb: "The universal combinator — everything here is built from ι alone. ι x = x S K.", recipe: "primitive" },
-  I: { bird: "Identity (Idiot Bird)", blurb: "Returns its argument unchanged.", recipe: "ι ι" },
-  K: { bird: "Kestrel", blurb: "Keeps the first argument, drops the second. Doubles as Boolean true and a pair's first projection (fst).", recipe: "primitive" },
-  S: { bird: "Starling", blurb: "The substitution combinator: shares an argument between two functions. With K it builds everything.", recipe: "primitive" },
-  KI: { bird: "Kite", blurb: "Keeps the second argument. Doubles as Boolean false, the Church numeral 0, and a pair's second projection (snd).", recipe: "K I" },
-  M: { bird: "Mockingbird", blurb: "Self-application: M x = x x — the spark of recursion (M M loops forever). On Booleans it's logical OR: M p q = p p q.", recipe: "S I I" },
-  W: { bird: "Warbler", blurb: "Duplicates an argument: W x y = x y y.", recipe: "S S (K I)" },
-  T: { bird: "Thrush", blurb: "Reverse application: T x y = y x. Hands its first argument to its second.", recipe: "C I" },
-  L: { bird: "Lark", blurb: "L x y = x (y y). A stepping stone toward fixpoint combinators.", recipe: "C B M" },
-  O: { bird: "Owl", blurb: "O x y = y (x y). Kin to the Sage — close to a fixpoint.", recipe: "S I" },
-  M2: { bird: "Double Mockingbird", blurb: "M2 x y = x y (x y): applies the compound (x y) to itself.", recipe: "B M" },
-  U: { bird: "Turing", blurb: "U x y = y (x x y). U U is a fixpoint combinator (Turing's Θ).", recipe: "λx y. y (x x y)" },
-  X: { blurb: "Logical AND on Church Booleans: X p q = p q p — true only if both are true.", recipe: "S S K" },
-  B: { bird: "Bluebird", blurb: "Function composition: B f g x = f (g x) = (f ∘ g).", recipe: "S (K S) K" },
-  C: { bird: "Cardinal", blurb: "Flip: swaps the next two arguments, C f x y = f y x. On Booleans it's logical NOT.", recipe: "S (S (K B) S) (K K)" },
-  V: { bird: "Vireo", blurb: "Pairing — and the list constructor (cons): V x y f = f x y. Recover the parts with K (fst) and KI (snd); a list is just nested pairs.", recipe: "B C (C I)" },
-  R: { bird: "Robin", blurb: "Rotates three arguments left: R x y z = y z x.", recipe: "C C" },
-  F: { bird: "Finch", blurb: "Reverses three arguments: F x y z = z y x.", recipe: "C V" },
-  Q: { bird: "Queer", blurb: "Composition in diagrammatic order: Q x y z = y (x z).", recipe: "C B" },
-  Q1: { bird: "Quixotic", blurb: "Q1 x y z = x (z y).", recipe: "B (C B T) B" },
-  Q2: { bird: "Quizzical", blurb: "Q2 x y z = y (z x).", recipe: "B (C B) T" },
-  Q3: { bird: "Quirky", blurb: "Q3 x y z = z (x y).", recipe: "B T" },
-  Q4: { bird: "Quacky", blurb: "Q4 x y z = z (y x).", recipe: "C (B T)" },
-  H: { bird: "Hummingbird", blurb: "Duplicates the middle argument: H x y z = x y z y.", recipe: "B W (B C)" },
-  D: { bird: "Dove", blurb: "Composition one level in: D x y z w = x y (z w).", recipe: "B B" },
-  B1: { bird: "Blackbird", blurb: "Composes a binary function after a ternary one: B1 x y z w = x (y z w).", recipe: "B B B" },
-  B3: { bird: "Becard", blurb: "B3 x y z w = x (y (z w)).", recipe: "B (B B) B" },
-  G: { bird: "Goldfinch", blurb: "G x y z w = x w (y z).", recipe: "B B C" },
-  "Φ": { bird: "Phoenix", blurb: "Feeds a shared argument to two functions: Φ x y z w = x (y w) (z w).", recipe: "B (B S) B" },
-  "Ψ": { bird: "Psi", blurb: "Applies y to both z and w: Ψ x y z w = x (y z) (y w).", recipe: "λx y z w. x (y z) (y w)" },
-  E: { bird: "Eagle", blurb: "E x y z w v = x y (z w v).", recipe: "B (B B B)" },
-  B2: { bird: "Bunting", blurb: "B2 x y z w v = x (y z w v).", recipe: "B B (B B B)" },
-  Z: { blurb: "Drops its third argument: Z x y z = x y. A strictness / sequencing helper.", recipe: "B K" },
-  J: { blurb: "J x y z = z x. A bracket-abstraction helper.", recipe: "B K T" },
-  BZT: { blurb: "BZT x y z = y x — the Thrush padded with a dropped argument.", recipe: "B Z T" },
-  BZV: { blurb: "BZV x y z w = w x y — the Vireo padded with a dropped argument.", recipe: "B Z V" },
-  Y: { bird: "Sage", blurb: "The fixpoint combinator: Y f = f (Y f). The source of recursion.", recipe: "B M (C B M)" },
+  ι: { blurb: "The universal combinator — every program here is built from ι alone.", recipe: "primitive" },
+  B: { bird: "Bluebird", blurb: "Function composition: feeds the result of one function into another.", recipe: "S (K S) K" },
+  B1: { bird: "Blackbird", blurb: "Composition that lets a one-argument function consume a three-argument result.", recipe: "B B B" },
+  B2: { bird: "Bunting", blurb: "Composition that lets a one-argument function consume a four-argument result.", recipe: "B B (B B B)" },
+  B3: { bird: "Becard", blurb: "Chains three functions in a row — a composition of compositions.", recipe: "B (B B) B" },
+  C: { bird: "Cardinal", blurb: "Flips the order of the next two arguments. On Church Booleans it is logical NOT.", recipe: "S (S (K B) S) (K K)" },
+  D: { bird: "Dove", blurb: "Composition reaching one level deeper, into the second argument of a binary function.", recipe: "B B" },
+  E: { bird: "Eagle", blurb: "Composition for a binary function whose second argument is itself a three-way application.", recipe: "B (B B B)" },
+  F: { bird: "Finch", blurb: "Reverses the order of three arguments.", recipe: "C V" },
+  G: { bird: "Goldfinch", blurb: "A flip-and-compose: pairs the last argument with a composition of the middle two.", recipe: "B B C" },
+  H: { bird: "Hummingbird", blurb: "Duplicates an argument inside a three-way application.", recipe: "B W (B C)" },
+  I: { bird: "Identity (Idiot Bird)", blurb: "Returns its argument untouched — the do-nothing function.", recipe: "ι ι" },
+  J: { blurb: "Applies its third argument to its first, ignoring the second.", recipe: "B K T" },
+  K: { bird: "Kestrel", blurb: "Keeps its first argument, ignores the second. Doubles as Boolean true and a pair's first projection (fst).", recipe: "primitive" },
+  KI: { bird: "Kite", blurb: "Keeps its second argument, ignores the first. Doubles as Boolean false, the number zero, and a pair's second projection (snd).", recipe: "K I" },
+  L: { bird: "Lark", blurb: "Composes a function with self-application — a stepping stone toward fixpoints.", recipe: "C B M" },
+  M: { bird: "Mockingbird", blurb: "Applies its argument to itself — the seed of recursion (and, fed itself, of endless looping). On Booleans it is logical OR.", recipe: "S I I" },
+  M2: { bird: "Double Mockingbird", blurb: "Feeds an application back to itself — a two-argument Mockingbird.", recipe: "B M" },
+  O: { bird: "Owl", blurb: "A near-fixpoint, feeding a value back through a function. A cousin of the Sage.", recipe: "S I" },
+  Q: { bird: "Queer", blurb: "Composition the other way round: runs the first function, then the second.", recipe: "C B" },
+  Q1: { bird: "Quixotic", blurb: "A reordered composition: runs the third argument on the second, then the first on that result.", recipe: "B (C B T) B" },
+  Q2: { bird: "Quizzical", blurb: "A reordered composition: runs the third argument on the first, then the second on that result.", recipe: "B (C B) T" },
+  Q3: { bird: "Quirky", blurb: "A reordered composition: runs the first argument on the second, then the third on that result.", recipe: "B T" },
+  Q4: { bird: "Quacky", blurb: "A reordered composition: runs the second argument on the first, then the third on that result.", recipe: "C (B T)" },
+  R: { bird: "Robin", blurb: "Rotates three arguments, sending the first to the back.", recipe: "C C" },
+  S: { bird: "Starling", blurb: "The substitution combinator: shares one argument between two functions and applies the results. With K it can express any function.", recipe: "primitive" },
+  T: { bird: "Thrush", blurb: "Reverse application — hands its first argument to its second.", recipe: "C I" },
+  U: { bird: "Turing", blurb: "Self-application with a guard; applied to itself it becomes a fixpoint combinator — the root of recursion.", recipe: "λx y. y (x x y)" },
+  V: { bird: "Vireo", blurb: "Bundles two values into a pair — and the cons cell of a list; recover the parts with K and KI, and a list is just nested pairs.", recipe: "B C (C I)" },
+  W: { bird: "Warbler", blurb: "Hands the same argument to a function twice — a duplicator.", recipe: "S S (K I)" },
+  X: { blurb: "Logical AND on Church Booleans — true only when both arguments are true.", recipe: "S S K" },
+  Y: { bird: "Sage", blurb: "The fixpoint combinator — feeds a function its own output, which is what makes recursion possible.", recipe: "B M (C B M)" },
+  Z: { blurb: "Applies a function to two arguments but discards a trailing third — a tool for controlling evaluation order.", recipe: "B K" },
+  Z2T: { blurb: "Reverse application that also swallows an extra trailing argument (the Thrush, padded).", recipe: "B Z T" },
+  Z2V: { blurb: "Pairs its first two values, ignoring an extra argument before the continuation (the Vireo, padded).", recipe: "B Z V" },
+  "Φ": { bird: "Phoenix", blurb: "Feeds a shared argument to two functions, then merges their results with a third.", recipe: "B (B S) B" },
+  "Ψ": { bird: "Psi", blurb: "Applies one function to two different arguments, then combines the two results.", recipe: "λx y z w. x (y z) (y w)" },
 };
 
 /** Expand an SK(I) tree into a pure-ι tree (the skToIota gadget, §7.3):
