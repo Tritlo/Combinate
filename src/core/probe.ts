@@ -20,9 +20,13 @@ export function recognize(tree: Node, cap = 10_000): Law | null {
  *
  * Returns false if the term fails to reach a normal form within the step cap.
  */
-export function probe(tree: Node, law: Law, cap = 10_000): boolean {
+export function probe(tree: Node, law: Law, cap = 2000): boolean {
   const vars = Array.from({ length: law.arity }, (_, i) => freeVar(VAR_NAMES[i]));
-  const applied = vars.reduce((acc, v) => app(acc, v), tree);
+  // Most laws apply the term to the fresh vars directly; a law may instead
+  // supply specific arguments (e.g. Y is tested as Y (K a) ≡ a, since Y a alone
+  // diverges — Y has no normal form).
+  const args = law.args ? law.args(vars) : vars;
+  const applied = args.reduce((acc, v) => app(acc, v), tree);
   const nf = normalize(applied, cap);
   if (!nf.done) return false;
   return structKey(nf.term) === structKey(law.reference(vars));

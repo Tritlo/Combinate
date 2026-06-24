@@ -45,7 +45,13 @@ export async function mountApp(): Promise<void> {
   pixi.stage.addChild(world, hud);
 
   const ghost = new Graphics();
-  ghostLayer.addChild(ghost);
+  const ghostLabel = new Text({
+    text: "",
+    style: { fontFamily: "monospace", fontSize: 15, fill: 0xcdd6e8 },
+  });
+  ghostLabel.anchor.set(0.5, 1);
+  ghostLabel.visible = false;
+  ghostLayer.addChild(ghost, ghostLabel);
 
   const trees: TreeView[] = [];
   let drag: Drag = null;
@@ -311,9 +317,14 @@ export async function mountApp(): Promise<void> {
     ghost.moveTo(ax, ay).lineTo(left.rootWorld.x, left.rootWorld.y).stroke({ width: 3, color: FN_EDGE, alpha: 0.7 });
     ghost.moveTo(ax, ay).lineTo(right.rootWorld.x, right.rootWorld.y).stroke({ width: 2.5, color: ARG_EDGE, alpha: 0.7 });
     ghost.circle(ax, ay, 6).fill({ color: 0x6b7a90, alpha: 0.7 });
+    // preview the resulting expression (left is the function), masked like the rest
+    ghostLabel.text = `(${exprOf(left.node)} ${exprOf(right.node)})`;
+    ghostLabel.position.set(ax, ay - 12);
+    ghostLabel.visible = true;
   }
 
   function clearGhost(): void {
+    ghostLabel.visible = false;
     ghost.clear();
     snapTarget = null;
   }
