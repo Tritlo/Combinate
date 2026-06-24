@@ -119,6 +119,8 @@ export const CATALOG: Law[] = [
   // MicroHs optimizer combinators (definable from the birds above; Z = B K).
   bird("Z", "Z x y z = x y", 3, (v) => app(v[0], v[1])), // drops its 3rd arg
   bird("J", "J x y z = z x", 3, (v) => app(v[2], v[0])),
+  bird("BZT", "BZT x y z = y x", 3, (v) => app(v[1], v[0])), // = B Z T (MicroHs L)
+  bird("BZV", "BZV x y z w = w x y", 4, (v) => app(app(v[3], v[0]), v[1])), // = B Z V (MicroHs O)
 
   // The fixpoint (Sage Θ — kept as Y). Recursive law, so probed finitely.
   {
