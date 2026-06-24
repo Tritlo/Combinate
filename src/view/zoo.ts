@@ -314,7 +314,7 @@ function buildPages(): Page[] {
   const topic = (rows: Array<[string, string, string]>): Entry[] =>
     rows.map(([sym, alias, role], i) => ({ num: i + 1, sym, law: byId.get(sym) ?? null, alias, role }));
   return [
-    { name: "All", entries: all },
+    { name: "Programs", entries: all },
     {
       name: "Booleans",
       entries: topic([
