@@ -7,11 +7,12 @@ const IOTA_GLYPH = 0x3a2f10;
 const APP_COLOR = 0x6b7a90;
 const COMB_COLOR = 0x3b78e8;
 
-/** Edge to the function (left) child — bright and thick. */
-export const FN_EDGE = 0x5ad1c0;
-/** Edge to the argument (right) child — dim and thin. So `(ι X)` and `(X ι)`
- *  read differently: ι hangs off the teal edge in one, the grey edge in the other. */
-export const ARG_EDGE = 0x46506a;
+/** Edge to the function (left) child — warm orange, thick. */
+export const FN_EDGE = 0xff9f43;
+/** Edge to the argument (right) child — cool violet, thinner. Two distinct
+ *  bright hues (clear of the gold ι and blue S/K) so `(ι X)` and `(X ι)` read
+ *  differently: ι hangs off the orange edge in one, the violet edge in the other. */
+export const ARG_EDGE = 0xa78bfa;
 
 interface Anim {
   id: NodeId;
@@ -212,7 +213,7 @@ export class TreeView {
     };
     walk(this.node);
     for (const [x1, y1, x2, y2] of arg) this.edges.moveTo(x1, y1).lineTo(x2, y2);
-    this.edges.stroke({ width: 1.5, color: ARG_EDGE });
+    this.edges.stroke({ width: 2.5, color: ARG_EDGE });
     for (const [x1, y1, x2, y2] of fn) this.edges.moveTo(x1, y1).lineTo(x2, y2);
     this.edges.stroke({ width: 3, color: FN_EDGE });
   }

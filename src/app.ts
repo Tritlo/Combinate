@@ -189,18 +189,18 @@ export async function mountApp(): Promise<void> {
     drawGhost(dragged, best);
   }
 
+  // Preview the application about to form, with the same fn/arg edge colours as
+  // the committed result so you can see which side becomes the function.
   function drawGhost(dragged: TreeView, target: TreeView | null): void {
     ghost.clear();
     if (!target) return;
-    const ax = (dragged.rootWorld.x + target.rootWorld.x) / 2;
-    const ay = Math.min(dragged.rootWorld.y, target.rootWorld.y) - 56;
-    ghost
-      .moveTo(ax, ay)
-      .lineTo(dragged.rootWorld.x, dragged.rootWorld.y)
-      .moveTo(ax, ay)
-      .lineTo(target.rootWorld.x, target.rootWorld.y)
-      .stroke({ width: 2, color: 0xffffff, alpha: 0.4 });
-    ghost.circle(ax, ay, 6).fill({ color: 0xffffff, alpha: 0.5 });
+    const left = dragged.rootWorld.x <= target.rootWorld.x ? dragged : target;
+    const right = left === dragged ? target : dragged;
+    const ax = (left.rootWorld.x + right.rootWorld.x) / 2;
+    const ay = Math.min(left.rootWorld.y, right.rootWorld.y) - 56;
+    ghost.moveTo(ax, ay).lineTo(left.rootWorld.x, left.rootWorld.y).stroke({ width: 3, color: FN_EDGE, alpha: 0.7 });
+    ghost.moveTo(ax, ay).lineTo(right.rootWorld.x, right.rootWorld.y).stroke({ width: 2.5, color: ARG_EDGE, alpha: 0.7 });
+    ghost.circle(ax, ay, 6).fill({ color: 0x6b7a90, alpha: 0.7 });
   }
 
   function clearGhost(): void {
@@ -253,7 +253,7 @@ export async function mountApp(): Promise<void> {
     const c = new Container();
     const g = new Graphics();
     g.moveTo(0, 0).lineTo(26, 0).stroke({ width: 3, color: FN_EDGE });
-    g.moveTo(0, 18).lineTo(26, 18).stroke({ width: 1.5, color: ARG_EDGE });
+    g.moveTo(0, 18).lineTo(26, 18).stroke({ width: 2.5, color: ARG_EDGE });
     c.addChild(g);
     const style = { fontFamily: "monospace", fontSize: 12, fill: 0x8a97ad };
     const l1 = new Text({ text: "function (left)", style });
