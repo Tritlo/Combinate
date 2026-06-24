@@ -332,6 +332,7 @@ function buildPages(): Page[] {
         ["A", "Zero", "Church 0 — applies f zero times"],
         ["I", "One", "Church 1 — applies f exactly once"],
         ["Succ", "Succ", "adds one to a numeral"],
+        ["Pred", "Pred", "subtracts one (clamped at 0) — the basis of Sub"],
         ["(+)", "Plus", "adds two numerals"],
         ["B", "Mult", "multiplies — multiplication is the Bluebird (composition)"],
         ["T", "Exp", "raises to a power — m^n is just n m"],
