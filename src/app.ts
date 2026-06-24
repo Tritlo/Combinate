@@ -6,9 +6,9 @@ import {
   Rectangle,
   Text,
 } from "pixi.js";
-import { app as mkApp, comb, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
+import { app as mkApp, comb, decode, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
 import { step } from "./core/reduce";
-import { type Law } from "./core/catalog";
+import { IOTA_CODE, type Law } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
 import { TreeView, FN_EDGE, ARG_EDGE } from "./view/tree";
@@ -87,14 +87,17 @@ export async function mountApp(): Promise<void> {
   const discovered = new Set<string>();
   const isDiscovered = (sym: string): boolean => discovered.has(sym);
 
-  // S-expression of a term, masking undiscovered combinators as "?" so the
-  // read-out doesn't spoil S/K before they're found (matches the tree view).
+  // S-expression of a term; an undiscovered S/K/I is shown as its full ι-tree
+  // (not its letter), matching the tree view, so the read-out never spoils a
+  // combinator before it's found.
   const exprOf = (n: Node): string => {
     switch (n.kind) {
       case "iota":
         return "ι";
-      case "comb":
-        return isDiscovered(n.sym) ? n.sym : "?";
+      case "comb": {
+        const code = !isDiscovered(n.sym) ? IOTA_CODE[n.sym] : undefined;
+        return code ? exprOf(decode(code)) : n.sym;
+      }
       case "free":
         return n.name;
       case "app":

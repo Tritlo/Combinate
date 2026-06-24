@@ -1,15 +1,15 @@
 import { Container, Graphics, Rectangle, Text, type Ticker } from "pixi.js";
-import { type Node, type NodeId } from "../core/term";
+import { type Node, type NodeId, iotaTreeFrom } from "../core/term";
+import { IOTA_CODE } from "../core/catalog";
 import { type Layout, type LayoutFn } from "../core/layout";
 
 const LAYOUT_MS = 360; // duration of the layout-toggle reflow
+const EXPAND_SPAN = 32; // id range reserved per expanded combinator (must exceed its ι-tree size)
 
 const IOTA_COLOR = 0xffe08a;
 const IOTA_GLYPH = 0x3a2f10;
 const APP_COLOR = 0x6b7a90;
 const COMB_COLOR = 0x3b78e8;
-const MASK_COLOR = 0x39435c; // an as-yet-undiscovered combinator (mystery token)
-const MASK_GLYPH = 0x7d8aa5;
 const FREE_COLOR = 0x5a6885; // free variable (probe only; not normally on canvas)
 
 /** Edge to the function (left) child — warm orange, thick. */
@@ -45,7 +45,8 @@ export class TreeView {
   readonly container = new Container();
   private readonly edges = new Graphics();
   private readonly nodes = new Container();
-  node: Node;
+  node: Node; // the logical term (used for reduction)
+  private display: Node; // node with undiscovered S/K/I expanded to their ι-trees
   private lay: Layout;
   private readonly objs = new Map<NodeId, Container>();
 
@@ -61,13 +62,14 @@ export class TreeView {
     worldX: number,
     worldY: number,
     private readonly ticker: Ticker,
-    /** Whether a combinator symbol has been discovered yet — undiscovered ones
-     * render as masked "?" tokens so reduction doesn't spoil the reveal. */
+    /** Whether a combinator symbol has been discovered yet — undiscovered S/K/I
+     * are rendered as their full ι-tree, not their letter, until discovered. */
     private readonly isDiscovered: (sym: string) => boolean,
     private layoutFn: LayoutFn,
   ) {
     this.node = node;
-    this.lay = this.layoutFn(node);
+    this.display = this.expand(node);
+    this.lay = this.layoutFn(this.display);
     this.container.addChild(this.edges, this.nodes);
     this.container.position.set(worldX, worldY);
     this.container.eventMode = "static";
@@ -90,9 +92,11 @@ export class TreeView {
   }
 
   /** Rebuild the display — call after a discovery so newly-known combinators
-   * (previously masked) reveal their symbol. */
+   * reveal their symbol (and stop being shown as their ι-tree). */
   refresh(): void {
     if (this.ticking) this.finish();
+    this.display = this.expand(this.node);
+    this.lay = this.layoutFn(this.display);
     this.rebuild();
   }
 
@@ -101,7 +105,7 @@ export class TreeView {
     this.layoutFn = fn;
     this.onDone = null;
     this.finish();
-    const newLay = fn(this.node);
+    const newLay = fn(this.display);
     this.anims = [];
     for (const [id, obj] of this.objs) {
       const target = newLay.pos.get(id)!;
@@ -131,7 +135,10 @@ export class TreeView {
         best = id;
       }
     }
-    return best;
+    if (best === null) return null;
+    // expansion nodes have negative ids derived from their source comb — map a
+    // pick inside an expanded ι-tree back to that combinator in the logical term.
+    return best < 0 ? Math.floor((-best - 1) / EXPAND_SPAN) : best;
   }
 
   /** Each node's current position in world-container coordinates (tree anchor +
@@ -182,8 +189,9 @@ export class TreeView {
     const from = new Map<NodeId, { x: number; y: number }>();
     for (const [id, o] of this.objs) from.set(id, { x: o.position.x, y: o.position.y });
 
-    const newLay = this.layoutFn(node);
-    const newNodes = collectNodes(node);
+    const newDisplay = this.expand(node);
+    const newLay = this.layoutFn(newDisplay);
+    const newNodes = collectNodes(newDisplay);
     this.anims = [];
 
     // entering + persisting nodes
@@ -211,6 +219,7 @@ export class TreeView {
     }
 
     this.node = node;
+    this.display = newDisplay;
     this.lay = newLay;
     this.updateHitArea();
     this.elapsed = 0;
@@ -274,10 +283,27 @@ export class TreeView {
     }
   }
 
+  // Expand undiscovered S/K/I into their ι-trees for display; everything else
+  // (discovered combinators, ι, apps, free vars) passes through. Expansion ids
+  // are derived from the source comb id (negative, so they never clash) so the
+  // same combinator tweens stably across reduction steps.
+  private expand(n: Node): Node {
+    switch (n.kind) {
+      case "comb": {
+        const code = !this.isDiscovered(n.sym) ? IOTA_CODE[n.sym] : undefined;
+        return code ? iotaTreeFrom(code, n.id) : n;
+      }
+      case "app":
+        return { ...n, fn: this.expand(n.fn), arg: this.expand(n.arg) };
+      default:
+        return n;
+    }
+  }
+
   private rebuild(): void {
     for (const o of this.objs.values()) o.destroy({ children: true });
     this.objs.clear();
-    for (const [id, n] of collectNodes(this.node)) {
+    for (const [id, n] of collectNodes(this.display)) {
       const obj = this.makeNode(n);
       const p = this.lay.pos.get(id)!;
       obj.position.set(p.x, p.y);
@@ -304,7 +330,7 @@ export class TreeView {
       walk(n.fn);
       walk(n.arg);
     };
-    walk(this.node);
+    walk(this.display);
     for (const [x1, y1, x2, y2] of arg) this.edges.moveTo(x1, y1).lineTo(x2, y2);
     this.edges.stroke({ width: 2.5, color: ARG_EDGE });
     for (const [x1, y1, x2, y2] of fn) this.edges.moveTo(x1, y1).lineTo(x2, y2);
@@ -321,21 +347,16 @@ export class TreeView {
     );
   }
 
-  // Build the display object for one node. Undiscovered combinators render as a
-  // masked token so reduction doesn't reveal S/K/I before they are discovered.
+  // Build the display object for one node. The display term only ever contains
+  // discovered combinators (undiscovered S/K/I have been expanded to ι-trees).
   private makeNode(n: Node): Container {
     const c = new Container();
     if (n.kind === "iota") {
       c.addChild(new Graphics().circle(0, 0, 7).fill(IOTA_COLOR));
       c.addChild(label("ι", IOTA_GLYPH, 10));
     } else if (n.kind === "comb") {
-      if (this.isDiscovered(n.sym)) {
-        c.addChild(new Graphics().circle(0, 0, 15).fill(COMB_COLOR));
-        c.addChild(label(n.sym, 0xffffff, 15));
-      } else {
-        c.addChild(new Graphics().circle(0, 0, 13).fill(MASK_COLOR));
-        c.addChild(label("?", MASK_GLYPH, 14));
-      }
+      c.addChild(new Graphics().circle(0, 0, 15).fill(COMB_COLOR));
+      c.addChild(label(n.sym, 0xffffff, 15));
     } else if (n.kind === "free") {
       c.addChild(new Graphics().circle(0, 0, 13).fill(FREE_COLOR));
       c.addChild(label(n.name, 0xffffff, 14));

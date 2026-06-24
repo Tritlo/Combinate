@@ -90,6 +90,27 @@ export function removeSubtree(root: Node, targetId: NodeId): Node | null {
   return prune(root);
 }
 
+/**
+ * Decode bit-code into an ι-tree whose node ids are derived deterministically
+ * from `base` (and negative, so they never collide with minted positive ids).
+ * Used for *display-only* expansion of an undiscovered combinator into its
+ * ι-tree: the same source node always yields the same ids, so the view can
+ * tween it stably across reduction steps.
+ */
+export function iotaTreeFrom(code: string, base: number): Node {
+  let i = 0;
+  let idx = 0;
+  const nextId = (): NodeId => -(base * 32 + idx++ + 1);
+  const go = (): Node => {
+    const c = code[i++];
+    if (c === "1") return { id: nextId(), kind: "iota" };
+    const fn = go();
+    const arg = go();
+    return { id: nextId(), kind: "app", fn, arg };
+  };
+  return go();
+}
+
 /** Human-readable s-expression (§3.2): `ι` for leaves, `(L R)` for application. */
 export function sexp(n: Node): string {
   switch (n.kind) {

@@ -1,6 +1,17 @@
 import { type Node, app, comb, decode } from "./term";
 
 /**
+ * Canonical ι-tree bit-codes (§4) for the combinators that can appear transient
+ * during reduction. Used by the view to render an undiscovered S/K/I as its full
+ * ι-tree (rather than a placeholder) until it's discovered.
+ */
+export const IOTA_CODE: Record<string, string> = {
+  I: "011",
+  K: "0101011",
+  S: "010101011",
+};
+
+/**
  * A discoverable combinator law (§7.2). Data only — the probe (probe.ts) tests a
  * term against it behaviourally, and the shell turns a match into a toast +
  * hotbar slot, collapsing the recognised tree into a single named node.
@@ -32,8 +43,8 @@ const K = (): Node => comb("K");
 const I = (): Node => comb("I");
 const B = (): Node => app(app(S(), app(K(), S())), K()); // S (K S) K
 const C = (): Node => app(app(S(), app(app(S(), app(K(), B())), S())), app(K(), K())); // S (S (K B) S) (K K)
-const U = (): Node => app(app(S(), I()), I()); // U = S I I = ω = λx. x x
-const PAIR = (): Node => app(app(B(), C()), app(C(), I())); // B C (C I)
+const M = (): Node => app(app(S(), I()), I()); // M (Mockingbird) = S I I = ω = λx. x x
+const V = (): Node => app(app(B(), C()), app(C(), I())); // V (Vireo) = B C (C I), pairing
 
 export const CATALOG: Law[] = [
   // ι-cycle (§4): walk it by stacking ι. A/X carry their canonical ι-tree.
@@ -57,13 +68,13 @@ export const CATALOG: Law[] = [
   { sym: "B", lawText: "B x y z = x (y z)", arity: 3, reference: (v) => app(v[0], app(v[1], v[2])), def: B },
   { sym: "C", lawText: "C x y z = x z y", arity: 3, reference: (v) => app(app(v[0], v[2]), v[1]), def: C },
   { sym: "W", lawText: "W x y = x y y", arity: 2, reference: (v) => app(app(v[0], v[1]), v[1]), def: () => app(app(S(), S()), app(K(), I())) },
-  // Recursion: self-application U, and the fixpoint Y built from it.
+  // Recursion: the Mockingbird M (self-application), and the fixpoint Y from it.
   {
-    sym: "U",
-    lawText: "U x = x x",
+    sym: "M",
+    lawText: "M x = x x",
     arity: 1,
     reference: (v) => app(v[0], v[0]),
-    def: U, // U = S I I = ω
+    def: M, // M = S I I = ω
   },
   {
     sym: "Y",
@@ -71,22 +82,22 @@ export const CATALOG: Law[] = [
     arity: 1,
     args: (v) => [app(K(), v[0])], // Y (K a) ≡ a — finite, since Y a diverges
     reference: (v) => v[0],
-    // Y = B U (C B U)
-    def: () => app(app(B(), U()), app(app(C(), B()), U())),
+    // Y = B M (C B M)
+    def: () => app(app(B(), M()), app(app(C(), B()), M())),
   },
-  // Data: a pair, and a Scott list cons.
+  // Data: the Vireo V (pairing), and a Scott list cons.
   {
-    sym: "P",
-    lawText: "P x y f = f x y",
+    sym: "V",
+    lawText: "V x y z = z x y",
     arity: 3,
     reference: (v) => app(app(v[2], v[0]), v[1]),
-    def: PAIR,
+    def: V,
   },
   {
     sym: "O",
     lawText: "O h t c n = c h t",
     arity: 4,
     reference: (v) => app(app(v[2], v[0]), v[1]),
-    def: () => app(app(B(), app(B(), app(B(), K()))), PAIR()), // B (B (B K)) P
+    def: () => app(app(B(), app(B(), app(B(), K()))), V()), // B (B (B K)) V
   },
 ];
