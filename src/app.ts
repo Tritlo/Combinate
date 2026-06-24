@@ -50,6 +50,7 @@ export async function mountApp(): Promise<void> {
   const trees: TreeView[] = [];
   let drag: Drag = null;
   let snapTarget: TreeView | null = null;
+  let focus: TreeView | null = null; // the tree whose expression is shown up top
 
   const hint = new Text({
     text: "drag ι · snap trees · they reduce on their own · right-click deletes a node · T toggles layout · R clears",
@@ -64,11 +65,44 @@ export async function mountApp(): Promise<void> {
   const toast = new Toast(pixi.ticker);
   hud.addChild(toast.container);
 
+  // Live read-out of the current (last-touched) tree's expression, top-centre.
+  const exprText = new Text({
+    text: "",
+    style: { fontFamily: "monospace", fontSize: 18, fill: 0xb9c4dc },
+  });
+  exprText.anchor.set(0.5, 0);
+  hud.addChild(exprText);
+  const placeExpr = () => exprText.position.set(window.innerWidth / 2, 20);
+  placeExpr();
+
   // ---- discovery (§7): the set of combinators found so far. Drives the
   // behavioural probe (what to still look for) and the masking of transient
   // S/K/I nodes (undiscovered ones render as "?", revealed on discovery). ----
   const discovered = new Set<string>();
   const isDiscovered = (sym: string): boolean => discovered.has(sym);
+
+  // S-expression of a term, masking undiscovered combinators as "?" so the
+  // read-out doesn't spoil S/K before they're found (matches the tree view).
+  const exprOf = (n: Node): string => {
+    switch (n.kind) {
+      case "iota":
+        return "ι";
+      case "comb":
+        return isDiscovered(n.sym) ? n.sym : "?";
+      case "free":
+        return n.name;
+      case "app":
+        return `(${exprOf(n.fn)} ${exprOf(n.arg)})`;
+    }
+  };
+  let lastExpr = "";
+  pixi.ticker.add(() => {
+    const txt = focus && trees.includes(focus) ? exprOf(focus.node) : "";
+    if (txt !== lastExpr) {
+      lastExpr = txt;
+      exprText.text = txt;
+    }
+  });
 
   // Layout: top-down by default; T toggles the radial view (§5.1).
   let layoutFn: LayoutFn = layoutTopDown;
@@ -161,6 +195,7 @@ export async function mountApp(): Promise<void> {
     const w = screenToWorld(screenX, screenY);
     const tree = new TreeView(node, w.x, w.y, pixi.ticker, isDiscovered, layoutFn);
     addTree(tree);
+    focus = tree;
     return tree;
   }
 
@@ -174,6 +209,7 @@ export async function mountApp(): Promise<void> {
   function onTreeDown(tree: TreeView, e: FederatedPointerEvent): void {
     if (e.button !== 0) return; // left-drag only; right-click is handled separately
     e.stopPropagation();
+    focus = tree;
     cancelAuto(tree); // touching a tree freezes it (§6.4)
     const w = screenToWorld(e.global.x, e.global.y);
     world.addChild(tree.container); // bring to front
@@ -197,7 +233,9 @@ export async function mountApp(): Promise<void> {
       auto.delete(tree);
       trees.splice(trees.indexOf(tree), 1);
       tree.destroy();
+      if (focus === tree) focus = null;
     } else {
+      focus = tree;
       tree.animateTo(next, DELETE_MS, () => {});
       scheduleAuto(tree); // re-reduce the edited tree once it's left alone
     }
@@ -300,6 +338,7 @@ export async function mountApp(): Promise<void> {
     }
     const merged = new TreeView(root, ax, ay, pixi.ticker, isDiscovered, layoutFn);
     addTree(merged);
+    focus = merged;
     merged.animateAttachFrom(fromWorld, ATTACH_MS); // smooth merge into the app tree
     scheduleAuto(merged); // then it reduces on its own
   }
@@ -325,6 +364,7 @@ export async function mountApp(): Promise<void> {
     hotbar.layout();
     placeLegend();
     toast.layout();
+    placeExpr();
   });
 
   // Remove every tree from the canvas (discoveries and the hotbar stay).
@@ -337,6 +377,7 @@ export async function mountApp(): Promise<void> {
     trees.length = 0;
     clearGhost();
     drag = null;
+    focus = null;
   }
 
   // Toggle the layout for every tree (and trees spawned afterward).
@@ -378,6 +419,7 @@ export async function mountApp(): Promise<void> {
       roots: () => trees.map((t) => t.rootWorld),
       discovered: () => [...discovered],
       mode: () => (layoutFn === layoutRadial ? "radial" : "topdown"),
+      expr: () => exprText.text,
     };
   }
 }
