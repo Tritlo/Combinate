@@ -9,12 +9,13 @@
 
 export type NodeId = number;
 
-/** The combinator symbols ι can transiently unfold into. */
-export type Sym = "S" | "K" | "I";
+/** A combinator symbol: the transient S/K/I that ι unfolds into, or a
+ *  discovered law collapsed into a single node (A, X, …). */
+export type Sym = string;
 
 export type Node =
   | { id: NodeId; kind: "iota" }
-  | { id: NodeId; kind: "comb"; sym: Sym }
+  | { id: NodeId; kind: "comb"; sym: Sym; def?: Node }
   | { id: NodeId; kind: "free"; name: string }
   | { id: NodeId; kind: "app"; fn: Node; arg: Node };
 
@@ -26,8 +27,10 @@ export const freshId = (): NodeId => nextId++;
 /** An ι leaf — the only block the player starts with. */
 export const iota = (): Node => ({ id: freshId(), kind: "iota" });
 
-/** A named combinator leaf (transient, produced by reducing ι). */
-export const comb = (sym: Sym): Node => ({ id: freshId(), kind: "comb", sym });
+/** A named combinator leaf: a transient S/K/I from reducing ι, or a collapsed
+ * discovered law. `def` (the law's underlying ι-tree) lets the reducer unfold
+ * combinators that have no built-in rule (A, X, …) when they are applied. */
+export const comb = (sym: Sym, def?: Node): Node => ({ id: freshId(), kind: "comb", sym, def });
 
 /** An application node `(fn arg)`; `fn` is the left child, `arg` the right. */
 export const app = (fn: Node, arg: Node): Node => ({ id: freshId(), kind: "app", fn, arg });

@@ -93,6 +93,45 @@ export class TreeView {
     this.rebuild();
   }
 
+  /** Each node's current position in world-container coordinates (tree anchor +
+   * local offset). Used to animate a merge continuously from the source trees. */
+  nodeWorldPositions(): Map<NodeId, { x: number; y: number }> {
+    const base = this.container.position;
+    const m = new Map<NodeId, { x: number; y: number }>();
+    for (const [id, o] of this.objs) m.set(id, { x: base.x + o.position.x, y: base.y + o.position.y });
+    return m;
+  }
+
+  /** Animate this freshly-built tree into place from the source trees' node
+   * positions (§6.2): shared subtrees glide from where they were, the new
+   * application node grows in. Coordinates are world-container space. */
+  animateAttachFrom(fromWorld: Map<NodeId, { x: number; y: number }>, duration: number): void {
+    this.onDone = null;
+    this.finish();
+    const base = this.container.position;
+    this.anims = [];
+    for (const [id, obj] of this.objs) {
+      const target = this.lay.pos.get(id)!;
+      const fw = fromWorld.get(id);
+      if (fw) {
+        const sx = fw.x - base.x;
+        const sy = fw.y - base.y;
+        obj.position.set(sx, sy);
+        this.anims.push(mkAnim(id, obj, sx, sy, target.x, target.y, 1, 1, 1, 1));
+      } else {
+        obj.position.set(target.x, target.y);
+        obj.alpha = 0;
+        obj.scale.set(0.3);
+        this.anims.push(mkAnim(id, obj, target.x, target.y, target.x, target.y, 0, 1, 0.3, 1));
+      }
+    }
+    this.elapsed = 0;
+    this.duration = duration;
+    this.onDone = () => {};
+    this.drawEdges();
+    this.startTicker();
+  }
+
   /** Animate a one-step reduction to `node`; `onDone` fires on natural finish.
    *  Persisting nodes glide, fresh nodes grow in, dropped nodes fade out. */
   animateTo(node: Node, duration: number, onDone: () => void): void {

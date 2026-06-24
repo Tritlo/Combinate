@@ -1,8 +1,16 @@
 import { type Node, app, freeVar } from "./term";
 import { normalize } from "./reduce";
-import { type Law } from "./catalog";
+import { CATALOG, type Law } from "./catalog";
 
 const VAR_NAMES = ["a", "b", "c", "d"];
+
+/** The first catalog law a term behaves as, or null if it realises none. */
+export function recognize(tree: Node, cap = 10_000): Law | null {
+  for (const law of CATALOG) {
+    if (probe(tree, law, cap)) return law;
+  }
+  return null;
+}
 
 /**
  * Behavioural discovery (§7.1): apply `tree` to `law.arity` fresh free variables,

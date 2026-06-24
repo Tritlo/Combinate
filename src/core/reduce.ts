@@ -8,7 +8,7 @@ function clone(n: Node): Node {
     case "iota":
       return iota();
     case "comb":
-      return comb(n.sym);
+      return comb(n.sym, n.def ? clone(n.def) : undefined);
     case "free":
       return freeVar(n.name);
     case "app":
@@ -54,6 +54,9 @@ export function step(n: Node): Node | null {
     // the right copy (the "copy" the view grows out of the source, §6.3).
     return app(app(x, z), app(y, clone(z)));
   }
+  // A collapsed named combinator with no built-in rule (A, X, …) in head
+  // position: unfold its definition so it can reduce like its ι-tree.
+  if (fn.kind === "comb" && fn.def) return app(clone(fn.def), arg);
 
   // No rule fires at the root: recurse left spine first, then the argument.
   const fn2 = step(fn);

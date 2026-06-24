@@ -6,10 +6,10 @@ import {
   Rectangle,
   Text,
 } from "pixi.js";
-import { app as mkApp, decode, iota, type Node, sexp } from "./core/term";
+import { app as mkApp, comb, decode, iota, type Node, type NodeId, sexp } from "./core/term";
 import { step } from "./core/reduce";
-import { CATALOG, type Law } from "./core/catalog";
-import { probe } from "./core/probe";
+import { type Law } from "./core/catalog";
+import { recognize } from "./core/probe";
 import { TreeView, FN_EDGE, ARG_EDGE } from "./view/tree";
 import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
@@ -19,6 +19,8 @@ const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducin
 const STEP_MS = 300; // duration of one reduction-step tween
 const STEP_GAP = 130; // pause between reduction steps
 const STEP_CAP = 2000; // non-termination guard: stop auto-reducing past this many steps
+const COLLAPSE_MS = 340; // morph from a recognised normal form into its named node
+const ATTACH_MS = 280; // glide two trees together when snapped
 
 type Drag =
   | { kind: "tree"; tree: TreeView; offX: number; offY: number }
@@ -66,20 +68,28 @@ export async function mountApp(): Promise<void> {
   const discovered = new Set<string>();
   const isDiscovered = (sym: string): boolean => discovered.has(sym);
 
-  function runProbe(tree: TreeView): void {
-    for (const law of CATALOG) {
-      if (discovered.has(law.sym)) continue;
-      if (probe(tree.node, law)) {
-        discover(law);
-        break; // behaviours are distinct: at most one law matches
-      }
+  // I/K/S reduce by built-in rules; A/X (no rule) carry their ι-tree so the
+  // reducer can unfold them. A collapsed node is what a recognised tree becomes.
+  const BUILTIN = new Set(["I", "K", "S"]);
+  const collapsedNode = (law: Law): Node =>
+    comb(law.sym, BUILTIN.has(law.sym) ? undefined : decode(law.iotaCode));
+
+  // When a tree settles at normal form, recognise what it does: unlock the law
+  // if new (§7), then collapse the tree into that single named node so a
+  // discovered combinator shows up *as itself* (e.g. I), not as `S K (K K)`.
+  function settle(tree: TreeView): void {
+    const law = recognize(tree.node);
+    if (!law) return; // realises no known law — leave the term as it is
+    if (!discovered.has(law.sym)) discover(law);
+    if (!(tree.node.kind === "comb" && tree.node.sym === law.sym)) {
+      tree.animateTo(collapsedNode(law), COLLAPSE_MS, () => {});
     }
   }
 
   function discover(law: Law): void {
     discovered.add(law.sym);
     toast.show(`${law.lawText}  —  discovered!`);
-    hotbar.addSlot({ glyph: law.sym, spawn: () => decode(law.iotaCode) });
+    hotbar.addSlot({ glyph: law.sym, spawn: () => collapsedNode(law) });
     for (const t of trees) t.refresh(); // reveal newly-known combinators everywhere
   }
 
@@ -116,7 +126,7 @@ export async function mountApp(): Promise<void> {
     if (a.steps >= STEP_CAP) return; // still reducing — bail (non-termination guard)
     const next = step(tree.node);
     if (!next) {
-      runProbe(tree); // normal form reached — try to discover what it does
+      settle(tree); // normal form reached — recognise + collapse to a named node
       return;
     }
     a.steps++;
@@ -253,6 +263,11 @@ export async function mountApp(): Promise<void> {
     const root = mkApp(fn.node, arg.node);
     const ax = (dragged.rootWorld.x + target.rootWorld.x) / 2;
     const ay = Math.min(dragged.rootWorld.y, target.rootWorld.y) - 32;
+    // capture where every subtree node currently sits, to glide them in (§6.2)
+    const fromWorld = new Map<NodeId, { x: number; y: number }>();
+    for (const t of [dragged, target]) {
+      for (const [id, p] of t.nodeWorldPositions()) fromWorld.set(id, p);
+    }
     for (const old of [dragged, target]) {
       cancelAuto(old);
       auto.delete(old);
@@ -261,7 +276,8 @@ export async function mountApp(): Promise<void> {
     }
     const merged = new TreeView(root, ax, ay, pixi.ticker, isDiscovered);
     addTree(merged);
-    scheduleAuto(merged); // the new application reduces on its own
+    merged.animateAttachFrom(fromWorld, ATTACH_MS); // smooth merge into the app tree
+    scheduleAuto(merged); // then it reduces on its own
   }
 
   // Zoom toward the cursor.
