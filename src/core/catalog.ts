@@ -92,6 +92,8 @@ const predDef = (): Node => lamN(["n", "f", "x"], predBody);
 const nilDef = (): Node => app(K(), I()); // the empty list (= false = 0)
 const consBody = ([h, t, c, n]: Node[]): Node => app(app(c, h), app(app(t, c), n));
 const consDef = (): Node => lamN(["h", "t", "c", "n"], consBody);
+const appendBody = ([xs, ys]: Node[]): Node => app(app(xs, consDef()), ys); // xs ++ ys
+const appendDef = (): Node => lamN(["xs", "ys"], appendBody);
 const pairDef = (): Node => lamN(["x", "y", "f"], ([x, y, f]) => app(app(f, x), y)); // = V
 const sndDef = (): Node => lamN(["p"], ([p]) => app(p, nilDef())); // second of a pair
 /** tail via the predecessor trick: fold the list building (rest, whole) pairs,
@@ -147,11 +149,12 @@ export const CATALOG: Law[] = [
   bird("V", "V x y z = z x y", 3, (v) => app(app(v[2], v[0]), v[1])), // Vireo (pairing)
   bird("W", "W x y = x y y", 2, (v) => app(app(v[0], v[1]), v[1])), // Warbler
   bird("X", "X x y = x y x", 2, (v) => app(app(v[0], v[1]), v[0])), // Xenops (logical AND, = S S K)
-  // ---- list operations (right-fold encoding); kept together, and join must
+  // ---- list operations (right-fold encoding); kept together, and <> must
   // precede Y since append shares Y's finite probe.
   bird("cons", "cons h t c n = c h (t c n)", 4, consBody), // prepend
   bird("head", "head (h : t) = h", 1, (v) => app(app(v[0], K()), nilDef())),
-  bird("join", "join xs ys = xs ++ ys", 2, (v) => app(app(v[0], consDef()), v[1])), // append
+  bird("<>", "xs <> ys = xs ++ ys", 2, appendBody), // append (Semigroup)
+  bird("join", "join (xs : xss) = xs <> join xss", 1, (v) => app(app(v[0], appendDef()), nilDef())), // monadic join / concat
   bird("map", "map f (h : t) = f h : map f t", 2, mapBody),
   bird("null", "null [] = K,  null (h : t) = KI", 1, (v) => app(app(v[0], app(K(), app(K(), nilDef()))), K())),
   bird("tail", "tail (h : t) = t", 1, tailBody),
@@ -179,16 +182,17 @@ export interface Meta {
 }
 
 export const META: Record<string, Meta> = {
-  "(+)": { blurb: "Church addition: it runs one numeral's stack of applications, then the other's, on the same arguments. A Starling-and-Bluebird scaffold — or simply Succ fed to a numeral n times. Multiplication needs no new bird at all: that is the Bluebird itself, and exponentiation is the Thrush.", recipe: "λm n f x. m f (n f x)" },
+  "(+)": { blurb: "Church addition: it runs one numeral's stack of applications, then the other's, on the same arguments. A Starling-and-Bluebird scaffold — or simply Succ fed to a numeral n times. Multiplication needs no new bird at all: that is the Bluebird itself, and exponentiation is the Thrush.", recipe: "B S (B B)" },
   "(-)": { blurb: "Truncated subtraction (monus): m minus n, clamped at zero. It applies the predecessor to m, n times over. By far the largest creature in the zoo, its ι-tree alone a tangled nest of hundreds of nodes.", recipe: "λm n. n Pred m" },
   Succ: { blurb: "The successor: it wraps one more application around a Church numeral, turning n into n+1. It is the Starling perched on the Bluebird — a small reminder that all of arithmetic can be grown from a couple of birds.", recipe: "S B" },
   Pred: { blurb: "The predecessor: it strips one application back off a Church numeral, turning n+1 into n (and leaving 0 at 0). Famously hard to define — Stephen Kleene is said to have hit on the trick in 1932 in the dentist's chair, under nitrous oxide. Succ's mirror image, and the engine inside subtraction.", recipe: "λn f x. n (λg h. h (g f)) (λu. x) (λu. u)" },
-  cons: { blurb: "Prepends a head onto a list. In this encoding a list IS its own right fold, so cons just remembers to fold the new head in before the rest. It is the Vireo's pairing instinct grown into a first-class list-builder.", recipe: "λh t c n. c h (t c n)" },
-  head: { blurb: "Takes the first element of a list (or the empty list, if there is none). It folds with the Kestrel, which keeps the head and discards the tail — the very trick that pulls the first value out of a pair.", recipe: "λl. l K nil" },
+  cons: { blurb: "Prepends a head onto a list. In this encoding a list IS its own right fold, so cons just remembers to fold the new head in before the rest. It is the Vireo's pairing instinct grown into a first-class list-builder.", recipe: "B S (B (B B) T)" },
+  head: { blurb: "Takes the first element of a list (or the empty list, if there is none). It folds with the Kestrel, which keeps the head and discards the tail — the very trick that pulls the first value out of a pair.", recipe: "C (T K) nil" },
   tail: { blurb: "Drops the first element and returns the rest. Like the predecessor for numbers, it is the hard one: a list keeps no direct 'rest', so tail rebuilds it with a pair-shuffling fold. The list world's answer to Pred.", recipe: "λl. fst (l step (nil, nil))" },
-  join: { blurb: "Appends one list onto another (xs ++ ys) by folding xs with cons onto ys. Curiously it passes the exact same finite test as the Sage bird — append and the fixpoint combinator are twins under that probe — so it roosts just ahead of Y.", recipe: "λxs ys. xs cons ys" },
-  map: { blurb: "Applies a function to every element, building a fresh list. A fold that re-conses each transformed head onto the rest — the workhorse of list processing.", recipe: "λf l. l (λh t. cons (f h) t) nil" },
-  null: { blurb: "Tests whether a list is empty, answering with a Church Boolean. Any cons folds its way to false; only the empty list is left as true.", recipe: "λl. l (K (K false)) true" },
+  "<>": { blurb: "Appends one list onto another (xs ++ ys) — the Semigroup of lists — by folding xs with cons onto ys. Curiously it passes the exact same finite test as the Sage bird: append and the fixpoint combinator are twins under that probe, so it roosts just ahead of Y.", recipe: "T cons" },
+  join: { blurb: "Monadic join: it flattens a list of lists, [[a]] down to [a], by folding them together with append. The list monad's join — exactly the operation Haskell calls concat.", recipe: "C (T <>) nil" },
+  map: { blurb: "Applies a function to every element, building a fresh list. A fold that re-conses each transformed head onto the rest — the workhorse of list processing.", recipe: "λf l. l (B cons f) nil" },
+  null: { blurb: "Tests whether a list is empty, answering with a Church Boolean. Any cons folds its way to false; only the empty list is left as true.", recipe: "C (T (K (K nil))) K" },
   ι: { blurb: "The universal combinator: every other bird grows from it alone — hand it to itself and the Identity bird hatches, keep nesting and out come the Kestrel, then the Starling. Linguist Chris Barker coined it in 2001 and named it for iota, the smallest letter of the Greek alphabet — the smallest possible seed for the calculus.", recipe: "primitive" },
   A: { bird: "Albatross", blurb: "Always answers with its second argument, throwing the first away — the mirror of the Kestrel. That makes it Boolean false, the number zero, and a pair's second projection (snd). It is simply the Kestrel handed an Identity bird; here it takes the letter A and the Albatross.", recipe: "K I" },
   B: { bird: "Bluebird", blurb: "The forest's composition law: it feeds one function's result straight into another. Curry gave it the letter B — relettering Schönfinkel's original composition combinator — and the Bluebird heads a whole dynasty of composers: the Blackbird, Bunting and Becard all grow from it.", recipe: "S (K S) K" },
@@ -217,7 +221,7 @@ export const META: Record<string, Meta> = {
   R: { bird: "Robin", blurb: "The Robin rotates three arguments, sending the first to the back — and its letter R conveniently reads as 'rotate'. It is just the Cardinal applied to itself, two swaps making a turn, and three Robins fold back into a single Cardinal. The robin is the matching R-bird.", recipe: "C C" },
   S: { bird: "Starling", blurb: "The substitution bird: it hands one argument to two birds, then feeds the first's answer the second's. The letter is Schönfinkel's own — folklore even hears the S as a nod to Schönfinkel himself. Paired with the Kestrel it can conjure every other bird; Smullyan matched it to the starling.", recipe: "primitive" },
   T: { bird: "Thrush", blurb: "The Thrush is reverse application — it hands its first argument to its second. A stripped-down Cardinal, it is that swapping bird fed an Identity. The letter T traces to Schönfinkel's interchange function (which Curry later renamed C); Smullyan reuses T for the thrush, and it underpins the pairing Vireo.", recipe: "C I" },
-  U: { bird: "Turing", blurb: "Hand this bird to itself and it becomes a fixpoint combinator — a wellspring of recursion beside the Sage. Alan Turing described it in a one-page 1937 note, and Smullyan named it the Turing bird in his honour: a rare combinator named for a person, not a letter-matching species. Unlike Curry's Y it reduces straight onward into its own unfolding.", recipe: "λx y. y (x x y)" },
+  U: { bird: "Turing", blurb: "Hand this bird to itself and it becomes a fixpoint combinator — a wellspring of recursion beside the Sage. Alan Turing described it in a one-page 1937 note, and Smullyan named it the Turing bird in his honour: a rare combinator named for a person, not a letter-matching species. Unlike Curry's Y it reduces straight onward into its own unfolding.", recipe: "S (K (S I)) (W I)" },
   V: { bird: "Vireo", blurb: "The Vireo bundles two values and, given a head and tail, serves as a list's cons cell — the trick to encoding data among pure functions. Pull the parts back with the Kestrel (first) and the Albatross (second). Woven from a Bluebird, Cardinal and Thrush; a V-bird for the letter.", recipe: "B C (C I)" },
   W: { bird: "Warbler", blurb: "The Warbler hands the same argument to a function twice — a duplicator. It is one of the four primitives of Curry's BCKW basis, where it plays the role of contraction, reusing an argument rather than spending it. The warbler is Curry's W-bird.", recipe: "S S (K I)" },
   X: { bird: "Xenops", blurb: "Logical AND on Church Booleans — it answers true only when both arguments are true, and is built from a pair of Starlings and a Kestrel. X is no classical combinator letter, so it borrows the Xenops, one of the very few birds whose name begins with X.", recipe: "S S K" },
