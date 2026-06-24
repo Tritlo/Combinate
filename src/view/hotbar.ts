@@ -4,6 +4,7 @@ import { tween } from "./anim";
 
 const SLOT = 56;
 const GAP = 10;
+const MARGIN = 80; // keep the row clear of the screen edges
 
 /** A hotbar entry: a glyph and a factory for the tree it stamps onto the canvas. */
 export interface Slot {
@@ -55,12 +56,20 @@ export class Hotbar {
     tween(this.ticker, 260, (t) => view.scale.set(0.2 + 0.8 * t));
   }
 
-  /** Reposition the row, centred at the bottom of the current screen. */
+  /** Lay out the slots in centred rows at the bottom of the screen, wrapping to
+   *  rows that stack upward as the inventory grows (slot 0 = ι stays bottom-left). */
   layout(): void {
     const n = this.views.length;
-    const totalW = n * SLOT + (n - 1) * GAP;
-    const startX = window.innerWidth / 2 - totalW / 2 + SLOT / 2;
-    const y = window.innerHeight - SLOT;
-    this.views.forEach((v, i) => v.position.set(startX + i * (SLOT + GAP), y));
+    const perRow = Math.max(1, Math.floor((window.innerWidth - 2 * MARGIN + GAP) / (SLOT + GAP)));
+    this.views.forEach((view, i) => {
+      const row = Math.floor(i / perRow);
+      const col = i % perRow;
+      const inRow = Math.min(perRow, n - row * perRow);
+      const rowW = inRow * SLOT + (inRow - 1) * GAP;
+      const startX = window.innerWidth / 2 - rowW / 2 + SLOT / 2;
+      const x = startX + col * (SLOT + GAP);
+      const y = window.innerHeight - SLOT - row * (SLOT + GAP); // row 0 (ι) at the bottom, rows grow up
+      view.position.set(x, y);
+    });
   }
 }

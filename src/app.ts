@@ -8,7 +8,7 @@ import {
 } from "pixi.js";
 import { app as mkApp, comb, decode, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
 import { step } from "./core/reduce";
-import { IOTA_CODE, type Law } from "./core/catalog";
+import { CATALOG, IOTA_CODE, type Law } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
 import { TreeView, FN_EDGE, ARG_EDGE } from "./view/tree";
@@ -434,6 +434,7 @@ export async function mountApp(): Promise<void> {
       discovered: () => [...discovered],
       mode: () => (layoutFn === layoutRadial ? "radial" : "topdown"),
       expr: () => exprText.text,
+      fillHotbar: () => CATALOG.forEach((l) => hotbar.addSlot({ glyph: l.sym, spawn: () => collapsedNode(l) })),
     };
   }
 }

@@ -2,7 +2,7 @@ import { type Node, app, freeVar } from "./term";
 import { normalize } from "./reduce";
 import { CATALOG, type Law } from "./catalog";
 
-const VAR_NAMES = ["a", "b", "c", "d"];
+const VAR_NAMES = ["a", "b", "c", "d", "e", "f"];
 
 /** The first catalog law a term behaves as, or null if it realises none. */
 export function recognize(tree: Node, cap = 10_000): Law | null {
