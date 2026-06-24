@@ -1,4 +1,18 @@
-import { type Node, app, comb } from "./term";
+import { type Node, app, comb, iota } from "./term";
+
+/** Deep-copy a term with fresh ids — used to duplicate the shared argument in
+ * the S rule so every node in the result has a unique id (the view keys layout
+ * and animation by id; sharing one node in two places would collapse them). */
+function clone(n: Node): Node {
+  switch (n.kind) {
+    case "iota":
+      return iota();
+    case "comb":
+      return comb(n.sym);
+    case "app":
+      return app(clone(n.fn), clone(n.arg));
+  }
+}
 
 /**
  * One normal-order (leftmost-outermost) reduction step, or `null` if the term is
@@ -34,7 +48,9 @@ export function step(n: Node): Node | null {
     const x = fn.fn.arg;
     const y = fn.arg;
     const z = arg;
-    return app(app(x, z), app(y, z));
+    // z is duplicated: keep the original ids on the left (persist), fresh-clone
+    // the right copy (the "copy" the view grows out of the source, §6.3).
+    return app(app(x, z), app(y, clone(z)));
   }
 
   // No rule fires at the root: recurse left spine first, then the argument.
