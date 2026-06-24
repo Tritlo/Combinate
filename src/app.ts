@@ -6,15 +6,19 @@ import {
   Rectangle,
   Text,
 } from "pixi.js";
-import { app as mkApp, iota, sexp } from "./core/term";
+import { app as mkApp, decode, iota, type Node, sexp } from "./core/term";
 import { step } from "./core/reduce";
+import { CATALOG, type Law } from "./core/catalog";
+import { probe } from "./core/probe";
 import { TreeView, FN_EDGE, ARG_EDGE } from "./view/tree";
 import { Hotbar } from "./view/hotbar";
+import { Toast } from "./view/toast";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
 const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducing (§6.4)
 const STEP_MS = 300; // duration of one reduction-step tween
 const STEP_GAP = 130; // pause between reduction steps
+const STEP_CAP = 2000; // non-termination guard: stop auto-reducing past this many steps
 
 type Drag =
   | { kind: "tree"; tree: TreeView; offX: number; offY: number }
@@ -53,10 +57,37 @@ export async function mountApp(): Promise<void> {
   const legend = makeLegend();
   hud.addChild(legend);
 
+  const toast = new Toast(pixi.ticker);
+  hud.addChild(toast.container);
+
+  // ---- discovery (§7): the set of combinators found so far. Drives the
+  // behavioural probe (what to still look for) and the masking of transient
+  // S/K/I nodes (undiscovered ones render as "?", revealed on discovery). ----
+  const discovered = new Set<string>();
+  const isDiscovered = (sym: string): boolean => discovered.has(sym);
+
+  function runProbe(tree: TreeView): void {
+    for (const law of CATALOG) {
+      if (discovered.has(law.sym)) continue;
+      if (probe(tree.node, law)) {
+        discover(law);
+        break; // behaviours are distinct: at most one law matches
+      }
+    }
+  }
+
+  function discover(law: Law): void {
+    discovered.add(law.sym);
+    toast.show(`${law.lawText}  —  discovered!`);
+    hotbar.addSlot({ glyph: law.sym, spawn: () => decode(law.iotaCode) });
+    for (const t of trees) t.refresh(); // reveal newly-known combinators everywhere
+  }
+
   // ---- auto-reduce on idle (§6.4): each tree, left untouched for a beat,
   // plays itself to normal form one tween at a time; touching it cancels. A
-  // per-tree generation token invalidates pending callbacks on cancel. ----
-  const auto = new Map<TreeView, { gen: number; timer: number }>();
+  // per-tree generation token invalidates pending callbacks on cancel. On
+  // reaching normal form, probe it for a discovery (§7.1). ----
+  const auto = new Map<TreeView, { gen: number; timer: number; steps: number }>();
 
   function cancelAuto(tree: TreeView): void {
     const a = auto.get(tree);
@@ -70,10 +101,11 @@ export async function mountApp(): Promise<void> {
   function scheduleAuto(tree: TreeView): void {
     let a = auto.get(tree);
     if (!a) {
-      a = { gen: 0, timer: 0 };
+      a = { gen: 0, timer: 0, steps: 0 };
       auto.set(tree, a);
     }
     a.gen++;
+    a.steps = 0;
     const gen = a.gen;
     a.timer = window.setTimeout(() => stepAuto(tree, gen), AUTO_DELAY);
   }
@@ -81,8 +113,13 @@ export async function mountApp(): Promise<void> {
   function stepAuto(tree: TreeView, gen: number): void {
     const a = auto.get(tree);
     if (!a || a.gen !== gen) return;
+    if (a.steps >= STEP_CAP) return; // still reducing — bail (non-termination guard)
     const next = step(tree.node);
-    if (!next) return; // normal form — rest
+    if (!next) {
+      runProbe(tree); // normal form reached — try to discover what it does
+      return;
+    }
+    a.steps++;
     tree.animateTo(next, STEP_MS, () => {
       const a2 = auto.get(tree);
       if (!a2 || a2.gen !== gen) return;
@@ -105,17 +142,18 @@ export async function mountApp(): Promise<void> {
     tree.container.on("pointerdown", (e: FederatedPointerEvent) => onTreeDown(tree, e));
   }
 
-  function spawnIota(screenX: number, screenY: number): TreeView {
+  function spawnTree(node: Node, screenX: number, screenY: number): TreeView {
     const w = screenToWorld(screenX, screenY);
-    const tree = new TreeView(iota(), w.x, w.y, pixi.ticker);
+    const tree = new TreeView(node, w.x, w.y, pixi.ticker, isDiscovered);
     addTree(tree);
     return tree;
   }
 
-  const hotbar = new Hotbar((e) => {
+  const hotbar = new Hotbar((slot, e) => {
     hint.visible = false;
-    drag = { kind: "spawn", tree: spawnIota(e.global.x, e.global.y) };
-  });
+    drag = { kind: "spawn", tree: spawnTree(slot.spawn(), e.global.x, e.global.y) };
+  }, pixi.ticker);
+  hotbar.addSlot({ glyph: "ι", spawn: () => iota() }); // slot 0, always present
   hud.addChild(hotbar.container);
 
   function onTreeDown(tree: TreeView, e: FederatedPointerEvent): void {
@@ -221,7 +259,7 @@ export async function mountApp(): Promise<void> {
       trees.splice(trees.indexOf(old), 1);
       old.destroy();
     }
-    const merged = new TreeView(root, ax, ay, pixi.ticker);
+    const merged = new TreeView(root, ax, ay, pixi.ticker, isDiscovered);
     addTree(merged);
     scheduleAuto(merged); // the new application reduces on its own
   }
@@ -246,6 +284,7 @@ export async function mountApp(): Promise<void> {
     fitStage();
     hotbar.layout();
     placeLegend();
+    toast.layout();
   });
 
   // A small key explaining the two edge styles (which child is the function).
@@ -271,6 +310,7 @@ export async function mountApp(): Promise<void> {
       trees,
       sexps: () => trees.map((t) => sexp(t.node)),
       roots: () => trees.map((t) => t.rootWorld),
+      discovered: () => [...discovered],
     };
   }
 }

@@ -1,43 +1,66 @@
-import { Container, type FederatedPointerEvent, Graphics, Text } from "pixi.js";
+import { Container, type FederatedPointerEvent, Graphics, Text, type Ticker } from "pixi.js";
+import { type Node } from "../core/term";
+import { tween } from "./anim";
 
 const SLOT = 56;
+const GAP = 10;
+
+/** A hotbar entry: a glyph and a factory for the tree it stamps onto the canvas. */
+export interface Slot {
+  glyph: string;
+  spawn: () => Node;
+}
 
 /**
- * The Minecraft-style hotbar (§8.1). Phase 0: a single ι slot, bottom-centre, in
- * screen space (HUD, not world). Dragging *out* of the slot spawns an ι — the
- * app wires that via {@link onSpawnStart}, fired on pointerdown over the slot.
+ * The Minecraft-style hotbar (§8.1), bottom-centre in screen space. Slot 0 is ι
+ * (always present); discovered laws append slots that stamp their canonical
+ * ι-tree (§7.3). Dragging *out* of a slot spawns, via {@link onSpawnStart}.
  */
 export class Hotbar {
   readonly container = new Container();
-  private readonly slot = new Container();
+  private readonly views: Container[] = [];
 
-  constructor(private readonly onSpawnStart: (e: FederatedPointerEvent) => void) {
-    const bg = new Graphics()
-      .roundRect(-SLOT / 2, -SLOT / 2, SLOT, SLOT, 8)
-      .fill({ color: 0x1a2233 })
-      .stroke({ width: 2, color: 0x3b78e8 });
-    const disc = new Graphics().circle(0, -2, 11).fill({ color: 0xffe08a, alpha: 0.25 });
-    const glyph = new Text({
-      text: "ι",
-      style: { fontFamily: "monospace", fontSize: 24, fill: 0xffe08a },
-    });
+  constructor(
+    private readonly onSpawnStart: (slot: Slot, e: FederatedPointerEvent) => void,
+    private readonly ticker: Ticker,
+  ) {}
+
+  addSlot(slot: Slot): void {
+    const isIota = this.views.length === 0;
+    const accent = isIota ? 0xffe08a : 0x9fc0ff;
+    const view = new Container();
+    view.addChild(
+      new Graphics()
+        .roundRect(-SLOT / 2, -SLOT / 2, SLOT, SLOT, 8)
+        .fill({ color: 0x1a2233 })
+        .stroke({ width: 2, color: accent }),
+    );
+    const glyph = new Text({ text: slot.glyph, style: { fontFamily: "monospace", fontSize: 24, fill: accent } });
     glyph.anchor.set(0.5);
-    glyph.position.set(0, -1);
+    view.addChild(glyph);
 
-    this.slot.addChild(bg, disc, glyph);
-    this.slot.eventMode = "static";
-    this.slot.cursor = "grab";
-    this.slot.on("pointerdown", (e: FederatedPointerEvent) => {
+    view.eventMode = "static";
+    view.cursor = "grab";
+    view.on("pointerdown", (e: FederatedPointerEvent) => {
       e.stopPropagation();
-      this.onSpawnStart(e);
+      this.onSpawnStart(slot, e);
     });
 
-    this.container.addChild(this.slot);
+    this.container.addChild(view);
+    this.views.push(view);
     this.layout();
+
+    // pop in
+    view.scale.set(0.2);
+    tween(this.ticker, 260, (t) => view.scale.set(0.2 + 0.8 * t));
   }
 
-  /** Reposition for the current screen size. */
+  /** Reposition the row, centred at the bottom of the current screen. */
   layout(): void {
-    this.slot.position.set(window.innerWidth / 2, window.innerHeight - SLOT);
+    const n = this.views.length;
+    const totalW = n * SLOT + (n - 1) * GAP;
+    const startX = window.innerWidth / 2 - totalW / 2 + SLOT / 2;
+    const y = window.innerHeight - SLOT;
+    this.views.forEach((v, i) => v.position.set(startX + i * (SLOT + GAP), y));
   }
 }

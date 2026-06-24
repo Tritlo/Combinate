@@ -6,6 +6,9 @@ const IOTA_COLOR = 0xffe08a;
 const IOTA_GLYPH = 0x3a2f10;
 const APP_COLOR = 0x6b7a90;
 const COMB_COLOR = 0x3b78e8;
+const MASK_COLOR = 0x39435c; // an as-yet-undiscovered combinator (mystery token)
+const MASK_GLYPH = 0x7d8aa5;
+const FREE_COLOR = 0x5a6885; // free variable (probe only; not normally on canvas)
 
 /** Edge to the function (left) child — warm orange, thick. */
 export const FN_EDGE = 0xff9f43;
@@ -56,6 +59,9 @@ export class TreeView {
     worldX: number,
     worldY: number,
     private readonly ticker: Ticker,
+    /** Whether a combinator symbol has been discovered yet — undiscovered ones
+     * render as masked "?" tokens so reduction doesn't spoil the reveal. */
+    private readonly isDiscovered: (sym: string) => boolean,
   ) {
     this.node = node;
     this.lay = layout(node);
@@ -80,6 +86,13 @@ export class TreeView {
     this.container.destroy({ children: true });
   }
 
+  /** Rebuild the display — call after a discovery so newly-known combinators
+   * (previously masked) reveal their symbol. */
+  refresh(): void {
+    if (this.ticking) this.finish();
+    this.rebuild();
+  }
+
   /** Animate a one-step reduction to `node`; `onDone` fires on natural finish.
    *  Persisting nodes glide, fresh nodes grow in, dropped nodes fade out. */
   animateTo(node: Node, duration: number, onDone: () => void): void {
@@ -101,7 +114,7 @@ export class TreeView {
         const f = from.get(id)!;
         this.anims.push(mkAnim(id, existing, f.x, f.y, target.x, target.y, 1, 1, 1, 1));
       } else {
-        const obj = makeNode(n);
+        const obj = this.makeNode(n);
         obj.position.set(target.x, target.y);
         obj.alpha = 0;
         obj.scale.set(0.3);
@@ -185,7 +198,7 @@ export class TreeView {
     for (const o of this.objs.values()) o.destroy({ children: true });
     this.objs.clear();
     for (const [id, n] of collectNodes(this.node)) {
-      const obj = makeNode(n);
+      const obj = this.makeNode(n);
       const p = this.lay.pos.get(id)!;
       obj.position.set(p.x, p.y);
       this.objs.set(id, obj);
@@ -227,6 +240,30 @@ export class TreeView {
       this.lay.height + 2 * pad,
     );
   }
+
+  // Build the display object for one node. Undiscovered combinators render as a
+  // masked token so reduction doesn't reveal S/K/I before they are discovered.
+  private makeNode(n: Node): Container {
+    const c = new Container();
+    if (n.kind === "iota") {
+      c.addChild(new Graphics().circle(0, 0, 7).fill(IOTA_COLOR));
+      c.addChild(label("ι", IOTA_GLYPH, 10));
+    } else if (n.kind === "comb") {
+      if (this.isDiscovered(n.sym)) {
+        c.addChild(new Graphics().circle(0, 0, 15).fill(COMB_COLOR));
+        c.addChild(label(n.sym, 0xffffff, 15));
+      } else {
+        c.addChild(new Graphics().circle(0, 0, 13).fill(MASK_COLOR));
+        c.addChild(label("?", MASK_GLYPH, 14));
+      }
+    } else if (n.kind === "free") {
+      c.addChild(new Graphics().circle(0, 0, 13).fill(FREE_COLOR));
+      c.addChild(label(n.name, 0xffffff, 14));
+    } else {
+      c.addChild(new Graphics().circle(0, 0, 5).fill(APP_COLOR));
+    }
+    return c;
+  }
 }
 
 function mkAnim(
@@ -252,20 +289,6 @@ function collectNodes(n: Node, m = new Map<NodeId, Node>()): Map<NodeId, Node> {
     collectNodes(n.arg, m);
   }
   return m;
-}
-
-function makeNode(n: Node): Container {
-  const c = new Container();
-  if (n.kind === "iota") {
-    c.addChild(new Graphics().circle(0, 0, 7).fill(IOTA_COLOR));
-    c.addChild(label("ι", IOTA_GLYPH, 10));
-  } else if (n.kind === "comb") {
-    c.addChild(new Graphics().circle(0, 0, 15).fill(COMB_COLOR));
-    c.addChild(label(n.sym, 0xffffff, 15));
-  } else {
-    c.addChild(new Graphics().circle(0, 0, 5).fill(APP_COLOR));
-  }
-  return c;
 }
 
 function label(text: string, color: number, size: number): Text {

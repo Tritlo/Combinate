@@ -15,6 +15,7 @@ export type Sym = "S" | "K" | "I";
 export type Node =
   | { id: NodeId; kind: "iota" }
   | { id: NodeId; kind: "comb"; sym: Sym }
+  | { id: NodeId; kind: "free"; name: string }
   | { id: NodeId; kind: "app"; fn: Node; arg: Node };
 
 let nextId = 1;
@@ -31,6 +32,10 @@ export const comb = (sym: Sym): Node => ({ id: freshId(), kind: "comb", sym });
 /** An application node `(fn arg)`; `fn` is the left child, `arg` the right. */
 export const app = (fn: Node, arg: Node): Node => ({ id: freshId(), kind: "app", fn, arg });
 
+/** A free variable — an inert opaque leaf with no reduction rule, used by the
+ * behavioural probe (§7.1) to test what a term does to fresh arguments. */
+export const freeVar = (name: string): Node => ({ id: freshId(), kind: "free", name });
+
 /**
  * Encode a term as Barker prefix bit-code (§3.2): `1` = ι, `0 <fn> <arg>` = app.
  * Transient combinator leaves have no bit-code; encoding one throws.
@@ -43,6 +48,8 @@ export function encode(n: Node): string {
       return "0" + encode(n.fn) + encode(n.arg);
     case "comb":
       throw new Error(`cannot encode transient combinator ${n.sym}`);
+    case "free":
+      throw new Error(`cannot encode free variable ${n.name}`);
   }
 }
 
@@ -71,6 +78,8 @@ export function sexp(n: Node): string {
       return "ι";
     case "comb":
       return n.sym;
+    case "free":
+      return n.name;
     case "app":
       return `(${sexp(n.fn)} ${sexp(n.arg)})`;
   }

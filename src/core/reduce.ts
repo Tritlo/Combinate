@@ -1,4 +1,4 @@
-import { type Node, app, comb, iota } from "./term";
+import { type Node, app, comb, iota, freeVar } from "./term";
 
 /** Deep-copy a term with fresh ids — used to duplicate the shared argument in
  * the S rule so every node in the result has a unique id (the view keys layout
@@ -9,6 +9,8 @@ function clone(n: Node): Node {
       return iota();
     case "comb":
       return comb(n.sym);
+    case "free":
+      return freeVar(n.name);
     case "app":
       return app(clone(n.fn), clone(n.arg));
   }
