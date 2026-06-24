@@ -425,6 +425,11 @@ export async function mountApp(): Promise<void> {
   }
 
   window.addEventListener("keydown", (e) => {
+    if (zoo.isOpen) {
+      if (e.key === "ArrowDown") return e.preventDefault(), zoo.move(1);
+      if (e.key === "ArrowUp") return e.preventDefault(), zoo.move(-1);
+      if (e.key === "Escape") return zoo.close();
+    }
     if (e.key === "r" || e.key === "R") clearCanvas();
     else if (e.key === "t" || e.key === "T") toggleLayout();
     else if (e.key === "u" || e.key === "U") unlockAll();

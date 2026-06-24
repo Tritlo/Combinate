@@ -39,6 +39,7 @@ export class Zoo {
   private readonly detail = new Container();
 
   private readonly entries: Entry[];
+  private readonly rowH = 30;
   private selected = 0;
   private listScroll = 0;
   private listH = 0;
@@ -68,6 +69,23 @@ export class Zoo {
   toggle(): void {
     if (this.panel.visible) this.close();
     else this.open();
+  }
+  get isOpen(): boolean {
+    return this.panel.visible;
+  }
+
+  /** Move the selection (arrow-key navigation), scrolling to keep it visible. */
+  move(delta: number): void {
+    if (!this.panel.visible) return;
+    this.selected = Math.max(0, Math.min(this.entries.length - 1, this.selected + delta));
+    const viewH = this.cardH - 80;
+    const top = this.selected * this.rowH;
+    if (top < this.listScroll) this.listScroll = top;
+    else if (top + this.rowH > this.listScroll + viewH) this.listScroll = top + this.rowH - viewH;
+    const max = Math.max(0, this.entries.length * this.rowH - viewH);
+    this.listScroll = Math.max(0, Math.min(max, this.listScroll));
+    this.listView.position.set(this.cardX + 16, this.cardY + 56 - this.listScroll);
+    this.refresh();
   }
 
   /** Rebuild list + detail (after a discovery, unlock, or open). */
@@ -151,7 +169,7 @@ export class Zoo {
 
   private buildList(): void {
     for (const c of this.listView.removeChildren()) c.destroy({ children: true });
-    const rowH = 30;
+    const rowH = this.rowH;
     this.entries.forEach((entry, i) => {
       const known = entry.law === null || this.isDiscovered(entry.sym);
       const row = new Container();
