@@ -6,10 +6,11 @@ import {
   Rectangle,
   Text,
 } from "pixi.js";
-import { app as mkApp, comb, decode, iota, type Node, type NodeId, sexp } from "./core/term";
+import { app as mkApp, comb, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
 import { step } from "./core/reduce";
 import { type Law } from "./core/catalog";
 import { recognize } from "./core/probe";
+import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
 import { TreeView, FN_EDGE, ARG_EDGE } from "./view/tree";
 import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
@@ -21,6 +22,7 @@ const STEP_GAP = 130; // pause between reduction steps
 const STEP_CAP = 2000; // non-termination guard: stop auto-reducing past this many steps
 const COLLAPSE_MS = 340; // morph from a recognised normal form into its named node
 const ATTACH_MS = 280; // glide two trees together when snapped
+const DELETE_MS = 240; // fade out a right-clicked subtree
 
 type Drag =
   | { kind: "tree"; tree: TreeView; offX: number; offY: number }
@@ -50,7 +52,7 @@ export async function mountApp(): Promise<void> {
   let snapTarget: TreeView | null = null;
 
   const hint = new Text({
-    text: "drag ι onto the canvas  ·  snap two trees together  ·  they reduce on their own  ·  R clears",
+    text: "drag ι · snap trees · they reduce on their own · right-click deletes a node · T toggles layout · R clears",
     style: { fontFamily: "monospace", fontSize: 14, fill: 0x6b7a90 },
   });
   hint.position.set(16, 14);
@@ -68,11 +70,13 @@ export async function mountApp(): Promise<void> {
   const discovered = new Set<string>();
   const isDiscovered = (sym: string): boolean => discovered.has(sym);
 
-  // I/K/S reduce by built-in rules; A/X (no rule) carry their ι-tree so the
-  // reducer can unfold them. A collapsed node is what a recognised tree becomes.
-  const BUILTIN = new Set(["I", "K", "S"]);
-  const collapsedNode = (law: Law): Node =>
-    comb(law.sym, BUILTIN.has(law.sym) ? undefined : decode(law.iotaCode));
+  // Layout: top-down by default; T toggles the radial view (§5.1).
+  let layoutFn: LayoutFn = layoutTopDown;
+
+  // What a recognised tree collapses into: a single named node. I/K/S reduce by
+  // built-in rules; the rest carry their definition (law.def) for the reducer
+  // to unfold when applied.
+  const collapsedNode = (law: Law): Node => comb(law.sym, law.def?.());
 
   // When a tree settles at normal form, recognise what it does: unlock the law
   // if new (§7), then collapse the tree into that single named node so a
@@ -150,11 +154,12 @@ export async function mountApp(): Promise<void> {
     trees.push(tree);
     world.addChild(tree.container);
     tree.container.on("pointerdown", (e: FederatedPointerEvent) => onTreeDown(tree, e));
+    tree.container.on("rightdown", (e: FederatedPointerEvent) => onTreeRightDown(tree, e));
   }
 
   function spawnTree(node: Node, screenX: number, screenY: number): TreeView {
     const w = screenToWorld(screenX, screenY);
-    const tree = new TreeView(node, w.x, w.y, pixi.ticker, isDiscovered);
+    const tree = new TreeView(node, w.x, w.y, pixi.ticker, isDiscovered, layoutFn);
     addTree(tree);
     return tree;
   }
@@ -167,6 +172,7 @@ export async function mountApp(): Promise<void> {
   hud.addChild(hotbar.container);
 
   function onTreeDown(tree: TreeView, e: FederatedPointerEvent): void {
+    if (e.button !== 0) return; // left-drag only; right-click is handled separately
     e.stopPropagation();
     cancelAuto(tree); // touching a tree freezes it (§6.4)
     const w = screenToWorld(e.global.x, e.global.y);
@@ -179,8 +185,26 @@ export async function mountApp(): Promise<void> {
     };
   }
 
+  // Right-click a node to delete its subtree (the sibling is promoted, §6.2).
+  function onTreeRightDown(tree: TreeView, e: FederatedPointerEvent): void {
+    e.stopPropagation();
+    const id = tree.pickNode(e.global);
+    if (id === null) return;
+    cancelAuto(tree);
+    const next = removeSubtree(tree.node, id);
+    if (next === null) {
+      // deleted the root → the whole tree goes
+      auto.delete(tree);
+      trees.splice(trees.indexOf(tree), 1);
+      tree.destroy();
+    } else {
+      tree.animateTo(next, DELETE_MS, () => {});
+      scheduleAuto(tree); // re-reduce the edited tree once it's left alone
+    }
+  }
+
   pixi.stage.on("pointerdown", (e: FederatedPointerEvent) => {
-    if (drag) return; // a tree/slot already claimed this gesture
+    if (drag || e.button !== 0) return; // a tree/slot claimed it, or it's a right-click
     drag = {
       kind: "pan",
       startX: e.global.x,
@@ -274,7 +298,7 @@ export async function mountApp(): Promise<void> {
       trees.splice(trees.indexOf(old), 1);
       old.destroy();
     }
-    const merged = new TreeView(root, ax, ay, pixi.ticker, isDiscovered);
+    const merged = new TreeView(root, ax, ay, pixi.ticker, isDiscovered, layoutFn);
     addTree(merged);
     merged.animateAttachFrom(fromWorld, ATTACH_MS); // smooth merge into the app tree
     scheduleAuto(merged); // then it reduces on its own
@@ -315,9 +339,19 @@ export async function mountApp(): Promise<void> {
     drag = null;
   }
 
+  // Toggle the layout for every tree (and trees spawned afterward).
+  function toggleLayout(): void {
+    layoutFn = layoutFn === layoutTopDown ? layoutRadial : layoutTopDown;
+    for (const t of trees) t.setLayout(layoutFn);
+  }
+
   window.addEventListener("keydown", (e) => {
     if (e.key === "r" || e.key === "R") clearCanvas();
+    else if (e.key === "t" || e.key === "T") toggleLayout();
   });
+
+  // Suppress the browser context menu so right-click can delete a node.
+  pixi.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
   // A small key explaining the two edge styles (which child is the function).
   function makeLegend(): Container {
@@ -343,6 +377,7 @@ export async function mountApp(): Promise<void> {
       sexps: () => trees.map((t) => sexp(t.node)),
       roots: () => trees.map((t) => t.rootWorld),
       discovered: () => [...discovered],
+      mode: () => (layoutFn === layoutRadial ? "radial" : "topdown"),
     };
   }
 }

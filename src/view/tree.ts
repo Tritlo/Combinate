@@ -1,6 +1,8 @@
 import { Container, Graphics, Rectangle, Text, type Ticker } from "pixi.js";
 import { type Node, type NodeId } from "../core/term";
-import { layout, type Layout } from "../core/layout";
+import { type Layout, type LayoutFn } from "../core/layout";
+
+const LAYOUT_MS = 360; // duration of the layout-toggle reflow
 
 const IOTA_COLOR = 0xffe08a;
 const IOTA_GLYPH = 0x3a2f10;
@@ -62,9 +64,10 @@ export class TreeView {
     /** Whether a combinator symbol has been discovered yet — undiscovered ones
      * render as masked "?" tokens so reduction doesn't spoil the reveal. */
     private readonly isDiscovered: (sym: string) => boolean,
+    private layoutFn: LayoutFn,
   ) {
     this.node = node;
-    this.lay = layout(node);
+    this.lay = this.layoutFn(node);
     this.container.addChild(this.edges, this.nodes);
     this.container.position.set(worldX, worldY);
     this.container.eventMode = "static";
@@ -91,6 +94,44 @@ export class TreeView {
   refresh(): void {
     if (this.ticking) this.finish();
     this.rebuild();
+  }
+
+  /** Switch the layout algorithm, animating every node to its new position. */
+  setLayout(fn: LayoutFn): void {
+    this.layoutFn = fn;
+    this.onDone = null;
+    this.finish();
+    const newLay = fn(this.node);
+    this.anims = [];
+    for (const [id, obj] of this.objs) {
+      const target = newLay.pos.get(id)!;
+      this.anims.push(mkAnim(id, obj, obj.position.x, obj.position.y, target.x, target.y, 1, 1, 1, 1));
+    }
+    this.lay = newLay;
+    this.updateHitArea();
+    this.elapsed = 0;
+    this.duration = LAYOUT_MS;
+    this.onDone = () => {};
+    this.drawEdges();
+    this.startTicker();
+  }
+
+  /** The id of the node nearest a global point (within a small radius), for
+   * picking a node to act on (e.g. right-click delete). Null if none is close. */
+  pickNode(global: { x: number; y: number }): NodeId | null {
+    const p = this.container.toLocal(global);
+    let best: NodeId | null = null;
+    let bestDist = 26 * 26;
+    for (const [id, obj] of this.objs) {
+      const dx = obj.position.x - p.x;
+      const dy = obj.position.y - p.y;
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) {
+        bestDist = d;
+        best = id;
+      }
+    }
+    return best;
   }
 
   /** Each node's current position in world-container coordinates (tree anchor +
@@ -141,7 +182,7 @@ export class TreeView {
     const from = new Map<NodeId, { x: number; y: number }>();
     for (const [id, o] of this.objs) from.set(id, { x: o.position.x, y: o.position.y });
 
-    const newLay = layout(node);
+    const newLay = this.layoutFn(node);
     const newNodes = collectNodes(node);
     this.anims = [];
 

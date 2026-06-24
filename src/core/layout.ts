@@ -1,6 +1,9 @@
 import { type Node, type NodeId } from "./term";
 
-/** Radius added per depth level (each ring out from the root). */
+/** Top-down grid spacing. */
+export const XS = 56;
+export const YS = 64;
+/** Radius added per depth level in the radial layout. */
 export const RING = 84;
 
 export interface Pos {
@@ -9,7 +12,7 @@ export interface Pos {
 }
 
 export interface Layout {
-  /** Node positions in local coordinates, with the root at the centre (0, 0). */
+  /** Node positions in local coordinates, with the root anchored at (0, 0). */
   pos: Map<NodeId, Pos>;
   width: number;
   height: number;
@@ -19,19 +22,62 @@ export interface Layout {
   maxY: number;
 }
 
+/** A layout algorithm: term → node positions. */
+export type LayoutFn = (root: Node) => Layout;
+
+function bounds(pos: Map<NodeId, Pos>): Omit<Layout, "pos"> {
+  let minX = 0;
+  let maxX = 0;
+  let minY = 0;
+  let maxY = 0;
+  for (const { x, y } of pos.values()) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  return { width: maxX - minX, height: maxY - minY, minX, maxX, minY, maxY };
+}
+
+/**
+ * Tidy top-down layout (port of `treedraw.annotate`, §5.1): leaves on a regular
+ * in-order grid, each application hung at the midpoint of its two children;
+ * depth grows downward. Root offset to (0, 0).
+ */
+export function layoutTopDown(root: Node): Layout {
+  const gridX = new Map<NodeId, number>();
+  const depth = new Map<NodeId, number>();
+  let leafIndex = 0;
+
+  const walk = (n: Node, d: number): void => {
+    depth.set(n.id, d);
+    if (n.kind === "app") {
+      walk(n.fn, d + 1);
+      walk(n.arg, d + 1);
+      gridX.set(n.id, 0.5 * (gridX.get(n.fn.id)! + gridX.get(n.arg.id)!));
+    } else {
+      gridX.set(n.id, leafIndex++);
+    }
+  };
+  walk(root, 0);
+
+  const rootGridX = gridX.get(root.id)!;
+  const pos = new Map<NodeId, Pos>();
+  for (const [id, gx] of gridX) {
+    pos.set(id, { x: (gx - rootGridX) * XS, y: depth.get(id)! * YS });
+  }
+  return { pos, ...bounds(pos) };
+}
+
 /**
  * Root-centred radial layout (port of `treedraw.svg_radial`, §5.1 radial mode):
- * the root sits at the centre, depth maps to radius, and the in-order leaves
- * spread evenly around the full circle; each application takes the midpoint
- * angle of its two children. The tree fans out from the centre.
- *
- * Positions are local with the root at (0, 0), so the view can anchor a whole
- * tree by its root and move it as a rigid unit.
+ * the root sits at the centre, depth maps to radius, the in-order leaves spread
+ * evenly around the full circle, and each application takes the midpoint angle
+ * of its two children — so the tree fans out from the centre.
  */
-export function layout(root: Node): Layout {
+export function layoutRadial(root: Node): Layout {
   const depth = new Map<NodeId, number>();
   let leafCount = 0;
-
   const measure = (n: Node, d: number): void => {
     depth.set(n.id, d);
     if (n.kind === "app") {
@@ -43,8 +89,6 @@ export function layout(root: Node): Layout {
   };
   measure(root, 0);
 
-  // Assign angles post-order: leaves spread evenly in in-order, each app node
-  // takes the midpoint angle of its two children.
   const angle = new Map<NodeId, number>();
   const total = Math.max(1, leafCount);
   let leafIndex = 0;
@@ -61,20 +105,10 @@ export function layout(root: Node): Layout {
   setAngle(root);
 
   const pos = new Map<NodeId, Pos>();
-  let minX = 0;
-  let maxX = 0;
-  let minY = 0;
-  let maxY = 0;
   for (const [id, d] of depth) {
     const r = d * RING;
     const a = angle.get(id)!;
-    const x = r * Math.cos(a);
-    const y = r * Math.sin(a);
-    pos.set(id, { x, y });
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
+    pos.set(id, { x: r * Math.cos(a), y: r * Math.sin(a) });
   }
-  return { pos, width: maxX - minX, height: maxY - minY, minX, maxX, minY, maxY };
+  return { pos, ...bounds(pos) };
 }

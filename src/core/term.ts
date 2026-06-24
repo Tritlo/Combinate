@@ -74,6 +74,22 @@ export function decode(code: string): Node {
   return t;
 }
 
+/**
+ * Remove the subtree rooted at `targetId`, healing the tree by promoting the
+ * deleted node's sibling into its parent application's place. Returns the new
+ * tree, or `null` when the target is the whole tree's root (delete everything).
+ */
+export function removeSubtree(root: Node, targetId: NodeId): Node | null {
+  if (root.id === targetId) return null;
+  const prune = (n: Node): Node => {
+    if (n.kind !== "app") return n;
+    if (n.fn.id === targetId) return n.arg; // drop fn → promote arg
+    if (n.arg.id === targetId) return n.fn; // drop arg → promote fn
+    return { ...n, fn: prune(n.fn), arg: prune(n.arg) };
+  };
+  return prune(root);
+}
+
 /** Human-readable s-expression (§3.2): `ι` for leaves, `(L R)` for application. */
 export function sexp(n: Node): string {
   switch (n.kind) {
