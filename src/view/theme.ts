@@ -18,6 +18,7 @@ export interface Theme {
   iotaGlyph: number; // text drawn on the ι dot
   fnEdge: number; // function (left) edge — orange
   argEdge: number; // argument (right) edge — violet
+  root: number; // highlight ring on a tree's root (the snap anchor) — green
   select: number; // selected Zoo row
   backdrop: number;
   backdropAlpha: number;
@@ -37,6 +38,7 @@ const DARK: Theme = {
   iotaGlyph: 0x010409,
   fnEdge: 0xfe9a2d,
   argEdge: 0xd3abff,
+  root: 0x2bd853,
   select: 0x213d5c,
   backdrop: 0x010409,
   backdropAlpha: 0.72,
@@ -56,6 +58,7 @@ const LIGHT: Theme = {
   iotaGlyph: 0xffffff,
   fnEdge: 0x702c00,
   argEdge: 0x5e2bb4,
+  root: 0x04591f,
   select: 0xcfe3ff,
   backdrop: 0x010409,
   backdropAlpha: 0.45,

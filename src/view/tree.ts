@@ -34,6 +34,7 @@ const easeInOut = (t: number): number => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2)
 export class TreeView {
   readonly container = new Container();
   private readonly edges = new Graphics();
+  private readonly rootMark = new Graphics(); // halo on the root (snap anchor)
   private readonly nodes = new Container();
   node: Node; // the logical term (used for reduction)
   private display: Node; // node with undiscovered S/K/I expanded to their ι-trees
@@ -62,7 +63,7 @@ export class TreeView {
     this.node = node;
     this.display = this.expand(node);
     this.lay = this.layoutFn(this.display);
-    this.container.addChild(this.edges, this.nodes);
+    this.container.addChild(this.edges, this.rootMark, this.nodes);
     this.container.position.set(worldX, worldY);
     this.container.eventMode = "static";
     this.container.cursor = "grab";
@@ -324,6 +325,7 @@ export class TreeView {
     this.edges.stroke({ width: 2.5, color: theme.argEdge });
     for (const [x1, y1, x2, y2] of fn) this.edges.moveTo(x1, y1).lineTo(x2, y2);
     this.edges.stroke({ width: 3, color: theme.fnEdge });
+    this.placeRootMark();
   }
 
   private updateHitArea(): void {
@@ -353,6 +355,18 @@ export class TreeView {
       c.addChild(new Graphics().circle(0, 0, 5).fill(theme.mutedDot));
     }
     return c;
+  }
+
+  /** Halo the root (the snap anchor) with a ring so it's easy to spot — most of
+   *  all the central node in the radial layout. Tracks the root node's current
+   *  position (it follows during a reduction tween, and the root changes across
+   *  steps). Called from drawEdges, so it stays in sync on every redraw. */
+  private placeRootMark(): void {
+    this.rootMark.clear();
+    const obj = this.objs.get(this.display.id);
+    if (!obj) return;
+    const r = this.display.kind === "comb" ? 15 : this.display.kind === "free" ? 13 : this.display.kind === "iota" ? 7 : 5;
+    this.rootMark.circle(obj.position.x, obj.position.y, r + 6).stroke({ width: 3, color: theme.root });
   }
 }
 
