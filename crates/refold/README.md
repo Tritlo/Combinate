@@ -24,10 +24,12 @@ From the repo root, after changing the catalog or the rules:
 npx tsx scripts/gen-rules.ts                       # catalog → crates/refold/src/rules.txt
 cd crates/refold
 wasm-pack build --target web --out-dir pkg --release
+rm -f pkg/.gitignore                               # wasm-pack writes one (`*`); we commit pkg/
 ```
 
 The built `pkg/` is committed so CI (`npm run build`) bundles it without a Rust
-toolchain. Quick local sanity check of folding quality (native, fast):
+toolchain — wasm-pack drops a `pkg/.gitignore` each build that must be removed so
+the artifact stays tracked. Quick local sanity check of folding quality (native, fast):
 
 ```sh
 cd crates/refold && cargo run --release --example probe
