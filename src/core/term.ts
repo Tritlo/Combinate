@@ -74,16 +74,23 @@ export function removeSubtree(root: Node, targetId: NodeId): Node | null {
 }
 
 /**
+ * Id range reserved per expanded combinator: its display ids are
+ * `-(base * IOTA_ID_SPAN + k)`, so distinct source combinators (distinct base)
+ * never collide as long as their ι-trees stay under this many nodes. Must exceed
+ * the largest combinator's ι-tree (~800 nodes for the full "expand" view).
+ */
+export const IOTA_ID_SPAN = 1024;
+
+/**
  * Decode bit-code into an ι-tree whose node ids are derived deterministically
  * from `base` (and negative, so they never collide with minted positive ids).
- * Used for *display-only* expansion of an undiscovered combinator into its
- * ι-tree: the same source node always yields the same ids, so the view can
- * tween it stably across reduction steps.
+ * Used for *display-only* expansion of a combinator into its ι-tree: the same
+ * source node always yields the same ids, so the view tweens it stably.
  */
 export function iotaTreeFrom(code: string, base: number): Node {
   let i = 0;
   let idx = 0;
-  const nextId = (): NodeId => -(base * 32 + idx++ + 1);
+  const nextId = (): NodeId => -(base * IOTA_ID_SPAN + idx++ + 1);
   const go = (): Node => {
     const c = code[i++];
     if (c === "1") return { id: nextId(), kind: "iota" };
