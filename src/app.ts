@@ -12,6 +12,7 @@ import { CATALOG, IOTA_CODE, HINTS, iotaTreeOf, countIotas, type Law } from "./c
 import { recognize } from "./core/probe";
 import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
 import { makeRefolder, behavioralRefolder, recognizeDeep, fromEgg, type Refolder } from "./core/refold";
+import { readValue } from "./core/value";
 import { TreeView } from "./view/tree";
 import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
@@ -181,16 +182,21 @@ export async function mountApp(): Promise<void> {
   }
 
   // Live read-out of the focused tree's expression, recomputed only when its
-  // node identity changes (so the re-folder never runs every frame). With the
-  // lens on, a simpler folded reading replaces the raw s-expression.
+  // node identity changes (so the lens never runs every frame). With the lens
+  // on it shows the most readable form: a compact data value (Phase 1) if the
+  // term is data, else the most-named combinator form (Phase 2), else raw.
   let lastShownNode: Node | null = null;
   let lastExpr = "";
   pixi.ticker.add(() => {
     const node = focus && trees.includes(focus) ? focus.node : null;
     if (node === lastShownNode) return;
     lastShownNode = node;
-    const folded = node && refoldOn && refolder ? refolder(node) : null;
-    const txt = node ? (folded ? sexp(folded) : exprOf(node)) : "";
+    let txt = "";
+    if (node) {
+      const value = refoldOn ? readValue(node) : null;
+      const folded = !value && refoldOn && refolder ? refolder(node) : null;
+      txt = value ?? (folded ? sexp(folded) : exprOf(node));
+    }
     if (txt !== lastExpr) {
       lastExpr = txt;
       exprText.text = txt;
@@ -744,6 +750,8 @@ export async function mountApp(): Promise<void> {
         raw: (s: string) => refoldRaw?.(s) ?? null,
         // behavioural pre-pass alone, on an egg s-expression term
         deep: (s: string) => sexp(recognizeDeep(fromEgg(s))),
+        // Phase 1 value reader, on an egg s-expression term
+        value: (s: string) => readValue(fromEgg(s)),
         // spawn a term from an egg s-expression and focus it (drives the read-out)
         spawn: (s: string) => sexp(spawnTree(fromEgg(s), window.innerWidth / 2, window.innerHeight / 2).node),
       },
