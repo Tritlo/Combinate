@@ -143,10 +143,3 @@ export function render(v: Val): string {
       return v.sexp;
   }
 }
-
-/** Read a tree under a forced type tag (the hotbar page), or null if it doesn't
- *  fit — the read-out then falls back to the combinator re-folder / raw sexp. */
-export function readAs(ty: Ty, n: Node): string | null {
-  const v = read(n, ty);
-  return v ? render(v) : null;
-}

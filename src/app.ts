@@ -12,7 +12,6 @@ import { CATALOG, IOTA_CODE, HINTS, iotaTreeOf, countIotas, type Law } from "./c
 import { recognize } from "./core/probe";
 import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
 import { makeRefolder, behavioralRefolder, recognizeDeep, fromEgg, type Refolder } from "./core/refold";
-import { readValue } from "./core/value";
 import { read, render, type Ty } from "./core/types";
 import { inferType } from "./core/infer";
 import { TreeView } from "./view/tree";
@@ -194,7 +193,7 @@ export async function mountApp(): Promise<void> {
   }
 
   // The read-as mode is just the current hotbar page (ADR 0003): a typed page
-  // forces that reading and resolves the bare-A ambiguity readValue defers
+  // forces that reading and resolves the bare-A ambiguity `read` otherwise defers
   // (A → 0 / [] / false). The Programs page has no type → auto-discovery.
   const READ_AS: Record<string, Ty> = { Arithmetic: "Int", Booleans: "Bool", Lists: "List" };
 
@@ -786,7 +785,10 @@ export async function mountApp(): Promise<void> {
         // behavioural pre-pass alone, on an egg s-expression term
         deep: (s: string) => sexp(recognizeDeep(fromEgg(s))),
         // Phase 1 value reader, on an egg s-expression term
-        value: (s: string) => readValue(fromEgg(s)),
+        value: (s: string) => {
+          const v = read(fromEgg(s));
+          return v ? render(v) : null;
+        },
         // spawn a term from an egg s-expression and focus it (drives the read-out)
         spawn: (s: string) => sexp(spawnTree(fromEgg(s), window.innerWidth / 2, window.innerHeight / 2).node),
       },
