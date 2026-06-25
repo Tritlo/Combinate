@@ -28,6 +28,8 @@ jobs:
       - run: npm ci
       - run: npm run build # tsc --noEmit && vite build → dist/ (base "./" works on the /Combinate/ subpath)
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true # turn Pages on (GitHub Actions source) if it isn't already
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
