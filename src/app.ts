@@ -182,9 +182,9 @@ export async function mountApp(): Promise<void> {
   }
 
   // Live read-out of the focused tree's expression, recomputed only when its
-  // node identity changes (so the lens never runs every frame). With the lens
-  // on it shows the most readable form: a compact data value (Phase 1) if the
-  // term is data, else the most-named combinator form (Phase 2), else raw.
+  // node identity changes (so the probes never run every frame). A compact data
+  // value (Phase 1) is shown whenever the term is data — always on; the refold
+  // lens additionally names combinators (Phase 2) when the term isn't data.
   let lastShownNode: Node | null = null;
   let lastExpr = "";
   pixi.ticker.add(() => {
@@ -193,8 +193,8 @@ export async function mountApp(): Promise<void> {
     lastShownNode = node;
     let txt = "";
     if (node) {
-      const value = refoldOn ? readValue(node) : null;
-      const folded = !value && refoldOn && refolder ? refolder(node) : null;
+      const value = readValue(node); // Phase 1: always-on compact data value
+      const folded = !value && refoldOn && refolder ? refolder(node) : null; // Phase 2: combinator naming, behind the lens
       txt = value ?? (folded ? sexp(folded) : exprOf(node));
     }
     if (txt !== lastExpr) {
