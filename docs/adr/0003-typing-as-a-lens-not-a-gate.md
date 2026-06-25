@@ -48,9 +48,20 @@ current hotbar page. Two pieces, both opt-in, neither blocking the sandbox:
    under `Int`, →`[]` under `List`, →`false` under `Bool`; `K`→`true`, `I`→`1`).
 
    **The seed is the hotbar page** (`Arithmetic`→`Int`, `Booleans`→`Bool`,
-   `Lists`→`List`; `Programs`→auto). The read-out forces `readAs(mode, node)` and
-   falls back to `readValue` on a non-fit, so the *same* `A` reads as `0`/`false`/`[]`
-   depending only on which tab you are on. No new UI — the tabs are the lens.
+   `Lists`→`List`; `Programs`→auto). The read-out forces the page's reading and
+   falls back to the combinator re-folder / raw sexp on a non-fit, so the *same*
+   `A` reads as `0`/`false`/`[]` depending only on which tab you are on. No new UI —
+   the tabs are the lens.
+
+   Reading is recursive and returns a typed `Val` tree (rendered by the shell),
+   which buys two things a flat reader can't: **propagation** — a list is
+   homogeneous, so one unambiguous element resolves its ambiguous siblings
+   (`[2, 0]` reads, the `0` was a deferred bare `A`); and **routing** — a non-data
+   component falls to the combinator re-folder instead of sinking the whole
+   structure (`cons 2 (cons B nil)` → `[2, B]`). Pairs are heterogeneous, so they
+   route but never propagate (`(2, 0)` → `(2, A)`). This is the type-guided
+   re-sugaring: type (page seed + intra-structure inference) routes each part to a
+   value reading or a combinator name.
 
 2. **Simple-type inference lens (future).** HM over the SKI/named tree
    (`K:a→b→a`, `S:(a→b→c)→(a→b)→a→c`; named birds get their derived type). Returns the
