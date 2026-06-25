@@ -320,8 +320,8 @@ export const PAGES: PageDef[] = [
   {
     name: "Booleans",
     entries: [
-      { sym: "K", alias: "True", role: "selects the first of two options" },
-      { sym: "A", alias: "False", role: "selects the second of two options" },
+      { sym: "K", alias: "T", role: "selects the first of two options" },
+      { sym: "A", alias: "F", role: "selects the second of two options" },
       { sym: "C", alias: "Not", role: "swaps the two options" },
       { sym: "X", alias: "And", role: "true only when both are true" },
       { sym: "M", alias: "Or", role: "true when either is true" },
