@@ -13,7 +13,7 @@ import { recognize } from "./core/probe";
 import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
 import { makeRefolder, behavioralRefolder, recognizeDeep, fromEgg, type Refolder } from "./core/refold";
 import { readValue } from "./core/value";
-import { readAs, type Ty } from "./core/types";
+import { read, render, type Ty } from "./core/types";
 import { TreeView } from "./view/tree";
 import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
@@ -203,8 +203,11 @@ export async function mountApp(): Promise<void> {
     lastMode = mode;
     let txt = "";
     if (node) {
-      // A typed page forces its reading; otherwise (and on a non-fit) auto-discover.
-      const value = (mode && readAs(mode, node)) ?? readValue(node); // Phase 1
+      // Type-guided data reading: the page forces a reading (mode), elements
+      // propagate a sibling's type and route non-data parts to their combinator
+      // name. Falls back to the egg lens / raw sexp when the term isn't data.
+      const v = read(node, mode ?? null); // Phase 1 (+ propagation/routing)
+      const value = v ? render(v) : null;
       const folded = !value && refoldOn && refolder ? refolder(node) : null; // Phase 2: combinator naming, behind the lens
       txt = value ?? (folded ? sexp(folded) : exprOf(node));
     }
