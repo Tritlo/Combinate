@@ -73,42 +73,65 @@ function lam(arity: number, body: (v: Node[]) => Node): Node {
 }
 
 /** Bracket abstraction over explicitly-named variables (nests, for the bodies
- *  that need captured outer vars — e.g. the Church predecessor). */
+ *  that need captured outer vars — e.g. the recursive list/arithmetic folds). */
 function lamN(names: string[], body: (v: Node[]) => Node): Node {
   let t = body(names.map(freeVar));
   for (let i = names.length - 1; i >= 0; i--) t = bracket(names[i], t);
   return t;
 }
 
-/** The Church predecessor body, λn f x. n (λg h. h (g f)) (λu. x) (λu. u) — the
- *  famously intricate "subtract one"; the building block of Pred and (-). */
-const predBody = ([n, f, x]: Node[]): Node =>
-  app(app(app(n, lamN(["g", "h"], ([g, h]) => app(h, app(g, f)))), lamN(["u"], () => x)), lamN(["u"], ([u]) => u));
-const predDef = (): Node => lamN(["n", "f", "x"], predBody);
+// ---- Scott data — the encoding MicroHs compiles `data` to (EncodeData.hs). A
+// value applies the eliminator arm for its own constructor, in declaration
+// order, carrying its fields; pattern-matching IS that application. Constructors
+// and the structural eliminators (head/tail/uncons/null/Pred) are clean reads;
+// the folds carry no built-in recursion, so they recurse explicitly via Y. ----
 
-// ---- Church right-fold lists: a list IS its own right fold (nil = A = KI,
-// fold = V). cons/head/map/null are clean; tail needs a predecessor-style
-// pair-shuffle, and append (join) shares Y's finite probe (so it sits before Y).
-const nilDef = (): Node => app(K(), I()); // the empty list (= false = 0)
-const consBody = ([h, t, c, n]: Node[]): Node => app(app(c, h), app(app(t, c), n));
-const consDef = (): Node => lamN(["h", "t", "c", "n"], consBody);
-const appendBody = ([xs, ys]: Node[]): Node => app(app(xs, consDef()), ys); // xs ++ ys
-const appendDef = (): Node => lamN(["xs", "ys"], appendBody);
-const pairDef = (): Node => lamN(["x", "y", "f"], ([x, y, f]) => app(app(f, x), y)); // = V
-const sndDef = (): Node => lamN(["p"], ([p]) => app(p, nilDef())); // second of a pair
-/** tail via the predecessor trick: fold the list building (rest, whole) pairs,
- *  then take the first component — `fst (l step (nil,nil))`, fst inlined as `· K`. */
-const tailBody = ([l]: Node[]): Node => {
-  const step = lamN(["h", "p"], ([h, p]) => app(app(pairDef(), app(sndDef(), p)), app(app(consDef(), h), app(sndDef(), p))));
-  const base = lamN(["f"], ([f]) => app(app(f, nilDef()), nilDef())); // the (nil, nil) pair, already reduced
-  return app(app(app(l, step), base), K());
-};
-const mapBody = ([f, l]: Node[]): Node =>
-  app(app(l, lamN(["h", "t"], ([h, t]) => app(app(consDef(), app(f, h)), t))), nilDef());
-// uncons l = the pair (head l, tail l), built directly in normal form (λf. f h t);
-// the tail half carries the pair-shuffling fold. tail is then snd · uncons.
-const unconsBody = ([l]: Node[]): Node =>
-  lamN(["f"], ([f]) => app(app(f, app(app(l, K()), nilDef())), tailBody([l])));
+/** `K I` — the "return the second" selector: Scott True, a pair's snd, and the
+ *  cons / successor eliminator arm. */
+const KI = (): Node => app(K(), I());
+/** The Vireo `λx y z. z x y`; `V_ x y` is the Scott pair `(x, y)`. */
+const V_ = (): Node => lamN(["x", "y", "z"], ([x, y, z]) => app(app(z, x), y));
+
+// Nat = Z | S Nat:  Z = K,  S p = λz s. s p
+const zeroDef = (): Node => K(); // Z
+const succBody = (v: Node[]): Node => app(v[2], v[0]); // Succ n z s = s n
+const succDef = (): Node => lam(3, succBody);
+// Pred (S p) = p,  Pred Z = Z:  λm. m Z I
+const predBody = (v: Node[]): Node => app(app(v[0], zeroDef()), I());
+const predDef = (): Node => lam(1, predBody);
+
+// [] = [] | (:) a [a]:  nil = K,  cons h t = λn c. c h t
+const nilDef = (): Node => K();
+const consBody = (v: Node[]): Node => app(app(v[3], v[0]), v[1]); // cons h t n c = c h t
+const consDef = (): Node => lam(4, consBody);
+
+// ---- recursive ops (folds / arithmetic). Scott data carries no fold, so these
+// recurse via the Sage Y. The fresh-var probe can't reach them (they stick on an
+// opaque argument), so they read "built, not discovered": a sentinel reference
+// no real normal form equals keeps them from ever matching another tree. ----
+const Yc = (): Node => app(app(B(), M()), app(app(C(), B()), M())); // B M (C B M)
+/** `f = Y (λrec a b … . body)`; `body` receives `[rec, a, b, …]`. */
+const recDef = (names: string[], body: (v: Node[]) => Node): Node => app(Yc(), lamN(["$r", ...names], body));
+const noProbe = (sym: string) => (): Node => freeVar(`$norec_${sym}`);
+
+// append xs ys = case xs of []→ys; (h:t)→ h : (t ++ ys)
+const appendDef = (): Node =>
+  recDef(["xs", "ys"], ([r, xs, ys]) => app(app(xs, ys), lamN(["h", "t"], ([h, t]) => app(app(consDef(), h), app(app(r, t), ys)))));
+// map f xs = case xs of []→[]; (h:t)→ f h : map f t
+const mapDef = (): Node =>
+  recDef(["f", "xs"], ([r, f, xs]) => app(app(xs, nilDef()), lamN(["h", "t"], ([h, t]) => app(app(consDef(), app(f, h)), app(app(r, f), t)))));
+// concat xss = case xss of []→[]; (h:t)→ h ++ concat t
+const concatDef = (): Node =>
+  recDef(["xss"], ([r, xss]) => app(app(xss, nilDef()), lamN(["h", "t"], ([h, t]) => app(app(appendDef(), h), app(r, t)))));
+// (+) m n = case m of Z→n; S p→ S (p + n)
+const plusDef = (): Node =>
+  recDef(["m", "n"], ([r, m, n]) => app(app(m, n), lamN(["p"], ([p]) => app(succDef(), app(app(r, p), n)))));
+// (-) m n = case n of Z→m; S p→ Pred (m - p)   (monus)
+const minusDef = (): Node =>
+  recDef(["m", "n"], ([r, m, n]) => app(app(n, m), lamN(["p"], ([p]) => app(predDef(), app(app(r, m), p)))));
+// (*) m n = case m of Z→Z; S p→ n + (p * n)
+const timesDef = (): Node =>
+  recDef(["m", "n"], ([r, m, n]) => app(app(m, zeroDef()), lamN(["p"], ([p]) => app(app(plusDef(), n), app(app(r, p), n)))));
 
 /** A bird whose def is the bracket abstraction of its law (so def ≡ law). */
 function bird(sym: string, lawText: string, arity: number, body: (v: Node[]) => Node): Law {
@@ -118,8 +141,9 @@ function bird(sym: string, lawText: string, arity: number, body: (v: Node[]) => 
 // Alphabetical by symbol. I/K/S reduce by built-in rules (no def); Y is the
 // recursive fixpoint (probed finitely); the rest derive their def from their law.
 export const CATALOG: Law[] = [
-  bird("(+)", "(+) m n f x = m f (n f x)", 4, (v) => app(app(v[0], v[2]), app(app(v[1], v[2]), v[3]))), // Church addition
-  bird("(-)", "(-) m n = m ∸ n", 2, (v) => app(app(v[1], predDef()), v[0])), // Church subtraction (monus, via pred)
+  { sym: "(+)", lawText: "(+) Z n = n;  (+) (S p) n = S (p + n)", arity: 2, reference: noProbe("(+)"), def: plusDef }, // Peano addition (Y)
+  { sym: "(-)", lawText: "(-) m Z = m;  (-) m (S p) = Pred (m - p)", arity: 2, reference: noProbe("(-)"), def: minusDef }, // Peano monus (Y)
+  { sym: "(*)", lawText: "(*) Z n = Z;  (*) (S p) n = n + (p * n)", arity: 2, reference: noProbe("(*)"), def: timesDef }, // Peano product (Y)
   bird("A", "A x y = y", 2, (v) => v[1]), // Albatross (= K I; the old Kite)
   bird("B", "B x y z = x (y z)", 3, (v) => app(v[0], app(v[1], v[2]))), // Bluebird
   bird("B1", "B1 x y z w = x (y z w)", 4, (v) => app(v[0], app(app(v[1], v[2]), v[3]))), // Blackbird
@@ -139,7 +163,7 @@ export const CATALOG: Law[] = [
   bird("M2", "M2 x y = x y (x y)", 2, (v) => app(app(v[0], v[1]), app(v[0], v[1]))), // Double Mockingbird
   bird("N", "N x y z = z x", 3, (v) => app(v[2], v[0])), // Nuthatch (small arg-shuffling helper)
   bird("O", "O x y = y (x y)", 2, (v) => app(v[1], app(v[0], v[1]))), // Owl
-  bird("Pred", "Pred n = n ∸ 1", 3, predBody), // Church predecessor
+  bird("Pred", "Pred (S p) = p;  Pred Z = Z", 1, predBody), // strips one successor (Z stays Z)
   bird("Q", "Q x y z = y (x z)", 3, (v) => app(v[1], app(v[0], v[2]))), // Queer
   bird("Q1", "Q1 x y z = x (z y)", 3, (v) => app(v[0], app(v[2], v[1]))), // Quixotic
   bird("Q2", "Q2 x y z = y (z x)", 3, (v) => app(v[1], app(v[2], v[0]))), // Quizzical
@@ -147,22 +171,27 @@ export const CATALOG: Law[] = [
   bird("Q4", "Q4 x y z = z (y x)", 3, (v) => app(v[2], app(v[1], v[0]))), // Quacky
   bird("R", "R x y z = y z x", 3, (v) => app(app(v[1], v[2]), v[0])), // Robin
   { sym: "S", lawText: "S x y z = x z (y z)", arity: 3, reference: (v) => app(app(v[0], v[2]), app(v[1], v[2])) }, // Starling
-  bird("Succ", "Succ n f x = f (n f x)", 3, (v) => app(v[1], app(app(v[0], v[1]), v[2]))), // Church successor (= S B)
+  bird("Succ", "Succ n z s = s n", 3, succBody), // Scott successor
   bird("T", "T x y = y x", 2, (v) => app(v[1], v[0])), // Thrush
   bird("U", "U x y = y (x x y)", 2, (v) => app(v[1], app(app(v[0], v[0]), v[1]))), // Turing
   bird("V", "V x y z = z x y", 3, (v) => app(app(v[2], v[0]), v[1])), // Vireo (pairing)
   bird("W", "W x y = x y y", 2, (v) => app(app(v[0], v[1]), v[1])), // Warbler
-  bird("X", "X x y = x y x", 2, (v) => app(app(v[0], v[1]), v[0])), // Xenops (logical AND, = S S K)
-  // ---- list operations (right-fold encoding); kept together, and <> must
-  // precede Y since append shares Y's finite probe.
-  bird("cons", "cons h t c n = c h (t c n)", 4, consBody), // prepend
-  bird("head", "head (h : t) = h", 1, (v) => app(app(v[0], K()), nilDef())),
-  bird("<>", "xs <> ys = xs ++ ys", 2, appendBody), // append (Semigroup)
-  bird("concat", "concat (xs : xss) = xs <> concat xss", 1, (v) => app(app(v[0], appendDef()), nilDef())), // monadic join / concat
-  bird("map", "map f (h : t) = f h : map f t", 2, mapBody),
-  bird("null", "null [] = K,  null (h : t) = KI", 1, (v) => app(app(v[0], app(K(), app(K(), nilDef()))), K())),
-  bird("uncons", "uncons (h : t) = (h, t)", 1, unconsBody),
-  bird("tail", "tail (h : t) = t", 1, tailBody),
+  bird("X", "X x y = x y x", 2, (v) => app(app(v[0], v[1]), v[0])), // Xenops (= S S K)
+  // ---- Scott boolean operators (False = K, True = A); the case `if c t e = c e t`
+  // is just the Cardinal C.
+  bird("not", "not b = if b then False else True", 1, (v) => app(app(v[0], KI()), K())), // b True False
+  bird("and", "and p q = if p then q else False", 2, (v) => app(app(v[0], K()), v[1])), // p False q
+  bird("or", "or p q = if p then True else q", 2, (v) => app(app(v[0], v[1]), KI())), // p q True
+  // ---- Scott list operations; the structural ops read off one eliminator arm,
+  // the folds (<>, concat, map) recurse via Y (built, not discovered).
+  bird("cons", "cons h t n c = c h t", 4, consBody), // prepend (Scott cons cell)
+  bird("head", "head (h : t) = h", 1, (v) => app(app(v[0], K()), K())), // xs nil-default K
+  { sym: "<>", lawText: "[] <> ys = ys;  (h:t) <> ys = h : (t <> ys)", arity: 2, reference: noProbe("<>"), def: appendDef }, // append (Y)
+  { sym: "concat", lawText: "concat [] = [];  concat (xs:xss) = xs <> concat xss", arity: 1, reference: noProbe("concat"), def: concatDef }, // flatten (Y)
+  { sym: "map", lawText: "map f [] = [];  map f (h:t) = f h : map f t", arity: 2, reference: noProbe("map"), def: mapDef }, // (Y)
+  bird("null", "null [] = True;  null (h : t) = False", 1, (v) => app(app(v[0], KI()), lamN(["h", "t"], () => K()))), // xs True (λh t. False)
+  bird("uncons", "uncons (h : t) = (h, t)", 1, (v) => app(app(v[0], app(app(V_(), K()), K())), V_())), // xs (nil,nil) (λh t. (h,t))
+  bird("tail", "tail (h : t) = t", 1, (v) => app(app(v[0], K()), KI())), // xs nil-default (λh t. t)
   // Sage Θ — recursive, so probed as Y (K a) ≡ a (Y a diverges).
   {
     sym: "Y",
@@ -187,25 +216,29 @@ export interface Meta {
 }
 
 export const META: Record<string, Meta> = {
-  "(+)": { blurb: "Church addition: it runs one numeral's stack of applications, then the other's, on the same arguments. A Starling-and-Bluebird scaffold — or simply Succ fed to a numeral n times. Multiplication needs no new bird at all: that is the Bluebird itself, and exponentiation is the Thrush.", recipe: "B S (B B)" },
-  "(-)": { blurb: "Truncated subtraction (monus): m minus n, clamped at zero. It applies the predecessor to m, n times over — short once you have Pred, but an enormous ι-tree when Pred is unfolded inline, the largest in the zoo.", recipe: "C (T Pred)" },
-  Succ: { blurb: "The successor: it wraps one more application around a Church numeral, turning n into n+1. It is the Starling perched on the Bluebird — a small reminder that all of arithmetic can be grown from a couple of birds.", recipe: "S B" },
-  Pred: { blurb: "The predecessor: it strips one application back off a Church numeral, turning n+1 into n (and leaving 0 at 0). Famously hard to define — Stephen Kleene is said to have hit on the trick in 1932 in the dentist's chair, under nitrous oxide. Succ's mirror image, and the engine inside subtraction.", recipe: "λn f x. n (λg h. h (g f)) (λu. x) (λu. u)" },
-  cons: { blurb: "Prepends a head onto a list. In this encoding a list IS its own right fold, so cons just remembers to fold the new head in before the rest. It is the Vireo's pairing instinct grown into a first-class list-builder.", recipe: "B S (B (B B) T)" },
-  head: { blurb: "Takes the first element of a list (or the empty list, if there is none). It folds with the Kestrel, which keeps the head and discards the tail — the very trick that pulls the first value out of a pair.", recipe: "C (T K) nil" },
-  uncons: { blurb: "Splits a non-empty list into its head and tail, paired together — the one honest way to take a list apart. Conceptually tail is its second projection (snd · uncons), though tail is cheaper computed on its own.", recipe: "λl. (head l, tail l)" },
-  tail: { blurb: "Drops the first element and returns the rest. Like the predecessor for numbers, it is the hard one: a list keeps no direct 'rest', so tail rebuilds it with a pair-shuffling fold. The list world's answer to Pred.", recipe: "λl. fst (l step (nil, nil))" },
-  "<>": { blurb: "Appends one list onto another (xs ++ ys) — the Semigroup of lists — by folding xs with cons onto ys. Curiously it passes the exact same finite test as the Sage bird: append and the fixpoint combinator are twins under that probe, so it roosts just ahead of Y.", recipe: "T cons" },
-  concat: { blurb: "Flattens a list of lists, [[a]] down to [a], by folding them together with append. This is the list monad's join — concat is exactly that operation.", recipe: "C (T <>) nil" },
-  map: { blurb: "Applies a function to every element, building a fresh list. A fold that re-conses each transformed head onto the rest — the workhorse of list processing.", recipe: "λf l. l (B cons f) nil" },
-  null: { blurb: "Tests whether a list is empty, answering with a Church Boolean. Any cons folds its way to false; only the empty list is left as true.", recipe: "C (T (K (K nil))) K" },
+  "(+)": { blurb: "Addition on Scott numerals. A Scott number can't fold the way a Church numeral does, so this recurses through the Sage Y: peel one S off the first number, and wrap the answer in that many S's.", recipe: "Y (λr m n. m n (λp. S (r p n)))" },
+  "(-)": { blurb: "Truncated subtraction (monus): m minus n, clamped at zero. Peel S off n, applying Pred to m each time. Recursive via Y — Scott data carries no built-in fold.", recipe: "Y (λr m n. n m (λp. Pred (r m p)))" },
+  "(*)": { blurb: "Multiplication on Scott numerals: add n to itself m times, recursing through the Sage Y.", recipe: "Y (λr m n. m Z (λp. n + r p n))" },
+  Succ: { blurb: "The successor: S, the second Nat constructor. It simply remembers its predecessor (Succ n = λz s. s n), so the number 3 is just S (S (S Z)).", recipe: "λn z s. s n" },
+  Pred: { blurb: "The predecessor, and under the Scott encoding it is trivial: a number is a case on Z / S, so Pred just hands back the stored predecessor (and leaves Z at Z). The famous Church-numeral dentist-chair trick is gone — Scott pays the cost at construction instead.", recipe: "λm. m Z I" },
+  cons: { blurb: "Prepends a head onto a list. A Scott cons cell stores its head and tail and, when matched, hands them to the cons branch (cons h t = λn c. c h t) — there is no fold built in, unlike the Church encoding.", recipe: "λh t n c. c h t" },
+  head: { blurb: "Takes the first element of a list (or the empty list, if there is none). It matches the list with the Kestrel as the cons branch — K keeps the head, drops the tail — and a default for the empty case.", recipe: "λxs. xs nil K" },
+  uncons: { blurb: "Splits a non-empty list into its head and tail, paired together with the Vireo. Under Scott both halves are already to hand in the cons cell, so it is a single clean case — no rebuilding.", recipe: "λxs. xs (nil,nil) (λh t. (h, t))" },
+  tail: { blurb: "Drops the first element and returns the rest. Under the Scott encoding this is trivial — the tail sits right there in the cons cell, so tail just reads it off (the cons branch is `λh t. t`). The Church encoding's pair-shuffling tail is gone.", recipe: "λxs. xs nil (λh t. t)" },
+  "<>": { blurb: "Appends one list onto another (xs ++ ys) — the Semigroup of lists. Scott lists carry no fold, so it recurses via the Sage Y, re-consing each head of xs onto the growing result.", recipe: "Y (λr xs ys. xs ys (λh t. h : r t ys))" },
+  concat: { blurb: "Flattens a list of lists, [[a]] down to [a], by appending them in turn — the list monad's join. Recursive via Y.", recipe: "Y (λr xss. xss [] (λh t. h <> r t))" },
+  map: { blurb: "Applies a function to every element, building a fresh list. With no built-in fold under Scott, it recurses via Y, re-consing each transformed head onto the rest.", recipe: "Y (λr f xs. xs [] (λh t. f h : r f t))" },
+  null: { blurb: "Tests whether a list is empty, answering with a Scott Boolean. The empty list returns True; any cons cell returns False.", recipe: "λxs. xs True (λh t. False)" },
+  not: { blurb: "Logical NOT on Scott Booleans: it matches the boolean and returns the opposite constructor (not b = b True False).", recipe: "λb. b True False" },
+  and: { blurb: "Logical AND on Scott Booleans: if the first is False it answers False, otherwise it answers the second (and p q = p False q).", recipe: "λp q. p False q" },
+  or: { blurb: "Logical OR on Scott Booleans: if the first is True it answers True, otherwise it answers the second (or p q = p q True).", recipe: "λp q. p q True" },
   ι: { blurb: "The universal combinator: every other bird grows from it alone — hand it to itself and the Identity bird hatches, keep nesting and out come the Kestrel, then the Starling. Linguist Chris Barker coined it in 2001 and named it for iota, the smallest letter of the Greek alphabet — the smallest possible seed for the calculus.", recipe: "primitive" },
-  A: { bird: "Albatross", blurb: "Always answers with its second argument, throwing the first away — the mirror of the Kestrel. That makes it Boolean false, the number zero, and a pair's second projection (snd). It is simply the Kestrel handed an Identity bird; here it takes the letter A and the Albatross.", recipe: "K I" },
+  A: { bird: "Albatross", blurb: "Always answers with its second argument, throwing the first away — the mirror of the Kestrel. Under the Scott encoding that makes it Boolean True (the second of two case branches) and a pair's second projection (snd). It is simply the Kestrel handed an Identity bird; here it takes the letter A and the Albatross.", recipe: "K I" },
   B: { bird: "Bluebird", blurb: "The forest's composition law: it feeds one function's result straight into another. Curry gave it the letter B — relettering Schönfinkel's original composition combinator — and the Bluebird heads a whole dynasty of composers: the Blackbird, Bunting and Becard all grow from it.", recipe: "S (K S) K" },
   B1: { bird: "Blackbird", blurb: "The Blackbird stretches the Bluebird's reach, composing a function after a three-argument one. Woven from three Bluebirds, it is one of a clutch of B-birds named for the composition family they belong to.", recipe: "B B B" },
   B2: { bird: "Bunting", blurb: "The Bunting reaches a step past the Blackbird, composing a function after a four-argument one. Like its kin it is pure Bluebird — another B-named rung on the composition ladder.", recipe: "B B (B B B)" },
   B3: { bird: "Becard", blurb: "The Becard chains functions in sequence, threading a value through three of them in turn. Another all-Bluebird composer, it takes its B for the family and the bird's own initial.", recipe: "B (B B) B" },
-  C: { bird: "Cardinal", blurb: "The Cardinal flips its next two arguments; on Church Booleans that swap becomes logical NOT. Curry assigned the letter C, relettering Schönfinkel's interchange combinator, and matched it to the cardinal. The Thrush falls out when its first argument is the Identity.", recipe: "S (S (K B) S) (K K)" },
+  C: { bird: "Cardinal", blurb: "The Cardinal flips its next two arguments — which is exactly the Scott boolean conditional `if c t e = c e t`. Curry assigned the letter C, relettering Schönfinkel's interchange combinator, and matched it to the cardinal. The Thrush falls out when its first argument is the Identity.", recipe: "S (S (K B) S) (K K)" },
   D: { bird: "Dove", blurb: "The Dove is a Bluebird reaching one slot deeper, composing into a binary function's second argument. It is two Bluebirds stacked; the name is simply a D-bird for Curry's letter.", recipe: "B B" },
   E: { bird: "Eagle", blurb: "The Eagle stretches the Dove's pattern wider, onto a binary function whose second argument is a three-way application. Pure Bluebird inside — an E-bird for its letter.", recipe: "B (B B B)" },
   F: { bird: "Finch", blurb: "The Finch fully reverses three arguments, last-first. It is the Cardinal's flip laid over the pairing Vireo, read backwards — an F-bird for the conventional letter.", recipe: "C V" },
@@ -213,9 +246,9 @@ export const META: Record<string, Meta> = {
   H: { bird: "Hummingbird", blurb: "The Hummingbird hands a function two arguments, then slips the first back in at the tail — a Warbler's knack for reuse wrapped in a Bluebird and a Cardinal. Smullyan named it to fit the letter H.", recipe: "B W (B C)" },
   I: { bird: "Identity (Idiot Bird)", blurb: "The do-nothing bird — it answers with exactly the bird it was handed. Its letter comes from Schönfinkel's Identitätsfunktion, one of the few names Curry left untouched. The Starling and Kestrel can rebuild it, so it survives only because it keeps things readable; here it hatches when ι hears itself.", recipe: "ι ι" },
   J: { bird: "Jay", blurb: "The Jay duplicates its first argument deep inside a four-way application, feeding it in twice while reshuffling the rest — a trick it owes to the Warbler and the Bluebird. Smullyan named it the Jay, a J-bird; this is the forest's canonical Jay.", recipe: "λx y z w. x y (x w z)" },
-  K: { bird: "Kestrel", blurb: "The constant bird: it answers with its first argument and forgets the second, which makes it Boolean true and a pair's first projection (fst). Its letter is Schönfinkel's Konstanzfunktion (constant function); Smullyan matched it to the kestrel, beside the Starling.", recipe: "primitive" },
+  K: { bird: "Kestrel", blurb: "The constant bird: it answers with its first argument and forgets the second. Under the Scott encoding that one combinator is the empty list nil, the number zero (Z), Boolean False, and a pair's first projection (fst) — the value every trivial case collapses onto. Its letter is Schönfinkel's Konstanzfunktion; Smullyan matched it to the kestrel, beside the Starling.", recipe: "primitive" },
   L: { bird: "Lark", blurb: "The Lark composes a function with self-application — a Cardinal, Bluebird and Mockingbird in concert. Pair a Lark with an Identity bird and a Mockingbird hatches; fed to one another, Larks grow the fixpoint-making Sage. An L-bird for its letter.", recipe: "C B M" },
-  M: { bird: "Mockingbird", blurb: "The forest's namesake, woven from a Starling and two Identity birds: it echoes its argument back, applied to itself. A mockingbird mimics other birds' songs — exactly what M does — so Smullyan gave it the title role. That self-application sparks recursion (and, fed itself, never settles); on Booleans it is logical OR.", recipe: "S I I" },
+  M: { bird: "Mockingbird", blurb: "The forest's namesake, woven from a Starling and two Identity birds: it echoes its argument back, applied to itself. A mockingbird mimics other birds' songs — exactly what M does — so Smullyan gave it the title role. That self-application sparks recursion (and, fed itself, never settles).", recipe: "S I I" },
   M2: { bird: "Double Mockingbird", blurb: "A two-argument Mockingbird — a Bluebird perched on the original — that echoes a whole application back onto itself. Named the Double Mockingbird for doubling M's trick.", recipe: "B M" },
   N: { bird: "Nuthatch", blurb: "A small shuffler: it discards its middle argument and applies the last to the first. Built from a Bluebird, a Kestrel and a Thrush, the Kestrel doing the forgetting. Not a classical bird; it takes the free letter N and the Nuthatch.", recipe: "B K T" },
   O: { bird: "Owl", blurb: "The Owl feeds a value back through a function — a close relative of the Sage, made from a Starling and an Identity bird. Every fixpoint combinator is a fixed point of it, so stacking Owls walks the whole family of recursion-makers. An O-bird for the letter.", recipe: "S I" },
@@ -230,7 +263,7 @@ export const META: Record<string, Meta> = {
   U: { bird: "Turing", blurb: "Hand this bird to itself and it becomes a fixpoint combinator — a wellspring of recursion beside the Sage. Alan Turing described it in a one-page 1937 note, and Smullyan named it the Turing bird in his honour: a rare combinator named for a person, not a letter-matching species. Unlike Curry's Y it reduces straight onward into its own unfolding.", recipe: "S (K (S I)) (W I)" },
   V: { bird: "Vireo", blurb: "The Vireo bundles two values and, given a head and tail, serves as a list's cons cell — the trick to encoding data among pure functions. Pull the parts back with the Kestrel (first) and the Albatross (second). Woven from a Bluebird, Cardinal and Thrush; a V-bird for the letter.", recipe: "B C (C I)" },
   W: { bird: "Warbler", blurb: "The Warbler hands the same argument to a function twice — a duplicator. It is one of the four primitives of Curry's BCKW basis, where it plays the role of contraction, reusing an argument rather than spending it. The warbler is Curry's W-bird.", recipe: "S S (K I)" },
-  X: { bird: "Xenops", blurb: "Logical AND on Church Booleans — it answers true only when both arguments are true, and is built from a pair of Starlings and a Kestrel. X is no classical combinator letter, so it borrows the Xenops, one of the very few birds whose name begins with X.", recipe: "S S K" },
+  X: { bird: "Xenops", blurb: "A duplicator that hands its first argument to its second and then back to itself (`x y x`), built from a pair of Starlings and a Kestrel. X is no classical combinator letter, so it borrows the Xenops, one of the very few birds whose name begins with X.", recipe: "S S K" },
   Y: { bird: "Sage", blurb: "The sage bird of the forest: hand it any bird and it returns one that bird is fond of — a fixed point of itself — which is what lets the forest recurse. Curry called it the paradoxical combinator and wrote it Y; Smullyan's 'Sage' captures the wisdom of always knowing a bird's fixed point. Grown from Mockingbirds and Bluebirds.", recipe: "B M (C B M)" },
   Z: { bird: "Zebra Finch", blurb: "Hands a function two arguments, then quietly swallows a trailing third — a tidy way to ignore an argument. It is a Bluebird perched on a Kestrel, the Kestrel doing the discarding. The letter Z was Schönfinkel's old mark for composition; here it takes a Zebra Finch for its name.", recipe: "B K" },
   Z2: { bird: "Zebra Dove", blurb: "Z reaching one rung deeper: it applies a function to its next two arguments and lets a trailing fourth fall away. Built by composing a Bluebird onto Z. Named the Zebra Dove — a Z-bird, and a Dove nodding to the Bluebird composition inside it.", recipe: "B Z" },
@@ -242,15 +275,16 @@ export const META: Record<string, Meta> = {
  *  Smullyan's "To Mock a Mockingbird" + web sources): how to BUILD each
  *  combinator, shown as the "next to discover" nudge. */
 export const HINTS: Record<string, string> = {
-  "(+)": "Starling-on-Bluebirds scaffold B S (B B); or m Succ n (apply Succ m times to n). Builds m f (n f x): n stacks f on x, then m stacks atop.",
-  "(-)": "Aim for n Pred m. T Pred n = n Pred turns n into a Pred-iterator; the Cardinal flips its args so n is the count: C (T Pred).",
-  "<>": "Since a list is its own right fold, append is xs cons ys; the Thrush hands cons to the list (T cons xs = xs cons), so xs folds onto ys.",
+  "(+)": "Scott numbers don't fold, so recurse with Y: Y (λr m n. m n (λp. S (r p n))) — peel one S off m and wrap the result in one more S.",
+  "(-)": "Recurse with Y: Y (λr m n. n m (λp. Pred (r m p))) — peel S off n, Pred-ing m each time; matching Z bottoms out, clamped at zero.",
+  "(*)": "Repeated addition: Y (λr m n. m Z (λp. n + r p n)) — add n once per S in m.",
+  "<>": "Scott lists carry no fold, so recurse with Y: append matches xs — [] gives ys, (h:t) re-conses h onto (t <> ys).",
   A: "Feed the Kestrel an Identity bird as its FIRST argument (K I): K keeps that I, which then returns your second argument and drops the first.",
   B: "Composition — pipe one bird's output into the next. Build it by feeding the Starling two args: (K S) then a Kestrel, giving S(KS)K.",
   B1: "Stretch the Bluebird to swallow a 3-arg call: perch a Bluebird on a Bluebird on a Bluebird — B B B, the Blackbird.",
   B2: "The Blackbird B B B composes after a 3-arg function; chain one more Bluebird onto it, B B (B B B), to reach the 4-arg Bunting.",
   B3: "Compose three in a row, x(y(zw)): take the deep composer B and pre-feed it B with B B, giving B(B B)B — the Becard.",
-  C: "The Cardinal swaps its 2nd and 3rd arguments (Boolean NOT); coax it from two Starlings and Kestrels caging a Bluebird: S(S(KB)S)(KK).",
+  C: "The Cardinal swaps its 2nd and 3rd arguments (the Scott `if c t e = c e t`); coax it from two Starlings and Kestrels caging a Bluebird: S(S(KB)S)(KK).",
   D: "The Dove reaches one slot deeper than the Bluebird, composing (z w) into a binary function's second arg — stack two Bluebirds: B B.",
   E: "Prepend one more Bluebird onto the Blackbird B B B: B (B B B) widens the Dove's inner call from z w to a 3-way z w v — the Eagle.",
   F: "Want z y x? Take the pairing Vireo (V x y z = z x y) and let a Cardinal pre-swap its first two inputs: F = C V.",
@@ -264,7 +298,7 @@ export const HINTS: Record<string, string> = {
   M2: "Perch a Bluebird on the Mockingbird (B M): it feeds the application x y to M, which copies it — yielding x y (x y).",
   N: "Compose Kestrel after Thrush with a Bluebird (B K T): the Kestrel eats the middle bird, then the Thrush applies the last bird to the first.",
   O: "A near-Sage: feed Identity into the Starling's first slot (S I), so the Starling hands y the result of running x on y — i.e. y (x y).",
-  Pred: "Iterate the shift λg h.h(g f) n times from base λu.x, then feed λu.u; the first step discards an f, peeling f^{n+1} down to f^n.",
+  Pred: "Trivial under Scott — hand back the stored predecessor, leaving Z at Z: λm. m Z I.",
   Q: "Build C B: the Cardinal flips the Bluebird's first two args so the first function runs and pours into the second — x z first, then y over it (y (x z)).",
   Q1: "Quixotic feeds arg three onto arg two, then runs the first over the result (x (z y)): give the Queer bird (C B) a Thrush, then frame it with two Bluebirds — B (C B T) B.",
   Q2: "Run the third function on arg1, then the second over that — hang a Thrush under the Queer bird via a Bluebird: B (C B) T.",
@@ -272,22 +306,25 @@ export const HINTS: Record<string, string> = {
   Q4: "Take Quirky B T (gives z(xy)); prepend a Cardinal to flip the inner pair: C (B T) yields z(yx) — last bird run on second-applied-to-first.",
   R: "The Robin rotates three args, sending the first to the back — two Cardinal swaps make one turn, so perch a Cardinal on itself: C C.",
   S: "The Starling shares one arg with two birds. It's just one ι past the Kestrel — ι(ι(ι(ι ι))).",
-  Succ: "Feed a Bluebird to a Starling (S B): S hands x to both f and n f, firing f once more on the numeral, so n becomes n+1.",
+  Succ: "S, the second Nat constructor: it just stores its predecessor — λn z s. s n. Then 3 is S (S (S Z)).",
   T: "Thrush flips its two args (T x y = y x). The Cardinal C x y z = x z y already does the swap, so put Identity in its first slot: C I.",
   U: "Build U as S (K (S I)) (W I): S hands x to W I, which doubles it to x x, and to the K-guarded S I; then U U is Turing's fixpoint.",
   V: "Build V (Vireo) as B C (C I): the Bluebird composes the Cardinal with the Thrush (C I), so V x y z reduces to z x y — a swap then a flip.",
   W: "Warbler the duplicator: feed Starling two things, Starling itself and a Kestrel-guarded Identity (S S (K I)), to copy its last argument.",
-  X: "Feed a Starling to a Starling and a Kestrel — S applied to (S, K) — and it reduces x y x: x runs on y, falling back to x, which is Church AND.",
+  X: "Feed a Starling to a Starling and a Kestrel — S applied to (S, K) — and it reduces x y x: x runs on y, then falls back to x.",
   Y: "The Sage gives each bird its fixed point: Bluebird-compose a Mockingbird onto a Lark, with the Lark spelled C B M — so B M (C B M).",
   Z: "Perch a Bluebird on a Kestrel (B K): B hands x its single argument y, then the Kestrel quietly swallows the trailing third, z.",
   Z2: "Compose a Bluebird onto Z (B Z): the same trailing-argument-swallowing trick reaching one rung deeper, dropping the fourth argument instead of the third.",
-  concat: "Same shape as head, but fold with append not Kestrel: C (T <>) nil glues a list of lists into one.",
-  cons: "List-as-fold: S shares c and n, T gives the head to c (c h), B fires it before the folded tail t c n. Hence B S (B (B B) T).",
-  head: "A list is its own right-fold: head = fold with K (K keeps the head, drops the rest). T K feeds K to the list; C ...nil gives the base.",
-  map: "Fold the list with a transformed cons: l (B cons f) nil, where B cons f turns head h into cons (f h) before consing onto the folded tail.",
-  null: "null xs = xs (K(K nil)) K: fold with cons-arg K(K nil) (any cons drops to nil=false) and nil-arg K=true; C(T(K(K nil)))K wires that.",
-  tail: "Fold from seed (nil,nil); each step shifts new fst=old snd, new snd=h:old snd, so fst lags one cons behind — read fst for the rest.",
-  uncons: "Take the list apart honestly: pair the head and tail you already built with the Vireo — V (head l) (tail l) = (head l, tail l).",
+  and: "Match the first boolean: λp q. p False q — if p is False answer False, otherwise answer q.",
+  concat: "Recurse with Y, appending each sublist onto the rest: Y (λr xss. xss [] (λh t. h <> r t)).",
+  cons: "A Scott cons cell just stores its head and tail for the cons branch to read: λh t n c. c h t.",
+  head: "Match the list with the Kestrel as the cons branch (K keeps the head, drops the tail): λxs. xs nil K.",
+  map: "No fold under Scott, so recurse with Y, re-consing f h each step: Y (λr f xs. xs [] (λh t. f h : r f t)).",
+  not: "Match the boolean and swap the branches: λb. b True False.",
+  null: "Match the list: the empty case gives True, any cons cell gives False — λxs. xs True (λh t. False).",
+  or: "Match the first boolean: λp q. p q True — if p is True answer True, otherwise answer q.",
+  tail: "Trivial under Scott — the tail is stored in the cons cell, so read it straight off: λxs. xs nil (λh t. t).",
+  uncons: "Both halves sit in the cons cell; pair them with the Vireo: λxs. xs (nil,nil) (λh t. (h, t)).",
   "Φ": "The fork — hand one arg to two birds, merge results with a third (Haskell's liftA2). Sink a Starling between Bluebirds: B (B S) B.",
   "Ψ": "The 'on' bird: apply y to z and to w, then let x combine the two results — x(y z)(y w). Build it straight: λx y z w. x(y z)(y w).",
 };
@@ -306,8 +343,9 @@ export interface PageDef {
 }
 
 // Combinators that belong only to a topic page, not to the general "Programs" tab.
-const ARITH_OPS = new Set(["Succ", "Pred", "(+)", "(-)"]);
+const ARITH_OPS = new Set(["Succ", "Pred", "(+)", "(-)", "(*)"]);
 const LIST_OPS = new Set(["cons", "head", "tail", "<>", "concat", "map", "null", "uncons"]);
+const BOOL_OPS = new Set(["not", "and", "or"]);
 
 /** The pages, shared by the Zoo catalogue and the hotbar. "Programs" holds the
  *  general-purpose combinators; the topic pages re-present combinators (often the
@@ -315,45 +353,42 @@ const LIST_OPS = new Set(["cons", "head", "tail", "<>", "concat", "map", "null",
 export const PAGES: PageDef[] = [
   {
     name: "Programs",
-    entries: [{ sym: "ι" }, ...CATALOG.filter((l) => !ARITH_OPS.has(l.sym) && !LIST_OPS.has(l.sym)).map((l) => ({ sym: l.sym }))],
+    entries: [{ sym: "ι" }, ...CATALOG.filter((l) => !ARITH_OPS.has(l.sym) && !LIST_OPS.has(l.sym) && !BOOL_OPS.has(l.sym)).map((l) => ({ sym: l.sym }))],
   },
   {
     name: "Booleans",
     entries: [
-      { sym: "K", alias: "T", role: "selects the first of two options" },
-      { sym: "A", alias: "F", role: "selects the second of two options" },
-      { sym: "C", alias: "Not", role: "swaps the two options" },
-      { sym: "X", alias: "And", role: "true only when both are true" },
-      { sym: "M", alias: "Or", role: "true when either is true" },
-      { sym: "I", alias: "If", role: "`if c t e` is just `c t e` — a boolean is its own conditional" },
+      { sym: "K", alias: "False", role: "Scott False — selects the first (else) arm" },
+      { sym: "A", alias: "True", role: "Scott True (= K I) — selects the second (then) arm" },
+      { sym: "not", alias: "Not", role: "flips a boolean" },
+      { sym: "and", alias: "And", role: "true only when both are true" },
+      { sym: "or", alias: "Or", role: "true when either is true" },
+      { sym: "C", alias: "If", role: "`if c t e = c e t` — the Cardinal is the Scott boolean case" },
     ],
   },
   {
     name: "Arithmetic",
     entries: [
-      { sym: "A", alias: "0", role: "Church 0 — applies f zero times" },
-      { sym: "I", alias: "1", role: "Church 1 — applies f exactly once" },
-      { sym: "Succ", alias: "Succ", role: "adds one to a numeral" },
-      { sym: "Pred", alias: "Pred", role: "subtracts one (clamped at 0) — the basis of Sub" },
-      { sym: "(+)", alias: "Plus", role: "adds two numerals" },
-      { sym: "B", alias: "Mult", role: "multiplies — multiplication is the Bluebird (composition)" },
-      { sym: "T", alias: "Exp", role: "raises to a power — m^n is just n m" },
-      { sym: "(-)", alias: "Sub", role: "truncated subtraction, via the predecessor" },
+      { sym: "K", alias: "0", role: "Scott zero (Z) — also nil and false" },
+      { sym: "Succ", alias: "Succ", role: "S — wraps a number as its own successor" },
+      { sym: "Pred", alias: "Pred", role: "strips one successor (Z stays Z)" },
+      { sym: "(+)", alias: "Plus", role: "adds two numerals (recurses via Y)" },
+      { sym: "(-)", alias: "Sub", role: "truncated subtraction / monus (recurses via Y)" },
+      { sym: "(*)", alias: "Mult", role: "multiplies (recurses via Y)" },
     ],
   },
   {
     name: "Lists",
     entries: [
-      { sym: "A", alias: "nil", role: "the empty list — also false and zero" },
-      { sym: "cons", alias: "cons", role: "prepends a head onto a list" },
+      { sym: "K", alias: "nil", role: "the empty list ([]) — also zero and false" },
+      { sym: "cons", alias: "cons", role: "the Scott cons cell: (h:t) = λn c. c h t" },
       { sym: "head", alias: "head", role: "the first element" },
+      { sym: "tail", alias: "tail", role: "everything after the head (a trivial read under Scott)" },
       { sym: "uncons", alias: "uncons", role: "splits a list into (head, tail)" },
-      { sym: "tail", alias: "tail", role: "everything after the head — the list's predecessor" },
-      { sym: "V", alias: "fold", role: "right fold — a list is its own fold (the Vireo)" },
-      { sym: "<>", alias: "<>", role: "appends one list onto another (Semigroup, ++)" },
-      { sym: "concat", alias: "concat", role: "flattens a list of lists (monadic join)" },
-      { sym: "map", alias: "map", role: "applies a function to every element" },
       { sym: "null", alias: "null", role: "is the list empty?" },
+      { sym: "<>", alias: "<>", role: "appends one list onto another (Semigroup, recurses via Y)" },
+      { sym: "concat", alias: "concat", role: "flattens a list of lists (recurses via Y)" },
+      { sym: "map", alias: "map", role: "applies a function to every element (recurses via Y)" },
     ],
   },
 ];
