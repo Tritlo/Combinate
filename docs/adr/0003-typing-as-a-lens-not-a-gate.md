@@ -1,6 +1,6 @@
-# 2. Typing: a decoder/lens, not a gate
+# 3. Typing: a decoder/lens, not a gate
 
-**Status:** proposed
+**Status:** accepted
 
 ## The problem
 
@@ -33,34 +33,46 @@ Two further truths shape the design:
 
 ## Decision
 
-Add a pure `src/core/types.ts` to the functional core with two *independent*
-capabilities, both opt-in, neither blocking the sandbox:
+Type is a forced *reading* layered on the existing value reader, seeded by the
+current hotbar page. Two pieces, both opt-in, neither blocking the sandbox:
 
-1. **Type-tagged decode/encode (high value).** Given a type tag (`Int | Bool |
-   List<T> | Pair`) and a normal form, run the term on canonical typed eliminators
-   and *read* the result into a real value (`number | boolean | array`) — and the
-   inverse (literal → canonical tree). This is "probe, but read the answer instead of
-   matching it." Powers: native rendering ("you built **2 + 3 = 5**"), numeral/list
-   literals, value entry.
+1. **`readAs(ty, n)` — a forced reading (built).** The re-folder ships an
+   encoding-directed value reader (`src/core/value.ts: readValue`, ADR 0002 Phase 1)
+   that *auto-discovers* an encoding and **defers** the trivial values that coincide
+   with bare combinators (`0`/`[]`/`false` are all `A`, `1` is `I`, `true` is `K`),
+   showing the combinator name instead. Typing splits that reader into pure
+   structural *matchers* (`matchNumeral`/`matchList`/`matchPair`/`matchBool`, no
+   policy) plus the auto-discovery `readValue`, then adds `readAs(ty, n)` in
+   `src/core/types.ts`: given a tag it runs that one matcher and renders even the
+   trivial cases — so the tag **resolves** the ambiguity `readValue` defers (`A`→`0`
+   under `Int`, →`[]` under `List`, →`false` under `Bool`; `K`→`true`, `I`→`1`).
 
-2. **Simple-type inference lens (conceptual value).** HM over the SKI/named tree
+   **The seed is the hotbar page** (`Arithmetic`→`Int`, `Booleans`→`Bool`,
+   `Lists`→`List`; `Programs`→auto). The read-out forces `readAs(mode, node)` and
+   falls back to `readValue` on a non-fit, so the *same* `A` reads as `0`/`false`/`[]`
+   depending only on which tab you are on. No new UI — the tabs are the lens.
+
+2. **Simple-type inference lens (future).** HM over the SKI/named tree
    (`K:a→b→a`, `S:(a→b→c)→(a→b)→a→c`; named birds get their derived type). Returns the
    principal type *or* "untypable (self-application)". Powers a badge: "this bird is
-   `(a→a)→a→a`" vs "no simple type — that's the price of recursion."
+   `(a→a)→a→a`" vs "no simple type — that's the price of recursion." Independent of
+   (1); not yet built.
 
-**Annotations as seeds** tie them together: the player tags a leaf/operator, the tag
-propagates through application + known operators, and *that* provenance is how "this
-`A` is a `0`" gets decided. A **typed-mode toggle** re-skins the canvas live (Int
-mode: `A`→`0`, `Succ`→`+1`; Bool mode: `K`→True, `C`→Not) — the PAGES aliases applied
-to the actual tree under a chosen lens.
+A typed page replaces the per-node *annotation* seed considered earlier: reduction
+discards the typed `Succ`/`cons` nodes, so a raw normal form carries no type — a
+page-as-mode is the cheapest seed that needs no per-node state and no reducer change.
 
 ## Consequences
 
-- Core stays pure/deterministic (ADR 0001): decode = run-on-eliminators + read;
-  inference = unification. No Pixi/DOM/time.
-- We never reject a build for being ill-typed. Worst case a lens says "doesn't read
-  as Int," which is information, not a wall.
-- Scope is sliceable: (1) and (2) are independent; ship decode-Int first.
+- Core stays pure/deterministic (ADR 0001): `readAs`/`readValue` = run-on-eliminators
+  + read; inference (future) = unification. No Pixi/DOM/time. The matchers are shared
+  by both the auto reader and the forced reader — one structural definition, two
+  policies.
+- We never reject a build for being ill-typed. Worst case a page reads "doesn't fit"
+  and falls back to the auto value / combinator re-folder / raw sexp — information,
+  not a wall.
+- Verified end-to-end (headless units + a browser E2E driving the page seam): `A`
+  reads as `A`/`0`/`false`/`[]` across the four pages.
 
 ## Considered and rejected
 
