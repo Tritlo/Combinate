@@ -158,7 +158,7 @@ export const CATALOG: Law[] = [
   bird("cons", "cons h t c n = c h (t c n)", 4, consBody), // prepend
   bird("head", "head (h : t) = h", 1, (v) => app(app(v[0], K()), nilDef())),
   bird("<>", "xs <> ys = xs ++ ys", 2, appendBody), // append (Semigroup)
-  bird("join", "join (xs : xss) = xs <> join xss", 1, (v) => app(app(v[0], appendDef()), nilDef())), // monadic join / concat
+  bird("concat", "concat (xs : xss) = xs <> concat xss", 1, (v) => app(app(v[0], appendDef()), nilDef())), // monadic join / concat
   bird("map", "map f (h : t) = f h : map f t", 2, mapBody),
   bird("null", "null [] = K,  null (h : t) = KI", 1, (v) => app(app(v[0], app(K(), app(K(), nilDef()))), K())),
   bird("uncons", "uncons (h : t) = (h, t)", 1, unconsBody),
@@ -196,7 +196,7 @@ export const META: Record<string, Meta> = {
   uncons: { blurb: "Splits a non-empty list into its head and tail, paired together — the one honest way to take a list apart. Conceptually tail is its second projection (snd · uncons), though tail is cheaper computed on its own.", recipe: "λl. (head l, tail l)" },
   tail: { blurb: "Drops the first element and returns the rest. Like the predecessor for numbers, it is the hard one: a list keeps no direct 'rest', so tail rebuilds it with a pair-shuffling fold. The list world's answer to Pred.", recipe: "λl. fst (l step (nil, nil))" },
   "<>": { blurb: "Appends one list onto another (xs ++ ys) — the Semigroup of lists — by folding xs with cons onto ys. Curiously it passes the exact same finite test as the Sage bird: append and the fixpoint combinator are twins under that probe, so it roosts just ahead of Y.", recipe: "T cons" },
-  join: { blurb: "Monadic join: it flattens a list of lists, [[a]] down to [a], by folding them together with append. The list monad's join — exactly the operation Haskell calls concat.", recipe: "C (T <>) nil" },
+  concat: { blurb: "Flattens a list of lists, [[a]] down to [a], by folding them together with append. This is the list monad's join — concat is exactly that operation.", recipe: "C (T <>) nil" },
   map: { blurb: "Applies a function to every element, building a fresh list. A fold that re-conses each transformed head onto the rest — the workhorse of list processing.", recipe: "λf l. l (B cons f) nil" },
   null: { blurb: "Tests whether a list is empty, answering with a Church Boolean. Any cons folds its way to false; only the empty list is left as true.", recipe: "C (T (K (K nil))) K" },
   ι: { blurb: "The universal combinator: every other bird grows from it alone — hand it to itself and the Identity bird hatches, keep nesting and out come the Kestrel, then the Starling. Linguist Chris Barker coined it in 2001 and named it for iota, the smallest letter of the Greek alphabet — the smallest possible seed for the calculus.", recipe: "primitive" },
@@ -253,7 +253,7 @@ export interface PageDef {
 
 // Combinators that belong only to a topic page, not to the general "Programs" tab.
 const ARITH_OPS = new Set(["Succ", "Pred", "(+)", "(-)"]);
-const LIST_OPS = new Set(["cons", "head", "tail", "<>", "join", "map", "null", "uncons"]);
+const LIST_OPS = new Set(["cons", "head", "tail", "<>", "concat", "map", "null", "uncons"]);
 
 /** The pages, shared by the Zoo catalogue and the hotbar. "Programs" holds the
  *  general-purpose combinators; the topic pages re-present combinators (often the
@@ -297,7 +297,7 @@ export const PAGES: PageDef[] = [
       { sym: "tail", alias: "tail", role: "everything after the head — the list's predecessor" },
       { sym: "V", alias: "fold", role: "right fold — a list is its own fold (the Vireo)" },
       { sym: "<>", alias: "<>", role: "appends one list onto another (Semigroup, ++)" },
-      { sym: "join", alias: "join", role: "flattens a list of lists (monadic join / concat)" },
+      { sym: "concat", alias: "concat", role: "flattens a list of lists (monadic join)" },
       { sym: "map", alias: "map", role: "applies a function to every element" },
       { sym: "null", alias: "null", role: "is the list empty?" },
     ],
