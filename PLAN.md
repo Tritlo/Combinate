@@ -53,9 +53,11 @@ for the trivial leaf, pick a documented default or fall back to the name `A`.
 ## Phase 1 — encoding-directed value reader (TS) — IMPLEMENTED
 
 > **Status (done on `refolding`).** Built as `src/core/value.ts`:
-> `readValue(n, depth)`, pure and bounded. Composed *ahead* of the Phase 2
-> re-folder in the lens — the read-out shows a compact value if the term is data,
-> else the most-named combinator form, else raw. Verified in-browser:
+> `readValue(n, depth)`, pure and bounded. **Always on** in the read-out: a
+> compact value is shown whenever the term is data, regardless of the lens. The
+> refold lens only *adds* combinator naming (Phase 2) for non-data terms. So the
+> pipeline is: value reader (always) → re-folder (lens on) → raw. Verified
+> in-browser:
 > `map succ (cons 1 (cons 1 nil)) → [2, 2]`, plus `2`, `[1, 1]`, `[[1],[2]]`,
 > `(1, 2)`, nested `[true]`; non-data → null (falls back).
 >
@@ -202,9 +204,9 @@ ambiguity (cost tuning), bundle size. Genuinely a multi-session effort.
 ## Open questions for the session
 
 1. Read-out: replace the sexp with the value, or show both (`raw  = value`)?
-   → **Resolved:** when the lens is on, the read-out shows one best form — a
-   compact value if data, else the most-named combinator form (strictly simpler),
-   else the raw masked sexp. Lens off by default; raw when off.
+   → **Resolved:** the read-out shows one best form. The compact value is shown
+   whenever the term is data (**always on**, no toggle). The refold lens adds the
+   most-named combinator form for non-data terms; raw masked sexp otherwise.
 2. Bare `A`/`KI` default reading — `0`, `[]`, `false`, or show the name `A`?
    → **Resolved:** the value reader does **not** read bare `A` (irreducibly
    `0`/`[]`/`false`/`nil`); it defers, and the combinator namer shows `A`. Same
