@@ -62,6 +62,9 @@ export async function mountApp(): Promise<void> {
   let drag: Drag = null;
   let snapTarget: TreeView | null = null;
   let focus: TreeView | null = null; // the tree whose expression is shown up top
+  // Active touch points (by id) + the previous pinch frame, for two-finger zoom.
+  const pointers = new Map<number, { x: number; y: number }>();
+  let pinch: { d: number; cx: number; cy: number } | null = null;
 
   const hint = new Text({
     text: "drag ι · snap trees · they reduce on their own · right-click deletes a node · T toggles layout · R clears",
@@ -305,7 +308,7 @@ export async function mountApp(): Promise<void> {
   }
 
   pixi.stage.on("pointerdown", (e: FederatedPointerEvent) => {
-    if (drag || e.button !== 0) return; // a tree/slot claimed it, or it's a right-click
+    if (drag || pinch || e.button !== 0) return; // a tree/slot claimed it, pinching, or a right-click
     drag = {
       kind: "pan",
       startX: e.global.x,
@@ -411,18 +414,57 @@ export async function mountApp(): Promise<void> {
     scheduleAuto(merged); // then it reduces on its own
   }
 
-  // Zoom toward the cursor.
+  // ---- camera zoom: mouse wheel (desktop) + two-finger pinch (touch) ----
+  // Set a new scale while keeping the screen point (sx, sy) fixed under it.
+  const zoomTo = (newScale: number, sx: number, sy: number): void => {
+    const s = Math.max(0.2, Math.min(4, newScale));
+    const ratio = s / world.scale.x;
+    world.position.set(sx - (sx - world.position.x) * ratio, sy - (sy - world.position.y) * ratio);
+    world.scale.set(s);
+  };
+
   pixi.canvas.addEventListener(
     "wheel",
     (ev) => {
       ev.preventDefault();
-      const factor = ev.deltaY < 0 ? 1.1 : 1 / 1.1;
-      const local = world.toLocal({ x: ev.clientX, y: ev.clientY });
-      world.scale.set(Math.max(0.2, Math.min(4, world.scale.x * factor)));
-      world.position.set(ev.clientX - local.x * world.scale.x, ev.clientY - local.y * world.scale.y);
+      zoomTo(world.scale.x * (ev.deltaY < 0 ? 1.1 : 1 / 1.1), ev.clientX, ev.clientY);
     },
     { passive: false },
   );
+
+  // Two-finger pinch: track touch points and zoom/pan around their midpoint.
+  // Starting a pinch drops any single-finger drag (its `drag` is cleared, so the
+  // Pixi move handler idles), and the stage won't begin a pan while pinching.
+  const pinchMetrics = (): { d: number; cx: number; cy: number } => {
+    const [a, b] = [...pointers.values()];
+    return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
+  };
+  pixi.canvas.addEventListener("pointerdown", (ev) => {
+    pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (pointers.size === 2) {
+      clearGhost();
+      drag = null; // hand control to the pinch
+      pinch = pinchMetrics();
+    }
+  });
+  pixi.canvas.addEventListener("pointermove", (ev) => {
+    const p = pointers.get(ev.pointerId);
+    if (!p) return;
+    p.x = ev.clientX;
+    p.y = ev.clientY;
+    if (pointers.size >= 2 && pinch) {
+      const cur = pinchMetrics();
+      world.position.set(world.position.x + (cur.cx - pinch.cx), world.position.y + (cur.cy - pinch.cy));
+      zoomTo(world.scale.x * (cur.d / pinch.d), cur.cx, cur.cy);
+      pinch = cur;
+    }
+  });
+  const endPointer = (ev: PointerEvent): void => {
+    pointers.delete(ev.pointerId);
+    pinch = pointers.size >= 2 ? pinchMetrics() : null;
+  };
+  pixi.canvas.addEventListener("pointerup", endPointer);
+  pixi.canvas.addEventListener("pointercancel", endPointer);
 
   const placeLegend = () => legend.position.set(16, window.innerHeight - 184);
   placeLegend();
@@ -537,6 +579,7 @@ export async function mountApp(): Promise<void> {
       expr: () => exprText.text,
       unlockAll: () => unlockAll(),
       openZoo: () => zoo.open(),
+      camera: () => ({ scale: world.scale.x, x: world.position.x, y: world.position.y }),
     };
   }
 }
