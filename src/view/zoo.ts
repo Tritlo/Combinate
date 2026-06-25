@@ -53,6 +53,23 @@ export class Zoo {
   private cardY = 0;
   private cardW = 0;
   private cardH = 0;
+  // On a narrow viewport the list and detail can't sit side by side, so the
+  // panel becomes master-detail: tap a row to open its detail, "‹ list" to go back.
+  private narrow = false;
+  private mobileDetail = false;
+
+  /** Width of the entry list (full panel on narrow screens, a fixed column otherwise). */
+  private get listW(): number {
+    return this.narrow ? this.cardW - 32 : LIST_W;
+  }
+  /** Left edge of the detail pane. */
+  private get detailX(): number {
+    return this.narrow ? this.cardX + 16 : this.cardX + 288;
+  }
+  /** Width of the detail pane. */
+  private get detailW(): number {
+    return this.narrow ? this.cardW - 32 : this.cardW - 316;
+  }
 
   /** The entries of the currently-selected page. */
   private get entries(): Entry[] {
@@ -69,6 +86,7 @@ export class Zoo {
 
   open(): void {
     this.panel.visible = true;
+    this.mobileDetail = false; // narrow: start on the list
     this.refresh();
   }
   close(): void {
@@ -107,6 +125,7 @@ export class Zoo {
     this.pageIdx = (this.pageIdx + delta + this.pages.length) % this.pages.length;
     this.selected = 0;
     this.listScroll = 0;
+    this.mobileDetail = false; // switching tab returns to the list
     this.listView.position.set(this.cardX + 16, this.cardY + LIST_TOP);
     this.refresh();
   }
@@ -119,6 +138,11 @@ export class Zoo {
     this.buildTabs();
     this.buildList();
     this.buildDetail();
+    // narrow: show either the list (with tabs) or the detail, not both
+    const showList = !this.narrow || !this.mobileDetail;
+    this.tabBar.visible = showList;
+    this.listView.visible = showList;
+    this.detail.visible = !this.narrow || this.mobileDetail;
   }
 
   /** Reposition for the current screen size. */
@@ -193,11 +217,13 @@ export class Zoo {
   /** The topic-page tabs (All / Booleans / Arithmetic). */
   private buildTabs(): void {
     for (const c of this.tabBar.removeChildren()) c.destroy({ children: true });
+    const size = this.narrow ? 13 : 14;
+    const gap = this.narrow ? 14 : 24;
     let x = this.cardX + 24;
     const y = this.cardY + 52;
     this.pages.forEach((page, i) => {
       const active = i === this.pageIdx;
-      const t = new Text({ text: page.name, style: { fontFamily: "monospace", fontSize: 14, fill: active ? theme.iota : theme.textDim } });
+      const t = new Text({ text: page.name, style: { fontFamily: "monospace", fontSize: size, fill: active ? theme.iota : theme.textDim } });
       t.position.set(x, y);
       t.eventMode = "static";
       t.cursor = "pointer";
@@ -206,23 +232,24 @@ export class Zoo {
         this.cyclePage(i - this.pageIdx);
       });
       this.tabBar.addChild(t);
-      if (active) this.tabBar.addChild(new Graphics().rect(x, y + 19, t.width, 2).fill({ color: theme.iota }));
-      x += t.width + 24;
+      if (active) this.tabBar.addChild(new Graphics().rect(x, y + 18, t.width, 2).fill({ color: theme.iota }));
+      x += t.width + gap;
     });
   }
 
   private placePanel(): void {
-    const w = Math.min(940, window.innerWidth - 80);
-    const h = Math.min(640, window.innerHeight - 80);
+    const w = Math.min(940, window.innerWidth - 24);
+    const h = Math.min(660, window.innerHeight - 24);
     this.cardW = w;
     this.cardH = h;
     this.cardX = (window.innerWidth - w) / 2;
     this.cardY = (window.innerHeight - h) / 2;
+    this.narrow = w < 560;
     this.backdrop.clear().rect(0, 0, window.innerWidth, window.innerHeight).fill({ color: theme.backdrop, alpha: theme.backdropAlpha });
     this.card.clear().roundRect(this.cardX, this.cardY, w, h, 14).fill({ color: theme.panel }).stroke({ width: 2, color: theme.border });
     this.title.position.set(this.cardX + 24, this.cardY + 18);
-    this.closeBtn.position.set(this.cardX + w - 26, this.cardY + 30);
-    this.listMask.clear().rect(this.cardX + 16, this.cardY + LIST_TOP, LIST_W, this.viewH()).fill({ color: 0xffffff });
+    this.closeBtn.position.set(this.cardX + w - 28, this.cardY + 28);
+    this.listMask.clear().rect(this.cardX + 16, this.cardY + LIST_TOP, this.listW, this.viewH()).fill({ color: 0xffffff });
     this.listScroll = 0;
     this.listView.position.set(this.cardX + 16, this.cardY + LIST_TOP);
   }
@@ -234,7 +261,7 @@ export class Zoo {
       const known = entry.law === null || this.isDiscovered(entry.sym);
       const row = new Container();
       row.position.set(0, i * rowH);
-      if (i === this.selected) row.addChild(new Graphics().roundRect(0, 0, LIST_W, rowH - 4, 5).fill({ color: theme.select }));
+      if (i === this.selected) row.addChild(new Graphics().roundRect(0, 0, this.listW, rowH - 4, 5).fill({ color: theme.select }));
       const num = new Text({ text: `#${String(entry.num).padStart(2, "0")}`, style: { fontFamily: "monospace", fontSize: 13, fill: theme.textDim } });
       num.position.set(10, 7);
       const name = new Text({ text: known ? (entry.alias ?? entry.sym) : "?", style: { fontFamily: "monospace", fontSize: 15, fill: known ? theme.text : theme.textDim } });
@@ -242,13 +269,14 @@ export class Zoo {
       row.addChild(num, name);
       row.eventMode = "static";
       row.cursor = "pointer";
-      row.hitArea = new Rectangle(0, 0, LIST_W, rowH - 4);
+      row.hitArea = new Rectangle(0, 0, this.listW, rowH - 4);
       row.on("pointerdown", (e: FederatedPointerEvent) => {
         e.stopPropagation();
         // ignore clicks on rows scrolled outside the visible window (the mask
         // clips drawing, not hit-testing)
         if (i * rowH + rowH < this.listScroll || i * rowH > this.listScroll + this.viewH()) return;
         this.selected = i;
+        if (this.narrow) this.mobileDetail = true; // narrow: tapping a row opens its detail
         this.refresh();
       });
       this.listView.addChild(row);
@@ -260,9 +288,23 @@ export class Zoo {
     for (const c of this.detail.removeChildren()) c.destroy({ children: true });
     const entry = this.entries[this.selected];
     const known = entry.law === null || this.isDiscovered(entry.sym);
-    const dx = this.cardX + 288;
+    const dx = this.detailX;
     const dy = this.cardY + LIST_TOP;
-    const dw = this.cardW - 288 - 28;
+    const dw = this.detailW;
+
+    if (this.narrow) {
+      // master-detail: a tap target to return to the list
+      const back = new Text({ text: "‹ list", style: { fontFamily: "monospace", fontSize: 14, fill: theme.iota } });
+      back.position.set(this.cardX + 24, this.cardY + 50);
+      back.eventMode = "static";
+      back.cursor = "pointer";
+      back.on("pointerdown", (e: FederatedPointerEvent) => {
+        e.stopPropagation();
+        this.mobileDetail = false;
+        this.refresh();
+      });
+      this.detail.addChild(back);
+    }
 
     const tree: Node = entry.law === null ? iota() : iotaTreeOf(entry.law);
     const meta = META[entry.sym];
