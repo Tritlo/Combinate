@@ -68,7 +68,7 @@ export async function mountApp(): Promise<void> {
   let pinch: { d: number; cx: number; cy: number } | null = null;
 
   const hint = new Text({
-    text: "drag ι · snap trees · they reduce on their own · right-click deletes a node · T toggles layout · R clears",
+    text: "drag ι · snap trees · they reduce on their own · right-click deletes a node",
     style: { fontFamily: "monospace", fontSize: 14, fill: theme.textDim },
   });
   hint.position.set(16, 14);
@@ -166,6 +166,7 @@ export async function mountApp(): Promise<void> {
     for (const t of trees) t.refresh();
     zoo.refresh();
     updateHint();
+    paintRail();
     toast.show("all combinators unlocked");
   }
 
@@ -188,6 +189,7 @@ export async function mountApp(): Promise<void> {
     for (const t of trees) t.refresh(); // reveal newly-known combinators everywhere
     zoo.refresh();
     updateHint();
+    paintRail();
   }
 
   // ---- auto-reduce on idle (§6.4): each tree, left untouched for a beat,
@@ -270,7 +272,9 @@ export async function mountApp(): Promise<void> {
   );
   hotbar.refresh();
   hud.addChild(hotbar.container);
-  hud.addChild(zoo.container); // last → the Zoo overlay sits on top of the hotbar
+  const rail = new Container(); // left-edge button rail (built below); under the Zoo overlay
+  hud.addChild(rail);
+  hud.addChild(zoo.container); // last → the Zoo overlay sits on top of the hotbar + rail
   updateHint();
 
   function onTreeDown(tree: TreeView, e: FederatedPointerEvent): void {
@@ -500,6 +504,7 @@ export async function mountApp(): Promise<void> {
     ghostLabel.style.fill = theme.text;
     paintLegend(legend);
     paintThemeBtn();
+    paintRail();
     hotbar.refresh();
     zoo.applyTheme();
     for (const t of trees) t.refresh();
@@ -511,6 +516,7 @@ export async function mountApp(): Promise<void> {
     hotbar.layout();
     placeLegend();
     placeThemeBtn();
+    placeRail();
     toast.layout();
     placeExpr();
     zoo.layout();
@@ -534,6 +540,79 @@ export async function mountApp(): Promise<void> {
     layoutFn = layoutFn === layoutTopDown ? layoutRadial : layoutTopDown;
     for (const t of trees) t.setLayout(layoutFn);
   }
+
+  // ---- left rail: open the Zoo (Pokédex) + canvas actions. Touch-friendly
+  // equivalents of the T / R / U keys; each draws a small glyph + a label. ----
+  const drawDex = (g: Graphics, c: number): void => {
+    g.circle(0, -3, 10).stroke({ width: 2.5, color: c }); // scanner lens ring
+    g.circle(0, -3, 4).fill({ color: c }); // lens centre
+    g.circle(9, -12, 2).fill({ color: c }); // LED
+    g.circle(13.5, -12, 1.5).fill({ color: theme.textDim }); // LED
+    g.roundRect(-9, 9, 18, 4, 1.5).stroke({ width: 1.5, color: c }); // screen strip
+  };
+  const drawLayout = (g: Graphics, c: number): void => {
+    const ends: [number, number][] = [[-10, 8], [10, 8], [0, -11]];
+    for (const [x, y] of ends) g.moveTo(0, 0).lineTo(x, y);
+    g.stroke({ width: 2, color: c });
+    g.circle(0, 0, 3.5).fill({ color: c });
+    for (const [x, y] of ends) g.circle(x, y, 3).fill({ color: c });
+  };
+  const drawClear = (g: Graphics, c: number): void => {
+    g.roundRect(-4, -12, 8, 3, 1).stroke({ width: 2, color: c }); // handle
+    g.moveTo(-10, -7).lineTo(10, -7).stroke({ width: 2.5, color: c }); // lid
+    g.moveTo(-8, -5).lineTo(-6, 12).lineTo(6, 12).lineTo(8, -5).stroke({ width: 2, color: c }); // body
+    g.moveTo(-3, -2).lineTo(-2, 9).moveTo(3, -2).lineTo(2, 9).stroke({ width: 1.5, color: c }); // ribs
+  };
+  const drawUnlock = (g: Graphics, c: number): void => {
+    g.roundRect(-8, 0, 16, 13, 2.5).stroke({ width: 2, color: c }); // body
+    g.circle(0, 6, 1.8).fill({ color: c }); // keyhole
+    g.arc(-4, -2, 6, Math.PI * 0.5, Math.PI * 1.6).stroke({ width: 2, color: c }); // open shackle
+  };
+  const RAIL: { label: string; draw: (g: Graphics, c: number) => void; brand?: boolean; count?: boolean; act: () => void }[] = [
+    { label: "Dex", draw: drawDex, brand: true, count: true, act: () => zoo.toggle() },
+    { label: "layout", draw: drawLayout, act: () => toggleLayout() },
+    { label: "clear", draw: drawClear, act: () => clearCanvas() },
+    { label: "unlock", draw: drawUnlock, act: () => unlockAll() },
+  ];
+  const railButtons = RAIL.map((def) => {
+    const c = new Container();
+    c.eventMode = "static";
+    c.cursor = "pointer";
+    c.hitArea = new Rectangle(-26, -24, 52, 62);
+    c.on("pointerdown", (e: FederatedPointerEvent) => {
+      e.stopPropagation();
+      def.act();
+    });
+    rail.addChild(c);
+    return { def, c };
+  });
+  function paintRail(): void {
+    for (const { def, c } of railButtons) {
+      for (const ch of c.removeChildren()) ch.destroy({ children: true });
+      const accent = def.brand ? theme.iota : theme.accent;
+      const bg = new Graphics().roundRect(-22, -22, 44, 44, 9).fill({ color: theme.panel }).stroke({ width: 1.5, color: def.brand ? theme.iota : theme.border });
+      const icon = new Graphics();
+      def.draw(icon, accent);
+      const label = new Text({ text: def.label, style: { fontFamily: "monospace", fontSize: 11, fill: theme.textDim } });
+      label.anchor.set(0.5, 0);
+      label.position.set(0, 24);
+      c.addChild(bg, icon, label);
+      if (def.count) {
+        const found = CATALOG.filter((l) => isDiscovered(l.sym)).length;
+        const cnt = new Text({ text: `${found}/${CATALOG.length}`, style: { fontFamily: "monospace", fontSize: 10, fill: theme.textDim } });
+        cnt.anchor.set(0.5, 0);
+        cnt.position.set(0, 37);
+        c.addChild(cnt);
+      }
+    }
+  }
+  function placeRail(): void {
+    const step = 72;
+    const top = window.innerHeight / 2 - ((railButtons.length - 1) * step) / 2;
+    railButtons.forEach(({ c }, i) => c.position.set(38, top + i * step));
+  }
+  paintRail();
+  placeRail();
 
   window.addEventListener("keydown", (e) => {
     if (zoo.isOpen) {

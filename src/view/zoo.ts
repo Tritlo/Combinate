@@ -29,10 +29,9 @@ interface Page {
  * its formula. Undiscovered entries show a "?". Toggled by a left-edge icon.
  */
 export class Zoo {
-  /** Holds the always-visible icon and the (toggled) overlay panel. */
+  /** The toggled overlay panel (the open/close button lives in the shell's rail). */
   readonly container = new Container();
 
-  private readonly icon = new Container();
   private readonly panel = new Container();
   private readonly backdrop = new Graphics();
   private readonly card = new Graphics();
@@ -78,10 +77,9 @@ export class Zoo {
 
   constructor(private readonly isDiscovered: (sym: string) => boolean) {
     this.pages = buildPages();
-    this.buildIcon();
     this.buildPanel();
     this.panel.visible = false;
-    this.container.addChild(this.icon, this.panel);
+    this.container.addChild(this.panel);
   }
 
   open(): void {
@@ -130,10 +128,8 @@ export class Zoo {
     this.refresh();
   }
 
-  /** Repaint the always-visible icon (its discovered count) and, when open, the
-   *  tabs + list + detail. Called on a discovery, unlock, open, or page switch. */
+  /** Rebuild the panel contents (after a discovery, unlock, open, or page switch). */
   refresh(): void {
-    this.paintIcon();
     if (!this.panel.visible) return;
     this.buildTabs();
     this.buildList();
@@ -145,43 +141,13 @@ export class Zoo {
     this.detail.visible = !this.narrow || this.mobileDetail;
   }
 
-  /** Reposition for the current screen size. */
+  /** Reposition for the current screen size (and repaint on a theme change). */
   layout(): void {
-    this.icon.position.set(34, window.innerHeight / 2);
     this.placePanel();
     this.refresh();
   }
-
-  /** Repaint for a theme change: the always-visible icon plus the panel. */
   applyTheme(): void {
     this.layout();
-  }
-
-  // ---- the toggle icon: a little catalog/book ----
-  private buildIcon(): void {
-    this.paintIcon();
-    this.icon.eventMode = "static";
-    this.icon.cursor = "pointer";
-    this.icon.hitArea = new Rectangle(-24, -26, 48, 64);
-    this.icon.on("pointerdown", (e: FederatedPointerEvent) => {
-      e.stopPropagation();
-      this.toggle();
-    });
-  }
-  private paintIcon(): void {
-    for (const c of this.icon.removeChildren()) c.destroy({ children: true });
-    const g = new Graphics().roundRect(-20, -22, 40, 44, 5).fill({ color: theme.panel }).stroke({ width: 2, color: theme.iota });
-    g.moveTo(-20, -22).lineTo(-20, 22).stroke({ width: 2, color: theme.iota }); // spine
-    for (let i = 0; i < 3; i++) g.moveTo(-10, -10 + i * 10).lineTo(12, -10 + i * 10);
-    g.stroke({ width: 1.5, color: theme.textDim });
-    const label = new Text({ text: "Zoo", style: { fontFamily: "monospace", fontSize: 12, fill: theme.iota } });
-    label.anchor.set(0.5, 0);
-    label.position.set(0, 26);
-    const found = CATALOG.filter((l) => this.isDiscovered(l.sym)).length;
-    const count = new Text({ text: `${found}/${CATALOG.length}`, style: { fontFamily: "monospace", fontSize: 11, fill: theme.textDim } });
-    count.anchor.set(0.5, 0);
-    count.position.set(0, 41);
-    this.icon.addChild(g, label, count);
   }
 
   // ---- the overlay panel ----
