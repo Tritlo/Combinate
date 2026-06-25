@@ -110,7 +110,25 @@ the data players compute. **This alone satisfies the stated example.**
 
 ---
 
-## Phase 2 — general re-sugarer via egg (Rust → WASM), optional
+## Phase 2 — general re-sugarer via egg (Rust → WASM) — IMPLEMENTED
+
+> **Status (done on `refolding`).** Built as specified: `crates/refold/` (egg →
+> wasm), rules generated from the catalog, a display-only **refold lens** in the
+> shell (rail button / `F`), off by default and lazy-loaded. Pure boundary in
+> `src/core/refold.ts`; the wasm is a driven adapter wired by `src/app.ts`. See
+> ADR `docs/adr/0002-egg-wasm-refolder.md` and `crates/refold/README.md`.
+>
+> **What it recovers (measured, in-browser e2e):** assembled SKI structure folds
+> cleanly — `S(KS)K → B`, `S I I → M`, `S S K → X`, `K I → A`, `(S(KS)K)(S(KS)K)
+> → B B`. The read-out shows the folded form when the lens is on.
+>
+> **What it does *not* do:** collapse **eta-equivalent** forms to the simplest
+> name (`S K K`, behaviourally `I`, folds to a sound-but-quirky `M2 K`) —
+> extensionality is outside first-order e-matching. A guard in `refold.ts` only
+> replaces the read-out when the folding is *strictly simpler*, so it never makes
+> a term less readable. Consequently egg does **not** subsume the Phase 1 value
+> reader: recovering `[2,2]` from a fully-reduced point-free form is still out of
+> reach. Do Phase 1 too if compact data values are wanted (Q4 below).
 
 For folding *arbitrary* combinator expressions (not just data values) back to
 named form. Heavier; only pursue if Phase 1 proves insufficient.
@@ -165,9 +183,18 @@ ambiguity (cost tuning), bundle size. Genuinely a multi-session effort.
 ## Open questions for the session
 
 1. Read-out: replace the sexp with the value, or show both (`raw  = value`)?
+   → **Resolved (Phase 2):** replace with the folded form when the lens is on
+   *and* it is strictly simpler; otherwise the raw (masked) sexp. Lens off by
+   default.
 2. Bare `A`/`KI` default reading — `0`, `[]`, `false`, or show the name `A`?
+   → **Resolved (Phase 2):** the re-folder shows `A` (its canonical catalog
+   name). A value reader (Phase 1) would still be needed to read it as `0`/`[]`.
 3. List sugar for elements that aren't clean values — show `?` or the raw head?
+   → Still open; only relevant to Phase 1 (the value reader), not built.
 4. Do Phase 2 at all, or is Phase 1 enough?
+   → **Resolved:** Phase 2 built. It does not subsume Phase 1 (no data values
+   from point-free NFs) — do Phase 1 as a complement if `[2,2]`-style readings
+   are wanted.
 
 ## Pointers
 
