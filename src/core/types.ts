@@ -15,9 +15,11 @@ import { recognizeDeep } from "./refold";
  *
  * Reading returns a typed `Val` tree; the shell renders it. The `hint` (from the
  * hotbar page, or propagated from a sibling) forces a reading and resolves the
- * bare-combinator ambiguity (`A` is `0`/`[]`/`false` only once a tag says which);
- * without it we auto-discover and defer the trivial values, so a bare `A` stays
- * `A`.
+ * bare-combinator ambiguity. Under the Scott encoding the three trivial values
+ * `0`/`[]`/`false` all coincide on the Kestrel `K`, so a bare `K` is deferred
+ * (stays `K`) until a tag says which it is; everything else — numerals ≥ 1,
+ * non-empty lists, `true` (= `A`), pairs — has an unambiguous shape and reads on
+ * its own.
  */
 
 /** A reading to force a tree into. Mirrors the typed hotbar pages. */
@@ -78,9 +80,11 @@ export function read(n: Node, hint: Ty | null = null, depth = 0): Val | null {
     const heads = matchList(n);
     return heads === null ? null : readList(heads, depth);
   }
-  // auto-discover — defer trivial values (`0` always; `1`/`true` at the top).
+  // auto-discover — the only deferred reading is the bare `K` (= `0`/`[]`/`false`,
+  // all three coincide on the Kestrel); a numeral ≥ 1, a non-empty list, `true`
+  // (= `A`) and a pair each have an unambiguous shape, so read them at any depth.
   const k = matchNumeral(n);
-  if (k !== null && (k >= 2 || (k === 1 && depth > 0))) return { t: "int", n: k };
+  if (k !== null && k >= 1) return { t: "int", n: k };
   const heads = matchList(n);
   if (heads && heads.length > 0) {
     const v = readList(heads, depth);
@@ -91,7 +95,7 @@ export function read(n: Node, hint: Ty | null = null, depth = 0): Val | null {
     const v = readPair(pair, depth);
     if (v) return v;
   }
-  if (depth > 0 && matchBool(n) === true) return { t: "bool", b: true };
+  if (matchBool(n) === true) return { t: "bool", b: true };
   return null;
 }
 
