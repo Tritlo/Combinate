@@ -1,6 +1,10 @@
 node_modules/
 dist/
 *.log
+
+# Rust build output for the egg re-folder (the generated wasm in
+# crates/refold/pkg/ IS committed so CI can bundle it without a Rust toolchain).
+crates/*/target/
 .DS_Store
 src/_smoke.ts
 e2e.local.mjs
