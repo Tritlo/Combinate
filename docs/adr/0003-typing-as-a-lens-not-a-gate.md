@@ -63,11 +63,14 @@ current hotbar page. Two pieces, both opt-in, neither blocking the sandbox:
    re-sugaring: type (page seed + intra-structure inference) routes each part to a
    value reading or a combinator name.
 
-2. **Simple-type inference lens (future).** HM over the SKI/named tree
-   (`K:a→b→a`, `S:(a→b→c)→(a→b)→a→c`; named birds get their derived type). Returns the
-   principal type *or* "untypable (self-application)". Powers a badge: "this bird is
-   `(a→a)→a→a`" vs "no simple type — that's the price of recursion." Independent of
-   (1); not yet built.
+2. **Simple-type inference lens (built).** Hindley–Milner over the tree
+   (`src/core/infer.ts`): `K:a→b→a`, `S:(a→b→c)→(a→b)→a→c` are hard-coded; named
+   birds get a scheme inferred once from their SKI def and instantiated per use;
+   `ι` uses its SKI form. Inferred on the *normal form* (so `ι ι :: a → a`,
+   behavioural like the rest of the app). A failed unify (occurs check) → no simple
+   type, so `M`/`L`/`U`/`Y` read "no simple type — the price of recursion" while
+   `S`/`K`/`B`/`C`/`W` and the numerals get textbook types. A "type" rail toggle
+   badges it onto the read-out. Independent of (1).
 
 A typed page replaces the per-node *annotation* seed considered earlier: reduction
 discards the typed `Succ`/`cons` nodes, so a raw normal form carries no type — a
@@ -76,9 +79,8 @@ page-as-mode is the cheapest seed that needs no per-node state and no reducer ch
 ## Consequences
 
 - Core stays pure/deterministic (ADR 0001): `readAs`/`readValue` = run-on-eliminators
-  + read; inference (future) = unification. No Pixi/DOM/time. The matchers are shared
-  by both the auto reader and the forced reader — one structural definition, two
-  policies.
+  + read; inference = unification. No Pixi/DOM/time. The matchers are shared by both
+  the auto reader and the forced reader — one structural definition, two policies.
 - We never reject a build for being ill-typed. Worst case a page reads "doesn't fit"
   and falls back to the auto value / combinator re-folder / raw sexp — information,
   not a wall.
