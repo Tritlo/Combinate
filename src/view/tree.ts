@@ -1,11 +1,10 @@
 import { Container, Graphics, Rectangle, Text, type Ticker } from "pixi.js";
-import { type Node, type NodeId, iotaTreeFrom } from "../core/term";
-import { IOTA_CODE } from "../core/catalog";
+import { type Node, type NodeId, iotaTreeFrom, IOTA_ID_SPAN } from "../core/term";
+import { IOTA_CODE, IOTA_BITCODE } from "../core/catalog";
 import { type Layout, type LayoutFn } from "../core/layout";
 import { theme } from "./theme";
 
 const LAYOUT_MS = 360; // duration of the layout-toggle reflow
-const EXPAND_SPAN = 32; // id range reserved per expanded combinator (must exceed its ι-tree size)
 // Node/edge colours come from the active theme (theme.ts). Edges: function
 // (left) = theme.fnEdge (warm), argument (right) = theme.argEdge (cool) — two
 // distinct hues so `(ι X)` and `(X ι)` read differently.
@@ -57,6 +56,8 @@ export class TreeView {
      * are rendered as their full ι-tree, not their letter, until discovered. */
     private readonly isDiscovered: (sym: string) => boolean,
     private layoutFn: LayoutFn,
+    /** "Expand" view: render *every* combinator as its full ι-tree, not its name. */
+    private readonly expandAll: () => boolean = () => false,
   ) {
     this.node = node;
     this.display = this.expand(node);
@@ -124,7 +125,7 @@ export class TreeView {
     if (best === null) return null;
     // expansion nodes have negative ids derived from their source comb — map a
     // pick inside an expanded ι-tree back to that combinator in the logical term.
-    return best < 0 ? Math.floor((-best - 1) / EXPAND_SPAN) : best;
+    return best < 0 ? Math.floor((-best - 1) / IOTA_ID_SPAN) : best;
   }
 
   /** Each node's current position in world-container coordinates (tree anchor +
@@ -276,7 +277,9 @@ export class TreeView {
   private expand(n: Node): Node {
     switch (n.kind) {
       case "comb": {
-        const code = !this.isDiscovered(n.sym) ? IOTA_CODE[n.sym] : undefined;
+        // "Expand" view → every combinator's full ι-tree; otherwise only
+        // undiscovered S/K/I are shown as ι (the discovery mask).
+        const code = this.expandAll() ? IOTA_BITCODE[n.sym] : !this.isDiscovered(n.sym) ? IOTA_CODE[n.sym] : undefined;
         return code ? iotaTreeFrom(code, n.id) : n;
       }
       case "app":

@@ -66,6 +66,7 @@ export async function mountApp(): Promise<void> {
   // Active touch points (by id) + the previous pinch frame, for two-finger zoom.
   const pointers = new Map<number, { x: number; y: number }>();
   let pinch: { d: number; cx: number; cy: number } | null = null;
+  let expandAll = false; // "Expand" view: draw every combinator as its full ι-tree
 
   const hint = new Text({
     text: "drag ι · snap trees · they reduce on their own · right-click deletes a node",
@@ -254,7 +255,7 @@ export async function mountApp(): Promise<void> {
 
   function spawnTree(node: Node, screenX: number, screenY: number): TreeView {
     const w = screenToWorld(screenX, screenY);
-    const tree = new TreeView(node, w.x, w.y, pixi.ticker, isDiscovered, layoutFn);
+    const tree = new TreeView(node, w.x, w.y, pixi.ticker, isDiscovered, layoutFn, () => expandAll);
     addTree(tree);
     focus = tree;
     return tree;
@@ -412,7 +413,7 @@ export async function mountApp(): Promise<void> {
       trees.splice(trees.indexOf(old), 1);
       old.destroy();
     }
-    const merged = new TreeView(root, ax, ay, pixi.ticker, isDiscovered, layoutFn);
+    const merged = new TreeView(root, ax, ay, pixi.ticker, isDiscovered, layoutFn, () => expandAll);
     addTree(merged);
     focus = merged;
     merged.animateAttachFrom(fromWorld, ATTACH_MS); // smooth merge into the app tree
@@ -541,6 +542,13 @@ export async function mountApp(): Promise<void> {
     for (const t of trees) t.setLayout(layoutFn);
   }
 
+  // Toggle the "expand everything to ι" view (read by TreeView.expand).
+  function toggleExpand(): void {
+    expandAll = !expandAll;
+    for (const t of trees) t.refresh();
+    paintRail();
+  }
+
   // ---- left rail: open the Zoo (Pokédex) + canvas actions. Touch-friendly
   // equivalents of the T / R / U keys; each draws a small glyph + a label. ----
   const drawDex = (g: Graphics, c: number): void => {
@@ -568,9 +576,18 @@ export async function mountApp(): Promise<void> {
     g.circle(0, 6, 1.8).fill({ color: c }); // keyhole
     g.arc(-4, -2, 6, Math.PI * 0.5, Math.PI * 1.6).stroke({ width: 2, color: c }); // open shackle
   };
-  const RAIL: { label: string; draw: (g: Graphics, c: number) => void; brand?: boolean; count?: boolean; act: () => void }[] = [
+  const drawExpand = (g: Graphics, c: number): void => {
+    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as [number, number][]) {
+      g.moveTo(sx * 3, sy * 3).lineTo(sx * 11, sy * 11); // shaft to corner
+      g.moveTo(sx * 11, sy * 11).lineTo(sx * 4, sy * 11).moveTo(sx * 11, sy * 11).lineTo(sx * 11, sy * 4); // arrowhead
+    }
+    g.stroke({ width: 2, color: c });
+  };
+  type RailDef = { label: string; draw: (g: Graphics, c: number) => void; brand?: boolean; count?: boolean; active?: () => boolean; act: () => void };
+  const RAIL: RailDef[] = [
     { label: "Dex", draw: drawDex, brand: true, count: true, act: () => zoo.toggle() },
     { label: "layout", draw: drawLayout, act: () => toggleLayout() },
+    { label: "expand", draw: drawExpand, active: () => expandAll, act: () => toggleExpand() },
     { label: "clear", draw: drawClear, act: () => clearCanvas() },
     { label: "unlock", draw: drawUnlock, act: () => unlockAll() },
   ];
@@ -589,11 +606,13 @@ export async function mountApp(): Promise<void> {
   function paintRail(): void {
     for (const { def, c } of railButtons) {
       for (const ch of c.removeChildren()) ch.destroy({ children: true });
-      const accent = def.brand ? theme.iota : theme.accent;
-      const bg = new Graphics().roundRect(-22, -22, 44, 44, 9).fill({ color: theme.panel }).stroke({ width: 1.5, color: def.brand ? theme.iota : theme.border });
+      const on = def.active?.() ?? false; // a toggle button in its "on" state
+      const accent = on || def.brand ? theme.iota : theme.accent;
+      const border = on || def.brand ? theme.iota : theme.border;
+      const bg = new Graphics().roundRect(-22, -22, 44, 44, 9).fill({ color: on ? theme.select : theme.panel }).stroke({ width: on ? 2 : 1.5, color: border });
       const icon = new Graphics();
       def.draw(icon, accent);
-      const label = new Text({ text: def.label, style: { fontFamily: "monospace", fontSize: 11, fill: theme.textDim } });
+      const label = new Text({ text: def.label, style: { fontFamily: "monospace", fontSize: 11, fill: on ? theme.iota : theme.textDim } });
       label.anchor.set(0.5, 0);
       label.position.set(0, 24);
       c.addChild(bg, icon, label);
@@ -625,6 +644,7 @@ export async function mountApp(): Promise<void> {
     if (e.key === "r" || e.key === "R") clearCanvas();
     else if (e.key === "t" || e.key === "T") toggleLayout();
     else if (e.key === "u" || e.key === "U") unlockAll();
+    else if (e.key === "x" || e.key === "X") toggleExpand();
     else if (e.key === "z" || e.key === "Z") zoo.toggle();
   });
 

@@ -381,3 +381,10 @@ export function iotaTreeOf(law: Law): Node {
 export function countIotas(n: Node): number {
   return n.kind === "app" ? countIotas(n.fn) + countIotas(n.arg) : n.kind === "iota" ? 1 : 0;
 }
+
+/** Barker bit-code of a pure-ι tree (`1` = ι, `0 <fn> <arg>` = app). */
+const encodeIota = (n: Node): string => (n.kind === "app" ? "0" + encodeIota(n.fn) + encodeIota(n.arg) : "1");
+
+/** Each combinator's full ι-tree as a bit-code, for the "expand everything to ι"
+ *  view — keyed by symbol (includes the transient I/K/S). */
+export const IOTA_BITCODE: Record<string, string> = Object.fromEntries(CATALOG.map((l) => [l.sym, encodeIota(iotaTreeOf(l))]));
