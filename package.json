@@ -1,19 +1,22 @@
 {
   "name": "combinate",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "gen:rules": "tsx scripts/gen-rules.ts",
+    "build:wasm": "npm run gen:rules && (cd crates/refold && wasm-pack build --target web --out-dir pkg --release) && rm -f crates/refold/pkg/.gitignore"
   },
   "dependencies": {
     "pixi.js": "^8.6.0"
   },
   "devDependencies": {
     "playwright-core": "^1.61.1",
+    "tsx": "^4.22.4",
     "typescript": "^5.7.0",
     "vite": "^6.0.0"
   }

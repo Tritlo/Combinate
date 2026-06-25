@@ -1,0 +1,55 @@
+# refold — egg-based re-sugarer (PLAN.md Phase 2)
+
+Folds a combinator term (SKI/ι form) back to its most-named reading, e.g.
+`S (K S) K → B`. Used by the app's **refold lens** (the read-out shows the folded
+form when the lens is on). Display-only: it never changes reduction or discovery.
+
+## How it works
+
+- `src/lib.rs` — a first-order [`egg`](https://crates.io/crates/egg) e-graph.
+  Language is binary application (`@`) over symbol leaves. Every catalog law is a
+  **bidirectional** rewrite; a cost function makes raw ι/S/K expensive and named
+  birds cheap, so extraction returns the most-folded equivalent. Hard node / iter
+  / time limits keep folding rules from blowing the graph up.
+- `src/rules.txt` — **generated** from `src/core/catalog.ts` (the single source of
+  truth) by `scripts/gen-rules.ts`. Do not edit by hand.
+- Compiled to wasm and loaded lazily by the shell (`src/app.ts`); the pure
+  `Node ⇄ egg s-expr` boundary lives in `src/core/refold.ts`.
+
+## Build
+
+The wasm is **not committed** — it is built from source (so it always matches the
+catalog and never bloats git history). From the repo root:
+
+```sh
+npm run build:wasm   # gen rules from the catalog, then wasm-pack build → crates/refold/pkg/
+```
+
+This is also what CI runs before `npm run build`. On a fresh checkout you must run
+it once before `npm run dev`/`npm run build`, since the shell imports the generated
+`pkg/` (and `tsc` needs its types). Requires `wasm-pack` + the `wasm32-unknown-unknown`
+target. Quick local sanity check of folding quality (native, fast):
+
+```sh
+cd crates/refold && cargo run --release --example probe
+```
+
+## Behavioural pre-pass
+
+egg reasons *syntactically* — it re-sugars assembled structure (`S(KS)K → B`) but
+cannot collapse **eta-equivalent** forms (`S K K`, behaviourally `I`). So the
+re-folder runs a **behavioural pre-pass first** (`recognizeDeep` in
+`src/core/refold.ts`): it recursively applies the existing `recognize` probe —
+which *is* extensional (it reduces the term applied to fresh variables) — to name
+every single-combinator subterm, including the eta cases egg misses. Its residual
+is then handed to egg for any remaining multi-combinator folds. The pre-pass is
+pure TS, so the lens also works (behaviourally) if the wasm fails to load.
+
+## Scope
+
+Neither stage here reads **data values** — a Church numeral or list is not a
+single catalog combinator, so `[2, 2]` is not recovered by the re-folder. That is
+the encoding-directed value reader (`src/core/value.ts`, PLAN.md Phase 1), which
+the lens runs *ahead* of this re-folder. The TS guard only shows a folding when
+it is strictly simpler than the input, so the lens never makes a term *less*
+readable.

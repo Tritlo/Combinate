@@ -1,6 +1,12 @@
 node_modules/
 dist/
 *.log
+
+# Rust build output for the egg re-folder. The wasm is built from source in CI
+# (and locally via `npm run build:wasm`), never committed — keeps the binary out
+# of git history / clones.
+crates/*/target/
+crates/refold/pkg/
 .DS_Store
 src/_smoke.ts
 e2e.local.mjs

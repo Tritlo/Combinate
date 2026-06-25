@@ -21,11 +21,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # ---- Build the egg re-folder (Rust → WASM) from source, so the deployed
+      # bundle is reproducible and always matches the catalog. Nothing pre-built
+      # is committed. ubuntu-latest ships Rust + rustup; we add the wasm target,
+      # cache the crate build, and pin wasm-pack. ----
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/refold
+      - name: Install wasm-pack (pinned)
+        run: |
+          curl -sSL https://github.com/rustwasm/wasm-pack/releases/download/v0.15.0/wasm-pack-v0.15.0-x86_64-unknown-linux-musl.tar.gz | tar -xz
+          mv wasm-pack-*/wasm-pack "$HOME/.cargo/bin/wasm-pack"
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm run build:wasm # gen rules from the catalog, then wasm-pack build → crates/refold/pkg/
       - run: npm run build # tsc --noEmit && vite build → dist/ (base "./" works on the /Combinate/ subpath)
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
