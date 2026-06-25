@@ -118,17 +118,22 @@ the data players compute. **This alone satisfies the stated example.**
 > `src/core/refold.ts`; the wasm is a driven adapter wired by `src/app.ts`. See
 > ADR `docs/adr/0002-egg-wasm-refolder.md` and `crates/refold/README.md`.
 >
-> **What it recovers (measured, in-browser e2e):** assembled SKI structure folds
-> cleanly — `S(KS)K → B`, `S I I → M`, `S S K → X`, `K I → A`, `(S(KS)K)(S(KS)K)
-> → B B`. The read-out shows the folded form when the lens is on.
+> **Two stages.** A **behavioural pre-pass** (`recognizeDeep`, pure TS) runs
+> first: it recursively applies the `recognize` probe — which is *extensional*
+> (reduces the term on fresh vars) — to name single-combinator subterms,
+> including the eta-equivalent forms egg can't (`S K K → I`, `ι ι → I`). Its
+> residual is handed to **egg** for any remaining multi-combinator structural
+> folds. The pre-pass also works without the wasm (graceful fallback).
 >
-> **What it does *not* do:** collapse **eta-equivalent** forms to the simplest
-> name (`S K K`, behaviourally `I`, folds to a sound-but-quirky `M2 K`) —
-> extensionality is outside first-order e-matching. A guard in `refold.ts` only
-> replaces the read-out when the folding is *strictly simpler*, so it never makes
-> a term less readable. Consequently egg does **not** subsume the Phase 1 value
-> reader: recovering `[2,2]` from a fully-reduced point-free form is still out of
-> reach. Do Phase 1 too if compact data values are wanted (Q4 below).
+> **What it recovers (measured, in-browser e2e):** `S(KS)K → B`, `S I I → M`,
+> `S S K → X`, `K I → A`, `(S(KS)K)(S(KS)K) → B B`, and — via the pre-pass —
+> `S K K → I`. The read-out shows the folded form when the lens is on.
+>
+> **What it does *not* do:** read **data values**. A Church numeral / list is not
+> a single catalog combinator, so `[2,2]` from a point-free NF is out of reach
+> here — that is Phase 1, composed ahead of this in the lens. A guard in
+> `refold.ts` only replaces the read-out when the folding is *strictly simpler*,
+> so it never makes a term less readable.
 
 For folding *arbitrary* combinator expressions (not just data values) back to
 named form. Heavier; only pursue if Phase 1 proves insufficient.
