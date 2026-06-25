@@ -16,20 +16,19 @@ form when the lens is on). Display-only: it never changes reduction or discovery
 - Compiled to wasm and loaded lazily by the shell (`src/app.ts`); the pure
   `Node ⇄ egg s-expr` boundary lives in `src/core/refold.ts`.
 
-## Regenerate + rebuild
+## Build
 
-From the repo root, after changing the catalog or the rules:
+The wasm is **not committed** — it is built from source (so it always matches the
+catalog and never bloats git history). From the repo root:
 
 ```sh
-npx tsx scripts/gen-rules.ts                       # catalog → crates/refold/src/rules.txt
-cd crates/refold
-wasm-pack build --target web --out-dir pkg --release
-rm -f pkg/.gitignore                               # wasm-pack writes one (`*`); we commit pkg/
+npm run build:wasm   # gen rules from the catalog, then wasm-pack build → crates/refold/pkg/
 ```
 
-The built `pkg/` is committed so CI (`npm run build`) bundles it without a Rust
-toolchain — wasm-pack drops a `pkg/.gitignore` each build that must be removed so
-the artifact stays tracked. Quick local sanity check of folding quality (native, fast):
+This is also what CI runs before `npm run build`. On a fresh checkout you must run
+it once before `npm run dev`/`npm run build`, since the shell imports the generated
+`pkg/` (and `tsc` needs its types). Requires `wasm-pack` + the `wasm32-unknown-unknown`
+target. Quick local sanity check of folding quality (native, fast):
 
 ```sh
 cd crates/refold && cargo run --release --example probe
