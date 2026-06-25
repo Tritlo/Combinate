@@ -126,12 +126,8 @@ export async function mountApp(): Promise<void> {
 
   // Reveal every combinator at once (the "U" cheat key + the Zoo unlock).
   function unlockAll(): void {
-    for (const law of CATALOG) {
-      if (!discovered.has(law.sym)) {
-        discovered.add(law.sym);
-        hotbar.addSlot({ glyph: law.sym, spawn: () => collapsedNode(law) });
-      }
-    }
+    for (const law of CATALOG) discovered.add(law.sym);
+    hotbar.refresh();
     for (const t of trees) t.refresh();
     zoo.refresh();
     toast.show("all combinators unlocked");
@@ -152,7 +148,7 @@ export async function mountApp(): Promise<void> {
   function discover(law: Law): void {
     discovered.add(law.sym);
     toast.show(`${law.lawText}  —  discovered!`);
-    hotbar.addSlot({ glyph: law.sym, spawn: () => collapsedNode(law) });
+    hotbar.reveal(law.sym);
     for (const t of trees) t.refresh(); // reveal newly-known combinators everywhere
     zoo.refresh();
   }
@@ -225,11 +221,17 @@ export async function mountApp(): Promise<void> {
     return tree;
   }
 
-  const hotbar = new Hotbar((slot, e) => {
-    hint.visible = false;
-    drag = { kind: "spawn", tree: spawnTree(slot.spawn(), e.global.x, e.global.y) };
-  }, pixi.ticker);
-  hotbar.addSlot({ glyph: "ι", spawn: () => iota() }); // slot 0, always present
+  const spawnFor = (sym: string): Node => (sym === "ι" ? iota() : collapsedNode(CATALOG.find((l) => l.sym === sym)!));
+  const hotbar = new Hotbar(
+    (node, e) => {
+      hint.visible = false;
+      drag = { kind: "spawn", tree: spawnTree(node, e.global.x, e.global.y) };
+    },
+    pixi.ticker,
+    isDiscovered,
+    spawnFor,
+  );
+  hotbar.refresh();
   hud.addChild(hotbar.container);
   hud.addChild(zoo.container); // last → the Zoo overlay sits on top of the hotbar
 
@@ -388,7 +390,7 @@ export async function mountApp(): Promise<void> {
     { passive: false },
   );
 
-  const placeLegend = () => legend.position.set(16, window.innerHeight - 120);
+  const placeLegend = () => legend.position.set(16, window.innerHeight - 140);
   placeLegend();
   zoo.layout();
 

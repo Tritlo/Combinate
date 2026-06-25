@@ -1,127 +1,164 @@
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text, type Ticker } from "pixi.js";
 import { type Node } from "../core/term";
+import { PAGES } from "../core/catalog";
 import { tween } from "./anim";
 
 const SLOT = 56;
 const GAP = 10;
 const MARGIN = 80; // keep the row clear of the screen edges
-const ARROW = 30; // width of a ◀ / ▶ page button
-
-/** A hotbar entry: a glyph and a factory for the tree it stamps onto the canvas. */
-export interface Slot {
-  glyph: string;
-  spawn: () => Node;
-}
+const ARROW = 30; // width of a ‹ / › page button
+const ACCENT = 0x9fc0ff;
+const IOTA = 0xffe08a;
+const DIM = 0x8a97ad;
 
 /**
- * The Minecraft-style hotbar (§8.1), bottom-centre in screen space. Slot 0 is ι
- * (always pinned at the left); discovered laws append slots that stamp their
- * canonical ι-tree (§7.3). The combinator slots are paginated with ◀ / ▶ once
- * there are more than fit in one row. Dragging *out* of a slot spawns.
+ * The hotbar (§8.1), bottom-centre. It mirrors the Zoo's organisation: a tab bar
+ * (Programs / Booleans / Arithmetic / Lists) over a row of draggable slots for
+ * the *discovered* combinators on that tab (paginated with ‹ / › when they don't
+ * fit). Each slot shows the combinator under its page alias (e.g. "Mult" for B)
+ * and stamps that combinator's tree when dragged out.
  */
 export class Hotbar {
   readonly container = new Container();
-  private readonly views: Container[] = [];
-  private readonly prevBtn: Container;
-  private readonly nextBtn: Container;
-  private readonly pageLabel = new Text({ text: "", style: { fontFamily: "monospace", fontSize: 12, fill: 0x8a97ad } });
-  private page = 0;
+  private readonly tabBar = new Container();
+  private readonly slotRow = new Container();
+  private readonly pageLabel = new Text({ text: "", style: { fontFamily: "monospace", fontSize: 12, fill: DIM } });
+  private tab = 0;
+  private sub = 0;
+  private popSym: string | null = null;
 
   constructor(
-    private readonly onSpawnStart: (slot: Slot, e: FederatedPointerEvent) => void,
+    private readonly onSpawnStart: (node: Node, e: FederatedPointerEvent) => void,
     private readonly ticker: Ticker,
+    private readonly isDiscovered: (sym: string) => boolean,
+    private readonly spawnFor: (sym: string) => Node,
   ) {
-    this.prevBtn = this.makeArrow("‹", () => this.flip(-1));
-    this.nextBtn = this.makeArrow("›", () => this.flip(1));
-    this.pageLabel.anchor.set(0.5);
-    this.container.addChild(this.prevBtn, this.nextBtn, this.pageLabel);
+    this.pageLabel.anchor.set(1, 0.5);
+    this.container.addChild(this.tabBar, this.slotRow, this.pageLabel);
   }
 
-  addSlot(slot: Slot): void {
-    const isIota = this.views.length === 0;
-    const accent = isIota ? 0xffe08a : 0x9fc0ff;
-    const view = new Container();
-    view.addChild(
-      new Graphics()
-        .roundRect(-SLOT / 2, -SLOT / 2, SLOT, SLOT, 8)
-        .fill({ color: 0x1a2233 })
-        .stroke({ width: 2, color: accent }),
-    );
-    const glyph = new Text({ text: slot.glyph, style: { fontFamily: "monospace", fontSize: 24, fill: accent } });
-    glyph.anchor.set(0.5);
-    const maxW = SLOT - 10; // shrink long glyphs (e.g. "Succ") to fit the slot
-    if (glyph.width > maxW) glyph.scale.set(maxW / glyph.width);
-    view.addChild(glyph);
-
-    view.eventMode = "static";
-    view.cursor = "grab";
-    view.on("pointerdown", (e: FederatedPointerEvent) => {
-      e.stopPropagation();
-      this.onSpawnStart(slot, e);
-    });
-
-    this.container.addChild(view);
-    this.views.push(view);
-    this.page = Number.MAX_SAFE_INTEGER; // jump to the last page so the new slot is shown
+  /** Reveal a newly-discovered combinator: jump to its tab + page and pop it in. */
+  reveal(sym: string): void {
+    const tab = PAGES.findIndex((p) => p.entries.some((e) => e.sym === sym));
+    if (tab >= 0) {
+      this.tab = tab;
+      const idx = this.visible(tab).indexOf(sym);
+      if (idx >= 0) this.sub = Math.floor(idx / this.pageSize());
+    }
+    this.popSym = sym;
     this.layout();
-
-    // pop in (the new slot is on the now-current last page, so it's visible)
-    view.scale.set(0.2);
-    tween(this.ticker, 260, (t) => view.scale.set(0.2 + 0.8 * t));
+  }
+  refresh(): void {
+    this.layout();
   }
 
-  /** Combinator slots (excluding ι) that fit in one row at the current width. */
+  /** Discovered combinators on a tab (ι is always available). */
+  private visible(tab: number): string[] {
+    return PAGES[tab].entries.map((e) => e.sym).filter((s) => s === "ι" || this.isDiscovered(s));
+  }
+  private aliasOf(sym: string): string {
+    return PAGES[this.tab].entries.find((e) => e.sym === sym)?.alias ?? sym;
+  }
   private pageSize(): number {
-    const avail = window.innerWidth - 2 * MARGIN - SLOT - 2 * (ARROW + GAP) - GAP;
+    const avail = window.innerWidth - 2 * MARGIN - 2 * (ARROW + GAP) - GAP;
     return Math.max(1, Math.floor((avail + GAP) / (SLOT + GAP)));
   }
-
-  private flip(delta: number): void {
-    this.page += delta; // layout() clamps to the valid range
+  private setTab(i: number): void {
+    this.tab = i;
+    this.sub = 0;
+    this.layout();
+  }
+  private flip(d: number): void {
+    this.sub += d;
     this.layout();
   }
 
-  /** Pin ι at the left; show one page of combinator slots, flanked by ◀ / ▶. */
   layout(): void {
-    const n = this.views.length;
-    const y = window.innerHeight - SLOT;
+    for (const c of this.tabBar.removeChildren()) c.destroy({ children: true });
+    for (const c of this.slotRow.removeChildren()) c.destroy({ children: true });
+    const slotY = window.innerHeight - 44;
+    const tabY = window.innerHeight - 98;
+
+    // ---- tab bar (centred) ----
+    const labels = PAGES.map((p, i) => new Text({ text: p.name, style: { fontFamily: "monospace", fontSize: 14, fill: i === this.tab ? IOTA : DIM } }));
+    const tabsW = labels.reduce((s, t) => s + t.width, 0) + 2 * GAP * (labels.length - 1);
+    let tx = window.innerWidth / 2 - tabsW / 2;
+    labels.forEach((t, i) => {
+      t.position.set(tx, tabY);
+      t.eventMode = "static";
+      t.cursor = "pointer";
+      t.on("pointerdown", (e: FederatedPointerEvent) => {
+        e.stopPropagation();
+        this.setTab(i);
+      });
+      this.tabBar.addChild(t);
+      if (i === this.tab) this.tabBar.addChild(new Graphics().rect(tx, tabY + 19, t.width, 2).fill({ color: IOTA }));
+      tx += t.width + 2 * GAP;
+    });
+
+    // ---- slot row for the current tab (paginated) ----
+    const syms = this.visible(this.tab);
     const ps = this.pageSize();
-    const combs = n - 1; // slots after ι
-    const pageCount = Math.max(1, Math.ceil(combs / ps));
-    this.page = Math.max(0, Math.min(this.page, pageCount - 1));
+    const pageCount = Math.max(1, Math.ceil(syms.length / ps));
+    this.sub = Math.max(0, Math.min(this.sub, pageCount - 1));
     const paged = pageCount > 1;
-    const start = 1 + this.page * ps;
-    const end = Math.min(n, start + ps);
+    const pageSyms = syms.slice(this.sub * ps, this.sub * ps + ps);
 
-    for (let i = 1; i < n; i++) this.views[i].visible = i >= start && i < end;
-    this.prevBtn.visible = this.nextBtn.visible = this.pageLabel.visible = paged;
+    const items: Array<{ w: number; make: (cx: number) => Container }> = [];
+    if (paged) items.push({ w: ARROW, make: (cx) => this.arrow("‹", cx, slotY, this.sub > 0, () => this.flip(-1)) });
+    for (const sym of pageSyms) items.push({ w: SLOT, make: (cx) => this.slot(sym, cx, slotY) });
+    if (paged) items.push({ w: ARROW, make: (cx) => this.arrow("›", cx, slotY, this.sub < pageCount - 1, () => this.flip(1)) });
 
-    // ordered row: ι, [◀], this page's slots, [▶]
-    const row: Array<{ w: number; node: Container }> = [{ w: SLOT, node: this.views[0] }];
-    if (paged) row.push({ w: ARROW, node: this.prevBtn });
-    for (let i = start; i < end; i++) row.push({ w: SLOT, node: this.views[i] });
-    if (paged) row.push({ w: ARROW, node: this.nextBtn });
-
-    const total = row.reduce((s, it) => s + it.w, 0) + GAP * (row.length - 1);
+    const total = items.reduce((s, it) => s + it.w, 0) + GAP * Math.max(0, items.length - 1);
     let left = window.innerWidth / 2 - total / 2;
-    for (const it of row) {
-      it.node.position.set(left + it.w / 2, y);
+    for (const it of items) {
+      this.slotRow.addChild(it.make(left + it.w / 2));
       left += it.w + GAP;
     }
 
+    this.pageLabel.visible = paged;
     if (paged) {
-      this.prevBtn.alpha = this.page > 0 ? 1 : 0.3;
-      this.nextBtn.alpha = this.page < pageCount - 1 ? 1 : 0.3;
-      this.pageLabel.text = `${this.page + 1}/${pageCount}`;
-      this.pageLabel.position.set(window.innerWidth / 2, y - SLOT / 2 - 12);
+      this.pageLabel.text = `${this.sub + 1}/${pageCount}`;
+      this.pageLabel.position.set(window.innerWidth - MARGIN, tabY + 8);
+    }
+
+    if (this.popSym) {
+      const v = (this.slotRow.children as Array<Container & { sym?: string }>).find((c) => c.sym === this.popSym);
+      if (v) {
+        v.scale.set(0.2);
+        tween(this.ticker, 260, (t) => v.scale.set(0.2 + 0.8 * t));
+      }
+      this.popSym = null;
     }
   }
 
-  private makeArrow(label: string, onClick: () => void): Container {
+  private slot(sym: string, cx: number, cy: number): Container {
+    const accent = sym === "ι" ? IOTA : ACCENT;
+    const v = new Container() as Container & { sym: string };
+    v.sym = sym;
+    v.addChild(new Graphics().roundRect(-SLOT / 2, -SLOT / 2, SLOT, SLOT, 8).fill({ color: 0x1a2233 }).stroke({ width: 2, color: accent }));
+    const glyph = new Text({ text: this.aliasOf(sym), style: { fontFamily: "monospace", fontSize: 24, fill: accent } });
+    glyph.anchor.set(0.5);
+    const maxW = SLOT - 10; // shrink long glyphs (e.g. "Succ", "Mult") to fit
+    if (glyph.width > maxW) glyph.scale.set(maxW / glyph.width);
+    v.addChild(glyph);
+    v.position.set(cx, cy);
+    v.eventMode = "static";
+    v.cursor = "grab";
+    v.on("pointerdown", (e: FederatedPointerEvent) => {
+      e.stopPropagation();
+      this.onSpawnStart(this.spawnFor(sym), e);
+    });
+    return v;
+  }
+
+  private arrow(label: string, cx: number, cy: number, enabled: boolean, onClick: () => void): Container {
     const c = new Container();
-    const t = new Text({ text: label, style: { fontFamily: "monospace", fontSize: 30, fill: 0x9fc0ff } });
+    const t = new Text({ text: label, style: { fontFamily: "monospace", fontSize: 30, fill: ACCENT } });
     t.anchor.set(0.5);
     c.addChild(t);
+    c.position.set(cx, cy);
+    c.alpha = enabled ? 1 : 0.3;
     c.eventMode = "static";
     c.cursor = "pointer";
     c.hitArea = new Rectangle(-ARROW / 2, -SLOT / 2, ARROW, SLOT);

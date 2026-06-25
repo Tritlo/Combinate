@@ -1,5 +1,5 @@
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text } from "pixi.js";
-import { CATALOG, countIotas, iotaTreeOf, type Law, META } from "../core/catalog";
+import { CATALOG, countIotas, iotaTreeOf, type Law, META, PAGES } from "../core/catalog";
 import { iota, type Node, type NodeId } from "../core/term";
 import { layoutRadial } from "../core/layout";
 import { ARG_EDGE, FN_EDGE } from "./tree";
@@ -301,60 +301,21 @@ export class Zoo {
   }
 }
 
-/** The Zoo pages: the full catalog, plus curated Boolean / arithmetic views that
- *  re-present existing combinators under the role they play (most of "Booleans"
- *  and "Arithmetic" are birds you already know — True is the Kestrel, Mult is the
- *  Bluebird — only Succ, (+) and (-) are their own entries). */
+/** Build the Zoo pages from the shared {@link PAGES}, looking up each entry's law
+ *  for its picture/stats. "Programs" is the general combinators; the topic pages
+ *  re-present birds under their role (True is the Kestrel, Mult is the Bluebird). */
 function buildPages(): Page[] {
-  const all: Entry[] = [
-    { num: 1, sym: "ι", law: null },
-    ...CATALOG.map((law, i) => ({ num: i + 2, sym: law.sym, law })),
-  ];
   const byId = new Map(CATALOG.map((l) => [l.sym, l] as const));
-  const topic = (rows: Array<[string, string, string]>): Entry[] =>
-    rows.map(([sym, alias, role], i) => ({ num: i + 1, sym, law: byId.get(sym) ?? null, alias, role }));
-  return [
-    { name: "Programs", entries: all },
-    {
-      name: "Booleans",
-      entries: topic([
-        ["K", "True", "selects the first of two options"],
-        ["A", "False", "selects the second of two options"],
-        ["C", "Not", "swaps the two options"],
-        ["X", "And", "true only when both are true"],
-        ["M", "Or", "true when either is true"],
-        ["I", "If", "`if c t e` is just `c t e` — a boolean is its own conditional"],
-      ]),
-    },
-    {
-      name: "Arithmetic",
-      entries: topic([
-        ["A", "Zero", "Church 0 — applies f zero times"],
-        ["I", "One", "Church 1 — applies f exactly once"],
-        ["Succ", "Succ", "adds one to a numeral"],
-        ["Pred", "Pred", "subtracts one (clamped at 0) — the basis of Sub"],
-        ["(+)", "Plus", "adds two numerals"],
-        ["B", "Mult", "multiplies — multiplication is the Bluebird (composition)"],
-        ["T", "Exp", "raises to a power — m^n is just n m"],
-        ["(-)", "Sub", "truncated subtraction, via the predecessor"],
-      ]),
-    },
-    {
-      name: "Lists",
-      entries: topic([
-        ["A", "nil", "the empty list — also false and zero"],
-        ["cons", "cons", "prepends a head onto a list"],
-        ["head", "head", "the first element"],
-        ["uncons", "uncons", "splits a list into (head, tail)"],
-        ["tail", "tail", "the rest — second projection of uncons"],
-        ["V", "fold", "right fold — a list is its own fold (the Vireo)"],
-        ["<>", "<>", "appends one list onto another (Semigroup, ++)"],
-        ["join", "join", "flattens a list of lists (monadic join / concat)"],
-        ["map", "map", "applies a function to every element"],
-        ["null", "null", "is the list empty?"],
-      ]),
-    },
-  ];
+  return PAGES.map((pd) => ({
+    name: pd.name,
+    entries: pd.entries.map((e, i) => ({
+      num: i + 1,
+      sym: e.sym,
+      law: e.sym === "ι" ? null : byId.get(e.sym) ?? null,
+      alias: e.alias,
+      role: e.role,
+    })),
+  }));
 }
 
 // Draw a term's nodes/edges, scaled to fit `size`, centred at the container origin.

@@ -240,6 +240,72 @@ export const META: Record<string, Meta> = {
   "Ψ": { bird: "Psittacosaurus", blurb: "The Psi bird applies one function to two separate arguments, then feeds the results to a second that combines them — functional programmers' `on` operator. No bird's name begins with the Greek Ψ, so it borrows a dinosaur: Psittacosaurus, the 'parrot lizard'.", recipe: "λx y z w. x (y z) (y w)" },
 };
 
+/** A combinator as it appears on a page: its symbol, an optional topic alias
+ *  (e.g. "True" for K) and a one-line note on the role it plays there. */
+export interface PageEntry {
+  sym: string;
+  alias?: string;
+  role?: string;
+}
+/** A named tab grouping combinators (shared by the Zoo and the hotbar). */
+export interface PageDef {
+  name: string;
+  entries: PageEntry[];
+}
+
+// Combinators that belong only to a topic page, not to the general "Programs" tab.
+const ARITH_OPS = new Set(["Succ", "Pred", "(+)", "(-)"]);
+const LIST_OPS = new Set(["cons", "head", "tail", "<>", "join", "map", "null", "uncons"]);
+
+/** The pages, shared by the Zoo catalogue and the hotbar. "Programs" holds the
+ *  general-purpose combinators; the topic pages re-present combinators (often the
+ *  same birds) under the role they play there. */
+export const PAGES: PageDef[] = [
+  {
+    name: "Programs",
+    entries: [{ sym: "ι" }, ...CATALOG.filter((l) => !ARITH_OPS.has(l.sym) && !LIST_OPS.has(l.sym)).map((l) => ({ sym: l.sym }))],
+  },
+  {
+    name: "Booleans",
+    entries: [
+      { sym: "K", alias: "True", role: "selects the first of two options" },
+      { sym: "A", alias: "False", role: "selects the second of two options" },
+      { sym: "C", alias: "Not", role: "swaps the two options" },
+      { sym: "X", alias: "And", role: "true only when both are true" },
+      { sym: "M", alias: "Or", role: "true when either is true" },
+      { sym: "I", alias: "If", role: "`if c t e` is just `c t e` — a boolean is its own conditional" },
+    ],
+  },
+  {
+    name: "Arithmetic",
+    entries: [
+      { sym: "A", alias: "Zero", role: "Church 0 — applies f zero times" },
+      { sym: "I", alias: "One", role: "Church 1 — applies f exactly once" },
+      { sym: "Succ", alias: "Succ", role: "adds one to a numeral" },
+      { sym: "Pred", alias: "Pred", role: "subtracts one (clamped at 0) — the basis of Sub" },
+      { sym: "(+)", alias: "Plus", role: "adds two numerals" },
+      { sym: "B", alias: "Mult", role: "multiplies — multiplication is the Bluebird (composition)" },
+      { sym: "T", alias: "Exp", role: "raises to a power — m^n is just n m" },
+      { sym: "(-)", alias: "Sub", role: "truncated subtraction, via the predecessor" },
+    ],
+  },
+  {
+    name: "Lists",
+    entries: [
+      { sym: "A", alias: "nil", role: "the empty list — also false and zero" },
+      { sym: "cons", alias: "cons", role: "prepends a head onto a list" },
+      { sym: "head", alias: "head", role: "the first element" },
+      { sym: "uncons", alias: "uncons", role: "splits a list into (head, tail)" },
+      { sym: "tail", alias: "tail", role: "the rest — second projection of uncons" },
+      { sym: "V", alias: "fold", role: "right fold — a list is its own fold (the Vireo)" },
+      { sym: "<>", alias: "<>", role: "appends one list onto another (Semigroup, ++)" },
+      { sym: "join", alias: "join", role: "flattens a list of lists (monadic join / concat)" },
+      { sym: "map", alias: "map", role: "applies a function to every element" },
+      { sym: "null", alias: "null", role: "is the list empty?" },
+    ],
+  },
+];
+
 /** Expand an SK(I) tree into a pure-ι tree (the skToIota gadget, §7.3):
  *  S/K/I leaves become their ι-trees, application stays application. */
 export function skToIota(n: Node): Node {
