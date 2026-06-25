@@ -3,8 +3,14 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #0b0f17;
+  background: #010409;
   font-family: monospace;
+  /* iOS: don't let the page scroll/bounce or re-flow text, and route all
+     touch gestures to the canvas (so our pan/pinch work, not Safari's). */
+  overscroll-behavior: none;
+  touch-action: none;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
 
 canvas {

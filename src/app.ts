@@ -38,7 +38,9 @@ type Drag =
 export async function mountApp(): Promise<void> {
   initTheme(); // pick light/dark from the OS before anything paints
   const pixi = new Application();
-  await pixi.init({ background: theme.bg, resizeTo: window, antialias: true });
+  // resolution + autoDensity render at the device's native pixel ratio, so text
+  // and edges are crisp on retina / iOS screens instead of grainy.
+  await pixi.init({ background: theme.bg, resizeTo: window, antialias: true, resolution: window.devicePixelRatio || 1, autoDensity: true });
   document.body.appendChild(pixi.canvas);
 
   const world = new Container();
