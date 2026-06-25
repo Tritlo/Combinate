@@ -331,8 +331,8 @@ export const PAGES: PageDef[] = [
   {
     name: "Arithmetic",
     entries: [
-      { sym: "A", alias: "Zero", role: "Church 0 — applies f zero times" },
-      { sym: "I", alias: "One", role: "Church 1 — applies f exactly once" },
+      { sym: "A", alias: "0", role: "Church 0 — applies f zero times" },
+      { sym: "I", alias: "1", role: "Church 1 — applies f exactly once" },
       { sym: "Succ", alias: "Succ", role: "adds one to a numeral" },
       { sym: "Pred", alias: "Pred", role: "subtracts one (clamped at 0) — the basis of Sub" },
       { sym: "(+)", alias: "Plus", role: "adds two numerals" },
