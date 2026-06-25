@@ -238,6 +238,60 @@ export const META: Record<string, Meta> = {
   "Ψ": { bird: "Psittacosaurus", blurb: "The Psi bird applies one function to two separate arguments, then feeds the results to a second that combines them — functional programmers' `on` operator. No bird's name begins with the Greek Ψ, so it borrows a dinosaur: Psittacosaurus, the 'parrot lizard'.", recipe: "λx y z w. x (y z) (y w)" },
 };
 
+/** One-line discovery hints (built by a research-backed workflow from
+ *  Smullyan's "To Mock a Mockingbird" + web sources): how to BUILD each
+ *  combinator, shown as the "next to discover" nudge. */
+export const HINTS: Record<string, string> = {
+  "(+)": "Starling-on-Bluebirds scaffold B S (B B); or m Succ n (apply Succ m times to n). Builds m f (n f x): n stacks f on x, then m stacks atop.",
+  "(-)": "Aim for n Pred m. T Pred n = n Pred turns n into a Pred-iterator; the Cardinal flips its args so n is the count: C (T Pred).",
+  "<>": "Since a list is its own right fold, append is xs cons ys; the Thrush hands cons to the list (T cons xs = xs cons), so xs folds onto ys.",
+  A: "Feed the Kestrel an Identity bird as its FIRST argument (K I): K keeps that I, which then returns your second argument and drops the first.",
+  B: "Composition — pipe one bird's output into the next. Build it by feeding the Starling two args: (K S) then a Kestrel, giving S(KS)K.",
+  B1: "Stretch the Bluebird to swallow a 3-arg call: perch a Bluebird on a Bluebird on a Bluebird — B B B, the Blackbird.",
+  B2: "The Blackbird B B B composes after a 3-arg function; chain one more Bluebird onto it, B B (B B B), to reach the 4-arg Bunting.",
+  B3: "Compose three in a row, x(y(zw)): take the deep composer B and pre-feed it B with B B, giving B(B B)B — the Becard.",
+  C: "The Cardinal swaps its 2nd and 3rd arguments (Boolean NOT); coax it from two Starlings and Kestrels caging a Bluebird: S(S(KB)S)(KK).",
+  D: "The Dove reaches one slot deeper than the Bluebird, composing (z w) into a binary function's second arg — stack two Bluebirds: B B.",
+  E: "Prepend one more Bluebird onto the Blackbird B B B: B (B B B) widens the Dove's inner call from z w to a 3-way z w v — the Eagle.",
+  F: "Want z y x? Take the pairing Vireo (V x y z = z x y) and let a Cardinal pre-swap its first two inputs: F = C V.",
+  G: "Stack two Bluebirds to compose, then a Cardinal to swap: the last arg jumps to the front while the middle pair (y z) gets bundled — B B C, the Goldfinch.",
+  H: "Duplicate the second arg at the tail: a Bluebird stacks a Warbler over a Bluebird-Cardinal — B W (B C) — so W copies y and C slots it last.",
+  I: "Identity does nothing — and it's the cheapest bird here (just 2 iotas): build it by feeding iota to itself, ι ι.",
+  J: "Reuse one operator x twice (Warbler): write x y _, then fill the blank with that same x applied to the last two args swapped, x w z.",
+  K: "The Kestrel keeps the first, forgets the second. Take I = ι ι and wrap it in ι twice more: ι(ι(ι ι)).",
+  L: "A Cardinal slots the Mockingbird into a Bluebird's second slot (C B M): the Lark runs x after y-squared. Feed it I and M hatches.",
+  M: "The forest's namesake mimic: a Starling fed two Identity birds (S I I) shares x with both, each echoes it, then applies one to the other — x x.",
+  M2: "Perch a Bluebird on the Mockingbird (B M): it feeds the application x y to M, which copies it — yielding x y (x y).",
+  N: "Compose Kestrel after Thrush with a Bluebird (B K T): the Kestrel eats the middle bird, then the Thrush applies the last bird to the first.",
+  O: "A near-Sage: feed Identity into the Starling's first slot (S I), so the Starling hands y the result of running x on y — i.e. y (x y).",
+  Pred: "Iterate the shift λg h.h(g f) n times from base λu.x, then feed λu.u; the first step discards an f, peeling f^{n+1} down to f^n.",
+  Q: "Build C B: the Cardinal flips the Bluebird's first two args so the first function runs and pours into the second — x z first, then y over it (y (x z)).",
+  Q1: "Quixotic feeds arg three onto arg two, then runs the first over the result (x (z y)): give the Queer bird (C B) a Thrush, then frame it with two Bluebirds — B (C B T) B.",
+  Q2: "Run the third function on arg1, then the second over that — hang a Thrush under the Queer bird via a Bluebird: B (C B) T.",
+  Q3: "Quirky is the leanest Queer cousin: hand x its arg y, then let the third bird z pounce on the result (x y) — compose Bluebird before Thrush: B T.",
+  Q4: "Take Quirky B T (gives z(xy)); prepend a Cardinal to flip the inner pair: C (B T) yields z(yx) — last bird run on second-applied-to-first.",
+  R: "The Robin rotates three args, sending the first to the back — two Cardinal swaps make one turn, so perch a Cardinal on itself: C C.",
+  S: "The Starling shares one arg with two birds. It's just one ι past the Kestrel — ι(ι(ι(ι ι))).",
+  Succ: "Feed a Bluebird to a Starling (S B): S hands x to both f and n f, firing f once more on the numeral, so n becomes n+1.",
+  T: "Thrush flips its two args (T x y = y x). The Cardinal C x y z = x z y already does the swap, so put Identity in its first slot: C I.",
+  U: "Build U as S (K (S I)) (W I): S hands x to W I, which doubles it to x x, and to the K-guarded S I; then U U is Turing's fixpoint.",
+  V: "Build V (Vireo) as B C (C I): the Bluebird composes the Cardinal with the Thrush (C I), so V x y z reduces to z x y — a swap then a flip.",
+  W: "Warbler the duplicator: feed Starling two things, Starling itself and a Kestrel-guarded Identity (S S (K I)), to copy its last argument.",
+  X: "Feed a Starling to a Starling and a Kestrel — S applied to (S, K) — and it reduces x y x: x runs on y, falling back to x, which is Church AND.",
+  Y: "The Sage gives each bird its fixed point: Bluebird-compose a Mockingbird onto a Lark, with the Lark spelled C B M — so B M (C B M).",
+  Z: "Perch a Bluebird on a Kestrel (B K): B hands x its single argument y, then the Kestrel quietly swallows the trailing third, z.",
+  Z2: "Compose a Bluebird onto Z (B Z): the same trailing-argument-swallowing trick reaching one rung deeper, dropping the fourth argument instead of the third.",
+  concat: "Same shape as head, but fold with append not Kestrel: C (T <>) nil glues a list of lists into one.",
+  cons: "List-as-fold: S shares c and n, T gives the head to c (c h), B fires it before the folded tail t c n. Hence B S (B (B B) T).",
+  head: "A list is its own right-fold: head = fold with K (K keeps the head, drops the rest). T K feeds K to the list; C ...nil gives the base.",
+  map: "Fold the list with a transformed cons: l (B cons f) nil, where B cons f turns head h into cons (f h) before consing onto the folded tail.",
+  null: "null xs = xs (K(K nil)) K: fold with cons-arg K(K nil) (any cons drops to nil=false) and nil-arg K=true; C(T(K(K nil)))K wires that.",
+  tail: "Fold from seed (nil,nil); each step shifts new fst=old snd, new snd=h:old snd, so fst lags one cons behind — read fst for the rest.",
+  uncons: "Take the list apart honestly: pair the head and tail you already built with the Vireo — V (head l) (tail l) = (head l, tail l).",
+  "Φ": "The fork — hand one arg to two birds, merge results with a third (Haskell's liftA2). Sink a Starling between Bluebirds: B (B S) B.",
+  "Ψ": "The 'on' bird: apply y to z and to w, then let x combine the two results — x(y z)(y w). Build it straight: λx y z w. x(y z)(y w).",
+};
+
 /** A combinator as it appears on a page: its symbol, an optional topic alias
  *  (e.g. "True" for K) and a one-line note on the role it plays there. */
 export interface PageEntry {

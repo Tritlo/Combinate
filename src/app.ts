@@ -8,7 +8,7 @@ import {
 } from "pixi.js";
 import { app as mkApp, comb, decode, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
 import { step } from "./core/reduce";
-import { CATALOG, IOTA_CODE, META, iotaTreeOf, countIotas, type Law } from "./core/catalog";
+import { CATALOG, IOTA_CODE, HINTS, iotaTreeOf, countIotas, type Law } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
 import { TreeView } from "./view/tree";
@@ -85,16 +85,18 @@ export async function mountApp(): Promise<void> {
 
   // A lighter sub-line hinting at the next combinator worth chasing (the smallest
   // ι-tree you haven't found yet — easiest to build).
-  const nextHint = new Text({ text: "", style: { fontFamily: "monospace", fontSize: 13, fill: theme.textDim } });
+  const nextHint = new Text({ text: "", style: { fontFamily: "monospace", fontSize: 13, fill: theme.textDim, wordWrap: true, wordWrapWidth: 900, align: "center", lineHeight: 18 } });
   nextHint.anchor.set(0.5, 0);
   hud.addChild(nextHint);
   const placeExpr = () => {
-    exprText.position.set(window.innerWidth / 2, 20);
-    nextHint.position.set(window.innerWidth / 2, 46);
+    exprText.position.set(window.innerWidth / 2, 18);
+    nextHint.style.wordWrapWidth = Math.min(940, window.innerWidth - 120);
+    nextHint.position.set(window.innerWidth / 2, 44);
   };
   placeExpr();
 
-  // The easiest undiscovered combinator to aim for next (fewest ι in its tree).
+  // The easiest undiscovered combinator to aim for next (fewest ι in its tree),
+  // shown with a research-backed hint on how to build it.
   function updateHint(): void {
     let best: Law | null = null;
     let bestN = Infinity;
@@ -106,8 +108,7 @@ export async function mountApp(): Promise<void> {
         best = law;
       }
     }
-    const bird = best ? META[best.sym]?.bird?.replace(/\s*\(.*\)/, "") : undefined;
-    nextHint.text = best ? `next to discover →  ${best.lawText}${bird ? `   (the ${bird})` : ""}` : "✦ every combinator discovered ✦";
+    nextHint.text = best ? `next to discover →  ${HINTS[best.sym] ?? best.lawText}` : "✦ every combinator discovered ✦";
   }
 
   // ---- discovery (§7): the set of combinators found so far. Drives the
