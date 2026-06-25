@@ -360,7 +360,7 @@ export const PAGES: PageDef[] = [
 
 /** Expand an SK(I) tree into a pure-ι tree (the skToIota gadget, §7.3):
  *  S/K/I leaves become their ι-trees, application stays application. */
-export function skToIota(n: Node): Node {
+function skToIota(n: Node): Node {
   switch (n.kind) {
     case "comb":
       return IOTA_CODE[n.sym] ? decode(IOTA_CODE[n.sym]) : n;

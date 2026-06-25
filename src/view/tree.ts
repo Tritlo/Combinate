@@ -72,11 +72,6 @@ export class TreeView {
     return { x: this.container.position.x, y: this.container.position.y };
   }
 
-  /** True while a reduction tween is playing. */
-  get animating(): boolean {
-    return this.ticking;
-  }
-
   destroy(): void {
     this.stopTicker();
     this.container.destroy({ children: true });

@@ -22,7 +22,7 @@ export type Node =
 let nextId = 1;
 
 /** Mint a fresh, process-unique node id. */
-export const freshId = (): NodeId => nextId++;
+const freshId = (): NodeId => nextId++;
 
 /** An ι leaf — the only block the player starts with. */
 export const iota = (): Node => ({ id: freshId(), kind: "iota" });
@@ -39,24 +39,7 @@ export const app = (fn: Node, arg: Node): Node => ({ id: freshId(), kind: "app",
  * behavioural probe (§7.1) to test what a term does to fresh arguments. */
 export const freeVar = (name: string): Node => ({ id: freshId(), kind: "free", name });
 
-/**
- * Encode a term as Barker prefix bit-code (§3.2): `1` = ι, `0 <fn> <arg>` = app.
- * Transient combinator leaves have no bit-code; encoding one throws.
- */
-export function encode(n: Node): string {
-  switch (n.kind) {
-    case "iota":
-      return "1";
-    case "app":
-      return "0" + encode(n.fn) + encode(n.arg);
-    case "comb":
-      throw new Error(`cannot encode transient combinator ${n.sym}`);
-    case "free":
-      throw new Error(`cannot encode free variable ${n.name}`);
-  }
-}
-
-/** Parse Barker prefix bit-code into a fresh term (inverse of {@link encode}). */
+/** Parse Barker prefix bit-code (§3.2: `1` = ι, `0 <fn> <arg>` = app) into a term. */
 export function decode(code: string): Node {
   let i = 0;
   const go = (): Node => {

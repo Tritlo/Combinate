@@ -75,10 +75,6 @@ export function systemMode(): Mode {
   return typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
 
-export function getMode(): Mode {
-  return mode;
-}
-
 function apply(m: Mode): void {
   mode = m;
   Object.assign(theme, m === "dark" ? DARK : LIGHT);
