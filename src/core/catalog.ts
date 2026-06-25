@@ -109,7 +109,6 @@ const mapBody = ([f, l]: Node[]): Node =>
 // the tail half carries the pair-shuffling fold. tail is then snd · uncons.
 const unconsBody = ([l]: Node[]): Node =>
   lamN(["f"], ([f]) => app(app(f, app(app(l, K()), nilDef())), tailBody([l])));
-const unconsDef = (): Node => lam(1, unconsBody);
 
 /** A bird whose def is the bracket abstraction of its law (so def ≡ law). */
 function bird(sym: string, lawText: string, arity: number, body: (v: Node[]) => Node): Law {
@@ -163,8 +162,7 @@ export const CATALOG: Law[] = [
   bird("map", "map f (h : t) = f h : map f t", 2, mapBody),
   bird("null", "null [] = K,  null (h : t) = KI", 1, (v) => app(app(v[0], app(K(), app(K(), nilDef()))), K())),
   bird("uncons", "uncons (h : t) = (h, t)", 1, unconsBody),
-  // tail = second projection of uncons, so its tree literally factors through it
-  { sym: "tail", lawText: "tail (h : t) = t", arity: 1, reference: tailBody, def: () => app(app(B(), sndDef()), unconsDef()) },
+  bird("tail", "tail (h : t) = t", 1, tailBody),
   // Sage Θ — recursive, so probed as Y (K a) ≡ a (Y a diverges).
   {
     sym: "Y",
@@ -195,8 +193,8 @@ export const META: Record<string, Meta> = {
   Pred: { blurb: "The predecessor: it strips one application back off a Church numeral, turning n+1 into n (and leaving 0 at 0). Famously hard to define — Stephen Kleene is said to have hit on the trick in 1932 in the dentist's chair, under nitrous oxide. Succ's mirror image, and the engine inside subtraction.", recipe: "λn f x. n (λg h. h (g f)) (λu. x) (λu. u)" },
   cons: { blurb: "Prepends a head onto a list. In this encoding a list IS its own right fold, so cons just remembers to fold the new head in before the rest. It is the Vireo's pairing instinct grown into a first-class list-builder.", recipe: "B S (B (B B) T)" },
   head: { blurb: "Takes the first element of a list (or the empty list, if there is none). It folds with the Kestrel, which keeps the head and discards the tail — the very trick that pulls the first value out of a pair.", recipe: "C (T K) nil" },
-  uncons: { blurb: "Splits a non-empty list into its head and tail, paired together — the one honest way to take a list apart. The tail half carries the hard part: a pair-shuffling fold, the list world's answer to the predecessor.", recipe: "λl. (head l, fst (l step (nil, nil)))" },
-  tail: { blurb: "Everything after the first element — simply the second projection of uncons. uncons does the real work (rebuilding the 'rest' with a fold); tail just reads it back off.", recipe: "B snd uncons" },
+  uncons: { blurb: "Splits a non-empty list into its head and tail, paired together — the one honest way to take a list apart. Conceptually tail is its second projection (snd · uncons), though tail is cheaper computed on its own.", recipe: "λl. (head l, tail l)" },
+  tail: { blurb: "Drops the first element and returns the rest. Like the predecessor for numbers, it is the hard one: a list keeps no direct 'rest', so tail rebuilds it with a pair-shuffling fold. The list world's answer to Pred.", recipe: "λl. fst (l step (nil, nil))" },
   "<>": { blurb: "Appends one list onto another (xs ++ ys) — the Semigroup of lists — by folding xs with cons onto ys. Curiously it passes the exact same finite test as the Sage bird: append and the fixpoint combinator are twins under that probe, so it roosts just ahead of Y.", recipe: "T cons" },
   join: { blurb: "Monadic join: it flattens a list of lists, [[a]] down to [a], by folding them together with append. The list monad's join — exactly the operation Haskell calls concat.", recipe: "C (T <>) nil" },
   map: { blurb: "Applies a function to every element, building a fresh list. A fold that re-conses each transformed head onto the rest — the workhorse of list processing.", recipe: "λf l. l (B cons f) nil" },
@@ -296,7 +294,7 @@ export const PAGES: PageDef[] = [
       { sym: "cons", alias: "cons", role: "prepends a head onto a list" },
       { sym: "head", alias: "head", role: "the first element" },
       { sym: "uncons", alias: "uncons", role: "splits a list into (head, tail)" },
-      { sym: "tail", alias: "tail", role: "the rest — second projection of uncons" },
+      { sym: "tail", alias: "tail", role: "everything after the head — the list's predecessor" },
       { sym: "V", alias: "fold", role: "right fold — a list is its own fold (the Vireo)" },
       { sym: "<>", alias: "<>", role: "appends one list onto another (Semigroup, ++)" },
       { sym: "join", alias: "join", role: "flattens a list of lists (monadic join / concat)" },

@@ -76,8 +76,10 @@ export class Hotbar {
   layout(): void {
     for (const c of this.tabBar.removeChildren()) c.destroy({ children: true });
     for (const c of this.slotRow.removeChildren()) c.destroy({ children: true });
-    const slotY = window.innerHeight - 44;
-    const tabY = window.innerHeight - 98;
+    const yB = window.innerHeight - 38; // bottom row centre
+    const yT = window.innerHeight - 102; // top row centre
+    const mid = (yB + yT) / 2;
+    const tabY = window.innerHeight - 152;
 
     // ---- tab bar (centred) ----
     const labels = PAGES.map((p, i) => new Text({ text: p.name, style: { fontFamily: "monospace", fontSize: 14, fill: i === this.tab ? IOTA : DIM } }));
@@ -96,24 +98,35 @@ export class Hotbar {
       tx += t.width + 2 * GAP;
     });
 
-    // ---- slot row for the current tab (paginated) ----
+    // ---- two rows of slots for the current tab (paginated) ----
     const syms = this.visible(this.tab);
-    const ps = this.pageSize();
-    const pageCount = Math.max(1, Math.ceil(syms.length / ps));
+    const perRow = this.pageSize();
+    const per = perRow * 2;
+    const pageCount = Math.max(1, Math.ceil(syms.length / per));
     this.sub = Math.max(0, Math.min(this.sub, pageCount - 1));
     const paged = pageCount > 1;
-    const pageSyms = syms.slice(this.sub * ps, this.sub * ps + ps);
+    const pageSyms = syms.slice(this.sub * per, this.sub * per + per);
+    const bottom = pageSyms.slice(0, perRow); // bottom row fills first; overflow goes up
+    const top = pageSyms.slice(perRow);
 
-    const items: Array<{ w: number; make: (cx: number) => Container }> = [];
-    if (paged) items.push({ w: ARROW, make: (cx) => this.arrow("‹", cx, slotY, this.sub > 0, () => this.flip(-1)) });
-    for (const sym of pageSyms) items.push({ w: SLOT, make: (cx) => this.slot(sym, cx, slotY) });
-    if (paged) items.push({ w: ARROW, make: (cx) => this.arrow("›", cx, slotY, this.sub < pageCount - 1, () => this.flip(1)) });
-
-    const total = items.reduce((s, it) => s + it.w, 0) + GAP * Math.max(0, items.length - 1);
-    let left = window.innerWidth / 2 - total / 2;
-    for (const it of items) {
-      this.slotRow.addChild(it.make(left + it.w / 2));
-      left += it.w + GAP;
+    const rowW = (n: number): number => n * SLOT + Math.max(0, n - 1) * GAP;
+    const maxW = Math.max(rowW(bottom.length), rowW(top.length));
+    const ctrl = paged ? ARROW + GAP : 0;
+    const totalW = maxW + 2 * ctrl;
+    const leftEdge = window.innerWidth / 2 - totalW / 2;
+    const rowsCenter = leftEdge + ctrl + maxW / 2;
+    const placeRow = (rs: string[], y: number): void => {
+      let x = rowsCenter - rowW(rs.length) / 2 + SLOT / 2;
+      for (const sym of rs) {
+        this.slotRow.addChild(this.slot(sym, x, y));
+        x += SLOT + GAP;
+      }
+    };
+    placeRow(bottom, yB);
+    placeRow(top, yT);
+    if (paged) {
+      this.slotRow.addChild(this.arrow("‹", leftEdge + ARROW / 2, mid, this.sub > 0, () => this.flip(-1)));
+      this.slotRow.addChild(this.arrow("›", leftEdge + totalW - ARROW / 2, mid, this.sub < pageCount - 1, () => this.flip(1)));
     }
 
     this.pageLabel.visible = paged;
@@ -161,7 +174,7 @@ export class Hotbar {
     c.alpha = enabled ? 1 : 0.3;
     c.eventMode = "static";
     c.cursor = "pointer";
-    c.hitArea = new Rectangle(-ARROW / 2, -SLOT / 2, ARROW, SLOT);
+    c.hitArea = new Rectangle(-ARROW / 2, -60, ARROW, 120); // spans both rows
     c.on("pointerdown", (e: FederatedPointerEvent) => {
       e.stopPropagation();
       onClick();

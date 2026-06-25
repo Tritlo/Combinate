@@ -390,7 +390,7 @@ export async function mountApp(): Promise<void> {
     { passive: false },
   );
 
-  const placeLegend = () => legend.position.set(16, window.innerHeight - 140);
+  const placeLegend = () => legend.position.set(16, window.innerHeight - 184);
   placeLegend();
   zoo.layout();
 
