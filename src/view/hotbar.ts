@@ -56,6 +56,12 @@ export class Hotbar {
     return PAGES[this.tab].name;
   }
 
+  /** Switch to a page by name (programmatic / E2E seam). No-op if unknown. */
+  selectPage(name: string): void {
+    const i = PAGES.findIndex((p) => p.name === name);
+    if (i >= 0) this.setTab(i);
+  }
+
   /** Discovered combinators on a tab (ι is always available). */
   private visible(tab: number): string[] {
     return PAGES[tab].entries.map((e) => e.sym).filter((s) => s === "ι" || this.isDiscovered(s));
