@@ -52,6 +52,13 @@ function tyOf(v: Val): Ty | null {
 /** A non-data subterm, named as far as the behavioural pass reaches (S(KS)K → B). */
 const routed = (n: Node): Val => ({ t: "comb", sexp: sexp(recognizeDeep(n)) });
 
+/** Does a term mention a free variable? Real data is closed; a component that
+ *  carries a probe variable means the structural match was spurious — e.g. `M`
+ *  probed as a list yields `c c n`, a fake `[c]` whose head *is* the fold var. */
+function hasFreeVar(n: Node): boolean {
+  return n.kind === "free" || (n.kind === "app" && (hasFreeVar(n.fn) || hasFreeVar(n.arg)));
+}
+
 /**
  * Read a term as a typed value, or null if it isn't data under this reading.
  * `hint` forces one encoding (resolving the bare-combinator ambiguity); without
@@ -75,17 +82,24 @@ export function read(n: Node, hint: Ty | null = null, depth = 0): Val | null {
   const k = matchNumeral(n);
   if (k !== null && (k >= 2 || (k === 1 && depth > 0))) return { t: "int", n: k };
   const heads = matchList(n);
-  if (heads && heads.length > 0) return readList(heads, depth);
+  if (heads && heads.length > 0) {
+    const v = readList(heads, depth);
+    if (v) return v; // else a spurious match — fall through
+  }
   const pair = matchPair(n);
-  if (pair) return readPair(pair, depth);
+  if (pair) {
+    const v = readPair(pair, depth);
+    if (v) return v;
+  }
   if (depth > 0 && matchBool(n) === true) return { t: "bool", b: true };
   return null;
 }
 
 /** Read a list's heads: auto each, propagate a sibling's type to the ambiguous
- *  ones (lists are homogeneous), then route any leftover non-data head to `comb`.
- *  Always succeeds — a matched list spine never sinks to null. */
-function readList(heads: Node[], depth: number): Val {
+ *  ones (lists are homogeneous), then route any leftover *closed* non-data head
+ *  to `comb`. Returns null if a head carries a probe variable (a spurious match,
+ *  e.g. `M`), so the caller falls through to the combinator re-folder. */
+function readList(heads: Node[], depth: number): Val | null {
   const xs: (Val | null)[] = heads.map((h) => read(h, null, depth + 1));
   const types = new Set<Ty>();
   for (const v of xs) {
@@ -96,13 +110,22 @@ function readList(heads: Node[], depth: number): Val {
     const [T] = types;
     for (let i = 0; i < xs.length; i++) if (xs[i] === null) xs[i] = read(heads[i], T, depth + 1);
   }
-  return { t: "list", xs: xs.map((v, i) => v ?? routed(heads[i])) };
+  const out: Val[] = [];
+  for (let i = 0; i < xs.length; i++) {
+    const v = xs[i];
+    if (v) out.push(v);
+    else if (hasFreeVar(heads[i])) return null; // probe artifact — not a real list
+    else out.push(routed(heads[i]));
+  }
+  return { t: "list", xs: out };
 }
 
-/** Read a pair's two components (heterogeneous → no propagation); route a
- *  non-data component to `comb`. */
-function readPair([x, y]: [Node, Node], depth: number): Val {
-  return { t: "pair", a: read(x, null, depth + 1) ?? routed(x), b: read(y, null, depth + 1) ?? routed(y) };
+/** Read a pair's two components (heterogeneous → no propagation); route a closed
+ *  non-data component to `comb`, or bail if either carries a probe variable. */
+function readPair([x, y]: [Node, Node], depth: number): Val | null {
+  const a = read(x, null, depth + 1) ?? (hasFreeVar(x) ? null : routed(x));
+  const b = read(y, null, depth + 1) ?? (hasFreeVar(y) ? null : routed(y));
+  return a && b ? { t: "pair", a, b } : null;
 }
 
 /** Render a decoded value to the compact read-out string. */
