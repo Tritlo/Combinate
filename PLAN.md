@@ -32,21 +32,24 @@ form. Two engines are planned; **do Phase 1 first.**
 - egg-via-WASM is allowed for the general engine (Phase 2) — do **not** hand-roll
   an egraph in TS.
 
-## The Church encodings in this codebase (the reader must match these)
+## The Scott encodings in this codebase (the reader must match these)
 
-From `src/core/catalog.ts`:
+From `src/core/catalog.ts` — these match MicroHs's `data` encoding (ADR 0004);
+the section originally described the Church encodings, now superseded.
 
-- **Numerals** (Church): `n f x = fⁿ x`. `0 = A` (= `K I`), `1 = I`,
-  `Succ n f x = f (n f x)`.
-- **Lists** (right fold): `cons h t = λc n. c h (t c n)`, `nil = λc n. n = K I = A`,
-  `fold = V`. So a list is `λc n. c h₁ (c h₂ (… n))`.
-- **Booleans**: `true = K`, `false = A` (= `K I`). `if = I`.
-- **Pairs** (Vireo): `V x y f = f x y`; `fst = λp. p K`, `snd = λp. p A`.
+- **Numerals** (Scott Peano): `Z = K`, `S p = λz s. s p`. So `0 = K`,
+  `1 = λz s. s K`, … each `Succ` just stores its predecessor.
+- **Lists**: `nil = K`, `cons h t = λn c. c h t` (a cons *cell* — no built-in
+  fold). `head`/`tail`/`uncons`/`null` read one eliminator arm; `map`/`<>`/`concat`
+  recurse via `Y`.
+- **Booleans**: `false = K`, `true = A` (= `K I`). `if c t e = c e t` (= `C`).
+- **Pairs** (Vireo): `(x, y) = λf. f x y`; `fst = λp. p K`, `snd = λp. p A`.
 
-**Irreducible ambiguity:** `K I` (= `A`) is simultaneously `0`, `[]`, `false`,
-and `nil`. A bare `A` cannot be uniquely read. Disambiguate by structure where
-possible (a non-empty list / a numeral ≥ 1 / a 2-arg pair are unambiguous);
-for the trivial leaf, pick a documented default or fall back to the name `A`.
+**Irreducible ambiguity:** the **Kestrel `K`** is simultaneously `0`, `[]`,
+`false`, and `nil`. A bare `K` cannot be uniquely read. Disambiguate by structure
+where possible (a non-empty list / a numeral ≥ 1 / `true` = `A` / a 2-arg pair are
+unambiguous); for the trivial leaf, defer to a page tag / sibling propagation or
+fall back to the name `K`.
 
 ---
 

@@ -40,6 +40,9 @@ export class TreeView {
   private display: Node; // node with undiscovered S/K/I expanded to their ι-trees
   private lay: Layout;
   private readonly objs = new Map<NodeId, Container>();
+  // Parent→(left, right) child ids, cached from the display topology so drawEdges
+  // (run every tween frame) reads live positions without re-walking the tree.
+  private edgeList: Array<{ p: NodeId; l: NodeId; r: NodeId }> = [];
 
   private anims: Anim[] = [];
   private elapsed = 0;
@@ -208,6 +211,7 @@ export class TreeView {
 
     this.node = node;
     this.display = newDisplay;
+    this.indexEdges();
     this.lay = newLay;
     this.updateHitArea();
     this.elapsed = 0;
@@ -300,30 +304,41 @@ export class TreeView {
       this.objs.set(id, obj);
       this.nodes.addChild(obj);
     }
+    this.indexEdges();
     this.drawEdges();
     this.updateHitArea();
   }
 
-  // Edges are drawn from the live object positions (so they follow tweens), with
-  // function (left) edges and argument (right) edges in two distinct strokes.
-  private drawEdges(): void {
-    this.edges.clear();
-    const fn: Array<[number, number, number, number]> = [];
-    const arg: Array<[number, number, number, number]> = [];
+  // Cache the parent→child edges of the current display topology. Called only
+  // when `display` is reassigned (rebuild / animateTo); setLayout and
+  // animateAttachFrom keep the same display, so the cache stays valid there.
+  private indexEdges(): void {
+    this.edgeList = [];
     const walk = (n: Node): void => {
       if (n.kind !== "app") return;
-      const p = this.objs.get(n.id)?.position;
-      const lp = this.objs.get(n.fn.id)?.position;
-      const rp = this.objs.get(n.arg.id)?.position;
-      if (p && lp) fn.push([p.x, p.y, lp.x, lp.y]);
-      if (p && rp) arg.push([p.x, p.y, rp.x, rp.y]);
+      this.edgeList.push({ p: n.id, l: n.fn.id, r: n.arg.id });
       walk(n.fn);
       walk(n.arg);
     };
     walk(this.display);
-    for (const [x1, y1, x2, y2] of arg) this.edges.moveTo(x1, y1).lineTo(x2, y2);
+  }
+
+  // Edges are drawn from the live object positions (so they follow tweens), with
+  // function (left) edges and argument (right) edges in two distinct strokes.
+  // Iterates the cached edge list (no per-frame tree walk or array allocation).
+  private drawEdges(): void {
+    this.edges.clear();
+    for (const e of this.edgeList) {
+      const p = this.objs.get(e.p)?.position;
+      const rp = this.objs.get(e.r)?.position;
+      if (p && rp) this.edges.moveTo(p.x, p.y).lineTo(rp.x, rp.y);
+    }
     this.edges.stroke({ width: 2.5, color: theme.argEdge });
-    for (const [x1, y1, x2, y2] of fn) this.edges.moveTo(x1, y1).lineTo(x2, y2);
+    for (const e of this.edgeList) {
+      const p = this.objs.get(e.p)?.position;
+      const lp = this.objs.get(e.l)?.position;
+      if (p && lp) this.edges.moveTo(p.x, p.y).lineTo(lp.x, lp.y);
+    }
     this.edges.stroke({ width: 3, color: theme.fnEdge });
     this.placeRootMark();
   }

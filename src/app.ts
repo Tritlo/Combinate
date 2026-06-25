@@ -12,7 +12,8 @@ import { CATALOG, IOTA_CODE, HINTS, iotaTreeOf, countIotas, type Law } from "./c
 import { recognize } from "./core/probe";
 import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
 import { makeRefolder, behavioralRefolder, recognizeDeep, fromEgg, type Refolder } from "./core/refold";
-import { readValue } from "./core/value";
+import { read, render, type Ty } from "./core/types";
+import { inferType } from "./core/infer";
 import { TreeView } from "./view/tree";
 import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
@@ -181,21 +182,45 @@ export async function mountApp(): Promise<void> {
     paintRail();
   }
 
+  // ---- type lens (ADR 0003): an opt-in badge appending the focused term's
+  // principal simple type to the read-out (or "no simple type" for the
+  // self-application birds — M, L, U, Y). Pure inference on the normal form. ----
+  let typeOn = false;
+  function toggleType(): void {
+    typeOn = !typeOn;
+    lastShownNode = null; // force a read-out recompute on the next frame
+    paintRail();
+  }
+
+  // The read-as mode is just the current hotbar page (ADR 0003): a typed page
+  // forces that reading and resolves the bare-A ambiguity `read` otherwise defers
+  // (A → 0 / [] / false). The Programs page has no type → auto-discovery.
+  const READ_AS: Record<string, Ty> = { Arithmetic: "Int", Booleans: "Bool", Lists: "List" };
+
   // Live read-out of the focused tree's expression, recomputed only when its
-  // node identity changes (so the probes never run every frame). A compact data
-  // value (Phase 1) is shown whenever the term is data — always on; the refold
-  // lens additionally names combinators (Phase 2) when the term isn't data.
+  // node identity (or the read-as page) changes — so the probes never run every
+  // frame. A compact data value (Phase 1) is shown whenever the term is data —
+  // always on; the refold lens additionally names combinators (Phase 2) when the
+  // term isn't data.
   let lastShownNode: Node | null = null;
+  let lastMode: Ty | undefined;
   let lastExpr = "";
   pixi.ticker.add(() => {
     const node = focus && trees.includes(focus) ? focus.node : null;
-    if (node === lastShownNode) return;
+    const mode = READ_AS[hotbar.page];
+    if (node === lastShownNode && mode === lastMode) return;
     lastShownNode = node;
+    lastMode = mode;
     let txt = "";
     if (node) {
-      const value = readValue(node); // Phase 1: always-on compact data value
+      // Type-guided data reading: the page forces a reading (mode), elements
+      // propagate a sibling's type and route non-data parts to their combinator
+      // name. Falls back to the egg lens / raw sexp when the term isn't data.
+      const v = read(node, mode ?? null); // Phase 1 (+ propagation/routing)
+      const value = v ? render(v) : null;
       const folded = !value && refoldOn && refolder ? refolder(node) : null; // Phase 2: combinator naming, behind the lens
       txt = value ?? (folded ? sexp(folded) : exprOf(node));
+      if (typeOn) txt += `  ::  ${inferType(node) ?? "no simple type"}`; // type lens
     }
     if (txt !== lastExpr) {
       lastExpr = txt;
@@ -643,12 +668,18 @@ export async function mountApp(): Promise<void> {
     g.moveTo(0, 12).lineTo(-3.5, 7).moveTo(0, 12).lineTo(3.5, 7).stroke({ width: 2, color: c }); // arrowhead
     g.circle(0, -1, 2.5).fill({ color: c }); // join
   };
+  const drawType = (g: Graphics, c: number): void => {
+    g.circle(-9, 0, 2.5).fill({ color: c }); // a value …
+    g.moveTo(-5, 0).lineTo(9, 0).stroke({ width: 2, color: c }); // … through a function arrow (a → b)
+    g.moveTo(9, 0).lineTo(4, -5).moveTo(9, 0).lineTo(4, 5).stroke({ width: 2, color: c }); // arrowhead
+  };
   type RailDef = { label: string; draw: (g: Graphics, c: number) => void; brand?: boolean; count?: boolean; active?: () => boolean; act: () => void };
   const RAIL: RailDef[] = [
     { label: "Dex", draw: drawDex, brand: true, count: true, act: () => zoo.toggle() },
     { label: "layout", draw: drawLayout, act: () => toggleLayout() },
     { label: "expand", draw: drawExpand, active: () => expandAll, act: () => toggleExpand() },
     { label: "refold", draw: drawRefold, active: () => refoldOn, act: () => toggleRefold() },
+    { label: "type", draw: drawType, active: () => typeOn, act: () => toggleType() },
     { label: "clear", draw: drawClear, act: () => clearCanvas() },
     { label: "unlock", draw: drawUnlock, act: () => unlockAll() },
   ];
@@ -739,6 +770,9 @@ export async function mountApp(): Promise<void> {
       discovered: () => [...discovered],
       mode: () => (layoutFn === layoutRadial ? "radial" : "topdown"),
       expr: () => exprText.text,
+      page: () => hotbar.page,
+      setPage: (name: string) => hotbar.selectPage(name),
+      type: { on: () => typeOn, toggle: () => toggleType(), of: (s: string) => inferType(fromEgg(s)) },
       unlockAll: () => unlockAll(),
       openZoo: () => zoo.open(),
       camera: () => ({ scale: world.scale.x, x: world.position.x, y: world.position.y }),
@@ -751,7 +785,10 @@ export async function mountApp(): Promise<void> {
         // behavioural pre-pass alone, on an egg s-expression term
         deep: (s: string) => sexp(recognizeDeep(fromEgg(s))),
         // Phase 1 value reader, on an egg s-expression term
-        value: (s: string) => readValue(fromEgg(s)),
+        value: (s: string) => {
+          const v = read(fromEgg(s));
+          return v ? render(v) : null;
+        },
         // spawn a term from an egg s-expression and focus it (drives the read-out)
         spawn: (s: string) => sexp(spawnTree(fromEgg(s), window.innerWidth / 2, window.innerHeight / 2).node),
       },

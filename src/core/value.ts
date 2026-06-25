@@ -1,23 +1,28 @@
 /**
- * Encoding-directed value reader (PLAN.md Phase 1): the inverse of the Church
- * encodings. Given a term, probe it as each known data shape — numeral, list,
- * pair, boolean — by applying it to fresh free variables and inspecting the
- * normal form (the same behavioural trick as `probe.ts`), and render a compact
- * value: `2`, `[a, b, c]`, `(x, y)`, `true`. Recurses on sub-values.
+ * Structural matchers for the **Scott** encodings (the encoding MicroHs compiles
+ * data to — `EncodeData.hs`), recognising a normal form as a Peano numeral, list,
+ * pair, or boolean by applying the term to fresh free-variable eliminators and
+ * inspecting the result (the same behavioural trick as `probe.ts`). Pure (no
+ * Pixi/DOM) and bounded.
  *
- * Pure (no Pixi/DOM) and bounded. Returns `null` when the term is not a
- * recognisable value, so the caller can fall back to the combinator re-folder or
- * the raw s-expression. The trivial values coincide with bare combinators — `0`/
- * `[]`/`false`/`nil` are all `A`, `1` is `I`, `true` is `K` — so at the top level
- * they defer to the combinator name; they read as values only when nested as
- * data (e.g. the `1`s in `[1, 1]`). `false`/`0`/`[]` (all `A`) stay ambiguous
- * even nested and are not read.
+ * Scott data is a *case-on-itself*: a value applies the eliminator arm for its
+ * own constructor, in declaration order. Unlike Church (Boehm–Berarducci) data it
+ * carries no built-in fold, so the matchers **peel one constructor at a time**,
+ * recursing on the raw predecessor/tail.
+ *
+ *   Nat   = Z | S Nat        Z = K (= λz s. z)      S p = λz s. s p
+ *   []    = [] | (:) a [a]   [] = K (= λn c. n)     (h:t) = λn c. c h t
+ *   Bool  = False | True     False = K              True = A (= K I)
+ *   (a,b)                    (x,y) = λf. f x y      (Vireo — same as Church)
+ *
+ * These are *recognisers only* — no ambiguity policy. The reading policy (when a
+ * bare `K` means `0` vs `[]` vs `false`, propagation, routing, rendering) lives in
+ * `types.ts: read`, which is the single value reader the shell uses.
  */
 import { type Node, app, freeVar } from "./term";
 import { normalize } from "./reduce";
 
-const MAX_DEPTH = 8; // nesting guard
-const NORM_CAP = 4000; // per-probe reduction cap
+export const NORM_CAP = 4000; // per-probe reduction cap
 const MAX_LIST = 64; // longest list we spell out
 const MAX_NUM = 9999; // largest numeral we count to
 
@@ -25,72 +30,62 @@ const isVar = (n: Node, name: string): boolean => n.kind === "free" && n.name ==
 // Probe variable names unlikely to collide with anything in a closed term.
 const V = (s: string): Node => freeVar(`§${s}`);
 
-/** Church numeral: `n f x = fⁿ x`. Returns the count, or null. `0` (= A) and
- *  `1` (= I) coincide with bare combinators, so — like booleans — they read as
- *  numerals only when nested (`depth > 0`); `2`+ are unambiguous. */
-function readNumeral(n: Node, depth: number): string | null {
-  const r = normalize(app(app(n, V("f")), V("x")), NORM_CAP);
-  if (!r.done) return null;
-  let cur = r.term;
-  let k = 0;
-  while (cur.kind === "app" && isVar(cur.fn, "§f")) {
-    if (++k > MAX_NUM) return null;
-    cur = cur.arg;
+/** Scott Peano numeral: `Z = λz s. z`, `S p = λz s. s p`. Apply to fresh `z`, `s`
+ *  and peel — `z` ends the count, `s p` adds one and recurses on the predecessor
+ *  `p`. Returns the count `k` (0 allowed), or null if it isn't a numeral. */
+export function matchNumeral(n: Node, cap = NORM_CAP): number | null {
+  let cur = n;
+  for (let k = 0; k <= MAX_NUM; k++) {
+    const r = normalize(app(app(cur, V("z")), V("s")), cap);
+    if (!r.done) return null;
+    const t = r.term;
+    if (isVar(t, "§z")) return k; // Z — end of the count
+    if (t.kind === "app" && isVar(t.fn, "§s")) {
+      cur = t.arg; // S p — peel to the predecessor
+      continue;
+    }
+    return null;
   }
-  if (!isVar(cur, "§x")) return null;
-  return k >= 2 || (k === 1 && depth > 0) ? String(k) : null; // 0 always defers; 1 defers at top
+  return null; // longer than MAX_NUM
 }
 
-/** Non-empty right-fold list `c h₁ (c h₂ (… n))`. Empty (NF = n) defers. */
-function readList(n: Node, depth: number): string | null {
-  const r = normalize(app(app(n, V("c")), V("n")), NORM_CAP);
-  if (!r.done) return null;
+/** Scott list: `[] = λn c. n`, `(h:t) = λn c. c h t`. Apply to fresh `n`, `c` and
+ *  peel — `n` ends the list, `c h t` yields a head and the raw tail. Returns the
+ *  heads (possibly empty), or null if it isn't a list. */
+export function matchList(n: Node, cap = NORM_CAP): Node[] | null {
   const heads: Node[] = [];
-  let cur = r.term;
-  // each cons cell is ((c h) rest); a numeral's `c (c n)` has c applied to ONE
-  // arg, so it never matches this two-arg spine.
-  while (cur.kind === "app" && cur.fn.kind === "app" && isVar(cur.fn.fn, "§c")) {
-    if (heads.push(cur.fn.arg) > MAX_LIST) return null;
-    cur = cur.arg;
+  let cur = n;
+  for (let i = 0; i <= MAX_LIST; i++) {
+    const r = normalize(app(app(cur, V("n")), V("c")), cap);
+    if (!r.done) return null;
+    const t = r.term;
+    if (isVar(t, "§n")) return heads; // [] — end of the list
+    // (h:t) = c h t  ⇒  ((§c h) t)
+    if (t.kind === "app" && t.fn.kind === "app" && isVar(t.fn.fn, "§c")) {
+      heads.push(t.fn.arg);
+      cur = t.arg; // the raw Scott tail
+      continue;
+    }
+    return null;
   }
-  if (heads.length === 0 || !isVar(cur, "§n")) return null;
-  const parts: string[] = [];
-  for (const h of heads) {
-    const v = readValue(h, depth + 1);
-    if (v === null) return null; // a non-value element → bail to the caller
-    parts.push(v);
-  }
-  return `[${parts.join(", ")}]`;
+  return null; // longer than MAX_LIST
 }
 
-/** Pair (Vireo) `V x y f = f x y`: NF applied to one var is `f x y`. */
-function readPair(n: Node, depth: number): string | null {
-  const r = normalize(app(n, V("f")), NORM_CAP);
+/** Pair (Vireo) `(x, y) = λf. f x y`: the two components, or null. */
+export function matchPair(n: Node, cap = NORM_CAP): [Node, Node] | null {
+  const r = normalize(app(n, V("f")), cap);
   if (!r.done) return null;
   const t = r.term;
-  if (t.kind === "app" && t.fn.kind === "app" && isVar(t.fn.fn, "§f")) {
-    const vx = readValue(t.fn.arg, depth + 1);
-    const vy = readValue(t.arg, depth + 1);
-    return vx !== null && vy !== null ? `(${vx}, ${vy})` : null;
-  }
+  if (t.kind === "app" && t.fn.kind === "app" && isVar(t.fn.fn, "§f")) return [t.fn.arg, t.arg];
   return null;
 }
 
-/** Boolean: only `true` (= K) is unambiguous; `false` (= A) shares the bare-A
- *  ambiguity and defers. Read in nested position only, so a bare top-level K
- *  still shows as the combinator rather than surprising as `true`. */
-function readBool(n: Node): string | null {
-  const r = normalize(app(app(n, V("a")), V("b")), NORM_CAP);
-  return r.done && isVar(r.term, "§a") ? "true" : null;
-}
-
-/**
- * Read a term as a compact value, or null if it is not recognisable data. Tries
- * the unambiguous non-trivial shapes first; booleans only when nested
- * (`depth > 0`). The shapes are mutually exclusive on a normal form, so order
- * affects only which probe runs first, not correctness.
- */
-export function readValue(n: Node, depth = 0): string | null {
-  if (depth > MAX_DEPTH) return null;
-  return readNumeral(n, depth) ?? readList(n, depth) ?? readPair(n, depth) ?? (depth > 0 ? readBool(n) : null);
+/** Scott boolean `False = K` (→ first arm), `True = A` (→ second arm): the value,
+ *  or null. */
+export function matchBool(n: Node, cap = NORM_CAP): boolean | null {
+  const r = normalize(app(app(n, V("f")), V("t")), cap);
+  if (!r.done) return null;
+  if (isVar(r.term, "§f")) return false; // False = K selects the first arm
+  if (isVar(r.term, "§t")) return true; // True  = A selects the second arm
+  return null;
 }
