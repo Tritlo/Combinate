@@ -15,7 +15,7 @@ export type Sym = string;
 
 export type Node =
   | { id: NodeId; kind: "iota" }
-  | { id: NodeId; kind: "comb"; sym: Sym; def?: Node }
+  | { id: NodeId; kind: "comb"; sym: Sym; def?: Node; arity?: number }
   | { id: NodeId; kind: "free"; name: string }
   | { id: NodeId; kind: "app"; fn: Node; arg: Node };
 
@@ -30,7 +30,7 @@ export const iota = (): Node => ({ id: freshId(), kind: "iota" });
 /** A named combinator leaf: a transient S/K/I from reducing ι, or a collapsed
  * discovered law. `def` (the law's underlying ι-tree) lets the reducer unfold
  * combinators that have no built-in rule (A, X, …) when they are applied. */
-export const comb = (sym: Sym, def?: Node): Node => ({ id: freshId(), kind: "comb", sym, def });
+export const comb = (sym: Sym, def?: Node, arity?: number): Node => ({ id: freshId(), kind: "comb", sym, def, arity });
 
 /** An application node `(fn arg)`; `fn` is the left child, `arg` the right. */
 export const app = (fn: Node, arg: Node): Node => ({ id: freshId(), kind: "app", fn, arg });

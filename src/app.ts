@@ -123,7 +123,7 @@ export async function mountApp(): Promise<void> {
   // What a recognised tree collapses into: a single named node. I/K/S reduce by
   // built-in rules; the rest carry their definition (law.def) for the reducer
   // to unfold when applied.
-  const collapsedNode = (law: Law): Node => comb(law.sym, law.def?.());
+  const collapsedNode = (law: Law): Node => comb(law.sym, law.def?.(), law.arity);
 
   const zoo = new Zoo(isDiscovered); // added to the HUD last (below) so it overlays everything
 
