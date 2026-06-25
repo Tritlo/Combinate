@@ -750,6 +750,8 @@ export async function mountApp(): Promise<void> {
       discovered: () => [...discovered],
       mode: () => (layoutFn === layoutRadial ? "radial" : "topdown"),
       expr: () => exprText.text,
+      page: () => hotbar.page,
+      setPage: (name: string) => hotbar.selectPage(name),
       unlockAll: () => unlockAll(),
       openZoo: () => zoo.open(),
       camera: () => ({ scale: world.scale.x, x: world.position.x, y: world.position.y }),
