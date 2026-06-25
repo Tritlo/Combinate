@@ -11,7 +11,7 @@ import { step } from "./core/reduce";
 import { CATALOG, IOTA_CODE, HINTS, iotaTreeOf, countIotas, type Law } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
-import { makeRefolder, fromEgg, type Refolder } from "./core/refold";
+import { makeRefolder, behavioralRefolder, recognizeDeep, fromEgg, type Refolder } from "./core/refold";
 import { TreeView } from "./view/tree";
 import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
@@ -151,19 +151,20 @@ export async function mountApp(): Promise<void> {
   let refolderLoading = false;
   let refoldRaw: ((sexpr: string) => string) | null = null;
 
+  // Upgrade the lens from the pure behavioural pre-pass to the full
+  // behavioural→egg pipeline once the wasm loads. If it fails to load, the
+  // behavioural-only re-folder keeps working (no need to disable the lens).
   async function ensureRefolder(): Promise<void> {
-    if (refolder || refolderLoading) return;
+    if (refoldRaw || refolderLoading) return;
     refolderLoading = true;
     try {
       const mod = await import("../crates/refold/pkg/refold.js");
       await mod.default();
       refoldRaw = mod.refold;
       refolder = makeRefolder(mod.refold);
-      lastShownNode = null; // force the read-out to recompute now folding is live
+      lastShownNode = null; // recompute now the egg stage is live
     } catch {
-      toast.show("re-folder unavailable");
-      refoldOn = false;
-      paintRail();
+      toast.show("re-folder: behavioural only (wasm unavailable)");
     } finally {
       refolderLoading = false;
     }
@@ -172,7 +173,10 @@ export async function mountApp(): Promise<void> {
   function toggleRefold(): void {
     refoldOn = !refoldOn;
     lastShownNode = null; // force a recompute on the next frame
-    if (refoldOn) void ensureRefolder();
+    if (refoldOn) {
+      if (!refolder) refolder = behavioralRefolder; // instant pure-TS lens
+      void ensureRefolder(); // then upgrade with the egg stage
+    }
     paintRail();
   }
 
@@ -738,6 +742,8 @@ export async function mountApp(): Promise<void> {
         init: () => ensureRefolder(),
         toggle: () => toggleRefold(),
         raw: (s: string) => refoldRaw?.(s) ?? null,
+        // behavioural pre-pass alone, on an egg s-expression term
+        deep: (s: string) => sexp(recognizeDeep(fromEgg(s))),
         // spawn a term from an egg s-expression and focus it (drives the read-out)
         spawn: (s: string) => sexp(spawnTree(fromEgg(s), window.innerWidth / 2, window.innerHeight / 2).node),
       },
