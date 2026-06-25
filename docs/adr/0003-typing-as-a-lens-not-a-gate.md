@@ -1,6 +1,9 @@
 # 3. Typing: a decoder/lens, not a gate
 
-**Status:** accepted
+**Status:** accepted — but the **concrete Church encodings below are superseded by ADR 0004**
+(data now uses MicroHs's Scott encoding). The lens design is unchanged; only the bare-combinator
+mapping flips: the ambiguous leaf is now the Kestrel `K` (= `0`/`[]`/`false`), not `A`, and
+`true` = `A`. Read every "`A` is `0`/`[]`/`false`" below as "`K` is `0`/`[]`/`false`".
 
 ## The problem
 
