@@ -1,0 +1,34 @@
+# 2. egg-via-WASM re-sugarer (Phase 2)
+
+**Status:** accepted
+
+The app reduces terms to raw SKI/ι normal forms that are unreadable. We add a
+**re-folder** that recovers a named reading (`S (K S) K → B`). Per PLAN.md it is
+a general re-sugarer, not just a value reader.
+
+**Decision.** Build it as a Rust crate (`crates/refold/`) using the `egg`
+e-graph library, compiled to WASM, rather than hand-rolling an e-graph in TS.
+Each combinator law (generated from `catalog.ts`, the single source of truth) is
+a bidirectional rewrite; a cost function prefers named birds over raw ι/S/K, so
+equality-saturation + extraction yields the most-folded form. It is a **driven
+adapter** behind a pure `Refolder` port (`src/core/refold.ts`), lazy-loaded by
+the shell — `src/core/` stays Pixi/DOM/wasm-free (extends ADR 0001). The lens is
+**display-only** and **off by default**; the wasm chunk (~310 KB) is only fetched
+when it is switched on.
+
+**Behavioural pre-pass.** egg reasons syntactically and cannot collapse
+**eta-equivalent** forms (`S K K`, behaviourally `I`, would fold to a quirky
+`M2 K`). So the re-folder runs a behavioural pre-pass first: `recognizeDeep`
+recursively applies the existing `recognize` probe — which *is* extensional (it
+reduces the term applied to fresh variables) — to name single-combinator
+subterms, then hands the residual to egg. The pre-pass is pure TS, so it is also
+the graceful fallback when the wasm is unavailable.
+
+**Build.** The wasm is **built from source in CI** (`npm run build:wasm` → rules
+generated from the catalog, then `wasm-pack`) rather than committed, so the
+deployed bundle always matches the catalog and no binary lives in git history.
+CI gains a Rust toolchain step; a fresh local checkout runs `npm run build:wasm`
+once before building. A TS guard shows a folding only when it is strictly simpler
+than the input, so the lens never makes a term less readable. Neither stage reads
+**data values** (`[2,2]` from a point-free numeral/list) — that is the
+encoding-directed value reader (Phase 1), composed ahead of this in the lens.

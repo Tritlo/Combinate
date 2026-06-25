@@ -1,0 +1,29 @@
+[package]
+name = "refold"
+version = "0.1.0"
+edition = "2021"
+description = "egg-based re-sugarer: fold SKI/iota normal forms back to named combinators"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+egg = "0.11"
+wasm-bindgen = "0.2"
+# egg tracks wall-clock for its runner time limit via the `instant` crate; on
+# wasm32 that needs the wasm-bindgen backend or `Instant::now()` panics. Enabling
+# the feature on the shared dep makes egg's time tracking wasm-safe.
+instant = { version = "0.1", features = ["wasm-bindgen"] }
+
+# Smaller, faster-to-load wasm. `opt-level = "z"` + LTO keeps the bundle down;
+# the re-folder runs interactively, not in a hot loop, so size beats raw speed.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+
+# Skip wasm-opt: it needs a binaryen download we may not have, and rustc's own
+# size opts above are enough for an interactively-loaded module.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
