@@ -1,15 +1,13 @@
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text, type Ticker } from "pixi.js";
 import { type Node } from "../core/term";
 import { PAGES } from "../core/catalog";
+import { theme } from "./theme";
 import { tween } from "./anim";
 
 const SLOT = 56;
 const GAP = 10;
 const MARGIN = 80; // keep the row clear of the screen edges
 const ARROW = 30; // width of a ‹ / › page button
-const ACCENT = 0x9fc0ff;
-const IOTA = 0xffe08a;
-const DIM = 0x8a97ad;
 
 /**
  * The hotbar (§8.1), bottom-centre. It mirrors the Zoo's organisation: a tab bar
@@ -22,7 +20,7 @@ export class Hotbar {
   readonly container = new Container();
   private readonly tabBar = new Container();
   private readonly slotRow = new Container();
-  private readonly pageLabel = new Text({ text: "", style: { fontFamily: "monospace", fontSize: 12, fill: DIM } });
+  private readonly pageLabel = new Text({ text: "", style: { fontFamily: "monospace", fontSize: 12, fill: theme.textDim } });
   private tab = 0;
   private sub = 0;
   private popSym: string | null = null;
@@ -82,7 +80,7 @@ export class Hotbar {
     const tabY = window.innerHeight - 152;
 
     // ---- tab bar (centred) ----
-    const labels = PAGES.map((p, i) => new Text({ text: p.name, style: { fontFamily: "monospace", fontSize: 14, fill: i === this.tab ? IOTA : DIM } }));
+    const labels = PAGES.map((p, i) => new Text({ text: p.name, style: { fontFamily: "monospace", fontSize: 14, fill: i === this.tab ? theme.iota : theme.textDim } }));
     const tabsW = labels.reduce((s, t) => s + t.width, 0) + 2 * GAP * (labels.length - 1);
     let tx = window.innerWidth / 2 - tabsW / 2;
     labels.forEach((t, i) => {
@@ -94,7 +92,7 @@ export class Hotbar {
         this.setTab(i);
       });
       this.tabBar.addChild(t);
-      if (i === this.tab) this.tabBar.addChild(new Graphics().rect(tx, tabY + 19, t.width, 2).fill({ color: IOTA }));
+      if (i === this.tab) this.tabBar.addChild(new Graphics().rect(tx, tabY + 19, t.width, 2).fill({ color: theme.iota }));
       tx += t.width + 2 * GAP;
     });
 
@@ -146,10 +144,10 @@ export class Hotbar {
   }
 
   private slot(sym: string, cx: number, cy: number): Container {
-    const accent = sym === "ι" ? IOTA : ACCENT;
+    const accent = sym === "ι" ? theme.iota : theme.accent;
     const v = new Container() as Container & { sym: string };
     v.sym = sym;
-    v.addChild(new Graphics().roundRect(-SLOT / 2, -SLOT / 2, SLOT, SLOT, 8).fill({ color: 0x1a2233 }).stroke({ width: 2, color: accent }));
+    v.addChild(new Graphics().roundRect(-SLOT / 2, -SLOT / 2, SLOT, SLOT, 8).fill({ color: theme.panel }).stroke({ width: 2, color: accent }));
     const glyph = new Text({ text: this.aliasOf(sym), style: { fontFamily: "monospace", fontSize: 24, fill: accent } });
     glyph.anchor.set(0.5);
     const maxW = SLOT - 10; // shrink long glyphs (e.g. "Succ", "Mult") to fit
@@ -167,7 +165,7 @@ export class Hotbar {
 
   private arrow(label: string, cx: number, cy: number, enabled: boolean, onClick: () => void): Container {
     const c = new Container();
-    const t = new Text({ text: label, style: { fontFamily: "monospace", fontSize: 30, fill: ACCENT } });
+    const t = new Text({ text: label, style: { fontFamily: "monospace", fontSize: 30, fill: theme.accent } });
     t.anchor.set(0.5);
     c.addChild(t);
     c.position.set(cx, cy);

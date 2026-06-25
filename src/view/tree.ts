@@ -2,22 +2,13 @@ import { Container, Graphics, Rectangle, Text, type Ticker } from "pixi.js";
 import { type Node, type NodeId, iotaTreeFrom } from "../core/term";
 import { IOTA_CODE } from "../core/catalog";
 import { type Layout, type LayoutFn } from "../core/layout";
+import { theme } from "./theme";
 
 const LAYOUT_MS = 360; // duration of the layout-toggle reflow
 const EXPAND_SPAN = 32; // id range reserved per expanded combinator (must exceed its ι-tree size)
-
-const IOTA_COLOR = 0xffe08a;
-const IOTA_GLYPH = 0x3a2f10;
-const APP_COLOR = 0x6b7a90;
-const COMB_COLOR = 0x3b78e8;
-const FREE_COLOR = 0x5a6885; // free variable (probe only; not normally on canvas)
-
-/** Edge to the function (left) child — warm orange, thick. */
-export const FN_EDGE = 0xff9f43;
-/** Edge to the argument (right) child — cool violet, thinner. Two distinct
- *  bright hues (clear of the gold ι and blue S/K) so `(ι X)` and `(X ι)` read
- *  differently: ι hangs off the orange edge in one, the violet edge in the other. */
-export const ARG_EDGE = 0xa78bfa;
+// Node/edge colours come from the active theme (theme.ts). Edges: function
+// (left) = theme.fnEdge (warm), argument (right) = theme.argEdge (cool) — two
+// distinct hues so `(ι X)` and `(X ι)` read differently.
 
 interface Anim {
   id: NodeId;
@@ -332,9 +323,9 @@ export class TreeView {
     };
     walk(this.display);
     for (const [x1, y1, x2, y2] of arg) this.edges.moveTo(x1, y1).lineTo(x2, y2);
-    this.edges.stroke({ width: 2.5, color: ARG_EDGE });
+    this.edges.stroke({ width: 2.5, color: theme.argEdge });
     for (const [x1, y1, x2, y2] of fn) this.edges.moveTo(x1, y1).lineTo(x2, y2);
-    this.edges.stroke({ width: 3, color: FN_EDGE });
+    this.edges.stroke({ width: 3, color: theme.fnEdge });
   }
 
   private updateHitArea(): void {
@@ -352,16 +343,16 @@ export class TreeView {
   private makeNode(n: Node): Container {
     const c = new Container();
     if (n.kind === "iota") {
-      c.addChild(new Graphics().circle(0, 0, 7).fill(IOTA_COLOR));
-      c.addChild(label("ι", IOTA_GLYPH, 10));
+      c.addChild(new Graphics().circle(0, 0, 7).fill(theme.iota));
+      c.addChild(label("ι", theme.iotaGlyph, 10));
     } else if (n.kind === "comb") {
-      c.addChild(new Graphics().circle(0, 0, 15).fill(COMB_COLOR));
+      c.addChild(new Graphics().circle(0, 0, 15).fill(theme.node));
       c.addChild(label(n.sym, 0xffffff, 15));
     } else if (n.kind === "free") {
-      c.addChild(new Graphics().circle(0, 0, 13).fill(FREE_COLOR));
+      c.addChild(new Graphics().circle(0, 0, 13).fill(theme.mutedDot));
       c.addChild(label(n.name, 0xffffff, 14));
     } else {
-      c.addChild(new Graphics().circle(0, 0, 5).fill(APP_COLOR));
+      c.addChild(new Graphics().circle(0, 0, 5).fill(theme.mutedDot));
     }
     return c;
   }

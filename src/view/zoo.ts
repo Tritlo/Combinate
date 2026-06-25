@@ -2,14 +2,8 @@ import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text } from
 import { CATALOG, countIotas, iotaTreeOf, type Law, META, PAGES } from "../core/catalog";
 import { iota, type Node, type NodeId } from "../core/term";
 import { layoutRadial } from "../core/layout";
-import { ARG_EDGE, FN_EDGE } from "./tree";
+import { theme } from "./theme";
 
-const IOTA_COLOR = 0xffe08a;
-const COMB_COLOR = 0x3b78e8;
-const PANEL_BG = 0x121826;
-const PANEL_LINE = 0x2c3850;
-const TEXT_DIM = 0x8a97ad;
-const TEXT = 0xd6deec;
 const LIST_W = 248;
 const LIST_TOP = 88; // list/detail start below the title + tab row
 
@@ -42,7 +36,7 @@ export class Zoo {
   private readonly panel = new Container();
   private readonly backdrop = new Graphics();
   private readonly card = new Graphics();
-  private readonly title = new Text({ text: "THE ZOO", style: { fontFamily: "monospace", fontSize: 22, fill: IOTA_COLOR } });
+  private readonly title = new Text({ text: "THE ZOO", style: { fontFamily: "monospace", fontSize: 22, fill: theme.iota } });
   private readonly closeBtn = new Container();
   private readonly tabBar = new Container();
   private readonly listView = new Container();
@@ -132,16 +126,15 @@ export class Zoo {
     if (this.panel.visible) this.refresh();
   }
 
+  /** Repaint for a theme change: the always-visible icon plus the panel. */
+  applyTheme(): void {
+    this.paintIcon();
+    this.layout();
+  }
+
   // ---- the toggle icon: a little catalog/book ----
   private buildIcon(): void {
-    const g = new Graphics().roundRect(-20, -22, 40, 44, 5).fill({ color: 0x1a2233 }).stroke({ width: 2, color: IOTA_COLOR });
-    g.moveTo(-20, -22).lineTo(-20, 22).stroke({ width: 2, color: IOTA_COLOR }); // spine
-    for (let i = 0; i < 3; i++) g.moveTo(-10, -10 + i * 10).lineTo(12, -10 + i * 10);
-    g.stroke({ width: 1.5, color: TEXT_DIM });
-    const label = new Text({ text: "Zoo", style: { fontFamily: "monospace", fontSize: 12, fill: IOTA_COLOR } });
-    label.anchor.set(0.5, 0);
-    label.position.set(0, 26);
-    this.icon.addChild(g, label);
+    this.paintIcon();
     this.icon.eventMode = "static";
     this.icon.cursor = "pointer";
     this.icon.hitArea = new Rectangle(-24, -26, 48, 64);
@@ -149,6 +142,17 @@ export class Zoo {
       e.stopPropagation();
       this.toggle();
     });
+  }
+  private paintIcon(): void {
+    for (const c of this.icon.removeChildren()) c.destroy({ children: true });
+    const g = new Graphics().roundRect(-20, -22, 40, 44, 5).fill({ color: theme.panel }).stroke({ width: 2, color: theme.iota });
+    g.moveTo(-20, -22).lineTo(-20, 22).stroke({ width: 2, color: theme.iota }); // spine
+    for (let i = 0; i < 3; i++) g.moveTo(-10, -10 + i * 10).lineTo(12, -10 + i * 10);
+    g.stroke({ width: 1.5, color: theme.textDim });
+    const label = new Text({ text: "Zoo", style: { fontFamily: "monospace", fontSize: 12, fill: theme.iota } });
+    label.anchor.set(0.5, 0);
+    label.position.set(0, 26);
+    this.icon.addChild(g, label);
   }
 
   // ---- the overlay panel ----
@@ -165,7 +169,7 @@ export class Zoo {
       this.listView.position.set(this.cardX + 16, this.cardY + LIST_TOP - this.listScroll);
     });
 
-    const x = new Text({ text: "✕", style: { fontFamily: "monospace", fontSize: 20, fill: TEXT_DIM } });
+    const x = new Text({ text: "✕", style: { fontFamily: "monospace", fontSize: 20, fill: theme.textDim } });
     x.anchor.set(0.5);
     this.closeBtn.addChild(x);
     this.closeBtn.eventMode = "static";
@@ -188,7 +192,7 @@ export class Zoo {
     const y = this.cardY + 52;
     this.pages.forEach((page, i) => {
       const active = i === this.pageIdx;
-      const t = new Text({ text: page.name, style: { fontFamily: "monospace", fontSize: 14, fill: active ? IOTA_COLOR : TEXT_DIM } });
+      const t = new Text({ text: page.name, style: { fontFamily: "monospace", fontSize: 14, fill: active ? theme.iota : theme.textDim } });
       t.position.set(x, y);
       t.eventMode = "static";
       t.cursor = "pointer";
@@ -197,7 +201,7 @@ export class Zoo {
         this.cyclePage(i - this.pageIdx);
       });
       this.tabBar.addChild(t);
-      if (active) this.tabBar.addChild(new Graphics().rect(x, y + 19, t.width, 2).fill({ color: IOTA_COLOR }));
+      if (active) this.tabBar.addChild(new Graphics().rect(x, y + 19, t.width, 2).fill({ color: theme.iota }));
       x += t.width + 24;
     });
   }
@@ -209,8 +213,8 @@ export class Zoo {
     this.cardH = h;
     this.cardX = (window.innerWidth - w) / 2;
     this.cardY = (window.innerHeight - h) / 2;
-    this.backdrop.clear().rect(0, 0, window.innerWidth, window.innerHeight).fill({ color: 0x05070c, alpha: 0.72 });
-    this.card.clear().roundRect(this.cardX, this.cardY, w, h, 14).fill({ color: PANEL_BG }).stroke({ width: 2, color: PANEL_LINE });
+    this.backdrop.clear().rect(0, 0, window.innerWidth, window.innerHeight).fill({ color: theme.backdrop, alpha: theme.backdropAlpha });
+    this.card.clear().roundRect(this.cardX, this.cardY, w, h, 14).fill({ color: theme.panel }).stroke({ width: 2, color: theme.border });
     this.title.position.set(this.cardX + 24, this.cardY + 18);
     this.closeBtn.position.set(this.cardX + w - 26, this.cardY + 30);
     this.listMask.clear().rect(this.cardX + 16, this.cardY + LIST_TOP, LIST_W, this.viewH()).fill({ color: 0xffffff });
@@ -225,10 +229,10 @@ export class Zoo {
       const known = entry.law === null || this.isDiscovered(entry.sym);
       const row = new Container();
       row.position.set(0, i * rowH);
-      if (i === this.selected) row.addChild(new Graphics().roundRect(0, 0, LIST_W, rowH - 4, 5).fill({ color: 0x223052 }));
-      const num = new Text({ text: `#${String(entry.num).padStart(2, "0")}`, style: { fontFamily: "monospace", fontSize: 13, fill: TEXT_DIM } });
+      if (i === this.selected) row.addChild(new Graphics().roundRect(0, 0, LIST_W, rowH - 4, 5).fill({ color: theme.select }));
+      const num = new Text({ text: `#${String(entry.num).padStart(2, "0")}`, style: { fontFamily: "monospace", fontSize: 13, fill: theme.textDim } });
       num.position.set(10, 7);
-      const name = new Text({ text: known ? (entry.alias ?? entry.sym) : "?", style: { fontFamily: "monospace", fontSize: 15, fill: known ? TEXT : TEXT_DIM } });
+      const name = new Text({ text: known ? (entry.alias ?? entry.sym) : "?", style: { fontFamily: "monospace", fontSize: 15, fill: known ? theme.text : theme.textDim } });
       name.position.set(64, 6);
       row.addChild(num, name);
       row.eventMode = "static";
@@ -260,13 +264,13 @@ export class Zoo {
     const lawText = entry.law === null ? "ι x = x S K" : entry.law.lawText;
 
     const boxSize = 230;
-    this.detail.addChild(new Graphics().roundRect(dx, dy, dw, boxSize, 10).fill({ color: 0x0b101b }).stroke({ width: 1, color: PANEL_LINE }));
+    this.detail.addChild(new Graphics().roundRect(dx, dy, dw, boxSize, 10).fill({ color: theme.inset }).stroke({ width: 1, color: theme.border }));
     if (known) {
       const pic = renderPicture(tree, boxSize - 28);
       pic.position.set(dx + dw / 2, dy + boxSize / 2);
       this.detail.addChild(pic);
     } else {
-      const q = new Text({ text: "?", style: { fontFamily: "monospace", fontSize: 96, fill: 0x2c3850 } });
+      const q = new Text({ text: "?", style: { fontFamily: "monospace", fontSize: 96, fill: theme.border } });
       q.anchor.set(0.5);
       q.position.set(dx + dw / 2, dy + boxSize / 2);
       this.detail.addChild(q);
@@ -282,22 +286,22 @@ export class Zoo {
 
     const numStr = `#${String(entry.num).padStart(2, "0")}`;
     if (!known) {
-      line(`${numStr}   ???`, TEXT, 22, 8);
-      line("Not yet discovered — build a tree that behaves this way.", TEXT_DIM, 14);
+      line(`${numStr}   ???`, theme.text, 22, 8);
+      line("Not yet discovered — build a tree that behaves this way.", theme.textDim, 14);
       return;
     }
     const sub = meta?.bird ? `${entry.sym}  ·  ${meta.bird}` : entry.sym;
     if (entry.alias) {
-      line(`${numStr}   ${entry.alias}`, IOTA_COLOR, 22, 2);
-      line(`= ${sub}`, TEXT_DIM, 14, 8);
+      line(`${numStr}   ${entry.alias}`, theme.iota, 22, 2);
+      line(`= ${sub}`, theme.textDim, 14, 8);
     } else {
-      line(`${numStr}   ${sub}`, IOTA_COLOR, 22, 8);
+      line(`${numStr}   ${sub}`, theme.iota, 22, 8);
     }
-    if (entry.role) line(`role:     ${entry.role}`, TEXT, 15);
-    line(`law:      ${lawText}`, TEXT, 15);
-    line(`formula:  ${meta?.recipe ?? "—"}`, TEXT, 15);
-    line(`iotas:    ${countIotas(tree)}`, TEXT_DIM, 14, 10);
-    if (meta?.blurb) line(meta.blurb, TEXT, 15);
+    if (entry.role) line(`role:     ${entry.role}`, theme.text, 15);
+    line(`law:      ${lawText}`, theme.text, 15);
+    line(`formula:  ${meta?.recipe ?? "—"}`, theme.text, 15);
+    line(`iotas:    ${countIotas(tree)}`, theme.textDim, 14, 10);
+    if (meta?.blurb) line(meta.blurb, theme.text, 15);
   }
 }
 
@@ -345,17 +349,17 @@ function renderPicture(tree: Node, size: number): Container {
   };
   walk(tree);
   for (const [x1, y1, x2, y2] of arg) edges.moveTo(x1, y1).lineTo(x2, y2);
-  edges.stroke({ width: 1, color: ARG_EDGE, alpha: 0.85 });
+  edges.stroke({ width: 1, color: theme.argEdge, alpha: 0.85 });
   for (const [x1, y1, x2, y2] of fn) edges.moveTo(x1, y1).lineTo(x2, y2);
-  edges.stroke({ width: 1.4, color: FN_EDGE, alpha: 0.95 });
+  edges.stroke({ width: 1.4, color: theme.fnEdge, alpha: 0.95 });
   c.addChild(edges);
 
   const dots = new Graphics();
   const drawDots = (n: Node): void => {
     const p = at(n.id);
-    if (n.kind === "iota") dots.circle(p.x, p.y, 3).fill(IOTA_COLOR);
-    else if (n.kind === "comb") dots.circle(p.x, p.y, 3).fill(COMB_COLOR);
-    else dots.circle(p.x, p.y, 2).fill(0x6b7a90);
+    if (n.kind === "iota") dots.circle(p.x, p.y, 3).fill(theme.iota);
+    else if (n.kind === "comb") dots.circle(p.x, p.y, 3).fill(theme.node);
+    else dots.circle(p.x, p.y, 2).fill(theme.mutedDot);
     if (n.kind === "app") {
       drawDots(n.fn);
       drawDots(n.arg);

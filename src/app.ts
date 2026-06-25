@@ -11,10 +11,11 @@ import { step } from "./core/reduce";
 import { CATALOG, IOTA_CODE, type Law } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
-import { TreeView, FN_EDGE, ARG_EDGE } from "./view/tree";
+import { TreeView } from "./view/tree";
 import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
 import { Zoo } from "./view/zoo";
+import { theme, initTheme, toggleMode, onThemeChange } from "./view/theme";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
 const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducing (§6.4)
@@ -35,8 +36,9 @@ type Drag =
  * auto-reduce on idle (cancelled on touch), plus a pannable/zoomable camera
  * (§5.3, §6). */
 export async function mountApp(): Promise<void> {
+  initTheme(); // pick light/dark from the OS before anything paints
   const pixi = new Application();
-  await pixi.init({ background: 0x0b0f17, resizeTo: window, antialias: true });
+  await pixi.init({ background: theme.bg, resizeTo: window, antialias: true });
   document.body.appendChild(pixi.canvas);
 
   const world = new Container();
@@ -48,7 +50,7 @@ export async function mountApp(): Promise<void> {
   const ghost = new Graphics();
   const ghostLabel = new Text({
     text: "",
-    style: { fontFamily: "monospace", fontSize: 15, fill: 0xcdd6e8 },
+    style: { fontFamily: "monospace", fontSize: 15, fill: theme.text },
   });
   ghostLabel.anchor.set(0.5, 1);
   ghostLabel.visible = false;
@@ -61,12 +63,13 @@ export async function mountApp(): Promise<void> {
 
   const hint = new Text({
     text: "drag ι · snap trees · they reduce on their own · right-click deletes a node · T toggles layout · R clears",
-    style: { fontFamily: "monospace", fontSize: 14, fill: 0x6b7a90 },
+    style: { fontFamily: "monospace", fontSize: 14, fill: theme.textDim },
   });
   hint.position.set(16, 14);
   hud.addChild(hint);
 
-  const legend = makeLegend();
+  const legend = new Container();
+  paintLegend(legend);
   hud.addChild(legend);
 
   const toast = new Toast(pixi.ticker);
@@ -75,7 +78,7 @@ export async function mountApp(): Promise<void> {
   // Live read-out of the current (last-touched) tree's expression, top-centre.
   const exprText = new Text({
     text: "",
-    style: { fontFamily: "monospace", fontSize: 18, fill: 0xb9c4dc },
+    style: { fontFamily: "monospace", fontSize: 18, fill: theme.text },
   });
   exprText.anchor.set(0.5, 0);
   hud.addChild(exprText);
@@ -337,9 +340,9 @@ export async function mountApp(): Promise<void> {
     const right = left === dragged ? target : dragged;
     const ax = (left.rootWorld.x + right.rootWorld.x) / 2;
     const ay = Math.min(left.rootWorld.y, right.rootWorld.y) - 56;
-    ghost.moveTo(ax, ay).lineTo(left.rootWorld.x, left.rootWorld.y).stroke({ width: 3, color: FN_EDGE, alpha: 0.7 });
-    ghost.moveTo(ax, ay).lineTo(right.rootWorld.x, right.rootWorld.y).stroke({ width: 2.5, color: ARG_EDGE, alpha: 0.7 });
-    ghost.circle(ax, ay, 6).fill({ color: 0x6b7a90, alpha: 0.7 });
+    ghost.moveTo(ax, ay).lineTo(left.rootWorld.x, left.rootWorld.y).stroke({ width: 3, color: theme.fnEdge, alpha: 0.7 });
+    ghost.moveTo(ax, ay).lineTo(right.rootWorld.x, right.rootWorld.y).stroke({ width: 2.5, color: theme.argEdge, alpha: 0.7 });
+    ghost.circle(ax, ay, 6).fill({ color: theme.mutedDot, alpha: 0.7 });
     // preview the resulting expression (left is the function), masked like the rest
     ghostLabel.text = `(${exprOf(left.node)} ${exprOf(right.node)})`;
     ghostLabel.position.set(ax, ay - 12);
@@ -394,10 +397,45 @@ export async function mountApp(): Promise<void> {
   placeLegend();
   zoo.layout();
 
+  // ---- light/dark toggle (top-right): defaults to the OS scheme, a click pins it ----
+  const themeBtn = new Container();
+  themeBtn.eventMode = "static";
+  themeBtn.cursor = "pointer";
+  themeBtn.hitArea = new Rectangle(-18, -18, 36, 36);
+  themeBtn.on("pointerdown", (e: FederatedPointerEvent) => {
+    e.stopPropagation();
+    toggleMode();
+  });
+  hud.addChild(themeBtn);
+  const placeThemeBtn = () => themeBtn.position.set(window.innerWidth - 30, 30);
+  const paintThemeBtn = (): void => {
+    for (const c of themeBtn.removeChildren()) c.destroy({ children: true });
+    const g = new Text({ text: "◐", style: { fontFamily: "monospace", fontSize: 22, fill: theme.textDim } });
+    g.anchor.set(0.5);
+    themeBtn.addChild(g);
+  };
+  paintThemeBtn();
+  placeThemeBtn();
+
+  // Repaint the whole scene when the theme changes (OS change or manual toggle).
+  function applyTheme(): void {
+    pixi.renderer.background.color = theme.bg;
+    hint.style.fill = theme.textDim;
+    exprText.style.fill = theme.text;
+    ghostLabel.style.fill = theme.text;
+    paintLegend(legend);
+    paintThemeBtn();
+    hotbar.refresh();
+    zoo.applyTheme();
+    for (const t of trees) t.refresh();
+  }
+  onThemeChange(applyTheme);
+
   window.addEventListener("resize", () => {
     fitStage();
     hotbar.layout();
     placeLegend();
+    placeThemeBtn();
     toast.layout();
     placeExpr();
     zoo.layout();
@@ -439,20 +477,20 @@ export async function mountApp(): Promise<void> {
   // Suppress the browser context menu so right-click can delete a node.
   pixi.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
-  // A small key explaining the two edge styles (which child is the function).
-  function makeLegend(): Container {
-    const c = new Container();
+  // A small key explaining the two edge styles (which child is the function);
+  // repainted on a theme change.
+  function paintLegend(c: Container): void {
+    for (const ch of c.removeChildren()) ch.destroy({ children: true });
     const g = new Graphics();
-    g.moveTo(0, 0).lineTo(26, 0).stroke({ width: 3, color: FN_EDGE });
-    g.moveTo(0, 18).lineTo(26, 18).stroke({ width: 2.5, color: ARG_EDGE });
+    g.moveTo(0, 0).lineTo(26, 0).stroke({ width: 3, color: theme.fnEdge });
+    g.moveTo(0, 18).lineTo(26, 18).stroke({ width: 2.5, color: theme.argEdge });
     c.addChild(g);
-    const style = { fontFamily: "monospace", fontSize: 12, fill: 0x8a97ad };
+    const style = { fontFamily: "monospace", fontSize: 12, fill: theme.textDim };
     const l1 = new Text({ text: "function (left)", style });
     l1.position.set(34, -7);
     const l2 = new Text({ text: "argument (right)", style });
     l2.position.set(34, 11);
     c.addChild(l1, l2);
-    return c;
   }
 
   // Dev-only test seam (stripped from production builds): expose tree state so

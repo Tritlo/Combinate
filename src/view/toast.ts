@@ -1,4 +1,5 @@
 import { Container, Graphics, Text, type Ticker } from "pixi.js";
+import { theme } from "./theme";
 
 const IN = 220;
 const HOLD = 1900;
@@ -19,14 +20,14 @@ export class Toast {
 
   show(text: string): void {
     for (const c of this.container.removeChildren()) c.destroy({ children: true });
-    const t = new Text({ text, style: { fontFamily: "monospace", fontSize: 20, fill: 0xffe08a } });
+    const t = new Text({ text, style: { fontFamily: "monospace", fontSize: 20, fill: theme.iota } });
     t.anchor.set(0.5);
     const w = t.width + 44;
     const h = t.height + 24;
     const bg = new Graphics()
       .roundRect(-w / 2, -h / 2, w, h, 10)
-      .fill({ color: 0x141b2b })
-      .stroke({ width: 2, color: 0xffe08a, alpha: 0.5 });
+      .fill({ color: theme.panel })
+      .stroke({ width: 2, color: theme.iota, alpha: 0.5 });
     this.container.addChild(bg, t);
     this.container.visible = true;
     this.layout();
