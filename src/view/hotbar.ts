@@ -50,6 +50,12 @@ export class Hotbar {
     this.layout();
   }
 
+  /** The current page's name — drives the read-as mode in the read-out (a typed
+   *  page like Arithmetic reads the focused tree as that type). */
+  get page(): string {
+    return PAGES[this.tab].name;
+  }
+
   /** Discovered combinators on a tab (ι is always available). */
   private visible(tab: number): string[] {
     return PAGES[tab].entries.map((e) => e.sym).filter((s) => s === "ι" || this.isDiscovered(s));

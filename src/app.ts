@@ -13,6 +13,7 @@ import { recognize } from "./core/probe";
 import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
 import { makeRefolder, behavioralRefolder, recognizeDeep, fromEgg, type Refolder } from "./core/refold";
 import { readValue } from "./core/value";
+import { readAs, type Ty } from "./core/types";
 import { TreeView } from "./view/tree";
 import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
@@ -181,19 +182,29 @@ export async function mountApp(): Promise<void> {
     paintRail();
   }
 
+  // The read-as mode is just the current hotbar page (ADR 0003): a typed page
+  // forces that reading and resolves the bare-A ambiguity readValue defers
+  // (A → 0 / [] / false). The Programs page has no type → auto-discovery.
+  const READ_AS: Record<string, Ty> = { Arithmetic: "Int", Booleans: "Bool", Lists: "List" };
+
   // Live read-out of the focused tree's expression, recomputed only when its
-  // node identity changes (so the probes never run every frame). A compact data
-  // value (Phase 1) is shown whenever the term is data — always on; the refold
-  // lens additionally names combinators (Phase 2) when the term isn't data.
+  // node identity (or the read-as page) changes — so the probes never run every
+  // frame. A compact data value (Phase 1) is shown whenever the term is data —
+  // always on; the refold lens additionally names combinators (Phase 2) when the
+  // term isn't data.
   let lastShownNode: Node | null = null;
+  let lastMode: Ty | undefined;
   let lastExpr = "";
   pixi.ticker.add(() => {
     const node = focus && trees.includes(focus) ? focus.node : null;
-    if (node === lastShownNode) return;
+    const mode = READ_AS[hotbar.page];
+    if (node === lastShownNode && mode === lastMode) return;
     lastShownNode = node;
+    lastMode = mode;
     let txt = "";
     if (node) {
-      const value = readValue(node); // Phase 1: always-on compact data value
+      // A typed page forces its reading; otherwise (and on a non-fit) auto-discover.
+      const value = (mode && readAs(mode, node)) ?? readValue(node); // Phase 1
       const folded = !value && refoldOn && refolder ? refolder(node) : null; // Phase 2: combinator naming, behind the lens
       txt = value ?? (folded ? sexp(folded) : exprOf(node));
     }
