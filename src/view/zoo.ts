@@ -111,8 +111,10 @@ export class Zoo {
     this.refresh();
   }
 
-  /** Rebuild tabs + list + detail (after a discovery, unlock, open, or page switch). */
+  /** Repaint the always-visible icon (its discovered count) and, when open, the
+   *  tabs + list + detail. Called on a discovery, unlock, open, or page switch. */
   refresh(): void {
+    this.paintIcon();
     if (!this.panel.visible) return;
     this.buildTabs();
     this.buildList();
@@ -123,12 +125,11 @@ export class Zoo {
   layout(): void {
     this.icon.position.set(34, window.innerHeight / 2);
     this.placePanel();
-    if (this.panel.visible) this.refresh();
+    this.refresh();
   }
 
   /** Repaint for a theme change: the always-visible icon plus the panel. */
   applyTheme(): void {
-    this.paintIcon();
     this.layout();
   }
 
@@ -152,7 +153,11 @@ export class Zoo {
     const label = new Text({ text: "Zoo", style: { fontFamily: "monospace", fontSize: 12, fill: theme.iota } });
     label.anchor.set(0.5, 0);
     label.position.set(0, 26);
-    this.icon.addChild(g, label);
+    const found = CATALOG.filter((l) => this.isDiscovered(l.sym)).length;
+    const count = new Text({ text: `${found}/${CATALOG.length}`, style: { fontFamily: "monospace", fontSize: 11, fill: theme.textDim } });
+    count.anchor.set(0.5, 0);
+    count.position.set(0, 41);
+    this.icon.addChild(g, label, count);
   }
 
   // ---- the overlay panel ----

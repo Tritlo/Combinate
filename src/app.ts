@@ -8,7 +8,7 @@ import {
 } from "pixi.js";
 import { app as mkApp, comb, decode, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
 import { step } from "./core/reduce";
-import { CATALOG, IOTA_CODE, type Law } from "./core/catalog";
+import { CATALOG, IOTA_CODE, META, iotaTreeOf, countIotas, type Law } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
 import { TreeView } from "./view/tree";
@@ -82,8 +82,33 @@ export async function mountApp(): Promise<void> {
   });
   exprText.anchor.set(0.5, 0);
   hud.addChild(exprText);
-  const placeExpr = () => exprText.position.set(window.innerWidth / 2, 20);
+
+  // A lighter sub-line hinting at the next combinator worth chasing (the smallest
+  // ι-tree you haven't found yet — easiest to build).
+  const nextHint = new Text({ text: "", style: { fontFamily: "monospace", fontSize: 13, fill: theme.textDim } });
+  nextHint.anchor.set(0.5, 0);
+  hud.addChild(nextHint);
+  const placeExpr = () => {
+    exprText.position.set(window.innerWidth / 2, 20);
+    nextHint.position.set(window.innerWidth / 2, 46);
+  };
   placeExpr();
+
+  // The easiest undiscovered combinator to aim for next (fewest ι in its tree).
+  function updateHint(): void {
+    let best: Law | null = null;
+    let bestN = Infinity;
+    for (const law of CATALOG) {
+      if (isDiscovered(law.sym)) continue;
+      const n = countIotas(iotaTreeOf(law));
+      if (n < bestN) {
+        bestN = n;
+        best = law;
+      }
+    }
+    const bird = best ? META[best.sym]?.bird?.replace(/\s*\(.*\)/, "") : undefined;
+    nextHint.text = best ? `next to discover →  ${best.lawText}${bird ? `   (the ${bird})` : ""}` : "✦ every combinator discovered ✦";
+  }
 
   // ---- discovery (§7): the set of combinators found so far. Drives the
   // behavioural probe (what to still look for) and the masking of transient
@@ -133,6 +158,7 @@ export async function mountApp(): Promise<void> {
     hotbar.refresh();
     for (const t of trees) t.refresh();
     zoo.refresh();
+    updateHint();
     toast.show("all combinators unlocked");
   }
 
@@ -154,6 +180,7 @@ export async function mountApp(): Promise<void> {
     hotbar.reveal(law.sym);
     for (const t of trees) t.refresh(); // reveal newly-known combinators everywhere
     zoo.refresh();
+    updateHint();
   }
 
   // ---- auto-reduce on idle (§6.4): each tree, left untouched for a beat,
@@ -237,6 +264,7 @@ export async function mountApp(): Promise<void> {
   hotbar.refresh();
   hud.addChild(hotbar.container);
   hud.addChild(zoo.container); // last → the Zoo overlay sits on top of the hotbar
+  updateHint();
 
   function onTreeDown(tree: TreeView, e: FederatedPointerEvent): void {
     if (e.button !== 0) return; // left-drag only; right-click is handled separately
@@ -422,6 +450,7 @@ export async function mountApp(): Promise<void> {
     pixi.renderer.background.color = theme.bg;
     hint.style.fill = theme.textDim;
     exprText.style.fill = theme.text;
+    nextHint.style.fill = theme.textDim;
     ghostLabel.style.fill = theme.text;
     paintLegend(legend);
     paintThemeBtn();
