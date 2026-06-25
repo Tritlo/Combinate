@@ -50,7 +50,21 @@ for the trivial leaf, pick a documented default or fall back to the name `A`.
 
 ---
 
-## Phase 1 — encoding-directed value reader (TS, recommended, ship first)
+## Phase 1 — encoding-directed value reader (TS) — IMPLEMENTED
+
+> **Status (done on `refolding`).** Built as `src/core/value.ts`:
+> `readValue(n, depth)`, pure and bounded. Composed *ahead* of the Phase 2
+> re-folder in the lens — the read-out shows a compact value if the term is data,
+> else the most-named combinator form, else raw. Verified in-browser:
+> `map succ (cons 1 (cons 1 nil)) → [2, 2]`, plus `2`, `[1, 1]`, `[[1],[2]]`,
+> `(1, 2)`, nested `[true]`; non-data → null (falls back).
+>
+> **Ambiguity (resolved).** The trivial values coincide with bare combinators —
+> `0`/`[]`/`false`/`nil` are all `A`, `1` is `I`, `true` is `K` — so they read as
+> values only when *nested* as data (the `1`s in `[1, 1]`); at the top level they
+> defer to the combinator name. `2`+, non-empty lists, and 2-arg pairs are
+> unambiguous and read at any depth. `false`/`0`/`[]` (all `A`) stay ambiguous
+> even nested and are not read (Q2/Q3 below).
 
 A pure, bounded "value reader" — the *inverse* of `TreeView.expand()`. It probes
 the term as each known encoding (just like `probe` applies a term to fresh free
@@ -188,18 +202,21 @@ ambiguity (cost tuning), bundle size. Genuinely a multi-session effort.
 ## Open questions for the session
 
 1. Read-out: replace the sexp with the value, or show both (`raw  = value`)?
-   → **Resolved (Phase 2):** replace with the folded form when the lens is on
-   *and* it is strictly simpler; otherwise the raw (masked) sexp. Lens off by
-   default.
+   → **Resolved:** when the lens is on, the read-out shows one best form — a
+   compact value if data, else the most-named combinator form (strictly simpler),
+   else the raw masked sexp. Lens off by default; raw when off.
 2. Bare `A`/`KI` default reading — `0`, `[]`, `false`, or show the name `A`?
-   → **Resolved (Phase 2):** the re-folder shows `A` (its canonical catalog
-   name). A value reader (Phase 1) would still be needed to read it as `0`/`[]`.
+   → **Resolved:** the value reader does **not** read bare `A` (irreducibly
+   `0`/`[]`/`false`/`nil`); it defers, and the combinator namer shows `A`. Same
+   for `1`=`I`, `true`=`K` at the top level. They read as values only nested.
 3. List sugar for elements that aren't clean values — show `?` or the raw head?
-   → Still open; only relevant to Phase 1 (the value reader), not built.
+   → **Resolved:** the value reader *bails* — if any element isn't a clean value
+   the whole read returns null, and the read-out falls back to the combinator
+   namer / raw sexp (no partial `?` rendering).
 4. Do Phase 2 at all, or is Phase 1 enough?
-   → **Resolved:** Phase 2 built. It does not subsume Phase 1 (no data values
-   from point-free NFs) — do Phase 1 as a complement if `[2,2]`-style readings
-   are wanted.
+   → **Resolved:** both built and composed. Phase 1 reads data values egg can't;
+   Phase 2 (behavioural→egg) names combinators the value reader can't. Neither
+   subsumes the other, so the lens runs value reader → re-folder → raw.
 
 ## Pointers
 

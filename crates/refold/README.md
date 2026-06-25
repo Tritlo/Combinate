@@ -44,10 +44,11 @@ every single-combinator subterm, including the eta cases egg misses. Its residua
 is then handed to egg for any remaining multi-combinator folds. The pre-pass is
 pure TS, so the lens also works (behaviourally) if the wasm fails to load.
 
-## Known limitation
+## Scope
 
-Neither stage reads **data values** — a Church numeral or list is not a single
-catalog combinator, so `[2, 2]` is not recovered here; that is the encoding-
-directed value reader (PLAN.md Phase 1). The TS guard only shows a folding when
+Neither stage here reads **data values** — a Church numeral or list is not a
+single catalog combinator, so `[2, 2]` is not recovered by the re-folder. That is
+the encoding-directed value reader (`src/core/value.ts`, PLAN.md Phase 1), which
+the lens runs *ahead* of this re-folder. The TS guard only shows a folding when
 it is strictly simpler than the input, so the lens never makes a term *less*
 readable.
