@@ -11,6 +11,7 @@ import { step } from "./core/reduce";
 import { CATALOG, IOTA_CODE, HINTS, iotaTreeOf, countIotas, type Law } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
+import { makeRefolder, fromEgg, type Refolder } from "./core/refold";
 import { TreeView } from "./view/tree";
 import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
@@ -141,9 +142,51 @@ export async function mountApp(): Promise<void> {
         return `(${exprOf(n.fn)} ${exprOf(n.arg)})`;
     }
   };
+  // ---- re-folding lens (PLAN.md Phase 2): an opt-in read-out that runs the
+  // focused term through the egg-via-WASM re-sugarer and shows its most-named
+  // reading (e.g. S(KS)K → B). The wasm is a driven adapter, lazy-loaded on
+  // first use; the core stays Pixi/DOM-free behind the `Refolder` port. ----
+  let refoldOn = false;
+  let refolder: Refolder | null = null;
+  let refolderLoading = false;
+  let refoldRaw: ((sexpr: string) => string) | null = null;
+
+  async function ensureRefolder(): Promise<void> {
+    if (refolder || refolderLoading) return;
+    refolderLoading = true;
+    try {
+      const mod = await import("../crates/refold/pkg/refold.js");
+      await mod.default();
+      refoldRaw = mod.refold;
+      refolder = makeRefolder(mod.refold);
+      lastShownNode = null; // force the read-out to recompute now folding is live
+    } catch {
+      toast.show("re-folder unavailable");
+      refoldOn = false;
+      paintRail();
+    } finally {
+      refolderLoading = false;
+    }
+  }
+
+  function toggleRefold(): void {
+    refoldOn = !refoldOn;
+    lastShownNode = null; // force a recompute on the next frame
+    if (refoldOn) void ensureRefolder();
+    paintRail();
+  }
+
+  // Live read-out of the focused tree's expression, recomputed only when its
+  // node identity changes (so the re-folder never runs every frame). With the
+  // lens on, a simpler folded reading replaces the raw s-expression.
+  let lastShownNode: Node | null = null;
   let lastExpr = "";
   pixi.ticker.add(() => {
-    const txt = focus && trees.includes(focus) ? exprOf(focus.node) : "";
+    const node = focus && trees.includes(focus) ? focus.node : null;
+    if (node === lastShownNode) return;
+    lastShownNode = node;
+    const folded = node && refoldOn && refolder ? refolder(node) : null;
+    const txt = node ? (folded ? sexp(folded) : exprOf(node)) : "";
     if (txt !== lastExpr) {
       lastExpr = txt;
       exprText.text = txt;
@@ -583,11 +626,19 @@ export async function mountApp(): Promise<void> {
     }
     g.stroke({ width: 2, color: c });
   };
+  const drawRefold = (g: Graphics, c: number): void => {
+    g.moveTo(-9, -11).lineTo(0, -1).moveTo(9, -11).lineTo(0, -1); // two strands fold in
+    g.moveTo(0, -1).lineTo(0, 11); // into one stem
+    g.stroke({ width: 2, color: c });
+    g.moveTo(0, 12).lineTo(-3.5, 7).moveTo(0, 12).lineTo(3.5, 7).stroke({ width: 2, color: c }); // arrowhead
+    g.circle(0, -1, 2.5).fill({ color: c }); // join
+  };
   type RailDef = { label: string; draw: (g: Graphics, c: number) => void; brand?: boolean; count?: boolean; active?: () => boolean; act: () => void };
   const RAIL: RailDef[] = [
     { label: "Dex", draw: drawDex, brand: true, count: true, act: () => zoo.toggle() },
     { label: "layout", draw: drawLayout, act: () => toggleLayout() },
     { label: "expand", draw: drawExpand, active: () => expandAll, act: () => toggleExpand() },
+    { label: "refold", draw: drawRefold, active: () => refoldOn, act: () => toggleRefold() },
     { label: "clear", draw: drawClear, act: () => clearCanvas() },
     { label: "unlock", draw: drawUnlock, act: () => unlockAll() },
   ];
@@ -645,6 +696,7 @@ export async function mountApp(): Promise<void> {
     else if (e.key === "t" || e.key === "T") toggleLayout();
     else if (e.key === "u" || e.key === "U") unlockAll();
     else if (e.key === "x" || e.key === "X") toggleExpand();
+    else if (e.key === "f" || e.key === "F") toggleRefold();
     else if (e.key === "z" || e.key === "Z") zoo.toggle();
   });
 
@@ -680,6 +732,15 @@ export async function mountApp(): Promise<void> {
       unlockAll: () => unlockAll(),
       openZoo: () => zoo.open(),
       camera: () => ({ scale: world.scale.x, x: world.position.x, y: world.position.y }),
+      refold: {
+        on: () => refoldOn,
+        ready: () => !!refolder,
+        init: () => ensureRefolder(),
+        toggle: () => toggleRefold(),
+        raw: (s: string) => refoldRaw?.(s) ?? null,
+        // spawn a term from an egg s-expression and focus it (drives the read-out)
+        spawn: (s: string) => sexp(spawnTree(fromEgg(s), window.innerWidth / 2, window.innerHeight / 2).node),
+      },
     };
   }
 }
