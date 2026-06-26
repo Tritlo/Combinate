@@ -117,6 +117,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   hud.addChild(nextHint);
   const placeExpr = () => {
     exprText.position.set(window.innerWidth / 2, 32); // below the menu bar
+    // On phones the centred sub-line collides with the top-left legend; drop it
+    // there (the Zoo still shows discovery progress).
+    nextHint.visible = window.innerWidth >= 560;
     nextHint.style.wordWrapWidth = Math.min(940, window.innerWidth - 120);
     nextHint.position.set(window.innerWidth / 2, 58);
   };
