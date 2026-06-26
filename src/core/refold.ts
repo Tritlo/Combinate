@@ -10,7 +10,7 @@ import { CATALOG, type Law } from "./catalog";
 import { recognize } from "./probe";
 
 // Catalog symbols that are not valid bare s-expression atoms ↔ their egg alias.
-const TOKEN: Record<string, string> = { "(+)": "add", "(-)": "sub", "<>": "append", "Φ": "Phi", "Ψ": "Psi" };
+const TOKEN: Record<string, string> = { "(+)": "add", "(-)": "sub", "(*)": "mul", "<>": "append", "Φ": "Phi", "Ψ": "Psi" };
 const SYM: Record<string, string> = Object.fromEntries(Object.entries(TOKEN).map(([s, t]) => [t, s]));
 const symToTok = (s: string): string => TOKEN[s] ?? s;
 const tokToSym = (t: string): string => SYM[t] ?? t;
