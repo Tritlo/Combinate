@@ -32,6 +32,7 @@ const PALETTE: Record<Mode, Record<string, string>> = {
 };
 
 const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
+const NARROW = 560; // below this width, collapse the six menus into one ι menu
 
 let stylesInjected = false;
 function injectStyles(): void {
@@ -45,9 +46,10 @@ function injectStyles(): void {
 .mb-title { display: flex; align-items: center; padding: 0 11px; cursor: default; }
 .mb-title.mb-apple { font-weight: 600; font-size: 16px; padding: 0 13px; }
 .mb-title:hover, .mb-title.mb-open { background: var(--mb-fg); color: var(--mb-bg); }
-.mb-menu { position: fixed; display: none; min-width: 184px; padding: 2px 0; z-index: 41;
+.mb-menu { position: fixed; display: none; min-width: 184px; max-height: calc(100vh - 26px); overflow-y: auto; padding: 2px 0; z-index: 41;
   background: var(--mb-bg); color: var(--mb-fg); border: 1px solid var(--mb-line); box-shadow: 2px 2px 0 var(--mb-shadow);
   font-family: ${MONO}; font-size: 14px; }
+.mb-header { padding: 5px 12px 2px; font-size: 11px; opacity: 0.5; letter-spacing: 0.05em; pointer-events: none; }
 .mb-item { position: relative; display: flex; justify-content: space-between; gap: 24px; padding: 2px 16px 2px 24px; white-space: nowrap; cursor: default; }
 .mb-item:hover { background: var(--mb-fg); color: var(--mb-bg); }
 .mb-mark { position: absolute; left: 8px; }
@@ -65,6 +67,7 @@ export class MenuBar {
   private readonly dropdown = document.createElement("div");
   private readonly titleEls: HTMLElement[] = [];
   private open: number | null = null;
+  private narrow = false; // collapsed (phone) layout: one ι menu instead of six titles
 
   constructor(private readonly menus: Menu[]) {
     injectStyles();
@@ -72,26 +75,21 @@ export class MenuBar {
     this.dropdown.className = "mb-menu";
     this.applyPalette();
 
-    this.menus.forEach((m, i) => {
-      const t = document.createElement("div");
-      t.className = m.apple ? "mb-title mb-apple" : "mb-title";
-      t.textContent = m.title;
-      t.addEventListener("pointerdown", (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        this.open === i ? this.close() : this.openAt(i);
-      });
-      // Once a menu is dropped, sliding across the bar walks to the next — the
-      // classic Mac behaviour.
-      t.addEventListener("pointerenter", () => {
-        if (this.open !== null && this.open !== i) this.openAt(i);
-      });
-      this.titleEls.push(t);
-      this.bar.appendChild(t);
-    });
+    this.buildTitles();
 
     document.body.appendChild(this.bar);
     document.body.appendChild(this.dropdown);
+    // Rebuild the bar when crossing the narrow/wide breakpoint (collapse the menus
+    // into one ι menu on phones, where six titles won't fit).
+    window.addEventListener("resize", () => {
+      if (this.narrow !== window.innerWidth < NARROW) {
+        this.close();
+        this.buildTitles();
+      }
+    });
+    // A tap inside the dropdown (its padding / a scroll drag on mobile) must not
+    // close it — only item taps (which run + close) and outside taps do.
+    this.dropdown.addEventListener("pointerdown", (e) => e.stopPropagation());
     // Click anywhere off the bar/menu (titles + items stopPropagation) closes it.
     document.addEventListener("pointerdown", () => this.close());
     // A dropped menu owns the keyboard: Esc closes it, and we swallow keys in the
@@ -109,9 +107,43 @@ export class MenuBar {
     onThemeChange(() => this.applyPalette());
   }
 
+  /** Build the bar titles for the current width: six menu titles when wide, a
+   *  single ι (that opens every command, grouped) when narrow. */
+  private buildTitles(): void {
+    for (const t of this.titleEls) t.remove();
+    this.titleEls.length = 0;
+    this.narrow = window.innerWidth < NARROW;
+    if (this.narrow) {
+      this.titleEls.push(this.mkTitle("ι", true, () => (this.open === 0 ? this.close() : this.openAt(0))));
+    } else {
+      this.menus.forEach((m, i) => {
+        const t = this.mkTitle(m.title, !!m.apple, () => (this.open === i ? this.close() : this.openAt(i)));
+        t.addEventListener("pointerenter", () => {
+          if (this.open !== null && this.open !== i) this.openAt(i); // walk between dropped menus
+        });
+        this.titleEls.push(t);
+      });
+    }
+    for (const t of this.titleEls) this.bar.appendChild(t);
+  }
+
+  private mkTitle(text: string, apple: boolean, onDown: () => void): HTMLElement {
+    const t = document.createElement("div");
+    t.className = apple ? "mb-title mb-apple" : "mb-title";
+    t.textContent = text;
+    t.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      onDown();
+    });
+    return t;
+  }
+
   /** Re-read item states if a menu is open (e.g. a toggle changed elsewhere). */
   refresh(): void {
-    if (this.open !== null) this.renderDropdown(this.open);
+    if (this.open === null) return;
+    if (this.narrow) this.renderCombined();
+    else this.renderDropdown(this.open);
   }
 
   private applyPalette(): void {
@@ -127,11 +159,14 @@ export class MenuBar {
   private openAt(i: number): void {
     this.open = i;
     this.titleEls.forEach((t, j) => t.classList.toggle("mb-open", j === i));
-    this.renderDropdown(i);
-    const r = this.titleEls[i].getBoundingClientRect();
-    this.dropdown.style.left = `${Math.round(r.left)}px`;
-    this.dropdown.style.top = `${Math.round(r.bottom)}px`;
+    if (this.narrow) this.renderCombined();
+    else this.renderDropdown(i);
     this.dropdown.style.display = "block";
+    // Position under the title, clamped so a wide pull-down doesn't run off-screen.
+    const r = this.titleEls[this.narrow ? 0 : i].getBoundingClientRect();
+    const left = Math.min(Math.round(r.left), window.innerWidth - this.dropdown.offsetWidth - 6);
+    this.dropdown.style.left = `${Math.max(4, left)}px`;
+    this.dropdown.style.top = `${Math.round(r.bottom)}px`;
   }
 
   private close(): void {
@@ -142,34 +177,47 @@ export class MenuBar {
   }
 
   private renderDropdown(i: number): void {
+    this.dropdown.replaceChildren(...this.menus[i].items.map((it) => this.itemEl(it)));
+  }
+
+  /** The whole menu as one list (phone layout): each menu's items under a header. */
+  private renderCombined(): void {
     this.dropdown.replaceChildren();
-    for (const it of this.menus[i].items) {
-      if (it.kind === "sep") {
-        const s = document.createElement("div");
-        s.className = "mb-sep";
-        this.dropdown.appendChild(s);
-        continue;
-      }
-      const row = document.createElement("div");
-      row.className = "mb-item";
-      const mark = document.createElement("span");
-      mark.className = "mb-mark";
-      mark.textContent = it.kind === "toggle" ? (it.checked() ? "✓" : "") : it.kind === "radio" ? (it.on() ? "•" : "") : "";
-      const label = document.createElement("span");
-      label.textContent = it.label;
-      row.append(mark, label);
-      if (it.accel) {
-        const a = document.createElement("span");
-        a.className = "mb-accel";
-        a.textContent = it.accel;
-        row.append(a);
-      }
-      row.addEventListener("pointerdown", (e) => {
-        e.stopPropagation();
-        it.run();
-        this.close();
-      });
-      this.dropdown.appendChild(row);
+    this.menus.forEach((m, mi) => {
+      if (mi > 0) this.dropdown.appendChild(this.itemEl({ kind: "sep" }));
+      const h = document.createElement("div");
+      h.className = "mb-header";
+      h.textContent = m.apple ? "Combinate" : m.title;
+      this.dropdown.appendChild(h);
+      for (const it of m.items) this.dropdown.appendChild(this.itemEl(it));
+    });
+  }
+
+  private itemEl(it: MenuItem): HTMLElement {
+    if (it.kind === "sep") {
+      const s = document.createElement("div");
+      s.className = "mb-sep";
+      return s;
     }
+    const row = document.createElement("div");
+    row.className = "mb-item";
+    const mark = document.createElement("span");
+    mark.className = "mb-mark";
+    mark.textContent = it.kind === "toggle" ? (it.checked() ? "✓" : "") : it.kind === "radio" ? (it.on() ? "•" : "") : "";
+    const label = document.createElement("span");
+    label.textContent = it.label;
+    row.append(mark, label);
+    if (it.accel) {
+      const a = document.createElement("span");
+      a.className = "mb-accel";
+      a.textContent = it.accel;
+      row.append(a);
+    }
+    row.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      it.run();
+      this.close();
+    });
+    return row;
   }
 }
