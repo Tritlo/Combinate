@@ -151,7 +151,7 @@ export class MhsPanel {
     card.appendChild(body);
     this.root.appendChild(card);
     this.loadExample(EXAMPLES[0], false);
-    this.setStatus("pick an example — it compiles offline and runs · free-typing is experimental", "#6b7280");
+    this.setStatus("pick an example — instant · free-typing compiles live in-browser (~30s)", "#6b7280");
   }
 
   /** Select an example: show its source and (unless suppressed) compile + run it
@@ -181,7 +181,7 @@ export class MhsPanel {
   private async runEditor(): Promise<void> {
     const src = this.editor.value;
     if (src.trim() === this.current.source.trim()) return this.loadExample(this.current);
-    this.setStatus("compiling live (loading the MicroHs blob)…", "#81a1c1");
+    this.setStatus("compiling live in-browser — this takes ~30s…", "#81a1c1");
     try {
       const dump = await liveCompile(src);
       const res = toTree(dump, "Ex.out");
