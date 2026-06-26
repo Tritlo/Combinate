@@ -169,7 +169,7 @@ export class Zoo {
     this.panel.eventMode = "static";
     this.panel.on("wheel", (e: { deltaY: number }) => {
       const max = Math.max(0, this.listH - this.viewH());
-      this.listScroll = Math.min(max, Math.max(0, this.listScroll + e.deltaY));
+      this.listScroll = Math.round(Math.min(max, Math.max(0, this.listScroll + e.deltaY))); // whole-pixel scroll keeps text crisp
       this.listView.position.set(this.cardX + 16, this.cardY + LIST_TOP - this.listScroll);
     });
 
@@ -217,8 +217,10 @@ export class Zoo {
     const h = Math.min(660, window.innerHeight - 24);
     this.cardW = w;
     this.cardH = h;
-    this.cardX = (window.innerWidth - w) / 2;
-    this.cardY = (window.innerHeight - h) / 2;
+    // Round to whole pixels so text isn't rendered on a sub-pixel offset (blurry):
+    // every element is positioned relative to the card origin.
+    this.cardX = Math.round((window.innerWidth - w) / 2);
+    this.cardY = Math.round((window.innerHeight - h) / 2);
     this.narrow = w < 560;
     this.backdrop.clear().rect(0, 0, window.innerWidth, window.innerHeight).fill({ color: theme.backdrop, alpha: theme.backdropAlpha });
     this.card.clear().roundRect(this.cardX, this.cardY, w, h, 14).fill({ color: theme.panel }).stroke({ width: 2, color: theme.border });
