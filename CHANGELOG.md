@@ -4,6 +4,29 @@ All notable changes to **Combinate** — an interactive ι (iota) / SKI combinat
 sandbox. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses a single integer major per release (`vN.0`).
 
+## [7.0.0] — 2026-06-26
+
+### Added
+
+- **Graph reduction with sharing** — an opt-in **`graph`** toggle backed by a
+  self-contained call-by-need graph reducer (`src/core/graph.ts`). A duplicated
+  subterm is one cell, forced at most once, its result shared in place — so Scott
+  `×` (repeated addition) stops recomputing recursive calls. `fac` becomes linear
+  (`fac 5/6 = 120/720`), where the cloning tree reducer couldn't reach `fac 4`.
+- **Sharing made visible** — in graph mode the live reduction renders as a **DAG**:
+  a shared subterm is one node with several incoming edges, and reducing it once
+  updates it everywhere. The reduction is lazy and produces the same normal forms
+  as the tree reducer (`K a Ω → a`).
+
+### Notes
+
+- The toggle's OFF path is byte-identical: the pure tree reducer and the view's
+  tree path are untouched; DAG-awareness is added by visited-guards that are
+  provable no-ops on a single-parent tree. Graph mode is permalink-encoded (mode
+  key `graph`) and on the dev seam. Pedagogy is clearest on small terms; big
+  programs (gallery `fac`) complete via a higher step cap (fast-forward to skip
+  ahead).
+
 ## [6.0.0] — 2026-06-26
 
 Shareability, authoring, local storage, and the in-browser Haskell compiler — the
