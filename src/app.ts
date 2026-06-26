@@ -90,7 +90,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   let menuBar: MenuBar | undefined; // the top menu bar (built below); paintRail() refreshes its open pull-down
 
   const hint = new Text({
-    text: "drag ι · snap trees · they reduce on their own · right-click deletes a node",
+    text: "drag ι · snap trees · press ▶ (top-right) to reduce · right-click deletes a node",
     style: { fontFamily: "monospace", fontSize: 14, fill: theme.textDim },
   });
   hint.position.set(16, 30); // below the menu bar
@@ -395,7 +395,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // at 3× (shorter step tween + gap). Speed is read live, so play↔ff is seamless;
   // only resuming from pause re-kicks the loop.
   type Transport = "play" | "pause" | "ff";
-  let transport: Transport = "play";
+  let transport: Transport = "pause"; // start paused: a half-built program never auto-reduces/settles until you press play
   const speed = (): number => (transport === "ff" ? 3 : 1);
   const stepDur = (): number => STEP_MS / speed();
   const stepGap = (): number => STEP_GAP / speed();
@@ -481,6 +481,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const wasPaused = transport === "pause";
     transport = mode;
     paintRail();
+    paintTransport();
     if (mode === "pause") {
       for (const [tree, a] of auto) {
         clearTimeout(a.timer);
@@ -496,7 +497,55 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       }
     }
   }
-  const cycleTransport = (): void => setTransport(transport === "play" ? "pause" : transport === "pause" ? "ff" : "play");
+  // Cycle Pause → Play → Fast-forward → Pause.
+  const cycleTransport = (): void => setTransport(transport === "pause" ? "play" : transport === "play" ? "ff" : "pause");
+
+  // ---- transport widget (top-right): the current mode (‖ / ▶ / ⏩) + the live
+  // reduction rate. Click to cycle. ----
+  const totalSteps = (): number => [...auto.values()].reduce((s, a) => s + a.steps, 0);
+  const transportBtn = new Container();
+  transportBtn.eventMode = "static";
+  transportBtn.cursor = "pointer";
+  transportBtn.hitArea = new Rectangle(-128, -16, 144, 32);
+  transportBtn.on("pointerdown", (e: FederatedPointerEvent) => {
+    e.stopPropagation();
+    cycleTransport();
+  });
+  const transportIcon = new Graphics();
+  const rateText = new Text({ text: "paused", style: { fontFamily: "monospace", fontSize: 12, fill: theme.textDim } });
+  rateText.anchor.set(1, 0.5);
+  rateText.position.set(-14, 0);
+  transportBtn.addChild(rateText, transportIcon);
+  hud.addChild(transportBtn);
+  function paintTransport(): void {
+    const g = transportIcon.clear();
+    const c = transport === "pause" ? theme.textDim : theme.iota; // gold when live, dim when paused
+    if (transport === "pause") {
+      g.roundRect(-6, -7, 4, 14, 1).fill({ color: c }).roundRect(2, -7, 4, 14, 1).fill({ color: c });
+    } else if (transport === "ff") {
+      g.poly([-8, -7, -1, 0, -8, 7]).fill({ color: c }).poly([0, -7, 7, 0, 0, 7]).fill({ color: c });
+    } else {
+      g.poly([-5, -8, 7, 0, -5, 8]).fill({ color: c }); // play ▶
+    }
+    rateText.style.fill = theme.textDim;
+  }
+  const placeTransport = (): void => {
+    transportBtn.position.set(window.innerWidth - 18, 34);
+  };
+  let rateAccum = 0;
+  let lastTotal = 0;
+  let redPerSec = 0;
+  pixi.ticker.add((tk: { deltaMS: number }) => {
+    rateAccum += tk.deltaMS;
+    if (rateAccum < 300) return;
+    const total = totalSteps();
+    redPerSec = redPerSec * 0.5 + ((total - lastTotal) / (rateAccum / 1000)) * 0.5;
+    lastTotal = total;
+    rateAccum = 0;
+    rateText.text = transport === "pause" ? "paused" : `${redPerSec.toFixed(1)} red/s`;
+  });
+  paintTransport();
+  placeTransport();
 
   // Stage receives pointer events over empty space (so panning works there).
   pixi.stage.eventMode = "static";
@@ -772,6 +821,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     nextHint.style.fill = theme.textDim;
     ghostLabel.style.fill = theme.text;
     paintLegend(legend);
+    paintTransport();
     hotbar.refresh();
     zoo.applyTheme();
     challenges.applyTheme();
@@ -783,6 +833,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     fitStage();
     hotbar.layout();
     placeLegend();
+    placeTransport();
     toast.layout();
     placeExpr();
     zoo.layout();
@@ -852,8 +903,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "toggle", label: "Color (4096)", checked: () => colorOn(), run: () => toggleColor() },
     ] },
     { title: "Reduce", items: [
-      { kind: "radio", label: "Play", on: () => transport === "play", run: () => setTransport("play") },
       { kind: "radio", label: "Pause", on: () => transport === "pause", run: () => setTransport("pause") },
+      { kind: "radio", label: "Play", on: () => transport === "play", run: () => setTransport("play") },
       { kind: "radio", label: "Fast-forward", on: () => transport === "ff", run: () => setTransport("ff") },
       { kind: "sep" },
       { kind: "toggle", label: "Optimize (rule steps)", checked: () => fastMode, run: () => { fastMode = !fastMode; } },
