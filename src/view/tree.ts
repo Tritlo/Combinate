@@ -40,9 +40,11 @@ function visSpec(n: Node): { radius: number; tint: number; glyph: { text: string
     case "iota":
       return { radius: 7, tint: theme.iota, glyph: { text: "ι", color: theme.iotaGlyph, size: 10 } };
     case "comb":
-      return { radius: 15, tint: theme.node, glyph: { text: n.sym, color: 0xffffff, size: 15 } };
+      return { radius: 15, tint: theme.node, glyph: { text: n.sym, color: theme.nodeGlyph, size: 15 } };
     case "free":
-      return { radius: 13, tint: theme.mutedDot, glyph: { text: n.name, color: 0xffffff, size: 14 } };
+      // a free var sits on a muted (grey) dot, so its glyph is ink (text), not
+      // paper — paper-on-grey is too low-contrast.
+      return { radius: 13, tint: theme.mutedDot, glyph: { text: n.name, color: theme.text, size: 14 } };
     default:
       return { radius: 5, tint: theme.mutedDot, glyph: null }; // app junction dot
   }
