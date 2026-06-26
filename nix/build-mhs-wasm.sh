@@ -28,17 +28,19 @@ make -C "$MHS" bin/gmhs
 echo "==> 2. differential-oracle reducer (iota/check)"
 ghc -O0 -o "$OUT/check" "$MHS/iota/Check.hs"
 
-echo "==> 3. compile-only WASM slice via Emscripten"
-# MicroHs already has an emscripten/web target; the fork trims it to the compiler
-# (no REPL/FFI) and exposes compileToComb. Adjust the target name to the fork's
-# Makefile (e.g. web-mhs / mhs-embed). The slice + base.pkg are the vendored blob.
-make -C "$MHS" CC="emcc" mhs-wasm || {
-  echo "NOTE: 'mhs-wasm' target not present in the fork yet — see nix/FORK-CHANGES.md."
-  echo "      Once the fork exposes a compile-only emscripten target, this step emits the blob."
-  exit 2
-}
-cp "$MHS"/generated/mhs-compile.{wasm,js} "$OUT/" 2>/dev/null || true
-cp "$MHS"/generated/base.pkg "$OUT/" 2>/dev/null || true
+echo "==> 3. the in-browser compiler artifact"
+# The browser compiler is the MicroHs compiler cross-compiled to JS (the same
+# compiler as gmhs, so it supports -ddump-combinator). The prebuilt
+# web-mhs/mhs-embed.js IS that artifact — vendor it. A fresh `make mhs.js`
+# (bin/mhs -temscripten MicroHs.Main) self-hosts the whole compiler and needs ~GB
+# of RAM (it OOMs on small machines / this sandbox), so we don't run it here; on a
+# beefy box `make -C $MHS mhs.js` (or via gmhs) regenerates it.
+if [ -f "$MHS/web-mhs/mhs-embed.js" ]; then
+  cp "$MHS/web-mhs/mhs-embed.js" "$OUT/"
+  echo "    vendored web-mhs/mhs-embed.js ($(wc -c < "$OUT/mhs-embed.js") bytes)"
+else
+  echo "    NOTE: no prebuilt mhs-embed.js; build it (needs ~GB RAM): make -C $MHS mhs.js"
+fi
 
 echo "==> 4. curated primitive-free example programs"
 cp "$MHS"/iota-examples/programs/*.hs "$OUT/examples/" 2>/dev/null || true
