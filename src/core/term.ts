@@ -21,8 +21,10 @@ export type Node =
 
 let nextId = 1;
 
-/** Mint a fresh, process-unique node id. */
-const freshId = (): NodeId => nextId++;
+/** Mint a fresh, process-unique node id. Monotonic, so a freshly-minted id is
+ *  always greater than any already in use — relied on by the graph reducer to keep
+ *  contractum ids clash-free against ids preserved from the source term. */
+export const freshId = (): NodeId => nextId++;
 
 /** An ι leaf — the only block the player starts with. */
 export const iota = (): Node => ({ id: freshId(), kind: "iota" });
