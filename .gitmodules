@@ -1,0 +1,4 @@
+[submodule "vendor/microhs"]
+	path = vendor/microhs
+	url = https://github.com/Tritlo/MicroHs.git
+	branch = master
