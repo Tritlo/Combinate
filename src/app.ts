@@ -50,6 +50,8 @@ export async function mountApp(): Promise<void> {
   const world = new Container();
   const ghostLayer = new Container();
   const hud = new Container();
+  // The camera transform, read live so TreeView can viewport-cull edges.
+  const cameraTransform = (): { x: number; y: number; scale: number } => ({ x: world.position.x, y: world.position.y, scale: world.scale.x });
   world.addChild(ghostLayer);
   pixi.stage.addChild(world, hud);
 
@@ -333,7 +335,7 @@ export async function mountApp(): Promise<void> {
 
   function spawnTree(node: Node, screenX: number, screenY: number): TreeView {
     const w = screenToWorld(screenX, screenY);
-    const tree = new TreeView(node, w.x, w.y, pixi.ticker, isDiscovered, layoutFn, () => expandAll);
+    const tree = new TreeView(node, w.x, w.y, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
     addTree(tree);
     focus = tree;
     return tree;
@@ -491,7 +493,7 @@ export async function mountApp(): Promise<void> {
       trees.splice(trees.indexOf(old), 1);
       old.destroy();
     }
-    const merged = new TreeView(root, ax, ay, pixi.ticker, isDiscovered, layoutFn, () => expandAll);
+    const merged = new TreeView(root, ax, ay, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
     addTree(merged);
     focus = merged;
     merged.animateAttachFrom(fromWorld, ATTACH_MS); // smooth merge into the app tree
@@ -769,6 +771,7 @@ export async function mountApp(): Promise<void> {
       roots: () => trees.map((t) => t.rootWorld),
       discovered: () => [...discovered],
       mode: () => (layoutFn === layoutRadial ? "radial" : "topdown"),
+      toggleLayout: () => toggleLayout(),
       expr: () => exprText.text,
       page: () => hotbar.page,
       setPage: (name: string) => hotbar.selectPage(name),

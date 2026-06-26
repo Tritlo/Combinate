@@ -116,6 +116,9 @@ export class TreeView {
     private layoutFn: LayoutFn,
     /** "Expand" view: render *every* combinator as its full ι-tree, not its name. */
     private readonly expandAll: () => boolean = () => false,
+    /** The camera (world container) transform, so edges can be viewport-culled
+     *  while animating a huge tree. Null → no culling (all edges drawn). */
+    private readonly getCamera: (() => { x: number; y: number; scale: number }) | null = null,
   ) {
     this.node = node;
     this.display = this.expand(node);
@@ -394,22 +397,43 @@ export class TreeView {
 
   // Edges are drawn from the live particle positions (so they follow tweens),
   // with function (left) edges and argument (right) edges in two distinct
-  // strokes. Iterates the cached edge list (no per-frame tree walk).
+  // strokes. Iterates the cached edge list (no per-frame tree walk). While
+  // animating a huge tree, edges whose bounding box is off-screen are culled —
+  // bounding per-frame geometry to what's visible (see viewRect).
   private drawEdges(): void {
     this.edges.clear();
+    const v = this.viewRect();
     for (const e of this.edgeList) {
       const p = this.objs.get(e.p)?.particle;
       const rp = this.objs.get(e.r)?.particle;
-      if (p && rp) this.edges.moveTo(p.x, p.y).lineTo(rp.x, rp.y);
+      if (p && rp && (!v || overlaps(p, rp, v))) this.edges.moveTo(p.x, p.y).lineTo(rp.x, rp.y);
     }
     this.edges.stroke({ width: 2.5, color: theme.argEdge });
     for (const e of this.edgeList) {
       const p = this.objs.get(e.p)?.particle;
       const lp = this.objs.get(e.l)?.particle;
-      if (p && lp) this.edges.moveTo(p.x, p.y).lineTo(lp.x, lp.y);
+      if (p && lp && (!v || overlaps(p, lp, v))) this.edges.moveTo(p.x, p.y).lineTo(lp.x, lp.y);
     }
     this.edges.stroke({ width: 3, color: theme.fnEdge });
     this.placeRootMark();
+  }
+
+  // The visible viewport in this tree's local coordinates — but only while
+  // animating (when drawEdges runs every frame): a settled tree draws all its
+  // edges so panning/zooming reveals them without a redraw. Null → no cull.
+  private viewRect(): { minX: number; minY: number; maxX: number; maxY: number } | null {
+    if (!this.ticking || !this.getCamera) return null;
+    const cam = this.getCamera();
+    const s = cam.scale || 1;
+    const cx = this.container.position.x;
+    const cy = this.container.position.y;
+    const margin = 100 / s; // keep a little slack so edges near the edge aren't clipped early
+    return {
+      minX: (0 - cam.x) / s - cx - margin,
+      maxX: (window.innerWidth - cam.x) / s - cx + margin,
+      minY: (0 - cam.y) / s - cy - margin,
+      maxY: (window.innerHeight - cam.y) / s - cy + margin,
+    };
   }
 
   private updateHitArea(): void {
@@ -461,6 +485,15 @@ export class TreeView {
     if (!vis) return;
     this.rootMark.circle(vis.particle.x, vis.particle.y, radiusOf(this.display.kind) + 6).stroke({ width: 3, color: theme.root });
   }
+}
+
+/** Does the segment a→b's bounding box overlap the view rect? (cheap edge cull) */
+function overlaps(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  v: { minX: number; minY: number; maxX: number; maxY: number },
+): boolean {
+  return !(Math.max(a.x, b.x) < v.minX || Math.min(a.x, b.x) > v.maxX || Math.max(a.y, b.y) < v.minY || Math.min(a.y, b.y) > v.maxY);
 }
 
 function mkAnim(
