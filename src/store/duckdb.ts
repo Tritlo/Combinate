@@ -9,7 +9,6 @@
  * golf/leaderboard stream — this class is the local store + the seam for that.
  */
 import type { Store, Definition, Best, LeaderEntry } from "./port";
-import { vendorUrl } from "../vendorUrl";
 
 // The duckdb-wasm async connection surface we use (kept loose so the lazy import
 // stays the single source of the real types).
@@ -17,14 +16,6 @@ interface Conn {
   query(sql: string): Promise<{ toArray(): Array<Record<string, unknown>> }>;
   prepare(sql: string): Promise<{ query(...params: unknown[]): Promise<unknown>; close(): Promise<void> }>;
 }
-
-// Vendored DuckDB-WASM bundle (served from our own origin, not a CDN — see
-// scripts/vendor-wasm.sh). `selectBundle` picks `eh` where exception-handling is
-// supported, else falls back to `mvp`. Point these at a real CDN later.
-const VENDOR_BUNDLES = {
-  mvp: { mainModule: vendorUrl("vendor/duckdb/duckdb-mvp.wasm"), mainWorker: vendorUrl("vendor/duckdb/duckdb-browser-mvp.worker.js") },
-  eh: { mainModule: vendorUrl("vendor/duckdb/duckdb-eh.wasm"), mainWorker: vendorUrl("vendor/duckdb/duckdb-browser-eh.worker.js") },
-};
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS discovered(sym VARCHAR);
@@ -41,7 +32,10 @@ export class DuckdbStore implements Store {
     if (this.connP) return this.connP;
     this.connP = (async () => {
       const duckdb = await import("@duckdb/duckdb-wasm");
-      const bundle = await duckdb.selectBundle(VENDOR_BUNDLES);
+      // DuckDB is a third-party engine (~76 MB of wasm) — serve it from the public
+      // jsDelivr CDN rather than our own origin. `selectBundle` picks `eh` where
+      // exception-handling is supported, else falls back to `mvp`.
+      const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
       const worker = await duckdb.createWorker(bundle.mainWorker!);
       const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
       await db.instantiate(bundle.mainModule, bundle.pthreadWorker ?? undefined);

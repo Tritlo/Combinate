@@ -50,6 +50,9 @@ maintainer's house DB, with the core kept pure (storage as an adapter).
   now (b) to prototype quack early; lazy-loaded, never on first paint.**
 - ~~Leaderboard trust/anti-cheat model?~~ **Resolved: verify-by-replay — entries
   are re-runnable permalinks, clients verify, shared store is dumb/append-only.**
+- ~~Where the ~76 MB DuckDB engine is served from?~~ **Resolved (v8.0): the public
+  jsDelivr CDN via `getJsDelivrBundles()` — a third-party engine isn't ours to host,
+  unlike the MicroHs runtime which we vendor on a Release (ADR 0007).**
 - Where the shared (append-only) leaderboard DB physically lives: DuckDB file over
   httpfs on object storage vs a one-line serverless write endpoint.
 - What is actually stored locally, and the schema.

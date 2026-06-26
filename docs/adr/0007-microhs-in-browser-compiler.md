@@ -174,3 +174,28 @@ reduction.
   compiler subsumes the baked-bitcode import path), and the differential oracle
   survives as separate dev/CI correctness infra (`reduce.ts` vs MicroHs `iota/check`
   on random terms).**
+
+## Deployment & vendoring (implemented, v8.0)
+
+The runtime assets are **not in git** (ADR 0002 exception, above) and are **not built
+in CI** (the emscripten + self-hosting-Haskell build is too heavy for the Pages
+workflow). Instead:
+
+- **MicroHs runtime** — `mhs-batch.js` (the batch blob), `base.mhscache` (prewarmed
+  Prelude cache), and the gallery `examples/*.comb` are bundled into
+  `mhs-vendor.tar.gz` and hosted on the **`vendor-assets` GitHub Release**. The Pages
+  workflow pulls it with `gh release download` (the repo is private; the workflow's
+  `GITHUB_TOKEN`/`contents: read` authorises it), extracts it into `public/vendor/mhs/`,
+  and `vite build` copies it into `dist/`. Re-upload with `--clobber` on the
+  infrequent MicroHs bumps.
+- **DuckDB** (ADR 0008) — a third-party ~76 MB engine, **not our responsibility to
+  host**: loaded from the **jsDelivr CDN** at runtime via `getJsDelivrBundles()`. Not
+  vendored at all.
+- **Base-aware URLs** — the SPA is built with vite `base: "./"` so it hosts from the
+  `/Combinate/` Pages subpath. Runtime-fetched public assets (which vite does *not*
+  rewrite) go through `src/vendorUrl.ts` (`BASE_URL + path` resolved against
+  `document.baseURI`), so a `/vendor/...` asset resolves on the subpath, not the
+  origin root. The live-compile worker gets the blob's absolute URL by message (it
+  has no `document` to resolve against).
+- **Splash preload** — the boot splash warms the blob + cache (and the refold lens
+  wasm) up front, so the panel's first compile doesn't pay the 3 MB download.

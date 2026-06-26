@@ -13,8 +13,10 @@ e2e.local.mjs
 shots.local.mjs
 2mamb.pdf
 .em_cache/
-# Vendored WASM/runtime assets (DuckDB engine, MicroHs blob, compiled example
-# dumps) — served from public/ but NOT committed (ADR 0007/0008). Regenerate with
-# `scripts/vendor-wasm.sh` + `scripts/gen-mhs-examples.ts`; host on a CDN later.
+# Vendored WASM/runtime assets — served from public/ but NOT committed (ADR
+# 0007/0008). The MicroHs blob + cache + gallery dumps are hosted on the
+# `vendor-assets` GitHub Release and pulled in by CI (and locally via
+# `nix/build-wasm.sh` + `scripts/gen-mhs-cache.mjs` + `scripts/gen-mhs-examples.ts`).
+# DuckDB loads from the jsDelivr CDN at runtime — not vendored at all.
 public/vendor/
 .claude/
