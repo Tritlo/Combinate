@@ -53,17 +53,37 @@ function force(r: Ref): Ref {
 }
 
 /** A plain term → a graph with FRESH ids (def unfolds, rule bodies, value probes). */
-function toGraph(n: Node): Ref {
-  switch (n.kind) {
-    case "iota":
-      return ref({ t: "iota" });
-    case "comb":
-      return ref({ t: "comb", sym: n.sym, def: n.def, arity: n.arity });
-    case "free":
-      return ref({ t: "free", name: n.name });
-    case "app":
-      return ref({ t: "app", fn: toGraph(n.fn), arg: toGraph(n.arg) });
+// Iterative (a recursive build overflows the JS stack on the deep trees MicroHs
+// emits). Builds bottom-up via an explicit stack; the memo also shares a DAG input
+// correctly (a no-op on a tree).
+function toGraph(root: Node): Ref {
+  const built = new Map<Node, Ref>();
+  const stack: Node[] = [root];
+  while (stack.length) {
+    const n = stack[stack.length - 1];
+    if (built.has(n)) {
+      stack.pop();
+      continue;
+    }
+    if (n.kind === "app") {
+      const f = built.get(n.fn);
+      const a = built.get(n.arg);
+      if (f === undefined || a === undefined) {
+        if (a === undefined) stack.push(n.arg); // build children first
+        if (f === undefined) stack.push(n.fn);
+        continue;
+      }
+      built.set(n, ref({ t: "app", fn: f, arg: a }));
+    } else if (n.kind === "iota") {
+      built.set(n, ref({ t: "iota" }));
+    } else if (n.kind === "comb") {
+      built.set(n, ref({ t: "comb", sym: n.sym, def: n.def, arity: n.arity }));
+    } else {
+      built.set(n, ref({ t: "free", name: n.name }));
+    }
+    stack.pop();
   }
+  return built.get(root)!;
 }
 
 /** A plain term → a graph PRESERVING the source ids — only for the initial graph,
@@ -265,7 +285,6 @@ export interface ShareResult {
  */
 export function evalShared(n: Node, cap = 500_000, fast = false): ShareResult {
   let steps = 0;
-  const root = toGraph(n);
 
   const whnf = (r: Ref): void => {
     for (;;) {
@@ -280,13 +299,19 @@ export function evalShared(n: Node, cap = 500_000, fast = false): ShareResult {
       steps++;
     }
   };
-  const normalForm = (r: Ref): void => {
-    whnf(r);
-    let cur = force(r);
-    while (cur.c.t === "app") {
-      normalForm(cur.c.arg);
+  // Iterative (a recursive descent into every argument overflows the JS stack on
+  // a deep result): force each ref to WHNF, then queue its spine arguments.
+  const normalForm = (r0: Ref): void => {
+    const work: Ref[] = [r0];
+    while (work.length) {
       if (steps >= cap) return;
-      cur = force(cur.c.fn);
+      const r = work.pop()!;
+      whnf(r);
+      let cur = force(r);
+      while (cur.c.t === "app") {
+        work.push(cur.c.arg);
+        cur = force(cur.c.fn);
+      }
     }
   };
   // Un-shared read-back (fresh ids): the NF value, expanded to a plain tree.
@@ -318,6 +343,7 @@ export function evalShared(n: Node, cap = 500_000, fast = false): ShareResult {
   };
 
   try {
+    const root = toGraph(n);
     normalForm(root);
     return { term: readBackTree(root), steps, done: steps < cap };
   } catch {
