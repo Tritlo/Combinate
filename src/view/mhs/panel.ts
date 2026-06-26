@@ -39,6 +39,16 @@ export class MhsPanel {
     const ex = EXAMPLES.find((e) => e.name === name);
     if (ex) void this.loadExample(ex);
   }
+  /** Live-compile source through the blob and report the outcome (E2E seam). */
+  async compileLive(source: string): Promise<{ ok: boolean; detail: string }> {
+    try {
+      const dump = await liveCompile(source);
+      const res = toTree(dump, "Ex.out");
+      return "error" in res ? { ok: false, detail: res.error } : { ok: true, detail: "tree" };
+    } catch (e) {
+      return { ok: false, detail: (e as Error).message };
+    }
+  }
   toggle(): void {
     this.open_ ? this.close() : this.open();
   }
@@ -141,6 +151,7 @@ export class MhsPanel {
     card.appendChild(body);
     this.root.appendChild(card);
     this.loadExample(EXAMPLES[0], false);
+    this.setStatus("pick an example — it compiles offline and runs · free-typing is experimental", "#6b7280");
   }
 
   /** Select an example: show its source and (unless suppressed) compile + run it
