@@ -29,6 +29,7 @@ import { MhsPanel } from "./view/mhs/panel";
 import { preloadCompiler } from "./view/mhs/compiler";
 import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange } from "./view/theme";
 import { MenuBar, type Menu } from "./view/menubar";
+import { About } from "./view/about";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
 const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducing (§6.4)
@@ -821,9 +822,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const setLayoutMode = (fn: LayoutFn): void => {
     if (layoutFn !== fn) toggleLayout();
   };
+  const about = new About();
   const menus: Menu[] = [
     { title: "ι", apple: true, items: [
-      { kind: "action", label: "About Combinate…", run: () => toast.show("Combinate — an interactive ι / SKI combinator-calculus sandbox") },
+      { kind: "action", label: "About Combinate…", run: () => about.open() },
       { kind: "sep" },
       { kind: "toggle", label: "Dark mode", checked: () => currentMode() === "dark", run: () => toggleMode() },
     ] },
