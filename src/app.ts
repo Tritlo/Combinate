@@ -8,6 +8,7 @@ import {
 } from "pixi.js";
 import { app as mkApp, comb, decode, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
 import { step, firingRule } from "./core/reduce";
+import { GraphReducer, evalShared } from "./core/graph";
 import { encodePermalink, decodePermalink, type Modes } from "./core/permalink";
 import { LocalStore } from "./store/local";
 import { DuckdbStore } from "./store/duckdb";
@@ -32,6 +33,7 @@ const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducin
 const STEP_MS = 300; // duration of one reduction-step tween
 const STEP_GAP = 130; // pause between reduction steps
 const STEP_CAP = 2000; // non-termination guard: stop auto-reducing past this many steps
+const GRAPH_STEP_CAP = 100_000; // graph mode shares (cheap steps) — let fac-scale reductions finish
 const COLLAPSE_MS = 340; // morph from a recognised normal form into its named node
 const ATTACH_MS = 280; // glide two trees together when snapped
 const DELETE_MS = 240; // fade out a right-clicked subtree
@@ -80,6 +82,7 @@ export async function mountApp(): Promise<void> {
   let pinch: { d: number; cx: number; cy: number } | null = null;
   let expandAll = false; // "Expand" view: draw every combinator as its full ι-tree
   let fastMode = false; // "optimize" mode: reduce named combinators by their rule (not raw SKI)
+  let shareMode = false; // "graph" mode: call-by-need graph reduction, shared subterms drawn as one node
 
   const hint = new Text({
     text: "drag ι · snap trees · they reduce on their own · right-click deletes a node",
@@ -377,7 +380,7 @@ export async function mountApp(): Promise<void> {
   // `source` is the tree as the player built/edited it (captured on release),
   // before reduction mutates it — the golf metric + challenge target score the
   // source, not its normal form.
-  const auto = new Map<TreeView, { gen: number; timer: number; steps: number; source?: Node }>();
+  const auto = new Map<TreeView, { gen: number; timer: number; steps: number; source?: Node; grapher?: GraphReducer }>();
 
   // Playback transport (§6.4): auto-reduce can be paused/played, or fast-forwarded
   // at 3× (shorter step tween + gap). Speed is read live, so play↔ff is seamless;
@@ -406,6 +409,7 @@ export async function mountApp(): Promise<void> {
     a.gen++;
     a.steps = 0;
     a.source = tree.node; // score the tree as built, before reduction
+    a.grapher = shareMode ? new GraphReducer(tree.node, fastMode) : undefined; // graph mode: a fresh shared graph
     const gen = a.gen;
     a.timer = window.setTimeout(() => stepAuto(tree, gen), AUTO_DELAY);
   }
@@ -414,7 +418,35 @@ export async function mountApp(): Promise<void> {
     const a = auto.get(tree);
     if (!a || a.gen !== gen) return;
     if (transport === "pause") return; // frozen — resume re-kicks from setTransport
-    if (a.steps >= STEP_CAP) return; // still reducing — bail (non-termination guard)
+    // Non-termination guard. Graph mode shares, so it does far fewer, far cheaper
+    // steps and can finish reductions the tree reducer can't (fac-scale) — give it
+    // a much higher ceiling so the feasibility win actually lands.
+    if (a.steps >= (shareMode ? GRAPH_STEP_CAP : STEP_CAP)) return;
+
+    // Graph mode: step the shared graph and animate each snapshot. A shared subterm
+    // is one node with several incoming edges, and reducing it once updates it
+    // everywhere — sharing made visible (and `fac`-scale becomes feasible). Toggled
+    // mid-flight → make/clear the grapher to match.
+    if (shareMode) {
+      if (!a.grapher) a.grapher = new GraphReducer(tree.node, fastMode);
+      const g = a.grapher;
+      if (!g.step()) {
+        settle(tree); // normal form
+        void challenges.onNormalForm(a.source ?? tree.node);
+        return;
+      }
+      sound.tick(firingRule(tree.node, fastMode)); // a tone per contraction (approx)
+      a.steps = g.steps;
+      tree.animateTo(g.snapshot(), stepDur(), () => {
+        const a2 = auto.get(tree);
+        if (!a2 || a2.gen !== gen) return;
+        if (transport === "pause") return;
+        a2.timer = window.setTimeout(() => stepAuto(tree, gen), stepGap());
+      });
+      return;
+    }
+    a.grapher = undefined; // optimize/raw path: no live graph
+
     const next = step(tree.node, 0, fastMode);
     if (!next) {
       settle(tree); // normal form reached — recognise + collapse to a named node
@@ -858,6 +890,13 @@ export async function mountApp(): Promise<void> {
   const drawOptimize = (g: Graphics, c: number): void => {
     g.poly([3, -12, -7, 2, -1, 2, -4, 12, 8, -3, 2, -3]).fill({ color: c });
   };
+  // Two parents converging on one node — "graph" mode (call-by-need sharing).
+  const drawGraph = (g: Graphics, c: number): void => {
+    g.moveTo(-8, -9).lineTo(0, 5).moveTo(8, -9).lineTo(0, 5).stroke({ width: 2, color: c }); // two edges into the shared node
+    g.circle(-8, -10, 2.6).fill({ color: c }); // left parent
+    g.circle(8, -10, 2.6).fill({ color: c }); // right parent
+    g.circle(0, 7, 3.6).fill({ color: c }); // the one shared node
+  };
   // A pennant on a pole — the golf challenges / leaderboard.
   const drawGolf = (g: Graphics, c: number): void => {
     g.moveTo(-7, -12).lineTo(-7, 12).stroke({ width: 2, color: c }); // pole
@@ -903,6 +942,7 @@ export async function mountApp(): Promise<void> {
     { label: "refold", draw: drawRefold, active: () => refoldOn, act: () => toggleRefold() },
     { label: "type", draw: drawType, active: () => typeOn, act: () => toggleType() },
     { label: "optimize", draw: drawOptimize, active: () => fastMode, act: () => { fastMode = !fastMode; paintRail(); } },
+    { label: "graph", draw: drawGraph, active: () => shareMode, act: () => { shareMode = !shareMode; if (focus) scheduleAuto(focus); paintRail(); } },
     { label: "golf", draw: drawGolf, brand: true, active: () => challenges.isOpen, act: () => challenges.toggle() },
     { label: "sound", draw: drawSound, active: () => sound.enabled, act: () => { sound.toggle(); paintRail(); } },
     { label: "share", draw: drawShare, act: () => shareFocused() },
@@ -961,6 +1001,7 @@ export async function mountApp(): Promise<void> {
   /** The currently-active display modes, packed for a permalink. */
   const currentModes = (): Modes => ({
     optimize: fastMode || undefined,
+    graph: shareMode || undefined,
     refold: refoldOn || undefined,
     type: typeOn || undefined,
     expand: expandAll || undefined,
@@ -972,6 +1013,7 @@ export async function mountApp(): Promise<void> {
   function applyModes(m: Modes): void {
     expandAll = !!m.expand;
     fastMode = !!m.optimize;
+    shareMode = !!m.graph;
     typeOn = !!m.type;
     refoldOn = !!m.refold;
     if (refoldOn && !refolder) {
@@ -1077,6 +1119,7 @@ export async function mountApp(): Promise<void> {
       autoSteps: () => [...auto.values()].reduce((s, a) => s + a.steps, 0),
       run: () => { if (focus) scheduleAuto(focus); },
       fast: { on: () => fastMode, set: (b: boolean) => { fastMode = b; paintRail(); } },
+      graph: { on: () => shareMode, set: (b: boolean) => { shareMode = b; paintRail(); }, eval: (s: string) => sexp(evalShared(fromEgg(s), 500000, fastMode).term) },
       expr: () => exprText.text,
       page: () => hotbar.page,
       setPage: (name: string) => hotbar.selectPage(name),
