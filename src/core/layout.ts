@@ -50,6 +50,7 @@ export function layoutTopDown(root: Node): Layout {
   let leafIndex = 0;
 
   const walk = (n: Node, d: number): void => {
+    if (depth.has(n.id)) return; // DAG (graph mode): position each shared node once — a no-op on a tree
     depth.set(n.id, d);
     if (n.kind === "app") {
       walk(n.fn, d + 1);
@@ -79,6 +80,7 @@ export function layoutRadial(root: Node): Layout {
   const depth = new Map<NodeId, number>();
   let leafCount = 0;
   const measure = (n: Node, d: number): void => {
+    if (depth.has(n.id)) return; // DAG (graph mode): count each shared node once — a no-op on a tree
     depth.set(n.id, d);
     if (n.kind === "app") {
       measure(n.fn, d + 1);
@@ -93,6 +95,7 @@ export function layoutRadial(root: Node): Layout {
   const total = Math.max(1, leafCount);
   let leafIndex = 0;
   const setAngle = (n: Node): void => {
+    if (angle.has(n.id)) return; // DAG (graph mode): angle each shared node once — a no-op on a tree
     if (n.kind === "app") {
       setAngle(n.fn);
       setAngle(n.arg);
