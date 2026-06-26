@@ -34,7 +34,7 @@ export interface LeaderEntry {
 }
 
 export interface Store {
-  // discovered combinators (the Pokédex progress)
+  // discovered combinators (the field-guide progress)
   getDiscovered(): Promise<string[]>;
   addDiscovered(sym: string): Promise<void>;
   // user-defined combinators

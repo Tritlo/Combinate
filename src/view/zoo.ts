@@ -24,7 +24,7 @@ interface Page {
 }
 
 /**
- * The Zoo — a Pokédex of every combinator: a number, name, Smullyan bird, the
+ * The Zoo — a field guide to every combinator: a number, name, Smullyan bird, the
  * combinator's pure-ι tree as its picture, an iota-count stat, a description and
  * its formula. Undiscovered entries show a "?". Toggled by a left-edge icon.
  */
