@@ -7,6 +7,7 @@ const VAR_NAMES = ["a", "b", "c", "d", "e", "f"];
 /** The first catalog law a term behaves as, or null if it realises none. */
 export function recognize(tree: Node, cap = 10_000): Law | null {
   for (const law of CATALOG) {
+    if (law.userDefined) continue; // authored, not discovered — never auto-matched
     if (probe(tree, law, cap)) return law;
   }
   return null;
