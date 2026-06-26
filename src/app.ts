@@ -855,7 +855,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "toggle", label: "Sound", checked: () => sound.enabled, run: () => sound.toggle() },
     ] },
     { title: "Special", items: [
-      { kind: "toggle", label: "Zoo (Pokédex)", accel: "Z", checked: () => zoo.isOpen, run: () => zoo.toggle() },
+      { kind: "toggle", label: "Zoo", accel: "Z", checked: () => zoo.isOpen, run: () => zoo.toggle() },
       { kind: "toggle", label: "Golf challenges", accel: "G", checked: () => challenges.isOpen, run: () => challenges.toggle() },
     ] },
   ];
