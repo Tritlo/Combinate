@@ -1087,6 +1087,7 @@ export async function mountApp(): Promise<void> {
         permalink: () => (focus ? encodePermalink(focus.node, currentModes()) : null),
       },
       sound: { on: () => sound.enabled, toggle: () => sound.toggle() },
+      store, // the active Store (LocalStore, or DuckdbStore with ?store=duckdb) — for tests
       author: {
         mode: () => authorMode,
         setMode: (m: string | null) => setAuthorMode(m as AuthorMode),
