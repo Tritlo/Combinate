@@ -29,6 +29,14 @@ export interface Law {
   /** Reference normal form, built from those free variables. */
   reference: (vars: Node[]) => Node;
   /**
+   * Direct reduction rule (the law itself), used by the optimize mode
+   * (`reduce.ts` `fast`): a saturated named combinator reduces by this in one
+   * step — `args` are the actual argument terms — instead of unfolding its SKI
+   * `def`. For the recursive birds it is the Scott recursion via named
+   * sub-combinators (no Y). Omitted for I/K/S (built-in rules).
+   */
+  rule?: (args: Node[]) => Node;
+  /**
    * The underlying tree a collapsed named node stands for, so the reducer can
    * unfold it when applied. Omitted for I/K/S, which the reducer handles with
    * built-in rules.
@@ -133,17 +141,31 @@ const minusDef = (): Node =>
 const timesDef = (): Node =>
   recDef(["m", "n"], ([r, m, n]) => app(app(m, zeroDef()), lamN(["p"], ([p]) => app(app(plusDef(), n), app(app(r, p), n)))));
 
-/** A bird whose def is the bracket abstraction of its law (so def ≡ law). */
+/** A bird whose def is the bracket abstraction of its law (so def ≡ law). Its
+ *  law doubles as the optimize-mode `rule` (applied to actual args directly). */
 function bird(sym: string, lawText: string, arity: number, body: (v: Node[]) => Node): Law {
-  return { sym, lawText, arity, reference: body, def: () => lam(arity, body) };
+  return { sym, lawText, arity, reference: body, rule: body, def: () => lam(arity, body) };
 }
+
+// ---- optimize-mode rules for the recursive ops: the direct Scott recursion via
+// *named* sub-combinators (`mk` below), no Y. Mirrors the Y-based defs above but
+// reduces step-by-step through named birds (each then reduced by its own rule)
+// instead of grinding the SKI Y-blob. Args reused twice are made id-unique by the
+// reducer (dedupIds), so these bodies can share freely. ----
+const appendRule = ([xs, ys]: Node[]): Node => app(app(xs, ys), lamN(["h", "t"], ([h, t]) => app(app(mk("cons"), h), app(app(mk("<>"), t), ys))));
+const mapRule = ([f, xs]: Node[]): Node => app(app(xs, K()), lamN(["h", "t"], ([h, t]) => app(app(mk("cons"), app(f, h)), app(app(mk("map"), f), t))));
+const concatRule = ([xss]: Node[]): Node => app(app(xss, K()), lamN(["h", "t"], ([h, t]) => app(app(mk("<>"), h), app(mk("concat"), t))));
+const plusRule = ([m, n]: Node[]): Node => app(app(m, n), lamN(["p"], ([p]) => app(mk("Succ"), app(app(mk("(+)"), p), n))));
+const minusRule = ([m, n]: Node[]): Node => app(app(n, m), lamN(["p"], ([p]) => app(mk("Pred"), app(app(mk("(-)"), m), p))));
+const timesRule = ([m, n]: Node[]): Node => app(app(m, K()), lamN(["p"], ([p]) => app(app(mk("(+)"), n), app(app(mk("(*)"), p), n))));
+const yRule = ([f]: Node[]): Node => app(f, app(mk("Y"), f)); // Y f → f (Y f)
 
 // Alphabetical by symbol. I/K/S reduce by built-in rules (no def); Y is the
 // recursive fixpoint (probed finitely); the rest derive their def from their law.
 export const CATALOG: Law[] = [
-  { sym: "(+)", lawText: "(+) Z n = n;  (+) (S p) n = S (p + n)", arity: 2, reference: noProbe("(+)"), def: plusDef }, // Peano addition (Y)
-  { sym: "(-)", lawText: "(-) m Z = m;  (-) m (S p) = Pred (m - p)", arity: 2, reference: noProbe("(-)"), def: minusDef }, // Peano monus (Y)
-  { sym: "(*)", lawText: "(*) Z n = Z;  (*) (S p) n = n + (p * n)", arity: 2, reference: noProbe("(*)"), def: timesDef }, // Peano product (Y)
+  { sym: "(+)", lawText: "(+) Z n = n;  (+) (S p) n = S (p + n)", arity: 2, reference: noProbe("(+)"), rule: plusRule, def: plusDef }, // Peano addition
+  { sym: "(-)", lawText: "(-) m Z = m;  (-) m (S p) = Pred (m - p)", arity: 2, reference: noProbe("(-)"), rule: minusRule, def: minusDef }, // Peano monus
+  { sym: "(*)", lawText: "(*) Z n = Z;  (*) (S p) n = n + (p * n)", arity: 2, reference: noProbe("(*)"), rule: timesRule, def: timesDef }, // Peano product
   bird("A", "A x y = y", 2, (v) => v[1]), // Albatross (= K I; the old Kite)
   bird("B", "B x y z = x (y z)", 3, (v) => app(v[0], app(v[1], v[2]))), // Bluebird
   bird("B1", "B1 x y z w = x (y z w)", 4, (v) => app(v[0], app(app(v[1], v[2]), v[3]))), // Blackbird
@@ -186,9 +208,9 @@ export const CATALOG: Law[] = [
   // the folds (<>, concat, map) recurse via Y (built, not discovered).
   bird("cons", "cons h t n c = c h t", 4, consBody), // prepend (Scott cons cell)
   bird("head", "head (h : t) = h", 1, (v) => app(app(v[0], K()), K())), // xs nil-default K
-  { sym: "<>", lawText: "[] <> ys = ys;  (h:t) <> ys = h : (t <> ys)", arity: 2, reference: noProbe("<>"), def: appendDef }, // append (Y)
-  { sym: "concat", lawText: "concat [] = [];  concat (xs:xss) = xs <> concat xss", arity: 1, reference: noProbe("concat"), def: concatDef }, // flatten (Y)
-  { sym: "map", lawText: "map f [] = [];  map f (h:t) = f h : map f t", arity: 2, reference: noProbe("map"), def: mapDef }, // (Y)
+  { sym: "<>", lawText: "[] <> ys = ys;  (h:t) <> ys = h : (t <> ys)", arity: 2, reference: noProbe("<>"), rule: appendRule, def: appendDef }, // append
+  { sym: "concat", lawText: "concat [] = [];  concat (xs:xss) = xs <> concat xss", arity: 1, reference: noProbe("concat"), rule: concatRule, def: concatDef }, // flatten
+  { sym: "map", lawText: "map f [] = [];  map f (h:t) = f h : map f t", arity: 2, reference: noProbe("map"), rule: mapRule, def: mapDef },
   bird("null", "null [] = True;  null (h : t) = False", 1, (v) => app(app(v[0], KI()), lamN(["h", "t"], () => K()))), // xs True (λh t. False)
   bird("uncons", "uncons (h : t) = (h, t)", 1, (v) => app(app(v[0], app(app(V_(), K()), K())), V_())), // xs (nil,nil) (λh t. (h,t))
   bird("tail", "tail (h : t) = t", 1, (v) => app(app(v[0], K()), KI())), // xs nil-default (λh t. t)
@@ -199,6 +221,7 @@ export const CATALOG: Law[] = [
     arity: 1,
     args: (v) => [app(K(), v[0])],
     reference: (v) => v[0],
+    rule: yRule,
     def: () => app(app(B(), M()), app(app(C(), B()), M())), // B M (C B M)
   },
   bird("Z", "Z x y z = x y", 3, (v) => app(v[0], v[1])), // Zebra Finch (drops its 3rd arg, = B K)
@@ -206,6 +229,26 @@ export const CATALOG: Law[] = [
   bird("Φ", "Φ x y z w = x (y w) (z w)", 4, (v) => app(app(v[0], app(v[1], v[3])), app(v[2], v[3]))), // Phoenix
   bird("Ψ", "Ψ x y z w = x (y z) (y w)", 4, (v) => app(app(v[0], app(v[1], v[2])), app(v[1], v[3]))), // Psittacosaurus
 ];
+
+const LAW_BY_SYM = new Map(CATALOG.map((l) => [l.sym, l] as const));
+
+/** Build a rule-carrying named combinator node, by symbol — used inside the
+ *  optimize-mode rules to reference other birds (and themselves) by name rather
+ *  than inlining their SKI def. */
+function mk(sym: string): Node {
+  const l = LAW_BY_SYM.get(sym);
+  if (!l) throw new Error(`mk: no law for ${sym}`);
+  return comb(sym, l.def?.(), l.arity);
+}
+
+/** Optimize-mode reduction rules by symbol (catalog-driven). `reduce.ts` uses
+ *  these in `fast` mode to reduce a saturated named combinator by its law in one
+ *  step, instead of unfolding its SKI def and grinding ι/S/K/I. No entry → that
+ *  symbol reduces the raw way (so I/K/S/ι and undiscovered combinators are
+ *  unaffected, and raw SKI play is exactly as before). */
+export const RULES: Record<string, (args: Node[]) => Node> = Object.fromEntries(
+  CATALOG.flatMap((l) => (l.rule ? [[l.sym, l.rule] as const] : [])),
+);
 
 /** Zoo (Pokédex) metadata for a combinator: its Smullyan bird name (if any), a
  *  short description of what it does, and the formula it's built from. */
