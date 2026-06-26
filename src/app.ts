@@ -1090,7 +1090,7 @@ export async function mountApp(): Promise<void> {
         permalink: () => (focus ? encodePermalink(focus.node, currentModes()) : null),
       },
       sound: { on: () => sound.enabled, toggle: () => sound.toggle() },
-      haskell: { open: () => mhsPanel.open(), close: () => mhsPanel.close(), isOpen: () => mhsPanel.isOpen, run: (n: string) => mhsPanel.run(n), examples: () => mhsPanel.examples },
+      haskell: { open: () => mhsPanel.open(), close: () => mhsPanel.close(), isOpen: () => mhsPanel.isOpen, run: (n: string) => mhsPanel.run(n), examples: () => mhsPanel.examples, compile: (s: string) => mhsPanel.compileLive(s) },
       store, // the active Store (LocalStore, or DuckdbStore with ?store=duckdb) — for tests
       author: {
         mode: () => authorMode,
