@@ -222,7 +222,7 @@ export async function mountApp(): Promise<void> {
   // The read-as mode is just the current hotbar page (ADR 0003): a typed page
   // forces that reading and resolves the bare-A ambiguity `read` otherwise defers
   // (A → 0 / [] / false). The Programs page has no type → auto-discovery.
-  const READ_AS: Record<string, Ty> = { Arithmetic: "Int", Booleans: "Bool", Lists: "List" };
+  const READ_AS: Record<string, Ty> = { Arithmetic: "Int", Booleans: "Bool", Lists: "List", Char: "Char" };
 
   // Live read-out of the focused tree's expression, recomputed only when its
   // node identity (or the read-as page) changes — so the probes never run every
