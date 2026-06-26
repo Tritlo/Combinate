@@ -2,3 +2,4 @@
 	path = vendor/microhs
 	url = https://github.com/Tritlo/MicroHs.git
 	branch = master
+	ignore = dirty
