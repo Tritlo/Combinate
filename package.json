@@ -2,6 +2,9 @@
   "name": "combinate",
   "private": true,
   "version": "10.0.0",
+  "description": "An interactive ι (iota) / SKI combinator-calculus sandbox.",
+  "author": "Matthias Pall Gissurarson <mpg@mpg.is>",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
