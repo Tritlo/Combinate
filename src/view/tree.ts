@@ -350,19 +350,33 @@ export class TreeView {
   // (discovered combinators, ι, apps, free vars) passes through. Expansion ids
   // are derived from the source comb id (negative, so they never clash) so the
   // same combinator tweens stably across reduction steps.
-  private expand(n: Node): Node {
-    switch (n.kind) {
-      case "comb": {
-        // "Expand" view → every combinator's full ι-tree; otherwise only
-        // undiscovered S/K/I are shown as ι (the discovery mask).
-        const code = this.expandAll() ? IOTA_BITCODE[n.sym] : !this.isDiscovered(n.sym) ? IOTA_CODE[n.sym] : undefined;
-        return code ? iotaTreeFrom(code, n.id) : n;
+  private expand(root: Node): Node {
+    // Memoised by id, so a shared subterm (graph mode) expands once to one shared
+    // result — keeping the display a DAG and the walk linear. On a tree every id
+    // is distinct, so the memo never hits and this is the old plain recursion.
+    const memo = new Map<NodeId, Node>();
+    const go = (n: Node): Node => {
+      const hit = memo.get(n.id);
+      if (hit) return hit;
+      let out: Node;
+      switch (n.kind) {
+        case "comb": {
+          // "Expand" view → every combinator's full ι-tree; otherwise only
+          // undiscovered S/K/I are shown as ι (the discovery mask).
+          const code = this.expandAll() ? IOTA_BITCODE[n.sym] : !this.isDiscovered(n.sym) ? IOTA_CODE[n.sym] : undefined;
+          out = code ? iotaTreeFrom(code, n.id) : n;
+          break;
+        }
+        case "app":
+          out = { ...n, fn: go(n.fn), arg: go(n.arg) };
+          break;
+        default:
+          out = n;
       }
-      case "app":
-        return { ...n, fn: this.expand(n.fn), arg: this.expand(n.arg) };
-      default:
-        return n;
-    }
+      memo.set(n.id, out);
+      return out;
+    };
+    return go(root);
   }
 
   private rebuild(): void {
@@ -386,8 +400,14 @@ export class TreeView {
   // animateAttachFrom keep the same display, so the cache stays valid there.
   private indexEdges(): void {
     this.edgeList = [];
+    // Walk each app node once (by id). A shared child (graph mode) is reached from
+    // several parents, so it gets several incoming edges but is walked once — the
+    // edges converge on its single particle. On a tree no id repeats, so this is
+    // identical to the old per-app walk.
+    const seen = new Set<NodeId>();
     const walk = (n: Node): void => {
-      if (n.kind !== "app") return;
+      if (n.kind !== "app" || seen.has(n.id)) return;
+      seen.add(n.id);
       this.edgeList.push({ p: n.id, l: n.fn.id, r: n.arg.id });
       walk(n.fn);
       walk(n.arg);
@@ -513,6 +533,7 @@ function mkAnim(
 }
 
 function collectNodes(n: Node, m = new Map<NodeId, Node>()): Map<NodeId, Node> {
+  if (m.has(n.id)) return m; // DAG (graph mode): one record per shared node — a no-op on a tree
   m.set(n.id, n);
   if (n.kind === "app") {
     collectNodes(n.fn, m);
