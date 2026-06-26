@@ -108,10 +108,14 @@ export class Hotbar {
     const narrow = window.innerWidth < NARROW;
     const tabFont = narrow ? 11 : 13;
     const tabGap = narrow ? 5 : 2 * GAP;
-    const labels = PAGES.map((p) => new Text({ text: p.name, style: { fontFamily: "monospace", fontSize: tabFont, fill: ink } }));
-    const tabsW = labels.reduce((s, t) => s + t.width, 0) + tabGap * (labels.length - 1);
+    // Incremental: only show a page once it has a discovered combinator (ι keeps
+    // Programs always present). The tab carries its real PAGES index.
+    const shown = PAGES.map((_p, i) => i).filter((i) => this.visible(i).length > 0);
+    const labels = shown.map((i) => new Text({ text: PAGES[i].name, style: { fontFamily: "monospace", fontSize: tabFont, fill: ink } }));
+    const tabsW = labels.reduce((s, t) => s + t.width, 0) + tabGap * Math.max(0, labels.length - 1);
     let tx = window.innerWidth / 2 - tabsW / 2;
-    labels.forEach((t, i) => {
+    shown.forEach((i, idx) => {
+      const t = labels[idx];
       t.position.set(tx, tabY);
       t.alpha = i === this.tab ? 1 : 0.4; // active tab full ink, the rest dimmed
       t.eventMode = "static";
