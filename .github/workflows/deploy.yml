@@ -42,21 +42,23 @@ jobs:
       - run: npm ci
       - run: npm run build:wasm # gen rules from the catalog, then wasm-pack build → crates/refold/pkg/
 
-      # ---- Fetch the vendored MicroHs live-compile runtime (the batch blob, its
-      # prewarmed cache, and the gallery dumps). These are too heavy to build here
-      # (nix + emscripten + a browser) and aren't committed, so we host them on the
-      # `vendor-assets` Release and pull them in at deploy time. The private repo's
-      # assets need auth — the workflow's GITHUB_TOKEN (contents: read) suffices.
-      # DuckDB is NOT vendored: it loads from the jsDelivr CDN at runtime. ----
-      - name: Fetch vendored MicroHs runtime
+      # ---- Fetch the vendored runtime assets we host ourselves: the MicroHs
+      # live-compile runtime (batch blob, prewarmed cache, gallery dumps) and the
+      # IoskeleyMono webfont. These are too heavy to build/regenerate here and
+      # aren't committed, so they live on the `vendor-assets` Release and we pull
+      # them in at deploy time. The private repo's assets need auth — the workflow's
+      # GITHUB_TOKEN (contents: read) suffices. DuckDB is NOT vendored: it loads from
+      # the jsDelivr CDN at runtime. ----
+      - name: Fetch vendored runtime assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p public/vendor/mhs
+          mkdir -p public/vendor/mhs public/vendor/fonts
           gh release download vendor-assets --repo "$GITHUB_REPOSITORY" --pattern 'mhs-vendor.tar.gz' --dir .
           tar xzf mhs-vendor.tar.gz -C public/vendor/mhs
           rm mhs-vendor.tar.gz
-          ls -la public/vendor/mhs public/vendor/mhs/examples
+          gh release download vendor-assets --repo "$GITHUB_REPOSITORY" --pattern 'IoskeleyMono-Regular.woff2' --dir public/vendor/fonts
+          ls -la public/vendor/mhs public/vendor/mhs/examples public/vendor/fonts
 
       - run: npm run build # tsc --noEmit && vite build → dist/ (base "./" works on the /Combinate/ subpath; public/vendor is copied in)
       - uses: actions/configure-pages@v5

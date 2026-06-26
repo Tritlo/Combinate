@@ -535,6 +535,34 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const sound = new Sound();
   const challenges = new ChallengePanel(store, { notify: (m) => toast.show(m), onShare: (token) => shareToken(token) });
   hud.addChild(challenges.container); // overlays the hotbar + rail, like the Zoo
+
+  // ---- hover tooltips (desktop): a one-line explanation of each rail setting,
+  // shown beside the hovered button (mouse only — no flash on touch taps). ----
+  const tip = new Container();
+  tip.visible = false;
+  tip.eventMode = "none";
+  const tipBg = new Graphics();
+  const tipText = new Text({ text: "", style: { fontFamily: "monospace", fontSize: 12, fill: theme.text, wordWrap: true, wordWrapWidth: 260, lineHeight: 16 } });
+  tipText.anchor.set(0, 0.5);
+  tipText.position.set(10, 0);
+  tip.addChild(tipBg, tipText);
+  hud.addChild(tip);
+  function showTip(msg: string, cx: number, cy: number, side: "right" | "left" = "right"): void {
+    tipText.style.fill = theme.text;
+    tipText.text = msg;
+    const w = tipText.width + 20;
+    const h = tipText.height + 14;
+    tipBg.clear().roundRect(0, -h / 2, w, h, 7).fill({ color: theme.panel }).stroke({ width: 1, color: theme.border });
+    let px = side === "right" ? cx + 30 : cx - 30 - w; // beside the 44px button
+    px = Math.max(8, Math.min(px, window.innerWidth - w - 8));
+    const py = Math.max(h / 2 + 8, Math.min(cy, window.innerHeight - h / 2 - 8));
+    tip.position.set(px, py);
+    tip.visible = true;
+  }
+  const hideTip = (): void => {
+    tip.visible = false;
+  };
+
   // Haskell → ι panel (ADR 0007): compile a curated or free-typed program (stock
   // MicroHs dump, post-processed) and drop the resulting combinator tree on the
   // canvas. A DOM overlay, so it lives outside the Pixi HUD. The result's read-out
@@ -765,6 +793,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     e.stopPropagation();
     toggleMode();
   });
+  themeBtn.on("pointerover", (e: FederatedPointerEvent) => {
+    if (e.pointerType === "mouse") showTip("Toggle light / dark theme", themeBtn.getGlobalPosition().x, themeBtn.getGlobalPosition().y, "left");
+  });
+  themeBtn.on("pointerout", hideTip);
   hud.addChild(themeBtn);
   const placeThemeBtn = () => themeBtn.position.set(window.innerWidth - 30, 30);
   const paintThemeBtn = (): void => {
@@ -936,24 +968,24 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     g.moveTo(-2, -11).lineTo(3, -11); // small hook at the top
     g.stroke({ width: 2.5, color: c });
   };
-  type RailDef = { label: string | (() => string); draw: (g: Graphics, c: number) => void; brand?: boolean; count?: boolean; active?: () => boolean; act: () => void };
+  type RailDef = { label: string | (() => string); tip: string; draw: (g: Graphics, c: number) => void; brand?: boolean; count?: boolean; active?: () => boolean; act: () => void };
   const RAIL: RailDef[] = [
-    { label: "Dex", draw: drawDex, brand: true, count: true, act: () => zoo.toggle() },
-    { label: "layout", draw: drawLayout, act: () => toggleLayout() },
-    { label: () => transport, draw: drawTransport, active: () => transport !== "play", act: () => cycleTransport() },
-    { label: "expand", draw: drawExpand, active: () => expandAll, act: () => toggleExpand() },
-    { label: "refold", draw: drawRefold, active: () => refoldOn, act: () => toggleRefold() },
-    { label: "type", draw: drawType, active: () => typeOn, act: () => toggleType() },
-    { label: "optimize", draw: drawOptimize, active: () => fastMode, act: () => { fastMode = !fastMode; paintRail(); } },
-    { label: "graph", draw: drawGraph, active: () => shareMode, act: () => { shareMode = !shareMode; if (focus) scheduleAuto(focus); paintRail(); } },
-    { label: "golf", draw: drawGolf, brand: true, active: () => challenges.isOpen, act: () => challenges.toggle() },
-    { label: "sound", draw: drawSound, active: () => sound.enabled, act: () => { sound.toggle(); paintRail(); } },
-    { label: "share", draw: drawShare, act: () => shareFocused() },
-    { label: "define", draw: drawDefine, active: () => authorMode === "define", act: () => setAuthorMode("define") },
-    { label: "abstract", draw: drawAbstract, active: () => authorMode === "abstract", act: () => setAuthorMode("abstract") },
-    { label: "haskell", draw: drawHaskell, active: () => mhsPanel.isOpen, act: () => mhsPanel.toggle() },
-    { label: "clear", draw: drawClear, act: () => clearCanvas() },
-    { label: "unlock", draw: drawUnlock, act: () => unlockAll() },
+    { label: "Dex", tip: "Open the Zoo — every combinator you've discovered, and the next to find", draw: drawDex, brand: true, count: true, act: () => zoo.toggle() },
+    { label: "layout", tip: "Switch the tree layout between top-down and radial", draw: drawLayout, act: () => toggleLayout() },
+    { label: () => transport, tip: "Play / pause / fast-forward the automatic reduction", draw: drawTransport, active: () => transport !== "play", act: () => cycleTransport() },
+    { label: "expand", tip: "Draw every named combinator as its full ι-tree", draw: drawExpand, active: () => expandAll, act: () => toggleExpand() },
+    { label: "refold", tip: "Re-fold the term into its most-named reading (e.g. S(KS)K → B)", draw: drawRefold, active: () => refoldOn, act: () => toggleRefold() },
+    { label: "type", tip: "Show the inferred type of the focused term", draw: drawType, active: () => typeOn, act: () => toggleType() },
+    { label: "optimize", tip: "Reduce named combinators by their rule, not raw SKI — far fewer steps", draw: drawOptimize, active: () => fastMode, act: () => { fastMode = !fastMode; paintRail(); } },
+    { label: "graph", tip: "Call-by-need graph reduction — shared subterms drawn once, as a DAG", draw: drawGraph, active: () => shareMode, act: () => { shareMode = !shareMode; if (focus) scheduleAuto(focus); paintRail(); } },
+    { label: "golf", tip: "Combinator golf — build target combinators in the fewest ι, with a leaderboard", draw: drawGolf, brand: true, active: () => challenges.isOpen, act: () => challenges.toggle() },
+    { label: "sound", tip: "Sonify reductions — play a tone on each step", draw: drawSound, active: () => sound.enabled, act: () => { sound.toggle(); paintRail(); } },
+    { label: "share", tip: "Copy a permalink to the focused tree (encodes the term + modes)", draw: drawShare, act: () => shareFocused() },
+    { label: "define", tip: "Name the focused tree as a new reusable combinator", draw: drawDefine, active: () => authorMode === "define", act: () => setAuthorMode("define") },
+    { label: "abstract", tip: "Pull a clicked node out as a free variable (λ-abstraction)", draw: drawAbstract, active: () => authorMode === "abstract", act: () => setAuthorMode("abstract") },
+    { label: "haskell", tip: "Compile Haskell to a combinator tree and drop it on the canvas", draw: drawHaskell, active: () => mhsPanel.isOpen, act: () => mhsPanel.toggle() },
+    { label: "clear", tip: "Remove every tree from the canvas", draw: drawClear, act: () => clearCanvas() },
+    { label: "unlock", tip: "Reveal every combinator at once (skip discovery)", draw: drawUnlock, act: () => unlockAll() },
   ];
   const railButtons = RAIL.map((def) => {
     const c = new Container();
@@ -964,6 +996,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       e.stopPropagation();
       def.act();
     });
+    c.on("pointerover", (e: FederatedPointerEvent) => {
+      if (e.pointerType === "mouse") showTip(def.tip, c.getGlobalPosition().x, c.getGlobalPosition().y, "right");
+    });
+    c.on("pointerout", hideTip);
     rail.addChild(c);
     return { def, c };
   });
