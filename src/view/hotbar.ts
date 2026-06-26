@@ -9,6 +9,7 @@ const GAP = 8;
 const MARGIN = 80; // keep the row clear of the screen edges
 const ARROW = 28; // width of a ‹ / › page button
 const PAD = 14; // palette-window inner padding
+const NARROW = 560; // phone layout: smaller tabs + tighter margins
 
 /** Mono black-and-white chrome for the palette window, matching the menu bar. */
 function mono(): { paper: number; ink: number } {
@@ -78,7 +79,8 @@ export class Hotbar {
     return PAGES[this.tab].entries.find((e) => e.sym === sym)?.alias ?? sym;
   }
   private pageSize(): number {
-    const avail = window.innerWidth - 2 * MARGIN - 2 * (ARROW + GAP) - GAP;
+    const margin = window.innerWidth < NARROW ? 14 : MARGIN; // tighter edges on phones → more cells per row
+    const avail = window.innerWidth - 2 * margin - 2 * (ARROW + GAP) - GAP;
     return Math.max(1, Math.floor((avail + GAP) / (SLOT + GAP)));
   }
   private setTab(i: number): void {
@@ -101,9 +103,13 @@ export class Hotbar {
     const mid = (yB + yT) / 2;
     const tabY = yT - SLOT / 2 - 28; // tab row — the palette's title strip
 
-    // ---- title strip: the category tabs (centred) ----
-    const labels = PAGES.map((p) => new Text({ text: p.name, style: { fontFamily: "monospace", fontSize: 13, fill: ink } }));
-    const tabsW = labels.reduce((s, t) => s + t.width, 0) + 2 * GAP * (labels.length - 1);
+    // ---- title strip: the category tabs (centred; smaller + tighter on phones,
+    // where six names won't fit at full size) ----
+    const narrow = window.innerWidth < NARROW;
+    const tabFont = narrow ? 11 : 13;
+    const tabGap = narrow ? 5 : 2 * GAP;
+    const labels = PAGES.map((p) => new Text({ text: p.name, style: { fontFamily: "monospace", fontSize: tabFont, fill: ink } }));
+    const tabsW = labels.reduce((s, t) => s + t.width, 0) + tabGap * (labels.length - 1);
     let tx = window.innerWidth / 2 - tabsW / 2;
     labels.forEach((t, i) => {
       t.position.set(tx, tabY);
@@ -115,8 +121,8 @@ export class Hotbar {
         this.setTab(i);
       });
       this.tabBar.addChild(t);
-      if (i === this.tab) this.tabBar.addChild(new Graphics().rect(tx, tabY + 17, t.width, 2).fill({ color: ink }));
-      tx += t.width + 2 * GAP;
+      if (i === this.tab) this.tabBar.addChild(new Graphics().rect(tx, tabY + tabFont + 4, t.width, 2).fill({ color: ink }));
+      tx += t.width + tabGap;
     });
 
     // ---- tool cells for the current tab (two rows, paginated) ----
@@ -161,7 +167,7 @@ export class Hotbar {
       .rect(boxL, boxT, boxW, boxH).fill({ color: paper }).stroke({ width: 1, color: ink })
       .moveTo(boxL + 8, tabY + 24).lineTo(boxL + boxW - 8, tabY + 24).stroke({ width: 1, color: ink, alpha: 0.4 }); // title separator
 
-    this.pageLabel.visible = paged;
+    this.pageLabel.visible = paged && !narrow; // on phones it grazes the last tab; ‹ › already signal pages
     if (paged) {
       this.pageLabel.text = `${this.sub + 1}/${pageCount}`;
       this.pageLabel.style.fill = ink;
