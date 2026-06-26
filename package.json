@@ -12,6 +12,7 @@
     "build:wasm": "npm run gen:rules && (cd crates/refold && wasm-pack build --target web --out-dir pkg --release) && rm -f crates/refold/pkg/.gitignore"
   },
   "dependencies": {
+    "@duckdb/duckdb-wasm": "^1.33.1-dev57.0",
     "pixi.js": "^8.6.0"
   },
   "devDependencies": {
