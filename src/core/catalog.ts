@@ -145,6 +145,32 @@ const minusDef = (): Node =>
 const timesDef = (): Node =>
   recDef(["m", "n"], ([r, m, n]) => app(app(m, zeroDef()), lamN(["p"], ([p]) => app(app(plusDef(), n), app(app(r, p), n)))));
 
+// ---- equality / ordering on Scott numerals. The MicroHs post-processor (mhs.ts)
+// substitutes the Int/Char comparison primitives to these; a Char IS its ASCII
+// numeral (Char ≡ Int), so chars reuse them. True = A (= K I), False = K. ----
+// (==) m n = m (n True (λq. False)) (λp. n False (λq. p == q))
+const eqNatDef = (): Node =>
+  recDef(["m", "n"], ([r, m, n]) =>
+    app(app(m, app(app(n, KI()), app(K(), K()))), lamN(["p"], ([p]) => app(app(n, K()), lamN(["q"], ([q]) => app(app(r, p), q))))));
+// (<) m n = n False (λq. m True (λp. p < q))   — nothing is < 0; 0 < S q
+const ltNatDef = (): Node =>
+  recDef(["m", "n"], ([r, m, n]) => app(app(n, K()), lamN(["q"], ([q]) => app(app(m, KI()), lamN(["p"], ([p]) => app(app(r, p), q))))));
+// (<=) m n = m True (λp. n False (λq. p <= q))
+const leNatDef = (): Node =>
+  recDef(["m", "n"], ([r, m, n]) => app(app(m, KI()), lamN(["p"], ([p]) => app(app(n, K()), lamN(["q"], ([q]) => app(app(r, p), q))))));
+// (/=) m n = not (m == n) = (m == n) True False;  (>) = flip (<);  (>=) = flip (<=)
+const neNatDef = (): Node => lamN(["m", "n"], ([m, n]) => app(app(app(app(eqNatDef(), m), n), KI()), K()));
+const gtNatDef = (): Node => app(C(), ltNatDef());
+const geNatDef = (): Node => app(C(), leNatDef());
+// Ordering = LT | EQ | GT — a Scott 3-constructor, selecting arm 1 / 2 / 3.
+const ordLtDef = (): Node => lam(3, (v) => v[0]);
+const ordEqDef = (): Node => lam(3, (v) => v[1]);
+const ordGtDef = (): Node => lam(3, (v) => v[2]);
+// compare m n = m (n EQ (λq. LT)) (λp. n GT (λq. compare p q))
+const compareDef = (): Node =>
+  recDef(["m", "n"], ([r, m, n]) =>
+    app(app(m, app(app(n, ordEqDef()), app(K(), ordLtDef()))), lamN(["p"], ([p]) => app(app(n, ordGtDef()), lamN(["q"], ([q]) => app(app(r, p), q))))));
+
 /** A bird whose def is the bracket abstraction of its law (so def ≡ law). Its
  *  law doubles as the optimize-mode `rule` (applied to actual args directly). */
 function bird(sym: string, lawText: string, arity: number, body: (v: Node[]) => Node): Law {
@@ -162,6 +188,18 @@ const concatRule = ([xss]: Node[]): Node => app(app(xss, K()), lamN(["h", "t"], 
 const plusRule = ([m, n]: Node[]): Node => app(app(m, n), lamN(["p"], ([p]) => app(mk("Succ"), app(app(mk("(+)"), p), n))));
 const minusRule = ([m, n]: Node[]): Node => app(app(n, m), lamN(["p"], ([p]) => app(mk("Pred"), app(app(mk("(-)"), m), p))));
 const timesRule = ([m, n]: Node[]): Node => app(app(m, K()), lamN(["p"], ([p]) => app(app(mk("(+)"), n), app(app(mk("(*)"), p), n))));
+// comparison/ordering rules: mirror the Y-defs but recurse through named birds.
+const eqNatRule = ([m, n]: Node[]): Node =>
+  app(app(m, app(app(n, KI()), app(K(), K()))), lamN(["p"], ([p]) => app(app(n, K()), lamN(["q"], ([q]) => app(app(mk("(==)"), p), q)))));
+const ltNatRule = ([m, n]: Node[]): Node =>
+  app(app(n, K()), lamN(["q"], ([q]) => app(app(m, KI()), lamN(["p"], ([p]) => app(app(mk("(<)"), p), q)))));
+const leNatRule = ([m, n]: Node[]): Node =>
+  app(app(m, KI()), lamN(["p"], ([p]) => app(app(n, K()), lamN(["q"], ([q]) => app(app(mk("(<=)"), p), q)))));
+const neNatRule = ([m, n]: Node[]): Node => app(app(app(app(mk("(==)"), m), n), KI()), K());
+const gtNatRule = ([m, n]: Node[]): Node => app(app(mk("(<)"), n), m);
+const geNatRule = ([m, n]: Node[]): Node => app(app(mk("(<=)"), n), m);
+const compareRule = ([m, n]: Node[]): Node =>
+  app(app(m, app(app(n, mk("EQ")), app(K(), mk("LT")))), lamN(["p"], ([p]) => app(app(n, mk("GT")), lamN(["q"], ([q]) => app(app(mk("compare"), p), q)))));
 const yRule = ([f]: Node[]): Node => app(f, app(mk("Y"), f)); // Y f → f (Y f)
 
 // Alphabetical by symbol. I/K/S reduce by built-in rules (no def); Y is the
@@ -170,6 +208,16 @@ export const CATALOG: Law[] = [
   { sym: "(+)", lawText: "(+) Z n = n;  (+) (S p) n = S (p + n)", arity: 2, reference: noProbe("(+)"), rule: plusRule, def: plusDef }, // Peano addition
   { sym: "(-)", lawText: "(-) m Z = m;  (-) m (S p) = Pred (m - p)", arity: 2, reference: noProbe("(-)"), rule: minusRule, def: minusDef }, // Peano monus
   { sym: "(*)", lawText: "(*) Z n = Z;  (*) (S p) n = n + (p * n)", arity: 2, reference: noProbe("(*)"), rule: timesRule, def: timesDef }, // Peano product
+  { sym: "(==)", lawText: "(==) Z Z = True;  (==) (S p) (S q) = p == q;  else False", arity: 2, reference: noProbe("(==)"), rule: eqNatRule, def: eqNatDef }, // Peano equality
+  { sym: "(/=)", lawText: "(/=) m n = not (m == n)", arity: 2, reference: noProbe("(/=)"), rule: neNatRule, def: neNatDef },
+  { sym: "(<)", lawText: "(<) m Z = False;  (<) Z (S q) = True;  (<) (S p) (S q) = p < q", arity: 2, reference: noProbe("(<)"), rule: ltNatRule, def: ltNatDef },
+  { sym: "(<=)", lawText: "(<=) Z n = True;  (<=) (S p) Z = False;  (<=) (S p) (S q) = p <= q", arity: 2, reference: noProbe("(<=)"), rule: leNatRule, def: leNatDef },
+  { sym: "(>)", lawText: "(>) m n = n < m", arity: 2, reference: noProbe("(>)"), rule: gtNatRule, def: gtNatDef },
+  { sym: "(>=)", lawText: "(>=) m n = n <= m", arity: 2, reference: noProbe("(>=)"), rule: geNatRule, def: geNatDef },
+  { sym: "compare", lawText: "compare m n = LT | EQ | GT (three-way)", arity: 2, reference: noProbe("compare"), rule: compareRule, def: compareDef },
+  bird("LT", "LT l e g = l", 3, (v) => v[0]), // Ordering: less-than
+  bird("EQ", "EQ l e g = e", 3, (v) => v[1]), // Ordering: equal
+  bird("GT", "GT l e g = g", 3, (v) => v[2]), // Ordering: greater-than
   bird("A", "A x y = y", 2, (v) => v[1]), // Albatross (= K I; the old Kite)
   bird("B", "B x y z = x (y z)", 3, (v) => app(v[0], app(v[1], v[2]))), // Bluebird
   bird("B1", "B1 x y z w = x (y z w)", 4, (v) => app(v[0], app(app(v[1], v[2]), v[3]))), // Blackbird
@@ -245,6 +293,14 @@ function mk(sym: string): Node {
   return comb(sym, l.def?.(), l.arity);
 }
 
+/** Build a rule-carrying named combinator node by catalog symbol (its SKI `def`
+ *  and `arity`), for callers that assemble trees from catalog combinators — e.g.
+ *  the MicroHs post-processor building Scott numerals/lists and substituting
+ *  primitives. Throws on an unknown symbol. */
+export function named(sym: string): Node {
+  return mk(sym);
+}
+
 /** Optimize-mode reduction rules by symbol (catalog-driven). `reduce.ts` uses
  *  these in `fast` mode to reduce a saturated named combinator by its law in one
  *  step, instead of unfolding its SKI def and grinding ι/S/K/I. No entry → that
@@ -266,6 +322,16 @@ export const META: Record<string, Meta> = {
   "(+)": { blurb: "Addition on Scott numerals. A Scott number can't fold the way a Church numeral does, so this recurses through the Sage Y: peel one S off the first number, and wrap the answer in that many S's.", recipe: "Y (λr m n. m n (λp. S (r p n)))" },
   "(-)": { blurb: "Truncated subtraction (monus): m minus n, clamped at zero. Peel S off n, applying Pred to m each time. Recursive via Y — Scott data carries no built-in fold.", recipe: "Y (λr m n. n m (λp. Pred (r m p)))" },
   "(*)": { blurb: "Multiplication on Scott numerals: add n to itself m times, recursing through the Sage Y.", recipe: "Y (λr m n. m Z (λp. n + r p n))" },
+  "(==)": { blurb: "Equality on Scott numerals, returning a Scott Boolean. Peels one S off each side in lock-step (recursing via Y): equal only if both bottom out at Z together. A Char is its ASCII numeral, so char equality is exactly this.", recipe: "Y (λr m n. m (n True (λq. False)) (λp. n False (λq. r p q)))" },
+  "(/=)": { blurb: "Inequality — the negation of (==). Computes m == n and flips the resulting Boolean.", recipe: "λm n. not (m == n)" },
+  "(<)": { blurb: "Strict less-than on Scott numerals → a Scott Boolean. Nothing is below zero; zero is below any successor; otherwise peel one S off each and recurse via Y. Char order (alphabetical for letters) is this on ASCII codes.", recipe: "Y (λr m n. n False (λq. m True (λp. r p q)))" },
+  "(<=)": { blurb: "Less-than-or-equal on Scott numerals → a Scott Boolean. Zero is ≤ anything; a successor is > zero; otherwise peel and recurse via Y.", recipe: "Y (λr m n. m True (λp. n False (λq. r p q)))" },
+  "(>)": { blurb: "Greater-than: the Cardinal-flipped less-than, m > n = n < m.", recipe: "C (<)" },
+  "(>=)": { blurb: "Greater-than-or-equal: the Cardinal-flipped (<=), m >= n = n <= m.", recipe: "C (<=)" },
+  compare: { blurb: "Three-way comparison of two Scott numerals, yielding an Ordering (LT, EQ or GT). Peels one S off each in lock-step via Y; whichever bottoms out first decides. The basis for sorting.", recipe: "Y (λr m n. m (n EQ (λq. LT)) (λp. n GT (λq. r p q)))" },
+  LT: { blurb: "The 'less-than' Ordering: a three-armed case that selects its first branch. Returned by compare when the left operand is smaller.", recipe: "λl e g. l" },
+  EQ: { blurb: "The 'equal' Ordering: selects its second (middle) branch. Returned by compare when the operands are equal.", recipe: "λl e g. e" },
+  GT: { blurb: "The 'greater-than' Ordering: selects its third branch. Returned by compare when the left operand is larger.", recipe: "λl e g. g" },
   Succ: { blurb: "The successor: S, the second Nat constructor. It simply remembers its predecessor (Succ n = λz s. s n), so the number 3 is just S (S (S Z)).", recipe: "λn z s. s n" },
   Pred: { blurb: "The predecessor, and under the Scott encoding it is trivial: a number is a case on Z / S, so Pred just hands back the stored predecessor (and leaves Z at Z). The famous Church-numeral dentist-chair trick is gone — Scott pays the cost at construction instead.", recipe: "λm. m Z I" },
   cons: { blurb: "Prepends a head onto a list. A Scott cons cell stores its head and tail and, when matched, hands them to the cons branch (cons h t = λn c. c h t) — there is no fold built in, unlike the Church encoding.", recipe: "λh t n c. c h t" },
@@ -390,7 +456,7 @@ export interface PageDef {
 }
 
 // Combinators that belong only to a topic page, not to the general "Programs" tab.
-const ARITH_OPS = new Set(["Succ", "Pred", "(+)", "(-)", "(*)"]);
+const ARITH_OPS = new Set(["Succ", "Pred", "(+)", "(-)", "(*)", "(==)", "(/=)", "(<)", "(<=)", "(>)", "(>=)", "compare", "LT", "EQ", "GT"]);
 const LIST_OPS = new Set(["cons", "head", "tail", "<>", "concat", "map", "null", "uncons"]);
 const BOOL_OPS = new Set(["not", "and", "or"]);
 
@@ -422,6 +488,28 @@ export const PAGES: PageDef[] = [
       { sym: "(+)", alias: "Plus", role: "adds two numerals (recurses via Y)" },
       { sym: "(-)", alias: "Sub", role: "truncated subtraction / monus (recurses via Y)" },
       { sym: "(*)", alias: "Mult", role: "multiplies (recurses via Y)" },
+      { sym: "(==)", alias: "==", role: "numeral equality → Bool (recurses via Y)" },
+      { sym: "(/=)", alias: "/=", role: "numeral inequality → Bool" },
+      { sym: "(<)", alias: "<", role: "strict less-than → Bool" },
+      { sym: "(<=)", alias: "<=", role: "less-than-or-equal → Bool" },
+      { sym: "(>)", alias: ">", role: "strict greater-than → Bool" },
+      { sym: "(>=)", alias: ">=", role: "greater-than-or-equal → Bool" },
+      { sym: "compare", alias: "compare", role: "three-way comparison → LT | EQ | GT" },
+      { sym: "LT", alias: "LT", role: "Ordering: the left operand is smaller" },
+      { sym: "EQ", alias: "EQ", role: "Ordering: the operands are equal" },
+      { sym: "GT", alias: "GT", role: "Ordering: the left operand is larger" },
+    ],
+  },
+  {
+    name: "Char",
+    entries: [
+      { sym: "Succ", alias: "Succ", role: "a Char is its ASCII code — 'A' is 65, built with Succ from 0" },
+      { sym: "I", alias: "chr/ord", role: "Char ≡ Int, so chr and ord are both just the identity" },
+      { sym: "(==)", alias: "==", role: "char equality is numeral equality" },
+      { sym: "(/=)", alias: "/=", role: "char inequality" },
+      { sym: "(<)", alias: "<", role: "char order is numeral order (alphabetical for letters)" },
+      { sym: "(<=)", alias: "<=", role: "char ≤" },
+      { sym: "compare", alias: "compare", role: "three-way char comparison → LT | EQ | GT" },
     ],
   },
   {
