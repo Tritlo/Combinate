@@ -4,6 +4,26 @@ All notable changes to **Combinate** — an interactive ι (iota) / SKI combinat
 sandbox. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses a single integer major per release (`vN.0`).
 
+## [9.0.0] — 2026-06-26
+
+### Added
+
+- **Syntax-highlighted Haskell editor** — the panel's editor is now coloured: a
+  transparent `<textarea>` over a `<pre>` (the standard overlay), tokenized by a
+  tiny dependency-free Haskell lexer (`highlight.ts`) and painted in **GitHub's
+  high-contrast palette**. The whole panel follows the app's light/dark mode and
+  re-themes live. Set in the **IoskeleyMono** webfont (vendored on the
+  `vendor-assets` Release, fetched by CI, `@font-face`'d via a base-aware URL).
+- **Hover tooltips for the rail** — every left-rail setting shows a one-line
+  explanation of what it does on mouse hover (theme-aware, edge-flipping, mouse-only
+  so it doesn't flash on touch). The label says what a control is; the tip says what
+  it does.
+
+### Docs
+
+- Add a project `CLAUDE.md` (commands, architecture, the deploy/vendoring model, the
+  MicroHs-blob rebuild + Release-upload flow, and environment lessons learned).
+
 ## [8.0.0] — 2026-06-26
 
 ### Added
