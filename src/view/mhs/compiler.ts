@@ -26,13 +26,23 @@ export function toTree(dump: string, root: string): DumpResult {
   return dumpToTree(dump, root);
 }
 
-/** Batch-compile free-typed Haskell to a combinator dump via the stock blob in a
+// The prewarmed Prelude cache, fetched once and reused (copied per compile, not
+// transferred). Resolves to null if it isn't vendored — then the worker compiles
+// cold (slower). Fetched on the main thread, NOT in the worker (an async worker
+// onmessage broke the Emscripten run — see worker.ts).
+let cacheP: Promise<ArrayBuffer | null> | null = null;
+function preludeCache(): Promise<ArrayBuffer | null> {
+  if (!cacheP) cacheP = fetch(`${VENDOR}/base.mhscache`).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null);
+  return cacheP;
+}
+
+/** Batch-compile free-typed Haskell to a combinator dump via the batch blob in a
  *  Web Worker. Resolves to the dump, or rejects with an honest reason (no blob, a
  *  type error, or a forced primitive). A fresh worker per call avoids the
- *  Emscripten single-`main` / shared-state pitfalls. */
-// Generous: the batch blob recompiles base (the Prelude) from source per request
-// (gmhs can't ship a precompiled .pkg), so a live compile takes ~1-2 minutes.
-export function liveCompile(source: string, timeoutMs = 180_000): Promise<string> {
+ *  Emscripten single-`main` / shared-state pitfalls. ~30s with the prewarmed cache,
+ *  ~65s cold (the batch blob runs the whole MicroHs compiler in wasm). */
+export async function liveCompile(source: string, timeoutMs = 180_000): Promise<string> {
+  const cache = await preludeCache();
   return new Promise((resolve, reject) => {
     let worker: Worker;
     try {
@@ -50,6 +60,6 @@ export function liveCompile(source: string, timeoutMs = 180_000): Promise<string
     worker.onmessage = (e: MessageEvent<{ dump?: string; error?: string }>) =>
       done(() => (e.data.error ? reject(new Error(e.data.error)) : resolve(e.data.dump!)));
     worker.onerror = (e) => done(() => reject(new Error(e.message || "live compiler failed to load")));
-    worker.postMessage({ source });
+    worker.postMessage({ source, cache });
   });
 }
