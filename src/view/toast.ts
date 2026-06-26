@@ -5,13 +5,14 @@ const IN = 220;
 const HOLD = 1900;
 const OUT = 450;
 
-/** Top-of-screen discovery toast (§7.4): fades in, holds, fades out. Lives in
- * the HUD (screen space). */
+/** Discovery toast (§7.4): fades in, holds, fades out. Lives in the HUD (screen
+ * space), centred below the read-out + its sub-line so it doesn't collide with
+ * the menu bar / expression at the top. */
 export class Toast {
   readonly container = new Container();
   private elapsed = 0;
   private active = false;
-  private baseY = 64;
+  private baseY = 124;
   private readonly cb = (tk: Ticker): void => this.advance(tk.deltaMS);
 
   constructor(private readonly ticker: Ticker) {
