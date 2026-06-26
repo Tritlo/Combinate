@@ -22,7 +22,13 @@
 import { type Node, app, freeVar } from "./term";
 import { normalize } from "./reduce";
 
-export const NORM_CAP = 4000; // per-probe reduction cap
+// Reading reduces in **optimize (fast) mode**: a named combinator (e.g. `(<)`)
+// fires its catalog rule in one step instead of unfolding its huge SKI tree and
+// grinding to the cap — the result is identical but reading a partial application
+// like `((<) K)` is instant rather than ~400ms (which, run by the read-out +
+// recognise on every edit, froze the app). The budget is a *total* across the
+// peeling loop, so a pathological "infinite numeral" can't run MAX_NUM × cap.
+export const NORM_BUDGET = 50_000; // total reduction budget per match (fast mode)
 const MAX_LIST = 64; // longest list we spell out
 const MAX_NUM = 9999; // largest numeral we count to
 
@@ -33,10 +39,12 @@ const V = (s: string): Node => freeVar(`§${s}`);
 /** Scott Peano numeral: `Z = λz s. z`, `S p = λz s. s p`. Apply to fresh `z`, `s`
  *  and peel — `z` ends the count, `s p` adds one and recurses on the predecessor
  *  `p`. Returns the count `k` (0 allowed), or null if it isn't a numeral. */
-export function matchNumeral(n: Node, cap = NORM_CAP): number | null {
+export function matchNumeral(n: Node, budget = NORM_BUDGET): number | null {
   let cur = n;
   for (let k = 0; k <= MAX_NUM; k++) {
-    const r = normalize(app(app(cur, V("z")), V("s")), cap);
+    if (budget <= 0) return null;
+    const r = normalize(app(app(cur, V("z")), V("s")), budget, true);
+    budget -= r.steps;
     if (!r.done) return null;
     const t = r.term;
     if (isVar(t, "§z")) return k; // Z — end of the count
@@ -52,11 +60,13 @@ export function matchNumeral(n: Node, cap = NORM_CAP): number | null {
 /** Scott list: `[] = λn c. n`, `(h:t) = λn c. c h t`. Apply to fresh `n`, `c` and
  *  peel — `n` ends the list, `c h t` yields a head and the raw tail. Returns the
  *  heads (possibly empty), or null if it isn't a list. */
-export function matchList(n: Node, cap = NORM_CAP): Node[] | null {
+export function matchList(n: Node, budget = NORM_BUDGET): Node[] | null {
   const heads: Node[] = [];
   let cur = n;
   for (let i = 0; i <= MAX_LIST; i++) {
-    const r = normalize(app(app(cur, V("n")), V("c")), cap);
+    if (budget <= 0) return null;
+    const r = normalize(app(app(cur, V("n")), V("c")), budget, true);
+    budget -= r.steps;
     if (!r.done) return null;
     const t = r.term;
     if (isVar(t, "§n")) return heads; // [] — end of the list
@@ -72,8 +82,8 @@ export function matchList(n: Node, cap = NORM_CAP): Node[] | null {
 }
 
 /** Pair (Vireo) `(x, y) = λf. f x y`: the two components, or null. */
-export function matchPair(n: Node, cap = NORM_CAP): [Node, Node] | null {
-  const r = normalize(app(n, V("f")), cap);
+export function matchPair(n: Node, budget = NORM_BUDGET): [Node, Node] | null {
+  const r = normalize(app(n, V("f")), budget, true);
   if (!r.done) return null;
   const t = r.term;
   if (t.kind === "app" && t.fn.kind === "app" && isVar(t.fn.fn, "§f")) return [t.fn.arg, t.arg];
@@ -82,8 +92,8 @@ export function matchPair(n: Node, cap = NORM_CAP): [Node, Node] | null {
 
 /** Scott boolean `False = K` (→ first arm), `True = A` (→ second arm): the value,
  *  or null. */
-export function matchBool(n: Node, cap = NORM_CAP): boolean | null {
-  const r = normalize(app(app(n, V("f")), V("t")), cap);
+export function matchBool(n: Node, budget = NORM_BUDGET): boolean | null {
+  const r = normalize(app(app(n, V("f")), V("t")), budget, true);
   if (!r.done) return null;
   if (isVar(r.term, "§f")) return false; // False = K selects the first arm
   if (isVar(r.term, "§t")) return true; // True  = A selects the second arm

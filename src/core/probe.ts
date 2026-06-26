@@ -55,7 +55,7 @@ export function probe(tree: Node, law: Law, cap = 2000): boolean {
   // diverges — Y has no normal form).
   const args = law.args ? law.args(vars) : vars;
   const applied = args.reduce((acc, v) => app(acc, v), tree);
-  const nf = normalize(applied, cap);
+  const nf = normalize(applied, cap, true); // fast mode: a named combinator fires its rule instead of grinding its SKI tree (same NF, but reading `((<) K)` is instant, not ~400ms)
   if (!nf.done) return false;
   return structKey(nf.term) === structKey(law.reference(vars));
 }

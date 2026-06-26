@@ -172,7 +172,7 @@ function render(t: T): string {
  * normal form (e.g. `Y`) is typed as written, which is untypable anyway.
  */
 export function inferType(n: Node): string | null {
-  const nf = normalize(n);
+  const nf = normalize(n, 10_000, true); // fast mode — see value.ts/probe.ts (reading a named combinator must not unfold its SKI tree)
   const term = nf.done ? nf.term : n;
   try {
     const ctx = new Ctx();
