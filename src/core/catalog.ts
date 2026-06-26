@@ -310,7 +310,7 @@ export const RULES: Record<string, (args: Node[]) => Node> = Object.fromEntries(
   CATALOG.flatMap((l) => (l.rule ? [[l.sym, l.rule] as const] : [])),
 );
 
-/** Zoo (Pokédex) metadata for a combinator: its Smullyan bird name (if any), a
+/** Zoo (field-guide) metadata for a combinator: its Smullyan bird name (if any), a
  *  short description of what it does, and the formula it's built from. */
 export interface Meta {
   bird?: string;
