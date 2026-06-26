@@ -123,7 +123,7 @@ export function parseDump(dump: string): Map<string, Tm> {
   const defs = new Map<string, Tm>();
   for (const line of lines) {
     const eq = line.indexOf(" = ");
-    if (eq < 0) throw new Error(`mhs parse: no ' = ' in line: ${line}`);
+    if (eq < 0) continue; // skip non-def lines (e.g. gmhs's "combinators:" header)
     const name = line.slice(0, eq).trim();
     const rhs = line.slice(eq + 3);
     defs.set(name, new Parser(tokenize(rhs)).apps());
