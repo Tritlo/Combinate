@@ -1,7 +1,8 @@
 /**
  * Live MicroHs compile worker (ADR 0007): host the vendored **batch** MicroHs blob
- * (`/vendor/mhs/mhs-batch.js`, built by `nix/build-wasm.sh`) and compile one
- * program to a `-ddump-combinator` dump, headless.
+ * (`vendor/mhs/mhs-batch.js`, built by `nix/build-wasm.sh`; its absolute, base-aware
+ * URL is passed in by compiler.ts) and compile one program to a `-ddump-combinator`
+ * dump, headless.
  *
  * A *classic* worker — the Emscripten blob loads via `importScripts` and detects
  * `ENVIRONMENT_IS_WORKER`. We run `main` the Emscripten way: set `Module.arguments`,
@@ -24,9 +25,12 @@ declare function importScripts(...urls: string[]): void;
 
 const post = (msg: { dump?: string; error?: string }): void => (self as unknown as Worker).postMessage(msg);
 
-self.onmessage = (e: MessageEvent<{ source: string; cache: ArrayBuffer | null }>): void => {
+self.onmessage = (e: MessageEvent<{ source: string; cache: ArrayBuffer | null; blob: string }>): void => {
   const source = e.data.source;
   const cache = e.data.cache ? new Uint8Array(e.data.cache) : null; // prewarmed Prelude cache (halves compile time)
+  // Absolute blob URL, resolved on the main thread (compiler.ts) for the deploy
+  // base — the worker has no document to resolve a relative /vendor path against.
+  const blob = e.data.blob;
   let captured = "";
   let errText = "";
   let done = false;
@@ -65,7 +69,7 @@ self.onmessage = (e: MessageEvent<{ source: string; cache: ArrayBuffer | null }>
   };
 
   try {
-    importScripts("/vendor/mhs/mhs-batch.js");
+    importScripts(blob);
   } catch (err) {
     if (!done) {
       done = true;

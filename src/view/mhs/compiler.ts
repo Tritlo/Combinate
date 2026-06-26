@@ -11,12 +11,18 @@
  * The dump → ι tree step is the same pure `dumpToTree` for both.
  */
 import { dumpToTree, type DumpResult } from "../../core/mhs";
+import { vendorUrl } from "../../vendorUrl";
 
-const VENDOR = "/vendor/mhs";
+// Base-aware URLs for the vendored MicroHs assets (so they resolve on the Pages
+// /Combinate/ subpath, not just at the dev root). The blob URL is absolute, which
+// the worker needs for importScripts (it has no document to resolve against).
+const exampleUrl = (name: string): string => vendorUrl(`vendor/mhs/examples/${name}.comb`);
+const cacheUrl = (): string => vendorUrl("vendor/mhs/base.mhscache");
+export const blobUrl = (): string => vendorUrl("vendor/mhs/mhs-batch.js");
 
 /** Fetch a curated example's pre-compiled (pruned) combinator dump. */
 export async function exampleDump(name: string): Promise<string> {
-  const r = await fetch(`${VENDOR}/examples/${name}.comb`);
+  const r = await fetch(exampleUrl(name));
   if (!r.ok) throw new Error(`example '${name}' not vendored — run scripts/gen-mhs-examples.ts`);
   return r.text();
 }
@@ -32,8 +38,16 @@ export function toTree(dump: string, root: string): DumpResult {
 // onmessage broke the Emscripten run — see worker.ts).
 let cacheP: Promise<ArrayBuffer | null> | null = null;
 function preludeCache(): Promise<ArrayBuffer | null> {
-  if (!cacheP) cacheP = fetch(`${VENDOR}/base.mhscache`).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null);
+  if (!cacheP) cacheP = fetch(cacheUrl()).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null);
   return cacheP;
+}
+
+/** Warm the live-compile assets during the boot splash: the prewarmed cache (so
+ *  the first compile reads it) and the 3 MB blob (so its download is paid up
+ *  front, not on the first compile). Best-effort — a missing asset just means a
+ *  cold/slower first compile, or the honest "no blob" message if it never loads. */
+export async function preloadCompiler(): Promise<void> {
+  await Promise.all([preludeCache(), fetch(blobUrl()).catch(() => undefined)]);
 }
 
 /** Batch-compile free-typed Haskell to a combinator dump via the batch blob in a
@@ -60,6 +74,6 @@ export async function liveCompile(source: string, timeoutMs = 180_000): Promise<
     worker.onmessage = (e: MessageEvent<{ dump?: string; error?: string }>) =>
       done(() => (e.data.error ? reject(new Error(e.data.error)) : resolve(e.data.dump!)));
     worker.onerror = (e) => done(() => reject(new Error(e.message || "live compiler failed to load")));
-    worker.postMessage({ source, cache });
+    worker.postMessage({ source, cache, blob: blobUrl() });
   });
 }
