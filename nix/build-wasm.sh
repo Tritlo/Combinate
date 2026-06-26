@@ -35,15 +35,39 @@ command -v cc   >/dev/null || { echo "cc not found — run inside: nix-shell nix
 mkdir -p "$OUT"
 cd "$MHS"
 
-echo "==> 1. build the MicroHs toolchain fresh (bin/mhs, cpphs, mcabal)"
+# KNOWN BLOCKER (2026-06): in some Linux environments the *self-hosted* bin/mhs
+# fails to allocate its eval heap (eval.c mmalloc → "Out of memory") and dies on
+# even `x = 1`, regardless of +RTS -H size — a MicroHs runtime portability issue,
+# NOT stale generated C (regenerating below doesn't fix it). The GHC-built gmhs is
+# fine, but it lacks package serialization ("serialization not available with ghc"),
+# so it can't build/install the `base` package that step 2 needs. Until the
+# self-hosted runtime works here (or gmhs gains serialization), this build completes
+# only where bin/mhs runs (e.g. macOS). Everything below is the correct recipe.
+
+echo "==> 1. build gmhs (GHC), regenerate the compiler C from source, build bin/mhs"
+make bin/gmhs
+./bin/gmhs -imhs -isrc -ilib MicroHs.Main -ogenerated/mhs.c # fresh C, matched to this runtime
 make
 
+# The self-hosted mhs/mcabal exhaust their default 50M-cell eval heap on big
+# compiles (base = ~250 modules, MicroHs.Main = the whole compiler). mcabal shells
+# out to a bare `mhs`, so wrap mhs+mcabal to pass +RTS -H<MHS_HEAP> -RTS and put
+# the wrappers first on PATH.
+WRAP="$MHS/.wasm-bin"
+mkdir -p "$WRAP"
+for t in mhs mcabal; do
+  printf '#!/usr/bin/env bash\nexec "%s/bin/%s" +RTS -H%s -RTS "$@"\n' "$MHS" "$t" "$MHS_HEAP" > "$WRAP/$t"
+  chmod +x "$WRAP/$t"
+done
+export PATH="$WRAP:$PATH"
+
 echo "==> 2. build + install the base package (so --embed-packages can find it)"
-make generated/base.pkg
-VERSION="$(./bin/mhs --numeric-version)"
+( cd lib && mcabal build )
+cp lib/dist-mcabal/base-*.pkg generated/base.pkg
+VERSION="$(mhs --numeric-version)"
 PKGDIR="$HOME/.mcabal-user/mhs-$VERSION"
 mkdir -p "$PKGDIR"
-./bin/mhs +RTS -H"$MHS_HEAP" -RTS -Q generated/base.pkg "$PKGDIR"
+mhs -Q generated/base.pkg "$PKGDIR"
 
 echo "==> 3. ensure the headless batch emscripten target is in mhs.conf"
 if ! grep -q "emscripten_batch" mhs.conf 2>/dev/null; then
@@ -61,7 +85,7 @@ CONF
 fi
 
 echo "==> 4. compile MicroHs.Main → mhs-batch.js (base embedded; -z dodges the emcc OOM)"
-./bin/mhs +RTS -H"$MHS_HEAP" -RTS -temscripten_batch -z -i -imhs -isrc MicroHs.Main -o "$OUT/mhs-batch.js" --embed-packages base
+mhs -temscripten_batch -z -i -imhs -isrc MicroHs.Main -o "$OUT/mhs-batch.js" --embed-packages base
 
 echo "==> done. $OUT/mhs-batch.js ($(wc -c < "$OUT/mhs-batch.js") bytes)."
 echo "    git-ignored (public/vendor/). Point src/view/mhs/worker.ts at it, or host on a CDN."
