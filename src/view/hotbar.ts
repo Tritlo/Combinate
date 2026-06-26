@@ -1,23 +1,31 @@
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text, type Ticker } from "pixi.js";
 import { type Node } from "../core/term";
 import { PAGES } from "../core/catalog";
-import { theme } from "./theme";
+import { theme, currentMode } from "./theme";
 import { tween } from "./anim";
 
-const SLOT = 56;
-const GAP = 10;
+const SLOT = 52;
+const GAP = 8;
 const MARGIN = 80; // keep the row clear of the screen edges
-const ARROW = 30; // width of a ‹ / › page button
+const ARROW = 28; // width of a ‹ / › page button
+const PAD = 14; // palette-window inner padding
+
+/** Mono black-and-white chrome for the palette window, matching the menu bar. */
+function mono(): { paper: number; ink: number } {
+  return currentMode() === "dark" ? { paper: 0x07090d, ink: 0xf0f3f6 } : { paper: 0xffffff, ink: 0x000000 };
+}
 
 /**
- * The hotbar (§8.1), bottom-centre. It mirrors the Zoo's organisation: a tab bar
- * (Programs / Booleans / Arithmetic / Lists) over a row of draggable slots for
+ * The hotbar (§8.1), bottom-centre — styled as an early-Photoshop tool palette: a
+ * 1px-bordered black-and-white window whose title strip is the category tabs
+ * (Programs / Booleans / Arithmetic / …), over a grid of draggable tool cells for
  * the *discovered* combinators on that tab (paginated with ‹ / › when they don't
- * fit). Each slot shows the combinator under its page alias (e.g. "Mult" for B)
+ * fit). Each cell shows the combinator under its page alias (e.g. "Mult" for B)
  * and stamps that combinator's tree when dragged out.
  */
 export class Hotbar {
   readonly container = new Container();
+  private readonly frame = new Graphics(); // the palette-window box (behind everything)
   private readonly tabBar = new Container();
   private readonly slotRow = new Container();
   private readonly pageLabel = new Text({ text: "", style: { fontFamily: "monospace", fontSize: 12, fill: theme.textDim } });
@@ -32,7 +40,7 @@ export class Hotbar {
     private readonly spawnFor: (sym: string) => Node,
   ) {
     this.pageLabel.anchor.set(1, 0.5);
-    this.container.addChild(this.tabBar, this.slotRow, this.pageLabel);
+    this.container.addChild(this.frame, this.tabBar, this.slotRow, this.pageLabel);
   }
 
   /** Reveal a newly-discovered combinator: jump to its tab + page and pop it in. */
@@ -84,19 +92,22 @@ export class Hotbar {
   }
 
   layout(): void {
+    this.frame.clear();
     for (const c of this.tabBar.removeChildren()) c.destroy({ children: true });
     for (const c of this.slotRow.removeChildren()) c.destroy({ children: true });
-    const yB = window.innerHeight - 38; // bottom row centre
-    const yT = window.innerHeight - 102; // top row centre
+    const { paper, ink } = mono();
+    const yB = window.innerHeight - 50; // bottom row centre
+    const yT = yB - (SLOT + GAP); // top row centre
     const mid = (yB + yT) / 2;
-    const tabY = window.innerHeight - 152;
+    const tabY = yT - SLOT / 2 - 28; // tab row — the palette's title strip
 
-    // ---- tab bar (centred) ----
-    const labels = PAGES.map((p, i) => new Text({ text: p.name, style: { fontFamily: "monospace", fontSize: 14, fill: i === this.tab ? theme.iota : theme.textDim } }));
+    // ---- title strip: the category tabs (centred) ----
+    const labels = PAGES.map((p) => new Text({ text: p.name, style: { fontFamily: "monospace", fontSize: 13, fill: ink } }));
     const tabsW = labels.reduce((s, t) => s + t.width, 0) + 2 * GAP * (labels.length - 1);
     let tx = window.innerWidth / 2 - tabsW / 2;
     labels.forEach((t, i) => {
       t.position.set(tx, tabY);
+      t.alpha = i === this.tab ? 1 : 0.4; // active tab full ink, the rest dimmed
       t.eventMode = "static";
       t.cursor = "pointer";
       t.on("pointerdown", (e: FederatedPointerEvent) => {
@@ -104,11 +115,11 @@ export class Hotbar {
         this.setTab(i);
       });
       this.tabBar.addChild(t);
-      if (i === this.tab) this.tabBar.addChild(new Graphics().rect(tx, tabY + 19, t.width, 2).fill({ color: theme.iota }));
+      if (i === this.tab) this.tabBar.addChild(new Graphics().rect(tx, tabY + 17, t.width, 2).fill({ color: ink }));
       tx += t.width + 2 * GAP;
     });
 
-    // ---- two rows of slots for the current tab (paginated) ----
+    // ---- tool cells for the current tab (two rows, paginated) ----
     const syms = this.visible(this.tab);
     const perRow = this.pageSize();
     const per = perRow * 2;
@@ -139,10 +150,23 @@ export class Hotbar {
       this.slotRow.addChild(this.arrow("›", leftEdge + totalW - ARROW / 2, mid, this.sub < pageCount - 1, () => this.flip(1)));
     }
 
+    // ---- the palette window: a 1px black/white box around the title + grid ----
+    const contentW = Math.max(tabsW, totalW);
+    const boxW = Math.min(contentW + 2 * PAD, window.innerWidth - 12); // keep the frame on-screen on narrow viewports
+    const boxL = Math.max(6, window.innerWidth / 2 - boxW / 2);
+    const boxT = tabY - PAD;
+    const boxH = yB + SLOT / 2 + PAD - boxT;
+    this.frame
+      .rect(boxL + 3, boxT + 4, boxW, boxH).fill({ color: ink, alpha: 0.16 }) // soft hard-edged drop shadow
+      .rect(boxL, boxT, boxW, boxH).fill({ color: paper }).stroke({ width: 1, color: ink })
+      .moveTo(boxL + 8, tabY + 24).lineTo(boxL + boxW - 8, tabY + 24).stroke({ width: 1, color: ink, alpha: 0.4 }); // title separator
+
     this.pageLabel.visible = paged;
     if (paged) {
       this.pageLabel.text = `${this.sub + 1}/${pageCount}`;
-      this.pageLabel.position.set(window.innerWidth - MARGIN, tabY + 8);
+      this.pageLabel.style.fill = ink;
+      this.pageLabel.alpha = 0.6;
+      this.pageLabel.position.set(boxL + boxW - 8, tabY + 9);
     }
 
     if (this.popSym) {
@@ -156,11 +180,12 @@ export class Hotbar {
   }
 
   private slot(sym: string, cx: number, cy: number): Container {
-    const accent = sym === "ι" ? theme.iota : theme.accent;
+    const { paper, ink } = mono();
+    const glyphColor = sym === "ι" ? theme.iota : theme.accent; // keep the semantic glyph colour
     const v = new Container() as Container & { sym: string };
     v.sym = sym;
-    v.addChild(new Graphics().roundRect(-SLOT / 2, -SLOT / 2, SLOT, SLOT, 8).fill({ color: theme.panel }).stroke({ width: 2, color: accent }));
-    const glyph = new Text({ text: this.aliasOf(sym), style: { fontFamily: "monospace", fontSize: 24, fill: accent } });
+    v.addChild(new Graphics().rect(-SLOT / 2, -SLOT / 2, SLOT, SLOT).fill({ color: paper }).stroke({ width: 1, color: ink }));
+    const glyph = new Text({ text: this.aliasOf(sym), style: { fontFamily: "monospace", fontSize: 22, fill: glyphColor } });
     glyph.anchor.set(0.5);
     const maxW = SLOT - 10; // shrink long glyphs (e.g. "Succ", "Mult") to fit
     if (glyph.width > maxW) glyph.scale.set(maxW / glyph.width);
@@ -177,7 +202,7 @@ export class Hotbar {
 
   private arrow(label: string, cx: number, cy: number, enabled: boolean, onClick: () => void): Container {
     const c = new Container();
-    const t = new Text({ text: label, style: { fontFamily: "monospace", fontSize: 30, fill: theme.accent } });
+    const t = new Text({ text: label, style: { fontFamily: "monospace", fontSize: 26, fill: mono().ink } });
     t.anchor.set(0.5);
     c.addChild(t);
     c.position.set(cx, cy);
