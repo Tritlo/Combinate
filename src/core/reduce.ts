@@ -141,3 +141,30 @@ export function normalize(n: Node, cap = 10_000, fast = false): NormalizeResult 
   }
   return { term: cur, steps, done: false };
 }
+
+/**
+ * The rule/combinator the next reduction step will fire — `"ι"`/`"I"`/`"K"`/`"S"`
+ * for the built-ins, or a named bird's symbol — or `null` if `n` is in normal
+ * form. Mirrors `step`'s dispatch without reducing, so the sonification layer
+ * (PLAN.md Phase A / ADR 0005) can pick a tone per reduction without threading a
+ * trace through `step` itself.
+ */
+export function firingRule(n: Node, fast = false, argsAbove = 0): string | null {
+  if (n.kind !== "app") return null;
+  if (fast) {
+    const args: Node[] = [];
+    let head: Node = n;
+    while (head.kind === "app") {
+      args.unshift(head.arg);
+      head = head.fn;
+    }
+    if (head.kind === "comb" && RULES[head.sym] && args.length >= (head.arity ?? 1)) return head.sym;
+  }
+  const { fn, arg } = n;
+  if (fn.kind === "iota") return "ι";
+  if (fn.kind === "comb" && fn.sym === "I") return "I";
+  if (fn.kind === "app" && fn.fn.kind === "comb" && fn.fn.sym === "K") return "K";
+  if (fn.kind === "app" && fn.fn.kind === "app" && fn.fn.fn.kind === "comb" && fn.fn.fn.sym === "S") return "S";
+  if (fn.kind === "comb" && fn.def && argsAbove + 1 >= (fn.arity ?? 1)) return fn.sym;
+  return firingRule(fn, fast, argsAbove + 1) ?? firingRule(arg, fast, 0);
+}
