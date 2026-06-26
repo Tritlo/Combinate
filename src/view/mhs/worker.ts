@@ -1,21 +1,20 @@
 /**
- * Live MicroHs compile worker (ADR 0007): host the stock, vendored MicroHs blob
- * (`/vendor/mhs/mhs-embed.js`, built from `MicroHs.Main`) and batch-compile one
- * program to a `-ddump-combinator` dump.
+ * Live MicroHs compile worker (ADR 0007): host the vendored **batch** MicroHs blob
+ * (`/vendor/mhs/mhs-batch.js`, built by `nix/build-wasm.sh` from the fork) and
+ * compile one program to a `-ddump-combinator` dump, headless.
  *
  * A *classic* worker — the Emscripten blob loads via `importScripts` and detects
- * `ENVIRONMENT_IS_WORKER`, so its node/`require` paths stay dormant. The blob does
- * not export `callMain`, so we run `main` the Emscripten way: set `Module.arguments`,
+ * `ENVIRONMENT_IS_WORKER`. We run `main` the Emscripten way: set `Module.arguments`,
  * write the source into the MEMFS in `preRun`, override `print` to capture stdout,
- * and let the runtime auto-run; the dump is reported from `postRun`/`onExit`.
+ * and let the runtime auto-run (`callMain` re-enters and blows the JS stack — use
+ * auto-run). The dump is reported from `postRun`/`onExit` (the batch blob links
+ * EXIT_RUNTIME, so stdout actually flushes — the stock interactive blob didn't).
  *
- * NB: the vendored blob is the *interactive playground* build (`mhsi`), whose base
- * package is linked for the REPL, not for a headless batch compile — so this path
- * is best-effort and currently degrades to an honest error (the package/Prelude
- * setup the REPL does isn't reproduced here). The gallery (pre-compiled dumps) is
- * the reliable path; a clean live path needs a batch blob or a `compileToComb`
- * export (PLAN.md / ADR 0007 follow-up). One compile per worker — the caller
- * (`compiler.ts`) terminates us after.
+ * The base-package SOURCE is embedded in the blob's filesystem at `/lib` (the GHC
+ * build can't serialize a .pkg), so we compile with `-i. -i/lib`. A trailing
+ * stderr "No definition found for: Ex.main" is the harmless post-dump link error;
+ * the dump itself (the lines with ` = `) is already on stdout. One compile per
+ * worker — the caller (`compiler.ts`) terminates us after.
  */
 /// <reference lib="webworker" />
 declare function importScripts(...urls: string[]): void;
@@ -30,17 +29,14 @@ self.onmessage = (e: MessageEvent<{ source: string }>): void => {
   const finish = (): void => {
     if (done) return;
     done = true;
+    // The dump is present iff a definition line (` = `) was printed; the trailing
+    // "No definition found for: Ex.main" link error is expected and ignored.
     if (captured.includes(" = ")) post({ dump: captured });
-    else
-      post({
-        error:
-          (errText.trim() || captured.trim() || "the live compiler produced no combinators").split("\n")[0] +
-          " — live compile is experimental; pick a gallery example to compile offline",
-      });
+    else post({ error: (errText.trim() || captured.trim() || "the compiler produced no combinators").split("\n").slice(-1)[0] });
   };
 
   (self as unknown as { Module: unknown }).Module = {
-    arguments: ["-i.", "-i/home/web_user", "-ddump-combinator", "Ex"],
+    arguments: ["-ddump-combinator", "-i.", "-i/lib", "Ex"], // base source is embedded at /lib
     print: (t: string) => {
       captured += t + "\n";
     },
@@ -48,13 +44,8 @@ self.onmessage = (e: MessageEvent<{ source: string }>): void => {
       errText += t + "\n";
     },
     preRun: [
-      function (this: { FS: { writeFile(p: string, d: string): void; chdir(p: string): void } }) {
-        try {
-          this.FS.chdir("/home/web_user");
-        } catch {
-          /* dir may not exist in this build */
-        }
-        this.FS.writeFile("Ex.hs", source);
+      function (this: { FS: { writeFile(p: string, d: string): void } }) {
+        this.FS.writeFile("Ex.hs", source); // CWD is /, found by -i.
       },
     ],
     postRun: [finish],
@@ -67,11 +58,11 @@ self.onmessage = (e: MessageEvent<{ source: string }>): void => {
   };
 
   try {
-    importScripts("/vendor/mhs/mhs-embed.js");
+    importScripts("/vendor/mhs/mhs-batch.js");
   } catch (err) {
     if (!done) {
       done = true;
-      post({ error: `couldn't load the MicroHs blob — run scripts/vendor-wasm.sh (${(err as Error).message})` });
+      post({ error: `couldn't load the MicroHs blob — build it with nix/build-wasm.sh (${(err as Error).message})` });
     }
   }
 };

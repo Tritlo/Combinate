@@ -30,7 +30,9 @@ export function toTree(dump: string, root: string): DumpResult {
  *  Web Worker. Resolves to the dump, or rejects with an honest reason (no blob, a
  *  type error, or a forced primitive). A fresh worker per call avoids the
  *  Emscripten single-`main` / shared-state pitfalls. */
-export function liveCompile(source: string, timeoutMs = 20_000): Promise<string> {
+// Generous: the batch blob recompiles base (the Prelude) from source per request
+// (gmhs can't ship a precompiled .pkg), so a live compile takes ~1-2 minutes.
+export function liveCompile(source: string, timeoutMs = 180_000): Promise<string> {
   return new Promise((resolve, reject) => {
     let worker: Worker;
     try {
