@@ -1,6 +1,6 @@
 # 5. Shareable permalinks, golf challenges, and sonification (v6)
 
-**Status:** proposed (draft — to be finalised by a grill-with-docs pass)
+**Status:** accepted (core approach locked; UX details are implementation defaults)
 
 ## Context
 

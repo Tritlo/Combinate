@@ -1,6 +1,6 @@
 # 6. KISS authoring: Define, then one-hole Abstract (v7)
 
-**Status:** proposed (draft — to be finalised by a grill-with-docs pass)
+**Status:** accepted (core approach locked; UX details are implementation defaults)
 
 ## Context
 
