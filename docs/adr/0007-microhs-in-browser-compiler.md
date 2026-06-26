@@ -191,6 +191,9 @@ workflow). Instead:
 - **DuckDB** (ADR 0008) — a third-party ~76 MB engine, **not our responsibility to
   host**: loaded from the **jsDelivr CDN** at runtime via `getJsDelivrBundles()`. Not
   vendored at all.
+- **IoskeleyMono webfont** (the syntax-highlighted Haskell editor) is also on the
+  `vendor-assets` Release (`IoskeleyMono-Regular.woff2`), fetched by the same CI step
+  and `@font-face`'d via a base-aware `vendorUrl`.
 - **Base-aware URLs** — the SPA is built with vite `base: "./"` so it hosts from the
   `/Combinate/` Pages subpath. Runtime-fetched public assets (which vite does *not*
   rewrite) go through `src/vendorUrl.ts` (`BASE_URL + path` resolved against

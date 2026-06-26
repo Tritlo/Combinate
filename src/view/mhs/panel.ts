@@ -4,15 +4,86 @@
  * (a pre-compiled, vendored dump) and drop the resulting combinator tree on the
  * canvas — and offers a free-type editor that compiles live through the stock
  * MicroHs blob (best-effort). The post-processing is the same `core/mhs.ts`.
+ *
+ * The editor is syntax-highlighted: a transparent `<textarea>` over a coloured
+ * `<pre>` (the standard overlay trick), tokenized by `highlight.ts` and painted in
+ * GitHub's high-contrast palette, set in IoskeleyMono. The whole panel follows the
+ * app's light/dark mode via CSS variables (re-themed on `onThemeChange`).
  */
 import type { Node } from "../../core/term";
 import type { Ty } from "../../core/types";
 import { EXAMPLES, type Example } from "./examples";
 import { exampleDump, liveCompile, toTree } from "./compiler";
+import { highlightHaskell, HL_DARK, HL_LIGHT } from "./highlight";
+import { currentMode, onThemeChange, type Mode } from "../theme";
+import { vendorUrl } from "../../vendorUrl";
+
+/** GitHub-flavoured panel palette (chrome + the code surface), per mode. */
+const PALETTE: Record<Mode, Record<string, string>> = {
+  light: {
+    backdrop: "rgba(27,31,36,0.5)", card: "#ffffff", fg: "#1f2328", border: "#d0d7de",
+    muted: "#59636e", accent: "#0969da", accentFg: "#ffffff",
+    editorBg: "#f6f8fa", editorFg: "#0e1116", rowHover: "#eaeef2",
+  },
+  dark: {
+    backdrop: "rgba(1,4,9,0.6)", card: "#0d1117", fg: "#e6edf3", border: "#30363d",
+    muted: "#9198a1", accent: "#4493f8", accentFg: "#0d1117",
+    editorBg: "#0a0c10", editorFg: "#f0f3f6", rowHover: "#161b22",
+  },
+};
+
+const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+
+/** Inject the panel stylesheet + the IoskeleyMono @font-face once. */
+let stylesInjected = false;
+function injectStyles(): void {
+  if (stylesInjected) return;
+  stylesInjected = true;
+  const css = `
+@font-face {
+  font-family: 'IoskeleyMono';
+  src: url('${vendorUrl("vendor/fonts/IoskeleyMono-Regular.woff2")}') format('woff2');
+  font-display: swap;
+}
+.mhs-root { position: fixed; inset: 0; z-index: 50; display: none; align-items: center; justify-content: center;
+  background: var(--mhs-backdrop); font-family: ${MONO}; }
+.mhs-card { display: flex; flex-direction: column; width: min(880px, 94vw); height: min(580px, 90vh);
+  background: var(--mhs-card); color: var(--mhs-fg); border: 1px solid var(--mhs-border); border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5); overflow: hidden; }
+.mhs-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px;
+  border-bottom: 1px solid var(--mhs-border); }
+.mhs-title { font-size: 18px; color: var(--mhs-accent); font-weight: 600; }
+.mhs-x { cursor: pointer; font-size: 18px; color: var(--mhs-muted); padding: 0 6px; }
+.mhs-x:hover { color: var(--mhs-fg); }
+.mhs-body { display: flex; flex: 1; min-height: 0; }
+.mhs-list { width: 220px; border-right: 1px solid var(--mhs-border); overflow-y: auto; padding: 8px; }
+.mhs-list-label { color: var(--mhs-muted); font-size: 11px; padding: 4px 6px 8px; letter-spacing: 0.06em; }
+.mhs-row { padding: 8px 10px; border-radius: 8px; cursor: pointer; margin-bottom: 2px; }
+.mhs-row:hover { background: var(--mhs-rowHover); }
+.mhs-row-title { color: var(--mhs-fg); font-size: 14px; }
+.mhs-row-blurb { color: var(--mhs-muted); font-size: 11px; margin-top: 3px; line-height: 1.35; }
+.mhs-right { flex: 1; display: flex; flex-direction: column; padding: 12px; gap: 10px; min-width: 0; }
+.mhs-editorwrap { position: relative; flex: 1; min-height: 0; border: 1px solid var(--mhs-border); border-radius: 8px;
+  background: var(--mhs-editorBg); overflow: hidden; }
+.mhs-pre, .mhs-ta { position: absolute; inset: 0; margin: 0; padding: 10px; border: 0;
+  font-family: ${MONO}; font-size: 13px; line-height: 1.5; tab-size: 2; white-space: pre;
+  box-sizing: border-box; overflow: auto; }
+.mhs-pre { color: var(--mhs-editorFg); overflow: hidden; pointer-events: none; }
+.mhs-ta { background: transparent; color: transparent; caret-color: var(--mhs-editorFg); resize: none; outline: none; }
+.mhs-bar { display: flex; align-items: center; gap: 12px; }
+.mhs-run { background: var(--mhs-accent); color: var(--mhs-accentFg); padding: 8px 14px; border-radius: 8px;
+  cursor: pointer; font-size: 13px; }
+.mhs-status { color: var(--mhs-muted); font-size: 12px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+`;
+  const style = document.createElement("style");
+  style.textContent = css;
+  document.head.appendChild(style);
+}
 
 export class MhsPanel {
   private readonly root = document.createElement("div");
   private readonly editor = document.createElement("textarea");
+  private readonly pre = document.createElement("pre");
   private readonly status = document.createElement("div");
   private current: Example = EXAMPLES[0];
   private open_ = false;
@@ -23,8 +94,13 @@ export class MhsPanel {
     private readonly onRun: (tree: Node, read: Ty | null) => void,
     private readonly onToggle: () => void,
   ) {
+    injectStyles();
     this.build();
     document.body.appendChild(this.root);
+    onThemeChange(() => {
+      this.applyPalette();
+      this.updateHighlight();
+    });
   }
 
   get isOpen(): boolean {
@@ -65,85 +141,56 @@ export class MhsPanel {
 
   // ---- UI ----
   private build(): void {
-    Object.assign(this.root.style, {
-      display: "none",
-      position: "fixed",
-      inset: "0",
-      background: "rgba(0,0,0,0.55)",
-      zIndex: "50",
-      alignItems: "center",
-      justifyContent: "center",
-      fontFamily: "monospace",
-    } satisfies Partial<CSSStyleDeclaration>);
+    this.root.className = "mhs-root";
+    this.applyPalette();
     this.root.addEventListener("pointerdown", (e) => {
       if (e.target === this.root) this.close();
     });
 
-    const card = el("div", {
-      background: "#1a1d23",
-      color: "#d8dee9",
-      border: "1px solid #3b4252",
-      borderRadius: "12px",
-      width: "min(860px, 94vw)",
-      height: "min(560px, 90vh)",
-      display: "flex",
-      flexDirection: "column",
-      boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
-    });
+    const card = div("mhs-card");
     card.addEventListener("pointerdown", (e) => e.stopPropagation());
 
-    // header
-    const head = el("div", { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderBottom: "1px solid #2e3440" });
-    head.appendChild(text("Haskell → ι", { fontSize: "18px", color: "#88c0d0" }));
-    const x = text("✕", { cursor: "pointer", fontSize: "18px", color: "#6b7280", padding: "0 6px" });
+    const head = div("mhs-head");
+    head.appendChild(divText("mhs-title", "Haskell → ι"));
+    const x = divText("mhs-x", "✕");
     x.addEventListener("pointerdown", () => this.close());
     head.appendChild(x);
     card.appendChild(head);
 
-    // body: examples | editor
-    const body = el("div", { display: "flex", flex: "1", minHeight: "0" });
-    const list = el("div", { width: "210px", borderRight: "1px solid #2e3440", overflowY: "auto", padding: "8px" });
-    list.appendChild(text("EXAMPLES", { color: "#6b7280", fontSize: "11px", padding: "4px 6px 8px" }));
+    const body = div("mhs-body");
+    const list = div("mhs-list");
+    list.appendChild(divText("mhs-list-label", "EXAMPLES"));
     for (const ex of EXAMPLES) {
-      const row = el("div", { padding: "8px 10px", borderRadius: "8px", cursor: "pointer", marginBottom: "2px" });
-      row.appendChild(text(ex.title, { color: "#e5e9f0", fontSize: "14px" }));
-      row.appendChild(text(ex.blurb, { color: "#6b7280", fontSize: "11px", marginTop: "3px", lineHeight: "1.35" }));
-      row.addEventListener("pointerenter", () => (row.style.background = "#252a33"));
-      row.addEventListener("pointerleave", () => (row.style.background = "transparent"));
+      const row = div("mhs-row");
+      row.appendChild(divText("mhs-row-title", ex.title));
+      row.appendChild(divText("mhs-row-blurb", ex.blurb));
       row.addEventListener("pointerdown", () => this.loadExample(ex));
       list.appendChild(row);
     }
     body.appendChild(list);
 
-    const right = el("div", { flex: "1", display: "flex", flexDirection: "column", padding: "12px", gap: "10px", minWidth: "0" });
-    Object.assign(this.editor.style, {
-      flex: "1",
-      resize: "none",
-      background: "#0f1115",
-      color: "#d8dee9",
-      border: "1px solid #2e3440",
-      borderRadius: "8px",
-      padding: "10px",
-      fontFamily: "monospace",
-      fontSize: "13px",
-      lineHeight: "1.5",
-      whiteSpace: "pre",
-    } satisfies Partial<CSSStyleDeclaration>);
+    const right = div("mhs-right");
+    const wrap = div("mhs-editorwrap");
+    this.pre.className = "mhs-pre";
+    this.pre.setAttribute("aria-hidden", "true");
+    this.editor.className = "mhs-ta";
     this.editor.spellcheck = false;
-    right.appendChild(this.editor);
-
-    const bar = el("div", { display: "flex", alignItems: "center", gap: "12px" });
-    const run = text("Compile & run ▶", {
-      background: "#5e81ac",
-      color: "#eceff4",
-      padding: "8px 14px",
-      borderRadius: "8px",
-      cursor: "pointer",
-      fontSize: "13px",
+    this.editor.autocapitalize = "off";
+    this.editor.setAttribute("autocomplete", "off");
+    this.editor.addEventListener("input", () => this.updateHighlight());
+    this.editor.addEventListener("scroll", () => {
+      this.pre.scrollTop = this.editor.scrollTop;
+      this.pre.scrollLeft = this.editor.scrollLeft;
     });
+    wrap.appendChild(this.pre);
+    wrap.appendChild(this.editor);
+    right.appendChild(wrap);
+
+    const bar = div("mhs-bar");
+    const run = divText("mhs-run", "Compile & run ▶");
     run.addEventListener("pointerdown", () => this.runEditor());
     bar.appendChild(run);
-    Object.assign(this.status.style, { color: "#81a1c1", fontSize: "12px", flex: "1", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" });
+    this.status.className = "mhs-status";
     bar.appendChild(this.status);
     right.appendChild(bar);
     body.appendChild(right);
@@ -151,7 +198,20 @@ export class MhsPanel {
     card.appendChild(body);
     this.root.appendChild(card);
     this.loadExample(EXAMPLES[0], false);
-    this.setStatus("pick an example — instant · free-typing compiles live in-browser (~30s)", "#6b7280");
+    this.setStatus("pick an example — instant · free-typing compiles live in-browser (~30s)", "muted");
+  }
+
+  /** Push the current mode's palette onto the root as CSS variables. */
+  private applyPalette(): void {
+    const p = PALETTE[currentMode()];
+    for (const [k, v] of Object.entries(p)) this.root.style.setProperty(`--mhs-${k}`, v);
+  }
+
+  /** Re-paint the highlight layer from the editor's current text + mode. */
+  private updateHighlight(): void {
+    this.pre.innerHTML = highlightHaskell(this.editor.value, currentMode() === "dark" ? HL_DARK : HL_LIGHT);
+    this.pre.scrollTop = this.editor.scrollTop;
+    this.pre.scrollLeft = this.editor.scrollLeft;
   }
 
   /** Select an example: show its source and (unless suppressed) compile + run it
@@ -159,20 +219,21 @@ export class MhsPanel {
   private async loadExample(ex: Example, run = true): Promise<void> {
     this.current = ex;
     this.editor.value = ex.source.trimEnd();
+    this.updateHighlight();
     if (!run) return;
-    this.setStatus(`compiling ${ex.title}…`, "#81a1c1");
+    this.setStatus(`compiling ${ex.title}…`, "accent");
     try {
       const dump = await exampleDump(ex.name);
       const res = toTree(dump, ex.root);
       if ("error" in res) {
-        this.setStatus(res.error, "#bf616a");
+        this.setStatus(res.error, "#cf222e");
         return;
       }
       this.onRun(res.tree, ex.read);
-      this.setStatus(`compiled ${ex.title} — watch it reduce`, "#a3be8c");
+      this.setStatus(`compiled ${ex.title} — watch it reduce`, "#1a7f37");
       this.close();
     } catch (e) {
-      this.setStatus((e as Error).message, "#bf616a");
+      this.setStatus((e as Error).message, "#cf222e");
     }
   }
 
@@ -181,36 +242,37 @@ export class MhsPanel {
   private async runEditor(): Promise<void> {
     const src = this.editor.value;
     if (src.trim() === this.current.source.trim()) return this.loadExample(this.current);
-    this.setStatus("compiling live in-browser — this takes ~30s…", "#81a1c1");
+    this.setStatus("compiling live in-browser — this takes ~30s…", "accent");
     try {
       const dump = await liveCompile(src);
       const res = toTree(dump, "Ex.out");
       if ("error" in res) {
-        this.setStatus(res.error, "#bf616a");
+        this.setStatus(res.error, "#cf222e");
         return;
       }
       this.onRun(res.tree, null);
-      this.setStatus("compiled — watch it reduce", "#a3be8c");
+      this.setStatus("compiled — watch it reduce", "#1a7f37");
       this.close();
     } catch (e) {
-      this.setStatus(`live compile: ${(e as Error).message}. Pick an example to compile offline.`, "#bf616a");
+      this.setStatus(`live compile: ${(e as Error).message}. Pick an example to compile offline.`, "#cf222e");
     }
   }
 
+  /** Set the status line. `color` is a literal hex, or a palette key (muted/accent). */
   private setStatus(msg: string, color: string): void {
     this.status.textContent = msg;
-    this.status.style.color = color;
+    this.status.style.color = color === "muted" || color === "accent" ? `var(--mhs-${color})` : color;
   }
 }
 
 // ---- tiny DOM helpers ----
-function el(tag: string, style: Partial<CSSStyleDeclaration>): HTMLDivElement {
-  const e = document.createElement(tag) as HTMLDivElement;
-  Object.assign(e.style, style);
+function div(cls: string): HTMLDivElement {
+  const e = document.createElement("div");
+  e.className = cls;
   return e;
 }
-function text(t: string, style: Partial<CSSStyleDeclaration>): HTMLDivElement {
-  const e = el("div", style);
+function divText(cls: string, t: string): HTMLDivElement {
+  const e = div(cls);
   e.textContent = t;
   return e;
 }
