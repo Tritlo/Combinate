@@ -27,7 +27,7 @@ import { Toast } from "./view/toast";
 import { Zoo } from "./view/zoo";
 import { MhsPanel } from "./view/mhs/panel";
 import { preloadCompiler } from "./view/mhs/compiler";
-import { theme, initTheme, toggleMode, currentMode, onThemeChange } from "./view/theme";
+import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange } from "./view/theme";
 import { MenuBar, type Menu } from "./view/menubar";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
@@ -755,7 +755,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   pixi.canvas.addEventListener("pointerup", endPointer);
   pixi.canvas.addEventListener("pointercancel", endPointer);
 
-  const placeLegend = () => legend.position.set(16, window.innerHeight - 184);
+  const placeLegend = () => legend.position.set(16, 64); // top-left, under the menu bar + hint (the rail freed this space)
   placeLegend();
   zoo.layout();
 
@@ -843,6 +843,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "toggle", label: "Expand ι-trees", accel: "X", checked: () => expandAll, run: () => toggleExpand() },
       { kind: "toggle", label: "Type lens", checked: () => typeOn, run: () => toggleType() },
       { kind: "toggle", label: "Re-fold lens", accel: "F", checked: () => refoldOn, run: () => toggleRefold() },
+      { kind: "sep" },
+      { kind: "toggle", label: "Color (4096)", checked: () => colorOn(), run: () => toggleColor() },
     ] },
     { title: "Reduce", items: [
       { kind: "radio", label: "Play", on: () => transport === "play", run: () => setTransport("play") },

@@ -181,7 +181,7 @@ export class Hotbar {
 
   private slot(sym: string, cx: number, cy: number): Container {
     const { paper, ink } = mono();
-    const glyphColor = sym === "ι" ? theme.iota : theme.accent; // keep the semantic glyph colour
+    const glyphColor = sym === "ι" ? theme.iota : theme.node; // ι gold; other combinators ink (mono) / blue (colour)
     const v = new Container() as Container & { sym: string };
     v.sym = sym;
     v.addChild(new Graphics().rect(-SLOT / 2, -SLOT / 2, SLOT, SLOT).fill({ color: paper }).stroke({ width: 1, color: ink }));
