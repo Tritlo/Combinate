@@ -1,233 +1,130 @@
-# PLAN — Re-folding reduction results into readable values
+# PLAN — v6–v8 roadmap: shareability, authoring, and the MicroHs *wow*
 
-Branch: `refolding` (worktree). Goal of this work: when a tree reduces to a big
-raw ι/SKI normal form, show it as a **compact value** instead.
+The plan of record for the next arc. Decisions are in `docs/adr/0005`–`0008`
+(finalised in a grill-with-docs pass); shared language is in `CONTEXT.md`. The
+prior PLAN.md (the re-folding lens) shipped in v2–v3 and now lives in ADRs
+0002–0004 and git history.
+
+Three feature phases — shareability (v6), authoring (v7), and the in-browser
+MicroHs compiler (v8) — plus a DuckDB-WASM store (0008) underneath. They are **not
+4-way independent**: a foundation underpins three of them, and the MicroHs slice
+must be built before its integration. So the shape is **preliminary → foundation →
+parallel**, not four cold worktrees.
 
 ```
-map succ (cons 1 (cons 1 nil))   →   reduces to   ((S ((S (K S)) …    (unreadable)
-                                      we want      [2, 2]
+Phase 0 (MicroHs→WASM via nix-shell) ─────────────┐
+                                                  ▼
+Phase A (foundation: Store + permalink + trace) ──► B1 golf/leaderboards/sonify
+                                                  ├► B2 authoring (Define/Abstract)
+                                                  └► B3 MicroHs integration (uses Phase 0 blob)
 ```
 
-## Why it happens (context for a fresh session)
-
-- Combinator `def`s are pure SKI (bracket-abstracted from their laws). Reduction
-  **inlines everything to ι/SKI to compute**, so the result behaves like
-  `cons (succ 1) (cons (succ 1) nil)` but contains no `cons`/`succ` nodes.
-- `recognize` (`src/core/probe.ts`) only matches the *whole* term against a
-  *single* catalog law. `[2,2]` is not one combinator, so nothing fires and the
-  raw SKI is shown.
-- The read-out is `exprOf` in `src/app.ts` (an s-expression of the focused
-  tree's `node`); the canvas tree is rendered by `src/view/tree.ts`.
-
-This is the **re-sugaring / folding** problem: recover structure from a normal
-form. Two engines are planned; **do Phase 1 first.**
-
-## Decision (from the design discussion)
-
-- **Display form: compact values.** Numerals as digits (`2`), lists as
-  `[a, b, c]`, booleans as `true`/`false`, pairs as `(x, y)`. (Not constructor
-  form like `cons (succ 1) …`.)
-- **Display-only.** Never change reduction or recognition. The logical `node`
-  stays the raw normal form; we only compute a nicer string/picture from it.
-- egg-via-WASM is allowed for the general engine (Phase 2) — do **not** hand-roll
-  an egraph in TS.
-
-## The Scott encodings in this codebase (the reader must match these)
-
-From `src/core/catalog.ts` — these match MicroHs's `data` encoding (ADR 0004);
-the section originally described the Church encodings, now superseded.
-
-- **Numerals** (Scott Peano): `Z = K`, `S p = λz s. s p`. So `0 = K`,
-  `1 = λz s. s K`, … each `Succ` just stores its predecessor.
-- **Lists**: `nil = K`, `cons h t = λn c. c h t` (a cons *cell* — no built-in
-  fold). `head`/`tail`/`uncons`/`null` read one eliminator arm; `map`/`<>`/`concat`
-  recurse via `Y`.
-- **Booleans**: `false = K`, `true = A` (= `K I`). `if c t e = c e t` (= `C`).
-- **Pairs** (Vireo): `(x, y) = λf. f x y`; `fst = λp. p K`, `snd = λp. p A`.
-
-**Irreducible ambiguity:** the **Kestrel `K`** is simultaneously `0`, `[]`,
-`false`, and `nil`. A bare `K` cannot be uniquely read. Disambiguate by structure
-where possible (a non-empty list / a numeral ≥ 1 / `true` = `A` / a 2-arg pair are
-unambiguous); for the trivial leaf, defer to a page tag / sibling propagation or
-fall back to the name `K`.
+Phase 0 and Phase A are independent and run concurrently; Phase B fans out once
+both land.
 
 ---
 
-## Phase 1 — encoding-directed value reader (TS) — IMPLEMENTED
+## Phase 0 — MicroHs → WASM, reproducibly, in a nix-shell (preliminary)
 
-> **Status (done on `refolding`).** Built as `src/core/value.ts`:
-> `readValue(n, depth)`, pure and bounded. **Always on** in the read-out: a
-> compact value is shown whenever the term is data, regardless of the lens. The
-> refold lens only *adds* combinator naming (Phase 2) for non-data terms. So the
-> pipeline is: value reader (always) → re-folder (lens on) → raw. Verified
-> in-browser:
-> `map succ (cons 1 (cons 1 nil)) → [2, 2]`, plus `2`, `[1, 1]`, `[[1],[2]]`,
-> `(1, 2)`, nested `[true]`; non-data → null (falls back).
->
-> **Ambiguity (resolved).** The trivial values coincide with bare combinators —
-> `0`/`[]`/`false`/`nil` are all `A`, `1` is `I`, `true` is `K` — so they read as
-> values only when *nested* as data (the `1`s in `[1, 1]`); at the top level they
-> defer to the combinator name. `2`+, non-empty lists, and 2-arg pairs are
-> unambiguous and read at any depth. `false`/`0`/`[]` (all `A`) stay ambiguous
-> even nested and are not read (Q2/Q3 below).
+The compile-only MicroHs WASM slice (+ the Prelude/char tweaks) is the prerequisite
+for the wow feature (stream B3) and the one thing this environment can't produce. We
+build it **reproducibly in a pinned `nix-shell`** (per house style: Nix builds run
+in `nix-shell`), not ad-hoc — so the vendored blob is regenerable on each MicroHs
+bump.
 
-A pure, bounded "value reader" — the *inverse* of `TreeView.expand()`. It probes
-the term as each known encoding (just like `probe` applies a term to fresh free
-variables and inspects the normal form), recursing on sub-values.
+**Fork changes (in the `../MicroHs` fork):**
+- A thin **`compileToComb(source) → combinator dump`** entry point (+ `typeOf`),
+  reusing the already-factored stages (`Interactive.compile`, the pure
+  `compileToCombinators`).
+- **Char-literal desugaring → Scott `Nat`** of the ASCII code (since `Char` is not
+  class-overloaded like numeric literals).
+- A **primitive-free Prelude**: numeric literals → Scott `Nat` (`fromInteger`),
+  `Char`/`String` → ASCII Scott `Nat`, and `+`/`*`/`-`/comparisons/list ops as the
+  Scott versions. `IO`/FFI/`Float` stay primitive (rejected downstream).
 
-### New file: `src/core/value.ts` (pure — no Pixi/DOM)
+**The nix-shell** (`nix/` in Combinate, pinning nixpkgs):
+- Provides `ghc` (build/bootstrap `gmhs`), `emscripten` (`emcc`), `gnumake`.
+- Builds the **compile-only slice** to WASM via MicroHs's existing emscripten/web
+  target, trimmed to the compiler (no REPL/FFI), producing the blob + `base.pkg`.
 
-```ts
-export function readValue(n: Node, depth = 0): string | null
-```
-
-Returns a compact string, or `null` if `n` isn't a recognizable value. Uses
-`normalize` (`./reduce`) and `freeVar` (`./term`). A small structural matcher on
-the normal form (compare with the `structKey` walk in `probe.ts`).
-
-Algorithm (try in this order; first non-trivial match wins; bound everything):
-
-1. **List** — apply to two fresh distinct vars `c`, `n`; `normalize` (cap). If
-   the NF is a right-fold spine `app(app(c, hᵢ), rest)` repeated, ending in `n`:
-   read each `hᵢ` with `readValue(hᵢ, depth+1)` and return `[v₁, …, vₖ]`.
-   (NF `= n` → `[]`.) Cap list length (~64) → else `[…]`.
-   - Numerals do **not** false-match: `Nⁿ` applied to `c,n` gives `c (c (… n))`
-     where `c` has **one** arg per level, but a cons spine needs `c` with **two**
-     (head + rest), so the shape check rejects numerals. Good.
-2. **Numeral** — apply to two fresh `f`, `x`; `normalize`. If NF is a left chain
-   `f (f (… x))` (every fn is `f`, innermost arg is `x`), return the count.
-   (`x` → `0`.) Cap (~9999) → else fall through.
-3. **Boolean** — apply to two fresh `a`, `b`; if NF `= a` → `true`, `= b` →
-   `false`.
-4. **Pair** — apply to one fresh `f`; if NF `= app(app(f, x), y)` →
-   `(readValue(x), readValue(y))`.
-5. else `null`.
-
-Bounds: `normalize` cap, max list length, max numeral, `depth ≤ ~8`. Any cap hit
-or `null` from a sub-value → bail to `null` (caller falls back to the raw sexp).
-
-### Wire into the shell (`src/app.ts`)
-
-- The top read-out currently shows `exprOf(focus.node)`. Change it to prefer the
-  value: `readValue(focus.node)` if non-null (e.g. show `= [2, 2]`), else the
-  existing sexp. Keep it cheap — only recompute when `focus.node` changes (it
-  already diffs on `lastExpr`).
-- Optional follow-up (not MVP): a small "value" badge on the canvas tree, or
-  show both `raw` and `= value`. Decide after seeing Phase 1.
-
-### Tests (tsx smoke, like the existing ones)
-
-- Build `map succ (cons 1 (cons 1 nil))` from the catalog `def`s, `normalize`,
-  assert `readValue` → `"[2, 2]"`.
-- Numerals `0,1,5`; nested list `[[1],[2]]`; `true`/`false`; pair `(1, 2)`;
-  empty list `[]`; a non-data term (e.g. `S`) → `null` (falls back to sexp).
-
-### Cost / risk
-
-Low. One pure file + a small read-out change. No new toolchain. Covers exactly
-the data players compute. **This alone satisfies the stated example.**
+**Outputs (deliverables of Phase 0):**
+1. The vendored prebuilt **WASM blob (+ `base.pkg`)** — hosted as a release asset,
+   **not** committed to git history (ADR 0007; explicit exception to ADR 0002).
+2. A TS port of the **SKI-expansion step** (`iota/Iota.hs` → `decode()`-ready
+   Barker bit-code, ~40 lines) — keeps the WASM slice a pure compiler.
+3. The **curated example programs** (primitive-free Scott/Peano: a quicksort, etc.).
+4. The **differential-oracle** binary (`iota/check`) for the dev/CI reducer test.
+5. A documented `nix-shell` + build script so (1)–(4) regenerate on a MicroHs bump.
 
 ---
 
-## Phase 2 — general re-sugarer via egg (Rust → WASM) — IMPLEMENTED
+## Phase A — shared foundation (sequential; B1/B2 depend on it)
 
-> **Status (done on `refolding`).** Built as specified: `crates/refold/` (egg →
-> wasm), rules generated from the catalog, a display-only **refold lens** in the
-> shell (rail button / `F`), off by default and lazy-loaded. Pure boundary in
-> `src/core/refold.ts`; the wasm is a driven adapter wired by `src/app.ts`. See
-> ADR `docs/adr/0002-egg-wasm-refolder.md` and `crates/refold/README.md`.
->
-> **Two stages.** A **behavioural pre-pass** (`recognizeDeep`, pure TS) runs
-> first: it recursively applies the `recognize` probe — which is *extensional*
-> (reduces the term on fresh vars) — to name single-combinator subterms,
-> including the eta-equivalent forms egg can't (`S K K → I`, `ι ι → I`). Its
-> residual is handed to **egg** for any remaining multi-combinator structural
-> folds. The pre-pass also works without the wasm (graceful fallback).
->
-> **What it recovers (measured, in-browser e2e):** `S(KS)K → B`, `S I I → M`,
-> `S S K → X`, `K I → A`, `(S(KS)K)(S(KS)K) → B B`, and — via the pre-pass —
-> `S K K → I`. The read-out shows the folded form when the lens is on.
->
-> **What it does *not* do:** read **data values**. A Church numeral / list is not
-> a single catalog combinator, so `[2,2]` from a point-free NF is out of reach
-> here — that is Phase 1, composed ahead of this in the lens. A guard in
-> `refold.ts` only replaces the read-out when the folding is *strictly simpler*,
-> so it never makes a term less readable.
+Small, shared core that everything builds on. Built directly (not fanned out),
+because conflicts here would block the parallel streams.
 
-For folding *arbitrary* combinator expressions (not just data values) back to
-named form. Heavier; only pursue if Phase 1 proves insufficient.
-
-### Approach
-
-- Rust crate (`crates/refold/`) using [`egg`](https://crates.io/crates/egg).
-- `Language`: `App([Id;2])` + named constants (`S K I B C … cons succ`) as
-  symbols. (Combinators are nullary constants; application is binary; pattern
-  vars `?x ?y ?z` range over subterms — this is **first-order**, so e-matching
-  is standard, no binders.)
-- Rules: each combinator equation **bidirectionally** where sound — reduction
-  (`S ?x ?y ?z => (?x ?z)(?y ?z)`, …) and folding (`?x (?y ?z) => B ?x ?y ?z`,
-  cons's NF pattern `=> cons ?h ?t`, …).
-- **Explosion control:** folding rules fire everywhere on SKI; cap hard with
-  `Runner::with_node_limit` + `with_iter_limit`.
-- **Extraction:** custom cost (named combinator ≪ App ≪ ι-expansion) so the
-  extracted form is the most-named / fewest-ι. Resolves ambiguity
-  (`2` vs `succ 1`) via the cost weights.
-- Boundary: pass the term as a **bit-code / s-expression string**; parse in
-  Rust; return the folded s-expression; parse back to a `Node` in TS.
-
-### Build + integration
-
-- `wasm-pack build --target web` → `pkg/`. Vite via `vite-plugin-wasm`
-  (+ top-level await) or manual `init()`.
-- Async init at startup; expose a `Refolder` port: `refold(term): term`.
-- Bundle adds a few hundred KB of wasm — gate behind a setting/flag.
-
-### Risks
-
-Toolchain (Rust + wasm-pack in CI/Pages build), egraph blow-up (needs limits),
-ambiguity (cost tuning), bundle size. Genuinely a multi-session effort.
+- **`Store` port + DuckDB-WASM adapter** (ADR 0008). A pure `Store` interface in
+  `src/core/`; a lazy DuckDB-WASM driven adapter in the shell (never on first
+  paint; OPFS/IndexedDB persistence). Holds: discovered set, user definitions,
+  challenge bests, leaderboard entries. Designed so the quack/leaderboard hook stays
+  cheap (verify-by-replay).
+- **Permalink codec** (ADR 0005). Tree (Barker bit-code) + active mode flags ⇄ URL
+  hash; versioned (a schema byte); downloadable `.json`/bit-code fallback above a
+  size cap. A solution / leaderboard entry *is* a permalink.
+- **Rule-trace from `step()`** (ADR 0005). `step` (or a `stepWithRule`) surfaces the
+  fired rule, so sonification can pick a tone and metrics can name the reduction —
+  the one small core change v6 needs.
 
 ---
 
-## Architecture (keep it hexagonal)
+## Phase B — three parallel worktree streams (off the foundation)
 
-- The value reader is a **pure core** function (`src/core/value.ts`) — no Pixi,
-  no DOM. It's a port: "given a term, give a readable rendering."
-- egg-WASM (Phase 2) is a **driven adapter** behind the same port, wired by the
-  shell (async init). `src/core/` stays Pixi/DOM-free —
-  `grep -rn "pixi\|window\.\|document\." src/core/` must stay empty.
+Each in its own git worktree/branch off `main` (post-foundation), built and verified
+independently, integrated as they land.
 
-## Definition of done (Phase 1)
+### B1 — Golf, leaderboards, sonification (ADR 0005)
+- **Challenge layer** (shell state): id, target predicate (over the value reader or a
+  target bit-code), best-metric (`countIotas` / steps); a *solution = a permalink*.
+- **Leaderboards** via the quack adapter: **verify-by-replay** — store/query
+  `{challenge, bitcode, metric, handle}`; clients re-run + re-verify on display and
+  drop fakes; the shared store is dumb/append-only.
+- **Sonification** (juice): a tiny WebAudio layer (one oscillator, tone per
+  combinator family from the rule-trace), gated by a toggle.
 
-- `map succ (cons 1 (cons 1 nil))` shows `= [2, 2]` in the read-out (verified
-  headless), raw sexp still shown for non-data terms.
-- `readValue` is pure, bounded, has smoke tests, `npm run typecheck` + build
-  clean. Commit on `refolding`; merge to `main` separately (CI deploys to Pages).
+### B2 — Authoring: Define, then one-hole Abstract (ADR 0006)
+- **`Define`** (first): name a settled subtree → collapses to a hotbar block (reuse
+  `collapsedNode` / `discover` / `hotbar.reveal`); persists via `Store`.
+- **one-hole `Abstract`** (second): mark a leaf a *hole* (free var) → bracket-abstract
+  over it (reuse `bracket` / `lam`). One hole only; no modal editor.
+- Update the stale `spec/upper-techtree.md` to the Scott world.
 
-## Open questions for the session
+### B3 — MicroHs integration (ADR 0007) — TS side
+- A lazy **Web Worker** adapter behind a pure compiler port; loads the Phase 0 blob
+  on demand (built against a stub until it lands).
+- Wire `compileToComb → SKI-expand (TS, from Phase 0) → decode() → spawn`.
+- The Haskell panel: **lead with curated examples** (editable, live-recompiled), a
+  free-type editor, and an **honest reject** of `IO`/FFI/`Float` with a teaching
+  message. (A Char display lens — Scott `Nat` → glyph — is an optional follow-up.)
 
-1. Read-out: replace the sexp with the value, or show both (`raw  = value`)?
-   → **Resolved:** the read-out shows one best form. The compact value is shown
-   whenever the term is data (**always on**, no toggle). The refold lens adds the
-   most-named combinator form for non-data terms; raw masked sexp otherwise.
-2. Bare `A`/`KI` default reading — `0`, `[]`, `false`, or show the name `A`?
-   → **Resolved:** the value reader does **not** read bare `A` (irreducibly
-   `0`/`[]`/`false`/`nil`); it defers, and the combinator namer shows `A`. Same
-   for `1`=`I`, `true`=`K` at the top level. They read as values only nested.
-3. List sugar for elements that aren't clean values — show `?` or the raw head?
-   → **Resolved:** the value reader *bails* — if any element isn't a clean value
-   the whole read returns null, and the read-out falls back to the combinator
-   namer / raw sexp (no partial `?` rendering).
-4. Do Phase 2 at all, or is Phase 1 enough?
-   → **Resolved:** both built and composed. Phase 1 reads data values egg can't;
-   Phase 2 (behavioural→egg) names combinators the value reader can't. Neither
-   subsumes the other, so the lens runs value reader → re-folder → raw.
+---
 
-## Pointers
+## Sequencing & mechanics
 
-- `src/core/term.ts` — `Node`, `app`, `freeVar`, `decode`, `iotaTreeFrom`, `IOTA_ID_SPAN`.
-- `src/core/reduce.ts` — `normalize(node, cap)`, `step`.
-- `src/core/probe.ts` — the apply-to-fresh-vars + `structKey` pattern to copy.
-- `src/core/catalog.ts` — `CATALOG`, the encodings, `iotaTreeOf`, `IOTA_BITCODE`.
-- `src/app.ts` — `exprOf` and the read-out ticker (where to surface the value).
-- Verify headless with the cached Playwright chromium + the `__combinate` dev seam.
+1. Merge `roadmap` (ADRs 0005–0008 + `CONTEXT.md` + this PLAN) → `main`, so every
+   worktree shares them.
+2. Run **Phase 0 (nix-shell)** and **Phase A (foundation)** concurrently — they are
+   independent.
+3. Fan out **Phase B** into three worktree streams once A lands; B3 integrates the
+   Phase 0 blob when ready.
+4. Keep the **differential oracle** as a dev/CI test throughout (coexists with the
+   live compiler).
+
+## Implementation defaults (leftover UX detail, decided in-stream)
+
+- Challenge set: ~6–8 starters (ι-cycle birds; build `I`/`K` in fewest ι; reduce to
+  a target list). URL schema: versioned base64url of bit-code+flags.
+- Sonification: combinator *family* by head symbol from the rule-trace.
+- Authoring: hole gesture = drag a leaf out into a marked hole; multi-hole deferred;
+  user-combinator names namespaced to avoid catalog collisions.
+- Leaderboard backing store (append-only): DuckDB file over httpfs vs a one-line
+  serverless write — decided when leaderboards land.
