@@ -26,6 +26,7 @@ import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
 import { Zoo } from "./view/zoo";
 import { MhsPanel } from "./view/mhs/panel";
+import { preloadCompiler } from "./view/mhs/compiler";
 import { theme, initTheme, toggleMode, onThemeChange } from "./view/theme";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
@@ -47,7 +48,7 @@ type Drag =
 /** Wire the functional core to a Pixi scene: hotbar → spawn, drag → move/snap,
  * auto-reduce on idle (cancelled on touch), plus a pannable/zoomable camera
  * (§5.3, §6). */
-export async function mountApp(): Promise<void> {
+export async function mountApp(onStep: (label: string) => void = () => {}): Promise<void> {
   initTheme(); // pick light/dark from the OS before anything paints
   const pixi = new Application();
   // resolution + autoDensity render at device pixel density so text/edges are
@@ -55,6 +56,7 @@ export async function mountApp(): Promise<void> {
   // pixels (e.g. 3× on iPhones, ~2.25× the work) aren't perceptible but cost fps.
   await pixi.init({ background: theme.bg, resizeTo: window, antialias: true, resolution: Math.min(window.devicePixelRatio || 1, 2), autoDensity: true });
   document.body.appendChild(pixi.canvas);
+  onStep("renderer"); // splash step 1/3
 
   const world = new Container();
   const ghostLayer = new Container();
@@ -157,6 +159,7 @@ export async function mountApp(): Promise<void> {
       /* malformed stored definition — drop it */
     }
   }
+  onStep("catalog"); // splash step 2/3
 
   // S-expression of a term; an undiscovered S/K/I is shown as its full ι-tree
   // (not its letter), matching the tree view, so the read-out never spoils a
@@ -1104,6 +1107,18 @@ export async function mountApp(): Promise<void> {
     l2.position.set(34, 11);
     c.addChild(l1, l2);
   }
+
+  // Preload the re-folding lens wasm during the splash (it's otherwise lazy on
+  // first toggle). A real asset fetch — and it makes the lens instant when first
+  // used. ensureRefolder swallows a load failure (the behavioural-only re-folder
+  // still works), so this never blocks startup.
+  await ensureRefolder();
+  onStep("lenses"); // splash step 3/4
+
+  // Warm the MicroHs live-compile blob + cache (the 3 MB compiler), so the Haskell
+  // panel is ready and its first compile doesn't pay the download. Best-effort.
+  await preloadCompiler();
+  onStep("compiler"); // splash step 4/4
 
   // Dev-only test seam (stripped from production builds): expose tree state so
   // an end-to-end driver can assert on spawn/snap/reduce.

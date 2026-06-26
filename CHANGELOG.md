@@ -4,6 +4,35 @@ All notable changes to **Combinate** — an interactive ι (iota) / SKI combinat
 sandbox. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses a single integer major per release (`vN.0`).
 
+## [8.0.0] — 2026-06-26
+
+### Added
+
+- **Live in-browser Haskell compile** — the Haskell panel can now compile
+  free-typed source, not just the curated gallery. A stock MicroHs **batch blob**
+  (`mhs-batch.js`, built from a pinned `nix-shell` via `nix/build-wasm.sh`) runs the
+  whole compiler in a Web Worker and emits a `-ddump-combinator` dump, which the
+  existing pure `core/mhs.ts` post-processes into an ι tree (no MicroHs fork). A
+  prewarmed Prelude module cache (`base.mhscache`, read with `-CR`) halves the
+  compile time (~65s cold → ~30s). The MicroHs fork is vendored as a git submodule.
+- **Boot splash** — a startup screen (in `index.html`, painting before any module
+  loads) with the Combinate wordmark, the **Y combinator's SKI tree** rendered as an
+  inline SVG (the canvas's radial layout + function/argument edge colours), and a
+  progress bar driven by four real startup milestones (renderer · catalog · lenses ·
+  compiler). The re-folding lens wasm and the live-compile blob + cache are preloaded
+  here, so they're instant on first use. Themed via `prefers-color-scheme`.
+
+### Changed
+
+- **DuckDB loads from the jsDelivr CDN** (`getJsDelivrBundles()`) instead of being
+  vendored from our own origin — a third-party ~76 MB engine isn't ours to host.
+- **Base-aware vendor URLs** (`src/vendorUrl.ts`): runtime-fetched public assets now
+  resolve `BASE_URL + path` against `document.baseURI`, so the vendored wasm/blobs
+  serve correctly on GitHub Pages' `/Combinate/` subpath (a bare `/vendor/...` would
+  404 there). The deploy workflow fetches the MicroHs runtime (blob + cache + gallery
+  dumps) from the **`vendor-assets` GitHub Release** at build time — too heavy to
+  build in CI, never committed (ADR 0007).
+
 ## [7.0.0] — 2026-06-26
 
 ### Added

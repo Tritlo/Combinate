@@ -1,6 +1,6 @@
 # 7. In-browser MicroHs Haskell→combinator compiler (v8, the wow feature)
 
-**Status:** accepted — **implemented via post-processing a *stock* dump (no fork)**, superseding the original "vendor a forked compile-only slice" decision. Gallery path shipped and verified; live free-typing is experimental. See *Revised decision* below; the original decision/context is kept beneath it as history.
+**Status:** accepted — **implemented via post-processing a *stock* dump (no fork)**, superseding the original "vendor a forked compile-only slice" decision. Gallery path shipped and verified; live free-typing works via a batch blob (route 2) but is slow. See *Revised decision* and *Live compile* below; the original decision/context is kept beneath them as history.
 
 ## Revised decision (2026-06-26): post-process a stock dump, don't fork
 
@@ -33,23 +33,59 @@ render Scott numerals as glyphs/strings.
   the reachable defs, vendored as small `.comb` assets, and post-processed +
   reduced in-browser. Verified end-to-end: `2*2`→4, `map (+1) [1,2,3]`→[2,3,4],
   `foldr (+) 0`→15, `filter (<3)`→[1,2], `reverse "abc"`→"cba", `fac 3`→6.
-- **Live free-typing:** wired through the stock blob in a Web Worker, but the
-  vendored blob is the *interactive playground* build whose base package isn't set
-  up for a headless batch compile — so it degrades to an honest message for now.
-  A clean live path needs a batch blob (or a `compileToComb` export, or replicating
-  the playground's package FS). The gallery is the headline either way.
+- **Live free-typing:** compiles in-browser via a dedicated **batch** MicroHs blob
+  (`nix/build-wasm.sh`, "route 2" — see *Live compile* below). Functional and
+  verified, but **slow** (~1–2 min: it recompiles the Prelude from embedded source
+  each time). The gallery is the instant path.
 - **Vendoring (ADR 0008-adjacent):** `scripts/vendor-wasm.sh` copies the DuckDB
   engine + the MicroHs blob into `public/vendor/` (git-ignored); served from our own
   origin, CDN-swappable later.
 
-**Known limitation — no graph sharing.** The sandbox reducer clones rather than
-shares, so Scott `×` (repeated addition) makes multiplication-*recursion*
-exponential: `fac 3` is fine (~3 s), `fac 4+` blows up. The gallery is curated to
-linear/structural programs; **graph reduction (sharing) is the follow-up** that
-unlocks factorial-scale programs (and would speed every existing reduction).
+**Graph sharing — resolved (v7.0).** The sandbox reducer cloned rather than shared,
+making Scott `×`-recursion exponential (`fac 4+` blew up). An opt-in `graph` toggle
+now adds **call-by-need graph reduction** (`src/core/graph.ts`): `fac` is linear,
+and the live reduction renders as a **DAG** (sharing made visible). OFF parity is
+byte-identical. (See the thesis cross-check in *Live compile* below.)
 
 This **supersedes ADR 0002's** "build the WASM in CI" rule only for the *blob* (a
 vendored prebuilt, hosted later); the post-processor itself is ordinary CI-built TS.
+
+## Live compile (route 2) — batch blob + a thesis cross-check (2026-06-26)
+
+The live path is a real, reproducible build, gated only on speed:
+
+- **Build (`nix/build-wasm.sh` + `nix/shell.nix` + the `vendor/microhs` submodule,
+  pinned to nixpkgs 25.11 → ghc 9.10.3 + emcc 4.0.12).** The stock playground blob
+  *can't* be driven headless: it's `[emscripten_web]` (ASYNCIFY + USE_WEB_INPUT,
+  **no EXIT_RUNTIME**), so a headless `-ddump-combinator` produces the dump but
+  never flushes stdout. The fix is a `[emscripten_batch]` target (MEMFS +
+  EXIT_RUNTIME, no ASYNCIFY/USE_WEB_INPUT). The blob is built **entirely with the
+  GHC-built `gmhs`** because, in our Linux/nix env, the self-hosted `bin/mhs` OOMs
+  on *any* program (its eval-heap `mmalloc` fails) and `gmhs` lacks the eval-only
+  `-z` (compress) and `.pkg` serialization. So: no `-z` (emcc handles the
+  uncompressed array — the old `make mhs.js` OOM was always `bin/mhs`), and `base`
+  shipped as **source embedded in the WASM FS** (`emcc --embed-file lib@/lib`)
+  rather than as a serialized package.
+- **Driving (`src/view/mhs/worker.ts`).** In a browser Worker: `Module.arguments`
+  + auto-run (`callMain` re-enters and blows the JS stack), `preRun` writes `Ex.hs`,
+  compile with `-i. -i/lib`, report from `postRun`/`onExit`. Verified to produce the
+  exact `-ddump-combinator` form the post-processor consumes.
+- **The cost.** Because there's no precompiled `base.pkg` (gmhs can't serialize),
+  every compile recompiles the Prelude from source in the wasm evaluator (~1–2 min).
+  **Fast live compile needs a precompiled base**, which needs an upstream MicroHs
+  fix (a working self-hosted `bin/mhs`, or `.pkg` serialization in the GHC build).
+
+**Thesis cross-check.** Apoorva Anand, *Towards a WebAssembly Backend for MicroHs*
+(Utrecht U. MSc, 2025), attempts a native **WasmGC** backend and **could not run any
+Haskell program** — porting MicroHs's runtime (50+ primitive tags; even Church
+numerals pull in the Prelude) proved too much — confirming the **C/Emscripten path
+we use is the working one**. It also independently validates our v7.0 reducer: its
+SK machine is exactly `src/core/graph.ts` — `appNode(left,right)` ≡ our app cell,
+the "left ancestor stack (LAS)" ≡ our spine unwind, and a "table" whose definitions
+"might or might not have already been reduced" ≡ our `ind`-based sharing. And it
+confirms the primitive wall (`main = print 42` → **466** definitions) — which
+Combinate sidesteps by *visualising* the ι-encodable fragment rather than *running*
+programs.
 
 ---
 
@@ -138,3 +174,28 @@ reduction.
   compiler subsumes the baked-bitcode import path), and the differential oracle
   survives as separate dev/CI correctness infra (`reduce.ts` vs MicroHs `iota/check`
   on random terms).**
+
+## Deployment & vendoring (implemented, v8.0)
+
+The runtime assets are **not in git** (ADR 0002 exception, above) and are **not built
+in CI** (the emscripten + self-hosting-Haskell build is too heavy for the Pages
+workflow). Instead:
+
+- **MicroHs runtime** — `mhs-batch.js` (the batch blob), `base.mhscache` (prewarmed
+  Prelude cache), and the gallery `examples/*.comb` are bundled into
+  `mhs-vendor.tar.gz` and hosted on the **`vendor-assets` GitHub Release**. The Pages
+  workflow pulls it with `gh release download` (the repo is private; the workflow's
+  `GITHUB_TOKEN`/`contents: read` authorises it), extracts it into `public/vendor/mhs/`,
+  and `vite build` copies it into `dist/`. Re-upload with `--clobber` on the
+  infrequent MicroHs bumps.
+- **DuckDB** (ADR 0008) — a third-party ~76 MB engine, **not our responsibility to
+  host**: loaded from the **jsDelivr CDN** at runtime via `getJsDelivrBundles()`. Not
+  vendored at all.
+- **Base-aware URLs** — the SPA is built with vite `base: "./"` so it hosts from the
+  `/Combinate/` Pages subpath. Runtime-fetched public assets (which vite does *not*
+  rewrite) go through `src/vendorUrl.ts` (`BASE_URL + path` resolved against
+  `document.baseURI`), so a `/vendor/...` asset resolves on the subpath, not the
+  origin root. The live-compile worker gets the blob's absolute URL by message (it
+  has no `document` to resolve against).
+- **Splash preload** — the boot splash warms the blob + cache (and the refold lens
+  wasm) up front, so the panel's first compile doesn't pay the 3 MB download.
