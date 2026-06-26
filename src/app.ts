@@ -7,7 +7,7 @@ import {
   Text,
 } from "pixi.js";
 import { app as mkApp, comb, decode, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
-import { step, firingRule } from "./core/reduce";
+import { firingRule, redexAt } from "./core/reduce";
 import { GraphReducer, evalShared } from "./core/graph";
 import { encodePermalink, decodePermalink, type Modes } from "./core/permalink";
 import { LocalStore } from "./store/local";
@@ -450,13 +450,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
     a.grapher = undefined; // optimize/raw path: no live graph
 
-    const next = step(tree.node, 0, fastMode);
-    if (!next) {
+    // One traversal yields both the rule to sonify and the contractum to animate.
+    const redex = redexAt(tree.node, 0, fastMode);
+    if (!redex) {
       settle(tree); // normal form reached — recognise + collapse to a named node
       void challenges.onNormalForm(a.source ?? tree.node); // golf: score the built tree
       return;
     }
-    sound.tick(firingRule(tree.node, fastMode)); // sonify the rule about to fire
+    const next = redex.build(); // build before the side effects (sound/step count)
+    sound.tick(redex.sym); // sonify the rule about to fire
     a.steps++;
     tree.animateTo(next, stepDur(), () => {
       const a2 = auto.get(tree);
@@ -480,7 +482,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       }
     } else if (wasPaused) {
       for (const [tree, a] of auto) {
-        if (step(tree.node, 0, fastMode)) {
+        if (redexAt(tree.node, 0, fastMode)) {
           a.gen++;
           const gen = a.gen;
           a.timer = window.setTimeout(() => stepAuto(tree, gen), 0);
