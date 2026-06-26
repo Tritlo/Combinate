@@ -7,7 +7,7 @@ import {
   Text,
 } from "pixi.js";
 import { app as mkApp, comb, decode, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
-import { step, firingRule } from "./core/reduce";
+import { firingRule, redexAt } from "./core/reduce";
 import { GraphReducer, evalShared } from "./core/graph";
 import { encodePermalink, decodePermalink, type Modes } from "./core/permalink";
 import { LocalStore } from "./store/local";
@@ -27,7 +27,8 @@ import { Toast } from "./view/toast";
 import { Zoo } from "./view/zoo";
 import { MhsPanel } from "./view/mhs/panel";
 import { preloadCompiler } from "./view/mhs/compiler";
-import { theme, initTheme, toggleMode, onThemeChange } from "./view/theme";
+import { theme, initTheme, toggleMode, currentMode, onThemeChange } from "./view/theme";
+import { MenuBar, type Menu } from "./view/menubar";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
 const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducing (§6.4)
@@ -85,12 +86,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   let expandAll = false; // "Expand" view: draw every combinator as its full ι-tree
   let fastMode = false; // "optimize" mode: reduce named combinators by their rule (not raw SKI)
   let shareMode = false; // "graph" mode: call-by-need graph reduction, shared subterms drawn as one node
+  let menuBar: MenuBar | undefined; // the top menu bar (built below); paintRail() refreshes its open pull-down
 
   const hint = new Text({
     text: "drag ι · snap trees · they reduce on their own · right-click deletes a node",
     style: { fontFamily: "monospace", fontSize: 14, fill: theme.textDim },
   });
-  hint.position.set(16, 14);
+  hint.position.set(16, 30); // below the menu bar
   hud.addChild(hint);
 
   const legend = new Container();
@@ -114,9 +116,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   nextHint.anchor.set(0.5, 0);
   hud.addChild(nextHint);
   const placeExpr = () => {
-    exprText.position.set(window.innerWidth / 2, 18);
+    exprText.position.set(window.innerWidth / 2, 32); // below the menu bar
     nextHint.style.wordWrapWidth = Math.min(940, window.innerWidth - 120);
-    nextHint.position.set(window.innerWidth / 2, 44);
+    nextHint.position.set(window.innerWidth / 2, 58);
   };
   placeExpr();
 
@@ -450,13 +452,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
     a.grapher = undefined; // optimize/raw path: no live graph
 
-    const next = step(tree.node, 0, fastMode);
-    if (!next) {
+    // One traversal yields both the rule to sonify and the contractum to animate.
+    const redex = redexAt(tree.node, 0, fastMode);
+    if (!redex) {
       settle(tree); // normal form reached — recognise + collapse to a named node
       void challenges.onNormalForm(a.source ?? tree.node); // golf: score the built tree
       return;
     }
-    sound.tick(firingRule(tree.node, fastMode)); // sonify the rule about to fire
+    const next = redex.build(); // build before the side effects (sound/step count)
+    sound.tick(redex.sym); // sonify the rule about to fire
     a.steps++;
     tree.animateTo(next, stepDur(), () => {
       const a2 = auto.get(tree);
@@ -480,7 +484,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       }
     } else if (wasPaused) {
       for (const [tree, a] of auto) {
-        if (step(tree.node, 0, fastMode)) {
+        if (redexAt(tree.node, 0, fastMode)) {
           a.gen++;
           const gen = a.gen;
           a.timer = window.setTimeout(() => stepAuto(tree, gen), 0);
@@ -526,42 +530,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   );
   hotbar.refresh();
   hud.addChild(hotbar.container);
-  const rail = new Container(); // left-edge button rail (built below); under the Zoo overlay
-  hud.addChild(rail);
-  hud.addChild(zoo.container); // last → the Zoo overlay sits on top of the hotbar + rail
+  hud.addChild(zoo.container); // last → the Zoo overlay sits on top of the hotbar
 
   // ---- golf challenges + leaderboard + sonification (ADR 0005) ----
   // (the shared `store` is declared up top, with the authoring load.)
   const sound = new Sound();
   const challenges = new ChallengePanel(store, { notify: (m) => toast.show(m), onShare: (token) => shareToken(token) });
-  hud.addChild(challenges.container); // overlays the hotbar + rail, like the Zoo
-
-  // ---- hover tooltips (desktop): a one-line explanation of each rail setting,
-  // shown beside the hovered button (mouse only — no flash on touch taps). ----
-  const tip = new Container();
-  tip.visible = false;
-  tip.eventMode = "none";
-  const tipBg = new Graphics();
-  const tipText = new Text({ text: "", style: { fontFamily: "monospace", fontSize: 12, fill: theme.text, wordWrap: true, wordWrapWidth: 260, lineHeight: 16 } });
-  tipText.anchor.set(0, 0.5);
-  tipText.position.set(10, 0);
-  tip.addChild(tipBg, tipText);
-  hud.addChild(tip);
-  function showTip(msg: string, cx: number, cy: number, side: "right" | "left" = "right"): void {
-    tipText.style.fill = theme.text;
-    tipText.text = msg;
-    const w = tipText.width + 20;
-    const h = tipText.height + 14;
-    tipBg.clear().roundRect(0, -h / 2, w, h, 7).fill({ color: theme.panel }).stroke({ width: 1, color: theme.border });
-    let px = side === "right" ? cx + 30 : cx - 30 - w; // beside the 44px button
-    px = Math.max(8, Math.min(px, window.innerWidth - w - 8));
-    const py = Math.max(h / 2 + 8, Math.min(cy, window.innerHeight - h / 2 - 8));
-    tip.position.set(px, py);
-    tip.visible = true;
-  }
-  const hideTip = (): void => {
-    tip.visible = false;
-  };
+  hud.addChild(challenges.container); // overlays the hotbar, like the Zoo
 
   // Haskell → ι panel (ADR 0007): compile a curated or free-typed program (stock
   // MicroHs dump, post-processed) and drop the resulting combinator tree on the
@@ -784,31 +759,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   placeLegend();
   zoo.layout();
 
-  // ---- light/dark toggle (top-right): defaults to the OS scheme, a click pins it ----
-  const themeBtn = new Container();
-  themeBtn.eventMode = "static";
-  themeBtn.cursor = "pointer";
-  themeBtn.hitArea = new Rectangle(-18, -18, 36, 36);
-  themeBtn.on("pointerdown", (e: FederatedPointerEvent) => {
-    e.stopPropagation();
-    toggleMode();
-  });
-  themeBtn.on("pointerover", (e: FederatedPointerEvent) => {
-    if (e.pointerType === "mouse") showTip("Toggle light / dark theme", themeBtn.getGlobalPosition().x, themeBtn.getGlobalPosition().y, "left");
-  });
-  themeBtn.on("pointerout", hideTip);
-  hud.addChild(themeBtn);
-  const placeThemeBtn = () => themeBtn.position.set(window.innerWidth - 30, 30);
-  const paintThemeBtn = (): void => {
-    for (const c of themeBtn.removeChildren()) c.destroy({ children: true });
-    const g = new Text({ text: "◐", style: { fontFamily: "monospace", fontSize: 22, fill: theme.textDim } });
-    g.anchor.set(0.5);
-    themeBtn.addChild(g);
-  };
-  paintThemeBtn();
-  placeThemeBtn();
-
-  // Repaint the whole scene when the theme changes (OS change or manual toggle).
+  // Repaint the whole scene when the theme changes (OS change or menu toggle). The
+  // menu bar restyles itself via its own onThemeChange listener.
   function applyTheme(): void {
     pixi.renderer.background.color = theme.bg;
     hint.style.fill = theme.textDim;
@@ -816,8 +768,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     nextHint.style.fill = theme.textDim;
     ghostLabel.style.fill = theme.text;
     paintLegend(legend);
-    paintThemeBtn();
-    paintRail();
     hotbar.refresh();
     zoo.applyTheme();
     challenges.applyTheme();
@@ -829,8 +779,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     fitStage();
     hotbar.layout();
     placeLegend();
-    placeThemeBtn();
-    placeRail();
     toast.layout();
     placeExpr();
     zoo.layout();
@@ -863,176 +811,58 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     paintRail();
   }
 
-  // ---- left rail: open the Zoo (Pokédex) + canvas actions. Touch-friendly
-  // equivalents of the T / R / U keys; each draws a small glyph + a label. ----
-  const drawDex = (g: Graphics, c: number): void => {
-    g.circle(0, -3, 10).stroke({ width: 2.5, color: c }); // scanner lens ring
-    g.circle(0, -3, 4).fill({ color: c }); // lens centre
-    g.circle(9, -12, 2).fill({ color: c }); // LED
-    g.circle(13.5, -12, 1.5).fill({ color: theme.textDim }); // LED
-    g.roundRect(-9, 9, 18, 4, 1.5).stroke({ width: 1.5, color: c }); // screen strip
+  // ---- top menu bar (System 1 Macintosh): the old left rail folded into
+  // pull-downs. Reuses the action callbacks below; a ✓ marks an active toggle,
+  // a • the selected option in a group. paintRail() (kept for its many callers)
+  // now just refreshes the open pull-down's checkmarks. ----
+  const setLayoutMode = (fn: LayoutFn): void => {
+    if (layoutFn !== fn) toggleLayout();
   };
-  const drawLayout = (g: Graphics, c: number): void => {
-    const ends: [number, number][] = [[-10, 8], [10, 8], [0, -11]];
-    for (const [x, y] of ends) g.moveTo(0, 0).lineTo(x, y);
-    g.stroke({ width: 2, color: c });
-    g.circle(0, 0, 3.5).fill({ color: c });
-    for (const [x, y] of ends) g.circle(x, y, 3).fill({ color: c });
-  };
-  const drawClear = (g: Graphics, c: number): void => {
-    g.roundRect(-4, -12, 8, 3, 1).stroke({ width: 2, color: c }); // handle
-    g.moveTo(-10, -7).lineTo(10, -7).stroke({ width: 2.5, color: c }); // lid
-    g.moveTo(-8, -5).lineTo(-6, 12).lineTo(6, 12).lineTo(8, -5).stroke({ width: 2, color: c }); // body
-    g.moveTo(-3, -2).lineTo(-2, 9).moveTo(3, -2).lineTo(2, 9).stroke({ width: 1.5, color: c }); // ribs
-  };
-  const drawUnlock = (g: Graphics, c: number): void => {
-    g.roundRect(-8, 0, 16, 13, 2.5).stroke({ width: 2, color: c }); // body
-    g.circle(0, 6, 1.8).fill({ color: c }); // keyhole
-    g.arc(-4, -2, 6, Math.PI * 0.5, Math.PI * 1.6).stroke({ width: 2, color: c }); // open shackle
-  };
-  const drawExpand = (g: Graphics, c: number): void => {
-    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as [number, number][]) {
-      g.moveTo(sx * 3, sy * 3).lineTo(sx * 11, sy * 11); // shaft to corner
-      g.moveTo(sx * 11, sy * 11).lineTo(sx * 4, sy * 11).moveTo(sx * 11, sy * 11).lineTo(sx * 11, sy * 4); // arrowhead
-    }
-    g.stroke({ width: 2, color: c });
-  };
-  const drawRefold = (g: Graphics, c: number): void => {
-    g.moveTo(-9, -11).lineTo(0, -1).moveTo(9, -11).lineTo(0, -1); // two strands fold in
-    g.moveTo(0, -1).lineTo(0, 11); // into one stem
-    g.stroke({ width: 2, color: c });
-    g.moveTo(0, 12).lineTo(-3.5, 7).moveTo(0, 12).lineTo(3.5, 7).stroke({ width: 2, color: c }); // arrowhead
-    g.circle(0, -1, 2.5).fill({ color: c }); // join
-  };
-  const drawType = (g: Graphics, c: number): void => {
-    g.circle(-9, 0, 2.5).fill({ color: c }); // a value …
-    g.moveTo(-5, 0).lineTo(9, 0).stroke({ width: 2, color: c }); // … through a function arrow (a → b)
-    g.moveTo(9, 0).lineTo(4, -5).moveTo(9, 0).lineTo(4, 5).stroke({ width: 2, color: c }); // arrowhead
-  };
-  // Transport icon reflects the current mode: play ▶ / pause ‖ / fast-forward ⏩.
-  const drawTransport = (g: Graphics, c: number): void => {
-    if (transport === "pause") {
-      g.roundRect(-7, -9, 5, 18, 1.5).fill({ color: c });
-      g.roundRect(2, -9, 5, 18, 1.5).fill({ color: c });
-    } else if (transport === "ff") {
-      g.moveTo(-11, -9).lineTo(-1, 0).lineTo(-11, 9).fill({ color: c });
-      g.moveTo(0, -9).lineTo(10, 0).lineTo(0, 9).fill({ color: c });
-    } else {
-      g.moveTo(-6, -10).lineTo(9, 0).lineTo(-6, 10).fill({ color: c });
-    }
-  };
-  // A lightning bolt — "optimize" mode (reduce named combinators by their rule).
-  const drawOptimize = (g: Graphics, c: number): void => {
-    g.poly([3, -12, -7, 2, -1, 2, -4, 12, 8, -3, 2, -3]).fill({ color: c });
-  };
-  // Two parents converging on one node — "graph" mode (call-by-need sharing).
-  const drawGraph = (g: Graphics, c: number): void => {
-    g.moveTo(-8, -9).lineTo(0, 5).moveTo(8, -9).lineTo(0, 5).stroke({ width: 2, color: c }); // two edges into the shared node
-    g.circle(-8, -10, 2.6).fill({ color: c }); // left parent
-    g.circle(8, -10, 2.6).fill({ color: c }); // right parent
-    g.circle(0, 7, 3.6).fill({ color: c }); // the one shared node
-  };
-  // A pennant on a pole — the golf challenges / leaderboard.
-  const drawGolf = (g: Graphics, c: number): void => {
-    g.moveTo(-7, -12).lineTo(-7, 12).stroke({ width: 2, color: c }); // pole
-    g.moveTo(-7, -12).lineTo(8, -7).lineTo(-7, -2).fill({ color: c }); // flag
-    g.circle(-7, 12, 2).fill({ color: c }); // ball at the base
-  };
-  // A musical note — the sonification toggle.
-  const drawSound = (g: Graphics, c: number): void => {
-    g.moveTo(-1, -12).lineTo(-1, 8).stroke({ width: 2, color: c }); // stem
-    g.moveTo(-1, -12).lineTo(9, -9).lineTo(9, -4).lineTo(-1, -7).fill({ color: c }); // flag
-    g.circle(-5, 8, 4).fill({ color: c }); // note head
-  };
-  // Three linked nodes — the share action.
-  const drawShare = (g: Graphics, c: number): void => {
-    g.moveTo(8, -8).lineTo(-7, 0).moveTo(8, 8).lineTo(-7, 0).stroke({ width: 1.8, color: c }); // links
-    g.circle(8, -8, 3.5).fill({ color: c });
-    g.circle(8, 8, 3.5).fill({ color: c });
-    g.circle(-7, 0, 3.5).fill({ color: c });
-  };
-  // "Define" — a subtree collapsing into a single labelled block (a filled tag).
-  const drawDefine = (g: Graphics, c: number): void => {
-    g.moveTo(-9, -10).lineTo(0, -2).moveTo(9, -10).lineTo(0, -2).stroke({ width: 2, color: c }); // two branches fold in
-    g.roundRect(-7, 1, 14, 11, 3).fill({ color: c }); // into a named tag
-  };
-  // "Abstract" — pull a hole (○) out of a tree as a free variable (λ-style).
-  const drawAbstract = (g: Graphics, c: number): void => {
-    g.moveTo(-7, -11).lineTo(4, 11).moveTo(7, -11).lineTo(-1, 5).stroke({ width: 2, color: c }); // a lambda
-    g.circle(8, 8, 3.5).stroke({ width: 2, color: c }); // the hole
-  };
-  // A lambda λ — the Haskell → ι compile panel.
-  const drawHaskell = (g: Graphics, c: number): void => {
-    g.moveTo(-8, 12).lineTo(3, -11); // main stroke, bottom-left up to top
-    g.moveTo(-3, -1).lineTo(8, 12); // right leg branching off
-    g.moveTo(-2, -11).lineTo(3, -11); // small hook at the top
-    g.stroke({ width: 2.5, color: c });
-  };
-  type RailDef = { label: string | (() => string); tip: string; draw: (g: Graphics, c: number) => void; brand?: boolean; count?: boolean; active?: () => boolean; act: () => void };
-  const RAIL: RailDef[] = [
-    { label: "Dex", tip: "Open the Zoo — every combinator you've discovered, and the next to find", draw: drawDex, brand: true, count: true, act: () => zoo.toggle() },
-    { label: "layout", tip: "Switch the tree layout between top-down and radial", draw: drawLayout, act: () => toggleLayout() },
-    { label: () => transport, tip: "Play / pause / fast-forward the automatic reduction", draw: drawTransport, active: () => transport !== "play", act: () => cycleTransport() },
-    { label: "expand", tip: "Draw every named combinator as its full ι-tree", draw: drawExpand, active: () => expandAll, act: () => toggleExpand() },
-    { label: "refold", tip: "Re-fold the term into its most-named reading (e.g. S(KS)K → B)", draw: drawRefold, active: () => refoldOn, act: () => toggleRefold() },
-    { label: "type", tip: "Show the inferred type of the focused term", draw: drawType, active: () => typeOn, act: () => toggleType() },
-    { label: "optimize", tip: "Reduce named combinators by their rule, not raw SKI — far fewer steps", draw: drawOptimize, active: () => fastMode, act: () => { fastMode = !fastMode; paintRail(); } },
-    { label: "graph", tip: "Call-by-need graph reduction — shared subterms drawn once, as a DAG", draw: drawGraph, active: () => shareMode, act: () => { shareMode = !shareMode; if (focus) scheduleAuto(focus); paintRail(); } },
-    { label: "golf", tip: "Combinator golf — build target combinators in the fewest ι, with a leaderboard", draw: drawGolf, brand: true, active: () => challenges.isOpen, act: () => challenges.toggle() },
-    { label: "sound", tip: "Sonify reductions — play a tone on each step", draw: drawSound, active: () => sound.enabled, act: () => { sound.toggle(); paintRail(); } },
-    { label: "share", tip: "Copy a permalink to the focused tree (encodes the term + modes)", draw: drawShare, act: () => shareFocused() },
-    { label: "define", tip: "Name the focused tree as a new reusable combinator", draw: drawDefine, active: () => authorMode === "define", act: () => setAuthorMode("define") },
-    { label: "abstract", tip: "Pull a clicked node out as a free variable (λ-abstraction)", draw: drawAbstract, active: () => authorMode === "abstract", act: () => setAuthorMode("abstract") },
-    { label: "haskell", tip: "Compile Haskell to a combinator tree and drop it on the canvas", draw: drawHaskell, active: () => mhsPanel.isOpen, act: () => mhsPanel.toggle() },
-    { label: "clear", tip: "Remove every tree from the canvas", draw: drawClear, act: () => clearCanvas() },
-    { label: "unlock", tip: "Reveal every combinator at once (skip discovery)", draw: drawUnlock, act: () => unlockAll() },
+  const menus: Menu[] = [
+    { title: "ι", apple: true, items: [
+      { kind: "action", label: "About Combinate…", run: () => toast.show("Combinate — an interactive ι / SKI combinator-calculus sandbox") },
+      { kind: "sep" },
+      { kind: "toggle", label: "Dark mode", checked: () => currentMode() === "dark", run: () => toggleMode() },
+    ] },
+    { title: "File", items: [
+      { kind: "action", label: "Compile Haskell…", run: () => mhsPanel.open() },
+      { kind: "action", label: "Share link", run: () => shareFocused() },
+      { kind: "sep" },
+      { kind: "action", label: "Clear canvas", accel: "R", run: () => clearCanvas() },
+    ] },
+    { title: "Edit", items: [
+      { kind: "toggle", label: "Define combinator", accel: "D", checked: () => authorMode === "define", run: () => setAuthorMode(authorMode === "define" ? null : "define") },
+      { kind: "toggle", label: "Abstract variable", accel: "A", checked: () => authorMode === "abstract", run: () => setAuthorMode(authorMode === "abstract" ? null : "abstract") },
+      { kind: "sep" },
+      { kind: "action", label: "Unlock all combinators", accel: "U", run: () => unlockAll() },
+    ] },
+    { title: "View", items: [
+      { kind: "radio", label: "Top-down layout", accel: "T", on: () => layoutFn === layoutTopDown, run: () => setLayoutMode(layoutTopDown) },
+      { kind: "radio", label: "Radial layout", accel: "T", on: () => layoutFn === layoutRadial, run: () => setLayoutMode(layoutRadial) },
+      { kind: "sep" },
+      { kind: "toggle", label: "Expand ι-trees", accel: "X", checked: () => expandAll, run: () => toggleExpand() },
+      { kind: "toggle", label: "Type lens", checked: () => typeOn, run: () => toggleType() },
+      { kind: "toggle", label: "Re-fold lens", accel: "F", checked: () => refoldOn, run: () => toggleRefold() },
+    ] },
+    { title: "Reduce", items: [
+      { kind: "radio", label: "Play", on: () => transport === "play", run: () => setTransport("play") },
+      { kind: "radio", label: "Pause", on: () => transport === "pause", run: () => setTransport("pause") },
+      { kind: "radio", label: "Fast-forward", on: () => transport === "ff", run: () => setTransport("ff") },
+      { kind: "sep" },
+      { kind: "toggle", label: "Optimize (rule steps)", checked: () => fastMode, run: () => { fastMode = !fastMode; } },
+      { kind: "toggle", label: "Graph reduction (DAG)", checked: () => shareMode, run: () => { shareMode = !shareMode; if (focus) scheduleAuto(focus); } },
+      { kind: "sep" },
+      { kind: "toggle", label: "Sound", checked: () => sound.enabled, run: () => sound.toggle() },
+    ] },
+    { title: "Special", items: [
+      { kind: "toggle", label: "Zoo", accel: "Z", checked: () => zoo.isOpen, run: () => zoo.toggle() },
+      { kind: "toggle", label: "Golf challenges", accel: "G", checked: () => challenges.isOpen, run: () => challenges.toggle() },
+    ] },
   ];
-  const railButtons = RAIL.map((def) => {
-    const c = new Container();
-    c.eventMode = "static";
-    c.cursor = "pointer";
-    c.hitArea = new Rectangle(-26, -24, 52, 62);
-    c.on("pointerdown", (e: FederatedPointerEvent) => {
-      e.stopPropagation();
-      def.act();
-    });
-    c.on("pointerover", (e: FederatedPointerEvent) => {
-      if (e.pointerType === "mouse") showTip(def.tip, c.getGlobalPosition().x, c.getGlobalPosition().y, "right");
-    });
-    c.on("pointerout", hideTip);
-    rail.addChild(c);
-    return { def, c };
-  });
+  menuBar = new MenuBar(menus);
   function paintRail(): void {
-    for (const { def, c } of railButtons) {
-      for (const ch of c.removeChildren()) ch.destroy({ children: true });
-      const on = def.active?.() ?? false; // a toggle button in its "on" state
-      const accent = on || def.brand ? theme.iota : theme.accent;
-      const border = on || def.brand ? theme.iota : theme.border;
-      const bg = new Graphics().roundRect(-22, -22, 44, 44, 9).fill({ color: on ? theme.select : theme.panel }).stroke({ width: on ? 2 : 1.5, color: border });
-      const icon = new Graphics();
-      def.draw(icon, accent);
-      const labelText = typeof def.label === "function" ? def.label() : def.label;
-      const label = new Text({ text: labelText, style: { fontFamily: "monospace", fontSize: 11, fill: on ? theme.iota : theme.textDim } });
-      label.anchor.set(0.5, 0);
-      label.position.set(0, 24);
-      c.addChild(bg, icon, label);
-      if (def.count) {
-        const found = CATALOG.filter((l) => isDiscovered(l.sym)).length;
-        const cnt = new Text({ text: `${found}/${CATALOG.length}`, style: { fontFamily: "monospace", fontSize: 10, fill: theme.textDim } });
-        cnt.anchor.set(0.5, 0);
-        cnt.position.set(0, 37);
-        c.addChild(cnt);
-      }
-    }
+    menuBar?.refresh();
   }
-  function placeRail(): void {
-    const step = 72;
-    const top = window.innerHeight / 2 - ((railButtons.length - 1) * step) / 2;
-    railButtons.forEach(({ c }, i) => c.position.set(38, top + i * step));
-  }
-  paintRail();
-  placeRail();
 
   // ---- permalinks (ADR 0005): a tree + active modes <-> a URL-safe token. ----
   const MAX_HASH = 1800; // beyond this, share a downloadable .json instead of a link

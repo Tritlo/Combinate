@@ -32,9 +32,20 @@ function dedupIds(n: Node, seen: Set<NodeId>): Node {
   return n;
 }
 
+/** The next redex in normal order: the rule it fires (`sym`) and a thunk that
+ *  builds its contractum. `build` is the *only* allocating part — finding the
+ *  redex (and reading `sym`) never mints ids, so {@link firingRule} can name the
+ *  next step without cloning, and a stepping caller can read `sym` and `build()`
+ *  the result from one traversal. */
+interface Redex {
+  sym: string;
+  build: () => Node;
+}
+
 /**
- * One normal-order (leftmost-outermost) reduction step, or `null` if the term is
- * already in normal form. Mirrors the reducer in `../MicroHs/iota/Check.hs`:
+ * Find the leftmost-outermost redex of `n`, or `null` if it is in normal form.
+ * The single dispatch behind both {@link step} and {@link firingRule}. Mirrors
+ * the reducer in `../MicroHs/iota/Check.hs`:
  *
  * ```
  * ι x      → x S K
@@ -57,7 +68,7 @@ function dedupIds(n: Node, seen: Set<NodeId>): Node {
  * its SKI def and grinding ι/S/K/I. Off by default — raw SKI reduction (and
  * everything not in `RULES`: I/K/S/ι, undiscovered combinators) is unchanged.
  */
-export function step(n: Node, argsAbove = 0, fast = false): Node | null {
+export function redexAt(n: Node, argsAbove = 0, fast = false): Redex | null {
   if (n.kind !== "app") return null;
 
   // optimize mode: reduce the leftmost-outermost *named* head redex by its rule.
@@ -72,9 +83,14 @@ export function step(n: Node, argsAbove = 0, fast = false): Node | null {
       const rule = RULES[head.sym];
       const k = head.arity ?? 1;
       if (rule && args.length >= k) {
-        let res = rule(args.slice(0, k));
-        for (let i = k; i < args.length; i++) res = app(res, args[i]);
-        return dedupIds(res, new Set());
+        return {
+          sym: head.sym,
+          build: () => {
+            let res = rule(args.slice(0, k));
+            for (let i = k; i < args.length; i++) res = app(res, args[i]);
+            return dedupIds(res, new Set());
+          },
+        };
       }
     }
   }
@@ -82,40 +98,45 @@ export function step(n: Node, argsAbove = 0, fast = false): Node | null {
   const { fn, arg } = n;
 
   // ι x → x S K
-  if (fn.kind === "iota") return app(app(arg, comb("S")), comb("K"));
+  if (fn.kind === "iota") return { sym: "ι", build: () => app(app(arg, comb("S")), comb("K")) };
   // I x → x
-  if (fn.kind === "comb" && fn.sym === "I") return arg;
+  if (fn.kind === "comb" && fn.sym === "I") return { sym: "I", build: () => arg };
   // K x y → x          (n = ((K x) y),    so fn = (K x))
-  if (fn.kind === "app" && fn.fn.kind === "comb" && fn.fn.sym === "K") return fn.arg;
+  if (fn.kind === "app" && fn.fn.kind === "comb" && fn.fn.sym === "K") {
+    const x = fn.arg;
+    return { sym: "K", build: () => x };
+  }
   // S x y z → x z (y z) (n = (((S x) y) z), so fn = ((S x) y))
-  if (
-    fn.kind === "app" &&
-    fn.fn.kind === "app" &&
-    fn.fn.fn.kind === "comb" &&
-    fn.fn.fn.sym === "S"
-  ) {
+  if (fn.kind === "app" && fn.fn.kind === "app" && fn.fn.fn.kind === "comb" && fn.fn.fn.sym === "S") {
     const x = fn.fn.arg;
     const y = fn.arg;
     const z = arg;
     // z is duplicated: keep the original ids on the left (persist), fresh-clone
     // the right copy (the "copy" the view grows out of the source, §6.3).
-    return app(app(x, z), app(y, clone(z)));
+    return { sym: "S", build: () => app(app(x, z), app(y, clone(z))) };
   }
   // A collapsed named combinator with no built-in rule (A, X, cons, …) in head
   // position: unfold its definition so it can reduce like its ι-tree — but only
   // once it has enough arguments to be saturated (arity defaults to 1, i.e. the
   // old eager behaviour, if unknown).
   if (fn.kind === "comb" && fn.def && argsAbove + 1 >= (fn.arity ?? 1)) {
-    return app(clone(fn.def), arg);
+    const def = fn.def;
+    return { sym: fn.sym, build: () => app(clone(def), arg) };
   }
 
   // No rule fires at the root: recurse left spine first (one more arg above),
-  // then the argument (a fresh spine).
-  const fn2 = step(fn, argsAbove + 1, fast);
-  if (fn2) return { ...n, fn: fn2 };
-  const arg2 = step(arg, 0, fast);
-  if (arg2) return { ...n, arg: arg2 };
+  // then the argument (a fresh spine). Context apps keep their id (`{ ...n }`).
+  const f = redexAt(fn, argsAbove + 1, fast);
+  if (f) return { sym: f.sym, build: () => ({ ...n, fn: f.build() }) };
+  const a = redexAt(arg, 0, fast);
+  if (a) return { sym: a.sym, build: () => ({ ...n, arg: a.build() }) };
   return null;
+}
+
+/** One normal-order (leftmost-outermost) reduction step, or `null` if `n` is
+ *  already in normal form. See {@link redexAt} for the rules. */
+export function step(n: Node, argsAbove = 0, fast = false): Node | null {
+  return redexAt(n, argsAbove, fast)?.build() ?? null;
 }
 
 /** The result of running a term toward normal form. */
@@ -145,26 +166,10 @@ export function normalize(n: Node, cap = 10_000, fast = false): NormalizeResult 
 /**
  * The rule/combinator the next reduction step will fire — `"ι"`/`"I"`/`"K"`/`"S"`
  * for the built-ins, or a named bird's symbol — or `null` if `n` is in normal
- * form. Mirrors `step`'s dispatch without reducing, so the sonification layer
- * (PLAN.md Phase A / ADR 0005) can pick a tone per reduction without threading a
- * trace through `step` itself.
+ * form. Reads {@link redexAt}'s `sym` without building the contractum, so the
+ * sonification layer (PLAN.md Phase A / ADR 0005) can pick a tone per reduction
+ * without allocating.
  */
 export function firingRule(n: Node, fast = false, argsAbove = 0): string | null {
-  if (n.kind !== "app") return null;
-  if (fast) {
-    const args: Node[] = [];
-    let head: Node = n;
-    while (head.kind === "app") {
-      args.unshift(head.arg);
-      head = head.fn;
-    }
-    if (head.kind === "comb" && RULES[head.sym] && args.length >= (head.arity ?? 1)) return head.sym;
-  }
-  const { fn, arg } = n;
-  if (fn.kind === "iota") return "ι";
-  if (fn.kind === "comb" && fn.sym === "I") return "I";
-  if (fn.kind === "app" && fn.fn.kind === "comb" && fn.fn.sym === "K") return "K";
-  if (fn.kind === "app" && fn.fn.kind === "app" && fn.fn.fn.kind === "comb" && fn.fn.fn.sym === "S") return "S";
-  if (fn.kind === "comb" && fn.def && argsAbove + 1 >= (fn.arity ?? 1)) return fn.sym;
-  return firingRule(fn, fast, argsAbove + 1) ?? firingRule(arg, fast, 0);
+  return redexAt(n, argsAbove, fast)?.sym ?? null;
 }

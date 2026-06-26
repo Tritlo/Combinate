@@ -2,8 +2,6 @@ import { type Node, app, freeVar } from "./term";
 import { normalize } from "./reduce";
 import { CATALOG, type Law } from "./catalog";
 
-const VAR_NAMES = ["a", "b", "c", "d", "e", "f"];
-
 /** The first catalog law a term behaves as, or null if it realises none. */
 export function recognize(tree: Node, cap = 10_000): Law | null {
   for (const law of CATALOG) {
@@ -11,6 +9,35 @@ export function recognize(tree: Node, cap = 10_000): Law | null {
     if (probe(tree, law, cap)) return law;
   }
   return null;
+}
+
+/** The free-variable names occurring in a term (so probe vars can avoid them). */
+function freeNames(n: Node, acc = new Set<string>()): Set<string> {
+  switch (n.kind) {
+    case "free":
+      acc.add(n.name);
+      break;
+    case "app":
+      freeNames(n.fn, acc);
+      freeNames(n.arg, acc);
+      break;
+    case "comb":
+      if (n.def) freeNames(n.def, acc); // a def can surface free vars when it unfolds
+      break;
+  }
+  return acc;
+}
+
+/** `n` fresh free variables whose names avoid `used` — so applying a term to
+ *  them can't capture a free variable the term already contains (a term holding
+ *  a free `a` must not match `M x = x x` just because `a a` looks like `x x`). */
+function freshVars(n: number, used: Set<string>): Node[] {
+  const vars: Node[] = [];
+  for (let i = 0; vars.length < n; i++) {
+    const name = i < 26 ? String.fromCharCode(97 + i) : `v${i}`;
+    if (!used.has(name)) vars.push(freeVar(name));
+  }
+  return vars;
 }
 
 /**
@@ -22,7 +49,7 @@ export function recognize(tree: Node, cap = 10_000): Law | null {
  * Returns false if the term fails to reach a normal form within the step cap.
  */
 export function probe(tree: Node, law: Law, cap = 2000): boolean {
-  const vars = Array.from({ length: law.arity }, (_, i) => freeVar(VAR_NAMES[i]));
+  const vars = freshVars(law.arity, freeNames(tree));
   // Most laws apply the term to the fresh vars directly; a law may instead
   // supply specific arguments (e.g. Y is tested as Y (K a) ≡ a, since Y a alone
   // diverges — Y has no normal form).

@@ -4,6 +4,34 @@ All notable changes to **Combinate** — an interactive ι (iota) / SKI combinat
 sandbox. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses a single integer major per release (`vN.0`).
 
+## [10.0.0] — 2026-06-26
+
+A retro System 1 Macintosh re-skin of the chrome, plus a reducer simplification
+and a recognition fix.
+
+### Added
+
+- **System 1 Macintosh menu bar** — the 16-button left rail (and the theme
+  toggle) fold into a classic 1984 Mac menu bar: an ι where the Apple logo went,
+  and pull-downs (ι · File · Edit · View · Reduce · Special). Pure black-and-white
+  chrome that inverts for dark mode, in IoskeleyMono; ✓ marks active toggles, • the
+  selected option in a group, and items show their keyboard accelerator. An open
+  pull-down owns the keyboard, so global shortcuts don't fire underneath it.
+- **Early-Photoshop tool palette** — the combinator hotbar is now a black-and-white
+  palette window: the category tabs are its title strip over a grid of square tool
+  cells. Mono chrome (inverts for dark), the glyphs keep their colour, drag-to-spawn
+  unchanged.
+
+### Changed / Fixed
+
+- **reduce.ts** — `step()` and `firingRule()` unify into one `redexAt` dispatch; the
+  auto-reduce loop traverses the term once per step (rule + contractum) instead of
+  twice. Behaviour byte-identical (verified against the graph reducer).
+- **probe.ts** — `recognise()` no longer mis-recognises a term containing free vars
+  named `a..f`: probe vars now avoid the term's free-var names, so a bare free
+  variable no longer collapses to the Mockingbird `M`.
+- Renamed the **Zoo**'s "Pokédex" wording (trademark).
+
 ## [9.0.0] — 2026-06-26
 
 ### Added
