@@ -16,9 +16,10 @@ import { Sound } from "./view/sound";
 import { CATALOG, IOTA_CODE, HINTS, iotaTreeOf, countIotas, type Law } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
-import { makeRefolder, behavioralRefolder, recognizeDeep, fromEgg, type Refolder } from "./core/refold";
+import { makeRefolder, behavioralRefolder, recognizeDeep, fromEgg, toEgg, type Refolder } from "./core/refold";
 import { read, render, type Ty } from "./core/types";
 import { inferType } from "./core/infer";
+import { abstractLeaf, defineCombinator, findSubtree, isNameTaken, replaceSubtree, validateName } from "./core/authoring";
 import { TreeView } from "./view/tree";
 import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
@@ -134,6 +135,24 @@ export async function mountApp(): Promise<void> {
   // S/K/I nodes (undiscovered ones render as "?", revealed on discovery). ----
   const discovered = new Set<string>();
   const isDiscovered = (sym: string): boolean => discovered.has(sym);
+
+  // ---- authoring (ADR 0006): load the player's own combinators from the store
+  // and register each into the shared catalog *before* the Zoo/hotbar are built,
+  // so both pick them up. A user comb is the same object as a discovery — a named
+  // leaf backed by a tree — so it is also marked discovered. ----
+  // The shared persistence store (ADR 0008): LocalStore by default; `?store=duckdb`
+  // swaps in the DuckDB-WASM prototype behind the same port (lazy-loaded). Used by
+  // both authoring (definitions) and golf (bests/leaderboard).
+  const store = new URLSearchParams(location.search).get("store") === "duckdb" ? new DuckdbStore() : new LocalStore();
+  for (const d of await store.getDefinitions()) {
+    if (isNameTaken(d.name)) continue; // a name we already have (catalog or reload) — skip
+    try {
+      defineCombinator(d.name, fromEgg(d.egg));
+      discovered.add(d.name);
+    } catch {
+      /* malformed stored definition — drop it */
+    }
+  }
 
   // S-expression of a term; an undiscovered S/K/I is shown as its full ι-tree
   // (not its letter), matching the tree view, so the read-out never spoils a
@@ -279,6 +298,77 @@ export async function mountApp(): Promise<void> {
     paintRail();
   }
 
+  // ---- authoring verbs (ADR 0006): Define (name a subtree → a new block) and
+  // one-hole Abstract (mark a leaf as a hole → bracket-abstract the tree over
+  // it). A rail toggle arms a select mode; the next click on a tree node acts. ----
+  type AuthorMode = "define" | "abstract" | null;
+  let authorMode: AuthorMode = null;
+
+  function setAuthorMode(mode: AuthorMode): void {
+    authorMode = authorMode === mode ? null : mode;
+    paintRail();
+    if (authorMode === "define") toast.show("Define: click a subtree to name it as a new block");
+    else if (authorMode === "abstract") toast.show("Abstract: click a leaf to abstract the tree over it");
+  }
+
+  // Prompt for a fresh combinator name, validating against the catalog + existing
+  // user combinators (ADR 0006: reject collisions). Returns the trimmed name, or
+  // null if the player cancelled or entered an invalid one.
+  function promptName(): string | null {
+    const raw = window.prompt("name this combinator:");
+    if (raw === null) return null;
+    const err = validateName(raw);
+    if (err) {
+      toast.show(err);
+      return null;
+    }
+    return raw.trim();
+  }
+
+  // Register a freshly-authored combinator: append it to the catalog, persist it,
+  // reveal it in the hotbar, and seed the Zoo. Shared by Define and Abstract.
+  function register(name: string, body: Node): Law {
+    const law = defineCombinator(name, body);
+    discovered.add(name);
+    void store.putDefinition({ name, egg: toEgg(body) });
+    hotbar.refresh();
+    hotbar.reveal(name);
+    zoo.rebuild();
+    updateHint();
+    paintRail();
+    return law;
+  }
+
+  // Define: collapse the selected subtree into a named block, in place.
+  function doDefine(tree: TreeView, id: NodeId): void {
+    const sub = findSubtree(tree.node, id);
+    if (!sub) return;
+    const name = promptName();
+    if (!name) return;
+    const law = register(name, sub);
+    cancelAuto(tree);
+    tree.animateTo(replaceSubtree(tree.node, id, collapsedNode(law)), COLLAPSE_MS, () => {});
+    focus = tree;
+    toast.show(`defined ${name}`);
+  }
+
+  // Abstract: mark one leaf as a hole, bracket-abstract the whole tree over it,
+  // and replace the tree with the resulting (named) combinator.
+  function doAbstract(tree: TreeView, id: NodeId): void {
+    const body = abstractLeaf(tree.node, id);
+    if (!body) {
+      toast.show("pick a single leaf (not an application) to abstract over");
+      return;
+    }
+    const name = promptName();
+    if (!name) return;
+    const law = register(name, body);
+    cancelAuto(tree);
+    tree.animateTo(collapsedNode(law), COLLAPSE_MS, () => {});
+    focus = tree;
+    toast.show(`abstracted → ${name}`);
+  }
+
   // ---- auto-reduce on idle (§6.4): each tree, left untouched for a beat,
   // plays itself to normal form one tween at a time; touching it cancels. A
   // per-tree generation token invalidates pending callbacks on cancel. On
@@ -405,9 +495,7 @@ export async function mountApp(): Promise<void> {
   hud.addChild(zoo.container); // last → the Zoo overlay sits on top of the hotbar + rail
 
   // ---- golf challenges + leaderboard + sonification (ADR 0005) ----
-  // LocalStore is the working default; `?store=duckdb` swaps in the DuckDB-WASM
-  // prototype behind the same port (lazy-loaded on first use).
-  const store = new URLSearchParams(location.search).get("store") === "duckdb" ? new DuckdbStore() : new LocalStore();
+  // (the shared `store` is declared up top, with the authoring load.)
   const sound = new Sound();
   const challenges = new ChallengePanel(store, { notify: (m) => toast.show(m), onShare: (token) => shareToken(token) });
   hud.addChild(challenges.container); // overlays the hotbar + rail, like the Zoo
@@ -416,6 +504,14 @@ export async function mountApp(): Promise<void> {
   function onTreeDown(tree: TreeView, e: FederatedPointerEvent): void {
     if (e.button !== 0) return; // left-drag only; right-click is handled separately
     e.stopPropagation();
+    // An armed authoring mode consumes the click on a picked node instead of dragging.
+    if (authorMode) {
+      const id = tree.pickNode(e.global);
+      if (id !== null) (authorMode === "define" ? doDefine : doAbstract)(tree, id);
+      authorMode = null;
+      paintRail();
+      return;
+    }
     focus = tree;
     cancelAuto(tree); // touching a tree freezes it (§6.4)
     const w = screenToWorld(e.global.x, e.global.y);
@@ -767,6 +863,16 @@ export async function mountApp(): Promise<void> {
     g.circle(8, 8, 3.5).fill({ color: c });
     g.circle(-7, 0, 3.5).fill({ color: c });
   };
+  // "Define" — a subtree collapsing into a single labelled block (a filled tag).
+  const drawDefine = (g: Graphics, c: number): void => {
+    g.moveTo(-9, -10).lineTo(0, -2).moveTo(9, -10).lineTo(0, -2).stroke({ width: 2, color: c }); // two branches fold in
+    g.roundRect(-7, 1, 14, 11, 3).fill({ color: c }); // into a named tag
+  };
+  // "Abstract" — pull a hole (○) out of a tree as a free variable (λ-style).
+  const drawAbstract = (g: Graphics, c: number): void => {
+    g.moveTo(-7, -11).lineTo(4, 11).moveTo(7, -11).lineTo(-1, 5).stroke({ width: 2, color: c }); // a lambda
+    g.circle(8, 8, 3.5).stroke({ width: 2, color: c }); // the hole
+  };
   type RailDef = { label: string | (() => string); draw: (g: Graphics, c: number) => void; brand?: boolean; count?: boolean; active?: () => boolean; act: () => void };
   const RAIL: RailDef[] = [
     { label: "Dex", draw: drawDex, brand: true, count: true, act: () => zoo.toggle() },
@@ -779,6 +885,8 @@ export async function mountApp(): Promise<void> {
     { label: "golf", draw: drawGolf, brand: true, active: () => challenges.isOpen, act: () => challenges.toggle() },
     { label: "sound", draw: drawSound, active: () => sound.enabled, act: () => { sound.toggle(); paintRail(); } },
     { label: "share", draw: drawShare, act: () => shareFocused() },
+    { label: "define", draw: drawDefine, active: () => authorMode === "define", act: () => setAuthorMode("define") },
+    { label: "abstract", draw: drawAbstract, active: () => authorMode === "abstract", act: () => setAuthorMode("abstract") },
     { label: "clear", draw: drawClear, act: () => clearCanvas() },
     { label: "unlock", draw: drawUnlock, act: () => unlockAll() },
   ];
@@ -910,6 +1018,8 @@ export async function mountApp(): Promise<void> {
     else if (e.key === "f" || e.key === "F") toggleRefold();
     else if (e.key === "z" || e.key === "Z") zoo.toggle();
     else if (e.key === "g" || e.key === "G") challenges.toggle();
+    else if (e.key === "d" || e.key === "D") setAuthorMode("define");
+    else if (e.key === "a" || e.key === "A") setAuthorMode("abstract");
   });
 
   // Suppress the browser context menu so right-click can delete a node.
@@ -958,6 +1068,18 @@ export async function mountApp(): Promise<void> {
         permalink: () => (focus ? encodePermalink(focus.node, currentModes()) : null),
       },
       sound: { on: () => sound.enabled, toggle: () => sound.toggle() },
+      author: {
+        mode: () => authorMode,
+        setMode: (m: string | null) => setAuthorMode(m as AuthorMode),
+        // define a combinator from an egg s-expression body (returns an error or null)
+        define: (name: string, egg: string): string | null => {
+          const err = validateName(name);
+          if (err) return err;
+          register(name, fromEgg(egg));
+          return null;
+        },
+        defs: () => CATALOG.filter((l) => l.userDefined).map((l) => l.sym),
+      },
       refold: {
         on: () => refoldOn,
         ready: () => !!refolder,

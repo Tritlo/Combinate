@@ -42,6 +42,10 @@ export interface Law {
    * built-in rules.
    */
   def?: () => Node;
+  /** True for a player-authored combinator (ADR 0006): it lives in the catalog
+   *  like any other, but the behavioural probe skips it (it is *defined*, not
+   *  *discovered*, so it never auto-collapses another tree). */
+  userDefined?: boolean;
 }
 
 // ---- SK building blocks (for the few hand-written defs below) ----

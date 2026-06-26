@@ -128,6 +128,15 @@ export class Zoo {
     this.refresh();
   }
 
+  /** Re-derive the pages from the shared catalog/`PAGES` — call after the player
+   *  Defines a new combinator (a new Custom-page entry) so the Zoo picks it up. */
+  rebuild(): void {
+    this.pages.length = 0;
+    this.pages.push(...buildPages());
+    if (this.pageIdx >= this.pages.length) this.pageIdx = 0;
+    this.refresh();
+  }
+
   /** Rebuild the panel contents (after a discovery, unlock, open, or page switch). */
   refresh(): void {
     if (!this.panel.visible) return;
