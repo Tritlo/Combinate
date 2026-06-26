@@ -9,6 +9,7 @@
  * golf/leaderboard stream — this class is the local store + the seam for that.
  */
 import type { Store, Definition, Best, LeaderEntry } from "./port";
+import { vendorUrl } from "../vendorUrl";
 
 // The duckdb-wasm async connection surface we use (kept loose so the lazy import
 // stays the single source of the real types).
@@ -21,8 +22,8 @@ interface Conn {
 // scripts/vendor-wasm.sh). `selectBundle` picks `eh` where exception-handling is
 // supported, else falls back to `mvp`. Point these at a real CDN later.
 const VENDOR_BUNDLES = {
-  mvp: { mainModule: "/vendor/duckdb/duckdb-mvp.wasm", mainWorker: "/vendor/duckdb/duckdb-browser-mvp.worker.js" },
-  eh: { mainModule: "/vendor/duckdb/duckdb-eh.wasm", mainWorker: "/vendor/duckdb/duckdb-browser-eh.worker.js" },
+  mvp: { mainModule: vendorUrl("vendor/duckdb/duckdb-mvp.wasm"), mainWorker: vendorUrl("vendor/duckdb/duckdb-browser-mvp.worker.js") },
+  eh: { mainModule: vendorUrl("vendor/duckdb/duckdb-eh.wasm"), mainWorker: vendorUrl("vendor/duckdb/duckdb-browser-eh.worker.js") },
 };
 
 const SCHEMA = `
