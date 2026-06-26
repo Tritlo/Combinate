@@ -17,6 +17,14 @@ interface Conn {
   prepare(sql: string): Promise<{ query(...params: unknown[]): Promise<unknown>; close(): Promise<void> }>;
 }
 
+// Vendored DuckDB-WASM bundle (served from our own origin, not a CDN — see
+// scripts/vendor-wasm.sh). `selectBundle` picks `eh` where exception-handling is
+// supported, else falls back to `mvp`. Point these at a real CDN later.
+const VENDOR_BUNDLES = {
+  mvp: { mainModule: "/vendor/duckdb/duckdb-mvp.wasm", mainWorker: "/vendor/duckdb/duckdb-browser-mvp.worker.js" },
+  eh: { mainModule: "/vendor/duckdb/duckdb-eh.wasm", mainWorker: "/vendor/duckdb/duckdb-browser-eh.worker.js" },
+};
+
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS discovered(sym VARCHAR);
   CREATE TABLE IF NOT EXISTS definitions(name VARCHAR, egg VARCHAR);
@@ -32,7 +40,7 @@ export class DuckdbStore implements Store {
     if (this.connP) return this.connP;
     this.connP = (async () => {
       const duckdb = await import("@duckdb/duckdb-wasm");
-      const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
+      const bundle = await duckdb.selectBundle(VENDOR_BUNDLES);
       const worker = await duckdb.createWorker(bundle.mainWorker!);
       const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
       await db.instantiate(bundle.mainModule, bundle.pthreadWorker ?? undefined);
