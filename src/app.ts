@@ -279,6 +279,15 @@ export async function mountApp(): Promise<void> {
   // reaching normal form, probe it for a discovery (§7.1). ----
   const auto = new Map<TreeView, { gen: number; timer: number; steps: number }>();
 
+  // Playback transport (§6.4): auto-reduce can be paused/played, or fast-forwarded
+  // at 3× (shorter step tween + gap). Speed is read live, so play↔ff is seamless;
+  // only resuming from pause re-kicks the loop.
+  type Transport = "play" | "pause" | "ff";
+  let transport: Transport = "play";
+  const speed = (): number => (transport === "ff" ? 3 : 1);
+  const stepDur = (): number => STEP_MS / speed();
+  const stepGap = (): number => STEP_GAP / speed();
+
   function cancelAuto(tree: TreeView): void {
     const a = auto.get(tree);
     if (a) {
@@ -303,6 +312,7 @@ export async function mountApp(): Promise<void> {
   function stepAuto(tree: TreeView, gen: number): void {
     const a = auto.get(tree);
     if (!a || a.gen !== gen) return;
+    if (transport === "pause") return; // frozen — resume re-kicks from setTransport
     if (a.steps >= STEP_CAP) return; // still reducing — bail (non-termination guard)
     const next = step(tree.node);
     if (!next) {
@@ -310,12 +320,37 @@ export async function mountApp(): Promise<void> {
       return;
     }
     a.steps++;
-    tree.animateTo(next, STEP_MS, () => {
+    tree.animateTo(next, stepDur(), () => {
       const a2 = auto.get(tree);
       if (!a2 || a2.gen !== gen) return;
-      a2.timer = window.setTimeout(() => stepAuto(tree, gen), STEP_GAP);
+      if (transport === "pause") return; // paused mid-tween — stop scheduling
+      a2.timer = window.setTimeout(() => stepAuto(tree, gen), stepGap());
     });
   }
+
+  // Switch playback mode. Pause freezes every tree; resuming re-kicks the ones
+  // that still have a reduction left (settled trees stay put). play↔ff needs no
+  // re-kick — stepDur/stepGap read `transport` live.
+  function setTransport(mode: Transport): void {
+    const wasPaused = transport === "pause";
+    transport = mode;
+    paintRail();
+    if (mode === "pause") {
+      for (const [tree, a] of auto) {
+        clearTimeout(a.timer);
+        tree.stopAnimation();
+      }
+    } else if (wasPaused) {
+      for (const [tree, a] of auto) {
+        if (step(tree.node)) {
+          a.gen++;
+          const gen = a.gen;
+          a.timer = window.setTimeout(() => stepAuto(tree, gen), 0);
+        }
+      }
+    }
+  }
+  const cycleTransport = (): void => setTransport(transport === "play" ? "pause" : transport === "pause" ? "ff" : "play");
 
   // Stage receives pointer events over empty space (so panning works there).
   pixi.stage.eventMode = "static";
@@ -675,10 +710,23 @@ export async function mountApp(): Promise<void> {
     g.moveTo(-5, 0).lineTo(9, 0).stroke({ width: 2, color: c }); // … through a function arrow (a → b)
     g.moveTo(9, 0).lineTo(4, -5).moveTo(9, 0).lineTo(4, 5).stroke({ width: 2, color: c }); // arrowhead
   };
-  type RailDef = { label: string; draw: (g: Graphics, c: number) => void; brand?: boolean; count?: boolean; active?: () => boolean; act: () => void };
+  // Transport icon reflects the current mode: play ▶ / pause ‖ / fast-forward ⏩.
+  const drawTransport = (g: Graphics, c: number): void => {
+    if (transport === "pause") {
+      g.roundRect(-7, -9, 5, 18, 1.5).fill({ color: c });
+      g.roundRect(2, -9, 5, 18, 1.5).fill({ color: c });
+    } else if (transport === "ff") {
+      g.moveTo(-11, -9).lineTo(-1, 0).lineTo(-11, 9).fill({ color: c });
+      g.moveTo(0, -9).lineTo(10, 0).lineTo(0, 9).fill({ color: c });
+    } else {
+      g.moveTo(-6, -10).lineTo(9, 0).lineTo(-6, 10).fill({ color: c });
+    }
+  };
+  type RailDef = { label: string | (() => string); draw: (g: Graphics, c: number) => void; brand?: boolean; count?: boolean; active?: () => boolean; act: () => void };
   const RAIL: RailDef[] = [
     { label: "Dex", draw: drawDex, brand: true, count: true, act: () => zoo.toggle() },
     { label: "layout", draw: drawLayout, act: () => toggleLayout() },
+    { label: () => transport, draw: drawTransport, active: () => transport !== "play", act: () => cycleTransport() },
     { label: "expand", draw: drawExpand, active: () => expandAll, act: () => toggleExpand() },
     { label: "refold", draw: drawRefold, active: () => refoldOn, act: () => toggleRefold() },
     { label: "type", draw: drawType, active: () => typeOn, act: () => toggleType() },
@@ -706,7 +754,8 @@ export async function mountApp(): Promise<void> {
       const bg = new Graphics().roundRect(-22, -22, 44, 44, 9).fill({ color: on ? theme.select : theme.panel }).stroke({ width: on ? 2 : 1.5, color: border });
       const icon = new Graphics();
       def.draw(icon, accent);
-      const label = new Text({ text: def.label, style: { fontFamily: "monospace", fontSize: 11, fill: on ? theme.iota : theme.textDim } });
+      const labelText = typeof def.label === "function" ? def.label() : def.label;
+      const label = new Text({ text: labelText, style: { fontFamily: "monospace", fontSize: 11, fill: on ? theme.iota : theme.textDim } });
       label.anchor.set(0.5, 0);
       label.position.set(0, 24);
       c.addChild(bg, icon, label);
@@ -772,6 +821,9 @@ export async function mountApp(): Promise<void> {
       discovered: () => [...discovered],
       mode: () => (layoutFn === layoutRadial ? "radial" : "topdown"),
       toggleLayout: () => toggleLayout(),
+      transport: { mode: () => transport, set: (m: string) => setTransport(m as Transport), cycle: () => cycleTransport() },
+      autoSteps: () => [...auto.values()].reduce((s, a) => s + a.steps, 0),
+      run: () => { if (focus) scheduleAuto(focus); },
       expr: () => exprText.text,
       page: () => hotbar.page,
       setPage: (name: string) => hotbar.selectPage(name),
