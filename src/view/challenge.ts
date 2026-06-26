@@ -112,6 +112,7 @@ export class ChallengePanel {
    * record any improved best, and announce it. Fire-and-forget from the shell.
    */
   async onNormalForm(source: Node): Promise<void> {
+    if (!this.isOpen) return; // only score while you're actually golfing — some targets (sort) are costly to verify
     let changed = false;
     for (const c of CHALLENGES) {
       let ok = false;
