@@ -24,6 +24,7 @@ import { TreeView } from "./view/tree";
 import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
 import { Zoo } from "./view/zoo";
+import { MhsPanel } from "./view/mhs/panel";
 import { theme, initTheme, toggleMode, onThemeChange } from "./view/theme";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
@@ -222,7 +223,7 @@ export async function mountApp(): Promise<void> {
   // The read-as mode is just the current hotbar page (ADR 0003): a typed page
   // forces that reading and resolves the bare-A ambiguity `read` otherwise defers
   // (A → 0 / [] / false). The Programs page has no type → auto-discovery.
-  const READ_AS: Record<string, Ty> = { Arithmetic: "Int", Booleans: "Bool", Lists: "List" };
+  const READ_AS: Record<string, Ty> = { Arithmetic: "Int", Booleans: "Bool", Lists: "List", Char: "Char" };
 
   // Live read-out of the focused tree's expression, recomputed only when its
   // node identity (or the read-as page) changes — so the probes never run every
@@ -499,6 +500,19 @@ export async function mountApp(): Promise<void> {
   const sound = new Sound();
   const challenges = new ChallengePanel(store, { notify: (m) => toast.show(m), onShare: (token) => shareToken(token) });
   hud.addChild(challenges.container); // overlays the hotbar + rail, like the Zoo
+  // Haskell → ι panel (ADR 0007): compile a curated or free-typed program (stock
+  // MicroHs dump, post-processed) and drop the resulting combinator tree on the
+  // canvas. A DOM overlay, so it lives outside the Pixi HUD. The result's read-out
+  // lens (Int/List/Char/Bool) is set by jumping to the matching hotbar page.
+  const TY_PAGE: Record<Ty, string> = { Int: "Arithmetic", Bool: "Booleans", List: "Lists", Char: "Char" };
+  const mhsPanel = new MhsPanel(
+    (tree, read) => {
+      spawnTree(tree, window.innerWidth / 2, window.innerHeight / 2);
+      if (read) hotbar.selectPage(TY_PAGE[read]);
+      toast.show("compiled from Haskell");
+    },
+    () => paintRail(),
+  );
   updateHint();
 
   function onTreeDown(tree: TreeView, e: FederatedPointerEvent): void {
@@ -873,6 +887,13 @@ export async function mountApp(): Promise<void> {
     g.moveTo(-7, -11).lineTo(4, 11).moveTo(7, -11).lineTo(-1, 5).stroke({ width: 2, color: c }); // a lambda
     g.circle(8, 8, 3.5).stroke({ width: 2, color: c }); // the hole
   };
+  // A lambda λ — the Haskell → ι compile panel.
+  const drawHaskell = (g: Graphics, c: number): void => {
+    g.moveTo(-8, 12).lineTo(3, -11); // main stroke, bottom-left up to top
+    g.moveTo(-3, -1).lineTo(8, 12); // right leg branching off
+    g.moveTo(-2, -11).lineTo(3, -11); // small hook at the top
+    g.stroke({ width: 2.5, color: c });
+  };
   type RailDef = { label: string | (() => string); draw: (g: Graphics, c: number) => void; brand?: boolean; count?: boolean; active?: () => boolean; act: () => void };
   const RAIL: RailDef[] = [
     { label: "Dex", draw: drawDex, brand: true, count: true, act: () => zoo.toggle() },
@@ -887,6 +908,7 @@ export async function mountApp(): Promise<void> {
     { label: "share", draw: drawShare, act: () => shareFocused() },
     { label: "define", draw: drawDefine, active: () => authorMode === "define", act: () => setAuthorMode("define") },
     { label: "abstract", draw: drawAbstract, active: () => authorMode === "abstract", act: () => setAuthorMode("abstract") },
+    { label: "haskell", draw: drawHaskell, active: () => mhsPanel.isOpen, act: () => mhsPanel.toggle() },
     { label: "clear", draw: drawClear, act: () => clearCanvas() },
     { label: "unlock", draw: drawUnlock, act: () => unlockAll() },
   ];
@@ -1068,6 +1090,7 @@ export async function mountApp(): Promise<void> {
         permalink: () => (focus ? encodePermalink(focus.node, currentModes()) : null),
       },
       sound: { on: () => sound.enabled, toggle: () => sound.toggle() },
+      haskell: { open: () => mhsPanel.open(), close: () => mhsPanel.close(), isOpen: () => mhsPanel.isOpen, run: (n: string) => mhsPanel.run(n), examples: () => mhsPanel.examples, compile: (s: string) => mhsPanel.compileLive(s) },
       store, // the active Store (LocalStore, or DuckdbStore with ?store=duckdb) — for tests
       author: {
         mode: () => authorMode,

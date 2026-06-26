@@ -1,36 +1,59 @@
 # 7. In-browser MicroHs Haskell→combinator compiler (v8, the wow feature)
 
-**Status:** deferred (2026-06-26) — design accepted, implementation rolled back; this ADR stands as the spec for the eventual revival. See *Deferral* below.
+**Status:** accepted — **implemented via post-processing a *stock* dump (no fork)**, superseding the original "vendor a forked compile-only slice" decision. Gallery path shipped and verified; live free-typing is experimental. See *Revised decision* below; the original decision/context is kept beneath it as history.
 
-## Deferral (2026-06-26)
+## Revised decision (2026-06-26): post-process a stock dump, don't fork
 
-Rolled the implementation back to keep `main` free of half-built scaffolding. What
-we learned building Phase 0 + B3, so a revival doesn't relearn it:
+The original plan forked MicroHs (a `compileToComb` entry point + an invasive
+char/`Integer` → Scott-`Nat` desugar in flagless `dsExpr`) and cross-compiled the
+fork to WASM — which we deferred when `make mhs.js` OOM'd self-hosting. The insight
+that unblocked it: **we don't need to fork.** Inspecting real `gmhs` dumps showed
 
-- **The blocker is the compiler artifact, not the TS side.** Cross-compiling the
-  MicroHs compiler to a browser bundle (`make mhs.js`, i.e. `bin/mhs -temscripten
-  MicroHs.Main`) self-hosts the whole compiler and **runs out of memory even with
-  92 GiB free** — it's an internal limit in the self-hosting eval, not a sandbox /
-  RAM cap. The prebuilt `web-mhs/mhs-embed.js` (2.58 MB) loads fine and is the real
-  path; a fresh reproducible rebuild needs an upstream fix (or building the slice
-  via `gmhs`/GHC rather than self-hosting).
-- **Real `-ddump-combinator` dumps carry primitive leaves** (`patternMatchFail`,
-  machine literals) even in "primitive-free" examples — the Scott-`Nat`/`Char`
-  Prelude (open question below) is load-bearing, not optional, before any real
-  program compiles to pure ι.
-- **The natural-literal Scott desugar is invasive** — char/`Integer` literals
-  desugar to machine `Int` in flagless `dsExpr` (`Desugar.hs`); threading a flag
-  through to emit Scott `Nat` is a global change that risks the self-hosting build.
+- integer **and char** literals are already a clean `#n` token (`'B'` → `#66`) — so
+  the invasive char desugar we feared **is already done by stock MicroHs**; and
+- arithmetic/comparison bottom out in a small, enumerable set of `Primitives.prim*`
+  leaves inside the `Num`/`Ord` dictionaries.
 
-Rolled-back code lives in git history (commits `011ce1d`, `23d7e84`, `5a61348`,
-`ac72962`): `src/core/mhs.ts` (dump parser + basis→ι expansion), `src/view/mhs/`
-(panel + worker + stub compiler), and `nix/` (reproducible toolchain). The Scott
-encoding (ADR 0004), the differential-oracle idea, and the optimize mode that makes
-the huge ι-trees usable all survive in `main` independently.
+So a **pure-TS post-processor** (`src/core/mhs.ts`) rewrites a stock
+`-ddump-combinator` dump into pure ι: `#n` → Scott numeral, `"…"` → Scott list of
+char codes, `primIntAdd/EQ/LT/…` → the catalog Scott combinator (Char ops map to the
+Int ones — a Char *is* its ASCII numeral), basis `S K I B C …` → SKI (MicroHs's list
+cons `(:)` is the `O` combinator = catalog `cons`). It **rejects by reachability**:
+a primitive with no ι form (IO/FFI/Float/bitwise/negation) is a sentinel that's only
+fatal if it *survives a bounded reduction* — dead dictionary fields (every `Num`
+dict's `primIntNeg`) drop out. New catalog combinators `(==) (/=) (<) (<=) (>) (>=)
+compare` (+ `Ordering`) cover the comparison primitives; a Char page + reading lens
+render Scott numerals as glyphs/strings.
+
+**What shipped (this is the live decision):**
+
+- **No MicroHs fork.** Stock `gmhs` (build-time) / the stock web blob (live).
+- **Gallery (reliable, wasm-free):** six curated primitive-free programs are
+  pre-compiled by `gmhs` at build time (`scripts/gen-mhs-examples.ts`), pruned to
+  the reachable defs, vendored as small `.comb` assets, and post-processed +
+  reduced in-browser. Verified end-to-end: `2*2`→4, `map (+1) [1,2,3]`→[2,3,4],
+  `foldr (+) 0`→15, `filter (<3)`→[1,2], `reverse "abc"`→"cba", `fac 3`→6.
+- **Live free-typing:** wired through the stock blob in a Web Worker, but the
+  vendored blob is the *interactive playground* build whose base package isn't set
+  up for a headless batch compile — so it degrades to an honest message for now.
+  A clean live path needs a batch blob (or a `compileToComb` export, or replicating
+  the playground's package FS). The gallery is the headline either way.
+- **Vendoring (ADR 0008-adjacent):** `scripts/vendor-wasm.sh` copies the DuckDB
+  engine + the MicroHs blob into `public/vendor/` (git-ignored); served from our own
+  origin, CDN-swappable later.
+
+**Known limitation — no graph sharing.** The sandbox reducer clones rather than
+shares, so Scott `×` (repeated addition) makes multiplication-*recursion*
+exponential: `fac 3` is fine (~3 s), `fac 4+` blows up. The gallery is curated to
+linear/structural programs; **graph reduction (sharing) is the follow-up** that
+unlocks factorial-scale programs (and would speed every existing reduction).
+
+This **supersedes ADR 0002's** "build the WASM in CI" rule only for the *blob* (a
+vendored prebuilt, hosted later); the post-processor itself is ordinary CI-built TS.
 
 ---
 
-**Original status:** accepted (finalised in a grill-with-docs pass; remaining open items are implementation defaults)
+**Original status:** accepted (finalised in a grill-with-docs pass; remaining open items are implementation defaults). *Kept below as history — the fork/slice approach it describes was superseded by the post-process approach above.*
 
 ## Context
 

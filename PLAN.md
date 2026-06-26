@@ -19,22 +19,26 @@ Phase A (foundation: Store + permalink + trace) ──► B1 golf/leaderboards/s
                                                   └► B3 MicroHs integration         DEFERRED
 ```
 
-**Status (2026-06-26).** Phase A (foundation) + B1 + B2 shipped on `main`. **Phase 0
-and B3 (the MicroHs *wow*) are deferred and rolled back** — the design stands (ADR
-0007), but the in-browser compiler artifact can't yet be built reproducibly: the
-self-hosting `make mhs.js` runs out of memory even with 92 GiB free (an internal
-MicroHs eval limit, not a resource cap). See ADR 0007's *Deferral* note and the
-**Deferred** section at the bottom of this file. The rolled-back code is recoverable
-from git history (commits `011ce1d`, `23d7e84`, `5a61348`, `ac72962`).
+**Status (2026-06-26).** Phase A (foundation) + B1 + B2 shipped on `main`. **B3 (the
+MicroHs *wow*) is now implemented via a different, better route: post-process a
+*stock* dump instead of forking MicroHs** (ADR 0007, *Revised decision*). That
+dissolves Phase 0 entirely — no fork, no self-hosting `make mhs.js` (which OOM'd
+even with 92 GiB free), no invasive desugar (stock MicroHs already lowers char
+literals to `#n`). The gallery (curated examples → ι → reduce) is shipped and
+verified in-browser; live free-typing is experimental (the vendored blob is the
+interactive playground build). WASM deps are vendored under `public/vendor/`
+(git-ignored). The remaining headline gap is **graph sharing** in the reducer
+(without it, multiplication-recursion like `fac 4+` blows up).
 
 ---
 
-## Phase 0 — MicroHs → WASM, reproducibly, in a nix-shell (DEFERRED)
+## Phase 0 — MicroHs → WASM, reproducibly, in a nix-shell (OBSOLETE)
 
-> **Deferred (2026-06-26), rolled back from `main`.** Kept here as the spec for the
-> revival. The wall: the fresh compiler-to-JS build OOMs in self-hosting (see ADR
-> 0007 *Deferral*); the prebuilt `web-mhs/mhs-embed.js` (2.58 MB) loads but isn't
-> reproducibly regenerable without an upstream fix or a `gmhs`/GHC-built slice.
+> **Obsolete (2026-06-26).** The post-process approach (ADR 0007 *Revised decision*)
+> needs no MicroHs fork and no self-hosting WASM build: the gallery is compiled at
+> build time by stock `gmhs` (`scripts/gen-mhs-examples.ts`, no OOM) and the live
+> path uses the stock prebuilt blob, vendored by `scripts/vendor-wasm.sh`. The
+> fork/desugar/`mhs.js` plan below is kept only as history.
 
 The compile-only MicroHs WASM slice (+ the Prelude/char tweaks) is the prerequisite
 for the wow feature (stream B3) and the one thing this environment can't produce. We
@@ -108,11 +112,14 @@ independently, integrated as they land.
   over it (reuse `bracket` / `lam`). One hole only; no modal editor.
 - Update the stale `spec/upper-techtree.md` to the Scott world.
 
-### B3 — MicroHs integration (ADR 0007) — TS side — DEFERRED
-> **Deferred (2026-06-26), rolled back from `main`** with Phase 0. The TS side was
-> largely built (`src/core/mhs.ts` dump-parser + basis→ι expansion; `src/view/mhs/`
-> panel + worker + stub compiler) and is recoverable from git, but it's dead weight
-> without the Phase 0 compiler artifact, so it came out. Revive together with Phase 0.
+### B3 — MicroHs integration (ADR 0007) — ✅ shipped (post-process approach)
+> **Implemented (2026-06-26) by post-processing a stock dump — no fork.**
+> `src/core/mhs.ts` rewrites stock `-ddump-combinator` output to pure ι (literals →
+> Scott numerals/strings, `primInt*` → catalog Scott combinators, reject-by-
+> reachability); `src/view/mhs/` is the panel + curated gallery + best-effort live
+> worker; new catalog comparison/`compare` combinators + a Char page/lens. Verified
+> in-browser. Follow-ups: graph sharing (for `fac`-scale programs), a batch blob for
+> live free-typing.
 - A lazy **Web Worker** adapter behind a pure compiler port; loads the Phase 0 blob
   on demand (built against a stub until it lands).
 - Wire `compileToComb → SKI-expand (TS, from Phase 0) → decode() → spawn`.
