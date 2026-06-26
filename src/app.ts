@@ -7,7 +7,12 @@ import {
   Text,
 } from "pixi.js";
 import { app as mkApp, comb, decode, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
-import { step } from "./core/reduce";
+import { step, firingRule } from "./core/reduce";
+import { encodePermalink, decodePermalink, type Modes } from "./core/permalink";
+import { LocalStore } from "./store/local";
+import { DuckdbStore } from "./store/duckdb";
+import { ChallengePanel } from "./view/challenge";
+import { Sound } from "./view/sound";
 import { CATALOG, IOTA_CODE, HINTS, iotaTreeOf, countIotas, type Law } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
@@ -278,7 +283,10 @@ export async function mountApp(): Promise<void> {
   // plays itself to normal form one tween at a time; touching it cancels. A
   // per-tree generation token invalidates pending callbacks on cancel. On
   // reaching normal form, probe it for a discovery (§7.1). ----
-  const auto = new Map<TreeView, { gen: number; timer: number; steps: number }>();
+  // `source` is the tree as the player built/edited it (captured on release),
+  // before reduction mutates it — the golf metric + challenge target score the
+  // source, not its normal form.
+  const auto = new Map<TreeView, { gen: number; timer: number; steps: number; source?: Node }>();
 
   // Playback transport (§6.4): auto-reduce can be paused/played, or fast-forwarded
   // at 3× (shorter step tween + gap). Speed is read live, so play↔ff is seamless;
@@ -306,6 +314,7 @@ export async function mountApp(): Promise<void> {
     }
     a.gen++;
     a.steps = 0;
+    a.source = tree.node; // score the tree as built, before reduction
     const gen = a.gen;
     a.timer = window.setTimeout(() => stepAuto(tree, gen), AUTO_DELAY);
   }
@@ -318,8 +327,10 @@ export async function mountApp(): Promise<void> {
     const next = step(tree.node, 0, fastMode);
     if (!next) {
       settle(tree); // normal form reached — recognise + collapse to a named node
+      void challenges.onNormalForm(a.source ?? tree.node); // golf: score the built tree
       return;
     }
+    sound.tick(firingRule(tree.node, fastMode)); // sonify the rule about to fire
     a.steps++;
     tree.animateTo(next, stepDur(), () => {
       const a2 = auto.get(tree);
@@ -392,6 +403,14 @@ export async function mountApp(): Promise<void> {
   const rail = new Container(); // left-edge button rail (built below); under the Zoo overlay
   hud.addChild(rail);
   hud.addChild(zoo.container); // last → the Zoo overlay sits on top of the hotbar + rail
+
+  // ---- golf challenges + leaderboard + sonification (ADR 0005) ----
+  // LocalStore is the working default; `?store=duckdb` swaps in the DuckDB-WASM
+  // prototype behind the same port (lazy-loaded on first use).
+  const store = new URLSearchParams(location.search).get("store") === "duckdb" ? new DuckdbStore() : new LocalStore();
+  const sound = new Sound();
+  const challenges = new ChallengePanel(store, { notify: (m) => toast.show(m), onShare: (token) => shareToken(token) });
+  hud.addChild(challenges.container); // overlays the hotbar + rail, like the Zoo
   updateHint();
 
   function onTreeDown(tree: TreeView, e: FederatedPointerEvent): void {
@@ -624,6 +643,7 @@ export async function mountApp(): Promise<void> {
     paintRail();
     hotbar.refresh();
     zoo.applyTheme();
+    challenges.applyTheme();
     for (const t of trees) t.refresh();
   }
   onThemeChange(applyTheme);
@@ -637,6 +657,7 @@ export async function mountApp(): Promise<void> {
     toast.layout();
     placeExpr();
     zoo.layout();
+    challenges.layout();
   });
 
   // Remove every tree from the canvas (discoveries and the hotbar stay).
@@ -727,6 +748,25 @@ export async function mountApp(): Promise<void> {
   const drawOptimize = (g: Graphics, c: number): void => {
     g.poly([3, -12, -7, 2, -1, 2, -4, 12, 8, -3, 2, -3]).fill({ color: c });
   };
+  // A pennant on a pole — the golf challenges / leaderboard.
+  const drawGolf = (g: Graphics, c: number): void => {
+    g.moveTo(-7, -12).lineTo(-7, 12).stroke({ width: 2, color: c }); // pole
+    g.moveTo(-7, -12).lineTo(8, -7).lineTo(-7, -2).fill({ color: c }); // flag
+    g.circle(-7, 12, 2).fill({ color: c }); // ball at the base
+  };
+  // A musical note — the sonification toggle.
+  const drawSound = (g: Graphics, c: number): void => {
+    g.moveTo(-1, -12).lineTo(-1, 8).stroke({ width: 2, color: c }); // stem
+    g.moveTo(-1, -12).lineTo(9, -9).lineTo(9, -4).lineTo(-1, -7).fill({ color: c }); // flag
+    g.circle(-5, 8, 4).fill({ color: c }); // note head
+  };
+  // Three linked nodes — the share action.
+  const drawShare = (g: Graphics, c: number): void => {
+    g.moveTo(8, -8).lineTo(-7, 0).moveTo(8, 8).lineTo(-7, 0).stroke({ width: 1.8, color: c }); // links
+    g.circle(8, -8, 3.5).fill({ color: c });
+    g.circle(8, 8, 3.5).fill({ color: c });
+    g.circle(-7, 0, 3.5).fill({ color: c });
+  };
   type RailDef = { label: string | (() => string); draw: (g: Graphics, c: number) => void; brand?: boolean; count?: boolean; active?: () => boolean; act: () => void };
   const RAIL: RailDef[] = [
     { label: "Dex", draw: drawDex, brand: true, count: true, act: () => zoo.toggle() },
@@ -736,6 +776,9 @@ export async function mountApp(): Promise<void> {
     { label: "refold", draw: drawRefold, active: () => refoldOn, act: () => toggleRefold() },
     { label: "type", draw: drawType, active: () => typeOn, act: () => toggleType() },
     { label: "optimize", draw: drawOptimize, active: () => fastMode, act: () => { fastMode = !fastMode; paintRail(); } },
+    { label: "golf", draw: drawGolf, brand: true, active: () => challenges.isOpen, act: () => challenges.toggle() },
+    { label: "sound", draw: drawSound, active: () => sound.enabled, act: () => { sound.toggle(); paintRail(); } },
+    { label: "share", draw: drawShare, act: () => shareFocused() },
     { label: "clear", draw: drawClear, act: () => clearCanvas() },
     { label: "unlock", draw: drawUnlock, act: () => unlockAll() },
   ];
@@ -782,6 +825,76 @@ export async function mountApp(): Promise<void> {
   paintRail();
   placeRail();
 
+  // ---- permalinks (ADR 0005): a tree + active modes <-> a URL-safe token. ----
+  const MAX_HASH = 1800; // beyond this, share a downloadable .json instead of a link
+
+  /** The currently-active display modes, packed for a permalink. */
+  const currentModes = (): Modes => ({
+    optimize: fastMode || undefined,
+    refold: refoldOn || undefined,
+    type: typeOn || undefined,
+    expand: expandAll || undefined,
+    page: hotbar.page,
+    transport,
+  });
+
+  /** Restore a tree's accompanying display modes (the inverse of currentModes). */
+  function applyModes(m: Modes): void {
+    expandAll = !!m.expand;
+    fastMode = !!m.optimize;
+    typeOn = !!m.type;
+    refoldOn = !!m.refold;
+    if (refoldOn && !refolder) {
+      refolder = behavioralRefolder;
+      void ensureRefolder();
+    }
+    if (m.page) hotbar.selectPage(m.page);
+    if (m.transport) setTransport(m.transport);
+    lastShownNode = null; // force a read-out recompute
+    paintRail();
+    for (const t of trees) t.refresh();
+  }
+
+  /** Write a permalink token to the hash + clipboard, or download it as JSON when
+   *  it's too long for a link. */
+  function shareToken(token: string): void {
+    if (token.length > MAX_HASH) {
+      const blob = new Blob([JSON.stringify({ permalink: token })], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "combinate-solution.json";
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.show("too long for a link — downloaded .json");
+      return;
+    }
+    location.hash = token;
+    void navigator.clipboard?.writeText(location.href).catch(() => {});
+    toast.show("link copied to clipboard");
+  }
+
+  /** Share the focused tree (the "share" rail action). */
+  function shareFocused(): void {
+    if (!focus || !trees.includes(focus)) {
+      toast.show("nothing to share");
+      return;
+    }
+    shareToken(encodePermalink(focus.node, currentModes()));
+  }
+
+  // On load, a permalink in the URL hash restores its tree + modes.
+  if (location.hash.length > 1) {
+    const decoded = decodePermalink(location.hash.slice(1));
+    if (decoded) {
+      applyModes(decoded.modes);
+      const t = spawnTree(decoded.tree, window.innerWidth / 2, window.innerHeight / 2);
+      scheduleAuto(t);
+      hint.visible = false;
+      toast.show("restored from link");
+    }
+  }
+
   window.addEventListener("keydown", (e) => {
     if (zoo.isOpen) {
       if (e.key === "ArrowDown") return e.preventDefault(), zoo.move(1);
@@ -796,6 +909,7 @@ export async function mountApp(): Promise<void> {
     else if (e.key === "x" || e.key === "X") toggleExpand();
     else if (e.key === "f" || e.key === "F") toggleRefold();
     else if (e.key === "z" || e.key === "Z") zoo.toggle();
+    else if (e.key === "g" || e.key === "G") challenges.toggle();
   });
 
   // Suppress the browser context menu so right-click can delete a node.
@@ -838,6 +952,12 @@ export async function mountApp(): Promise<void> {
       unlockAll: () => unlockAll(),
       openZoo: () => zoo.open(),
       camera: () => ({ scale: world.scale.x, x: world.position.x, y: world.position.y }),
+      golf: {
+        toggle: () => challenges.toggle(),
+        onNF: (s: string) => challenges.onNormalForm(fromEgg(s)),
+        permalink: () => (focus ? encodePermalink(focus.node, currentModes()) : null),
+      },
+      sound: { on: () => sound.enabled, toggle: () => sound.toggle() },
       refold: {
         on: () => refoldOn,
         ready: () => !!refolder,
