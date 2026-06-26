@@ -12,19 +12,29 @@ must be built before its integration. So the shape is **preliminary → foundati
 parallel**, not four cold worktrees.
 
 ```
-Phase 0 (MicroHs→WASM via nix-shell) ─────────────┐
+Phase 0 (MicroHs→WASM via nix-shell) ──DEFERRED───┐
                                                   ▼
-Phase A (foundation: Store + permalink + trace) ──► B1 golf/leaderboards/sonify
-                                                  ├► B2 authoring (Define/Abstract)
-                                                  └► B3 MicroHs integration (uses Phase 0 blob)
+Phase A (foundation: Store + permalink + trace) ──► B1 golf/leaderboards/sonify   ✅
+                                                  ├► B2 authoring (Define/Abstract) ✅
+                                                  └► B3 MicroHs integration         DEFERRED
 ```
 
-Phase 0 and Phase A are independent and run concurrently; Phase B fans out once
-both land.
+**Status (2026-06-26).** Phase A (foundation) + B1 + B2 shipped on `main`. **Phase 0
+and B3 (the MicroHs *wow*) are deferred and rolled back** — the design stands (ADR
+0007), but the in-browser compiler artifact can't yet be built reproducibly: the
+self-hosting `make mhs.js` runs out of memory even with 92 GiB free (an internal
+MicroHs eval limit, not a resource cap). See ADR 0007's *Deferral* note and the
+**Deferred** section at the bottom of this file. The rolled-back code is recoverable
+from git history (commits `011ce1d`, `23d7e84`, `5a61348`, `ac72962`).
 
 ---
 
-## Phase 0 — MicroHs → WASM, reproducibly, in a nix-shell (preliminary)
+## Phase 0 — MicroHs → WASM, reproducibly, in a nix-shell (DEFERRED)
+
+> **Deferred (2026-06-26), rolled back from `main`.** Kept here as the spec for the
+> revival. The wall: the fresh compiler-to-JS build OOMs in self-hosting (see ADR
+> 0007 *Deferral*); the prebuilt `web-mhs/mhs-embed.js` (2.58 MB) loads but isn't
+> reproducibly regenerable without an upstream fix or a `gmhs`/GHC-built slice.
 
 The compile-only MicroHs WASM slice (+ the Prelude/char tweaks) is the prerequisite
 for the wow feature (stream B3) and the one thing this environment can't produce. We
@@ -58,7 +68,7 @@ bump.
 
 ---
 
-## Phase A — shared foundation (sequential; B1/B2 depend on it)
+## Phase A — shared foundation (sequential; B1/B2 depend on it) ✅ shipped
 
 Small, shared core that everything builds on. Built directly (not fanned out),
 because conflicts here would block the parallel streams.
@@ -82,7 +92,7 @@ because conflicts here would block the parallel streams.
 Each in its own git worktree/branch off `main` (post-foundation), built and verified
 independently, integrated as they land.
 
-### B1 — Golf, leaderboards, sonification (ADR 0005)
+### B1 — Golf, leaderboards, sonification (ADR 0005) ✅ shipped
 - **Challenge layer** (shell state): id, target predicate (over the value reader or a
   target bit-code), best-metric (`countIotas` / steps); a *solution = a permalink*.
 - **Leaderboards** via the quack adapter: **verify-by-replay** — store/query
@@ -91,14 +101,18 @@ independently, integrated as they land.
 - **Sonification** (juice): a tiny WebAudio layer (one oscillator, tone per
   combinator family from the rule-trace), gated by a toggle.
 
-### B2 — Authoring: Define, then one-hole Abstract (ADR 0006)
+### B2 — Authoring: Define, then one-hole Abstract (ADR 0006) ✅ shipped
 - **`Define`** (first): name a settled subtree → collapses to a hotbar block (reuse
   `collapsedNode` / `discover` / `hotbar.reveal`); persists via `Store`.
 - **one-hole `Abstract`** (second): mark a leaf a *hole* (free var) → bracket-abstract
   over it (reuse `bracket` / `lam`). One hole only; no modal editor.
 - Update the stale `spec/upper-techtree.md` to the Scott world.
 
-### B3 — MicroHs integration (ADR 0007) — TS side
+### B3 — MicroHs integration (ADR 0007) — TS side — DEFERRED
+> **Deferred (2026-06-26), rolled back from `main`** with Phase 0. The TS side was
+> largely built (`src/core/mhs.ts` dump-parser + basis→ι expansion; `src/view/mhs/`
+> panel + worker + stub compiler) and is recoverable from git, but it's dead weight
+> without the Phase 0 compiler artifact, so it came out. Revive together with Phase 0.
 - A lazy **Web Worker** adapter behind a pure compiler port; loads the Phase 0 blob
   on demand (built against a stub until it lands).
 - Wire `compileToComb → SKI-expand (TS, from Phase 0) → decode() → spawn`.
@@ -110,14 +124,13 @@ independently, integrated as they land.
 
 ## Sequencing & mechanics
 
-1. Merge `roadmap` (ADRs 0005–0008 + `CONTEXT.md` + this PLAN) → `main`, so every
-   worktree shares them.
-2. Run **Phase 0 (nix-shell)** and **Phase A (foundation)** concurrently — they are
-   independent.
-3. Fan out **Phase B** into three worktree streams once A lands; B3 integrates the
-   Phase 0 blob when ready.
-4. Keep the **differential oracle** as a dev/CI test throughout (coexists with the
-   live compiler).
+1. ~~Merge `roadmap` (ADRs 0005–0008 + `CONTEXT.md` + this PLAN) → `main`~~. ✅ done.
+2. ~~Run **Phase 0 (nix-shell)** and **Phase A (foundation)** concurrently~~. Phase A
+   ✅ done; **Phase 0 attempted, deferred** (compiler artifact OOMs — see above).
+3. ~~Fan out **Phase B** into three worktree streams once A lands~~. **B1 + B2 ✅
+   shipped; B3 deferred** (rolled back with Phase 0).
+4. Keep the **differential oracle** as a dev/CI test throughout — deferred with
+   Phase 0 (it needs the MicroHs `iota/check` build).
 
 ## Implementation defaults (leftover UX detail, decided in-stream)
 

@@ -1,6 +1,36 @@
 # 7. In-browser MicroHs Haskell→combinator compiler (v8, the wow feature)
 
-**Status:** accepted (finalised in a grill-with-docs pass; remaining open items are implementation defaults)
+**Status:** deferred (2026-06-26) — design accepted, implementation rolled back; this ADR stands as the spec for the eventual revival. See *Deferral* below.
+
+## Deferral (2026-06-26)
+
+Rolled the implementation back to keep `main` free of half-built scaffolding. What
+we learned building Phase 0 + B3, so a revival doesn't relearn it:
+
+- **The blocker is the compiler artifact, not the TS side.** Cross-compiling the
+  MicroHs compiler to a browser bundle (`make mhs.js`, i.e. `bin/mhs -temscripten
+  MicroHs.Main`) self-hosts the whole compiler and **runs out of memory even with
+  92 GiB free** — it's an internal limit in the self-hosting eval, not a sandbox /
+  RAM cap. The prebuilt `web-mhs/mhs-embed.js` (2.58 MB) loads fine and is the real
+  path; a fresh reproducible rebuild needs an upstream fix (or building the slice
+  via `gmhs`/GHC rather than self-hosting).
+- **Real `-ddump-combinator` dumps carry primitive leaves** (`patternMatchFail`,
+  machine literals) even in "primitive-free" examples — the Scott-`Nat`/`Char`
+  Prelude (open question below) is load-bearing, not optional, before any real
+  program compiles to pure ι.
+- **The natural-literal Scott desugar is invasive** — char/`Integer` literals
+  desugar to machine `Int` in flagless `dsExpr` (`Desugar.hs`); threading a flag
+  through to emit Scott `Nat` is a global change that risks the self-hosting build.
+
+Rolled-back code lives in git history (commits `011ce1d`, `23d7e84`, `5a61348`,
+`ac72962`): `src/core/mhs.ts` (dump parser + basis→ι expansion), `src/view/mhs/`
+(panel + worker + stub compiler), and `nix/` (reproducible toolchain). The Scott
+encoding (ADR 0004), the differential-oracle idea, and the optimize mode that makes
+the huge ι-trees usable all survive in `main` independently.
+
+---
+
+**Original status:** accepted (finalised in a grill-with-docs pass; remaining open items are implementation defaults)
 
 ## Context
 
