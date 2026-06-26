@@ -22,8 +22,11 @@ import { recognizeDeep } from "./refold";
  * its own.
  */
 
-/** A reading to force a tree into. Mirrors the typed hotbar pages. */
-export type Ty = "Int" | "Bool" | "List";
+/** A reading to force a tree into. Mirrors the typed hotbar pages. `Char` reads
+ *  text — a Scott numeral as its glyph, a Scott list of numerals as a string
+ *  (a Char IS its ASCII numeral, so this is a *display lens* over Int/[Int], not
+ *  a distinct HM type — `infer.ts` types a Char exactly as a numeral). */
+export type Ty = "Int" | "Bool" | "List" | "Char";
 
 /** A decoded value: the data shapes, plus a `comb` escape hatch for any subterm
  *  that isn't data (named as far as a behavioural pass can fold it). */
@@ -32,6 +35,8 @@ export type Val =
   | { t: "bool"; b: boolean }
   | { t: "list"; xs: Val[] }
   | { t: "pair"; a: Val; b: Val }
+  | { t: "char"; c: number }
+  | { t: "str"; cs: number[] }
   | { t: "comb"; sexp: string };
 
 const MAX_DEPTH = 8; // nesting guard, matches value.ts
@@ -80,6 +85,13 @@ export function read(n: Node, hint: Ty | null = null, depth = 0): Val | null {
     const heads = matchList(n);
     return heads === null ? null : readList(heads, depth);
   }
+  if (hint === "Char") {
+    // text reading: a list of numerals is a string; a bare numeral is a char.
+    const heads = matchList(n);
+    if (heads !== null) return readString(heads, depth);
+    const k = matchNumeral(n);
+    return k === null ? null : { t: "char", c: k };
+  }
   // auto-discover — the only deferred reading is the bare `K` (= `0`/`[]`/`false`,
   // all three coincide on the Kestrel); a numeral ≥ 1, a non-empty list, `true`
   // (= `A`) and a pair each have an unambiguous shape, so read them at any depth.
@@ -124,12 +136,36 @@ function readList(heads: Node[], depth: number): Val | null {
   return { t: "list", xs: out };
 }
 
+/** Read a list of numerals as a string (every head a Scott numeral = a char
+ *  code). Falls back to an ordinary list reading if any head isn't a numeral, so
+ *  `"ab" ++ [B]` still reads structurally rather than vanishing. */
+function readString(heads: Node[], depth: number): Val | null {
+  const cs: number[] = [];
+  for (const h of heads) {
+    const k = matchNumeral(h);
+    if (k === null) return readList(heads, depth); // not pure text → ordinary list
+    cs.push(k);
+  }
+  return { t: "str", cs };
+}
+
 /** Read a pair's two components (heterogeneous → no propagation); route a closed
  *  non-data component to `comb`, or bail if either carries a probe variable. */
 function readPair([x, y]: [Node, Node], depth: number): Val | null {
   const a = read(x, null, depth + 1) ?? (hasFreeVar(x) ? null : routed(x));
   const b = read(y, null, depth + 1) ?? (hasFreeVar(y) ? null : routed(y));
   return a && b ? { t: "pair", a, b } : null;
+}
+
+/** Render one char code for the read-out: printable ASCII verbatim, the rest as
+ *  an escape; `quote` (the surrounding ' or ") is escaped too. */
+function showChar(c: number, quote: number): string {
+  if (c === quote || c === 92) return "\\" + String.fromCharCode(c);
+  if (c === 10) return "\\n";
+  if (c === 9) return "\\t";
+  if (c === 13) return "\\r";
+  if (c >= 32 && c < 127) return String.fromCharCode(c);
+  return `\\x${c.toString(16)}`;
 }
 
 /** Render a decoded value to the compact read-out string. */
@@ -143,6 +179,10 @@ export function render(v: Val): string {
       return `[${v.xs.map(render).join(", ")}]`;
     case "pair":
       return `(${render(v.a)}, ${render(v.b)})`;
+    case "char":
+      return `'${showChar(v.c, 39)}'`;
+    case "str":
+      return `"${v.cs.map((c) => showChar(c, 34)).join("")}"`;
     case "comb":
       return v.sexp;
   }
