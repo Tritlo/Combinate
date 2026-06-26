@@ -72,6 +72,7 @@ export async function mountApp(): Promise<void> {
   const pointers = new Map<number, { x: number; y: number }>();
   let pinch: { d: number; cx: number; cy: number } | null = null;
   let expandAll = false; // "Expand" view: draw every combinator as its full ι-tree
+  let fastMode = false; // "optimize" mode: reduce named combinators by their rule (not raw SKI)
 
   const hint = new Text({
     text: "drag ι · snap trees · they reduce on their own · right-click deletes a node",
@@ -314,7 +315,7 @@ export async function mountApp(): Promise<void> {
     if (!a || a.gen !== gen) return;
     if (transport === "pause") return; // frozen — resume re-kicks from setTransport
     if (a.steps >= STEP_CAP) return; // still reducing — bail (non-termination guard)
-    const next = step(tree.node);
+    const next = step(tree.node, 0, fastMode);
     if (!next) {
       settle(tree); // normal form reached — recognise + collapse to a named node
       return;
@@ -342,7 +343,7 @@ export async function mountApp(): Promise<void> {
       }
     } else if (wasPaused) {
       for (const [tree, a] of auto) {
-        if (step(tree.node)) {
+        if (step(tree.node, 0, fastMode)) {
           a.gen++;
           const gen = a.gen;
           a.timer = window.setTimeout(() => stepAuto(tree, gen), 0);
@@ -722,6 +723,10 @@ export async function mountApp(): Promise<void> {
       g.moveTo(-6, -10).lineTo(9, 0).lineTo(-6, 10).fill({ color: c });
     }
   };
+  // A lightning bolt — "optimize" mode (reduce named combinators by their rule).
+  const drawOptimize = (g: Graphics, c: number): void => {
+    g.poly([3, -12, -7, 2, -1, 2, -4, 12, 8, -3, 2, -3]).fill({ color: c });
+  };
   type RailDef = { label: string | (() => string); draw: (g: Graphics, c: number) => void; brand?: boolean; count?: boolean; active?: () => boolean; act: () => void };
   const RAIL: RailDef[] = [
     { label: "Dex", draw: drawDex, brand: true, count: true, act: () => zoo.toggle() },
@@ -730,6 +735,7 @@ export async function mountApp(): Promise<void> {
     { label: "expand", draw: drawExpand, active: () => expandAll, act: () => toggleExpand() },
     { label: "refold", draw: drawRefold, active: () => refoldOn, act: () => toggleRefold() },
     { label: "type", draw: drawType, active: () => typeOn, act: () => toggleType() },
+    { label: "optimize", draw: drawOptimize, active: () => fastMode, act: () => { fastMode = !fastMode; paintRail(); } },
     { label: "clear", draw: drawClear, act: () => clearCanvas() },
     { label: "unlock", draw: drawUnlock, act: () => unlockAll() },
   ];
@@ -824,6 +830,7 @@ export async function mountApp(): Promise<void> {
       transport: { mode: () => transport, set: (m: string) => setTransport(m as Transport), cycle: () => cycleTransport() },
       autoSteps: () => [...auto.values()].reduce((s, a) => s + a.steps, 0),
       run: () => { if (focus) scheduleAuto(focus); },
+      fast: { on: () => fastMode, set: (b: boolean) => { fastMode = b; paintRail(); } },
       expr: () => exprText.text,
       page: () => hotbar.page,
       setPage: (name: string) => hotbar.selectPage(name),
