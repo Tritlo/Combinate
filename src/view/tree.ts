@@ -511,8 +511,9 @@ export class TreeView {
 
 /** Emit dashed sub-segments along a→b into the graphics path (caller strokes once).
  *  Dashing the argument edge gives function vs argument a style cue, not just a
- *  colour one — the distinction survives 1-bit black-and-white. */
-function dashedSegment(g: Graphics, ax: number, ay: number, bx: number, by: number, dash = 8, gap = 6): void {
+ *  colour one — the distinction survives 1-bit black-and-white. Exported so the
+ *  drag-snap ghost preview can match the committed tree. */
+export function dashedSegment(g: Graphics, ax: number, ay: number, bx: number, by: number, dash = 8, gap = 6): void {
   const dx = bx - ax;
   const dy = by - ay;
   const len = Math.hypot(dx, dy) || 1;
