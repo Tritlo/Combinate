@@ -60,15 +60,28 @@ standalone now; the shared-modal extraction is deferred to ADR 12 (avoid prematu
 abstraction). Default off = today's exact behaviour.
 
 ## 10: Native values (opt-in evaluation)
-**Status:** Proposed — _to be written with Codex (TODO §2)._
+**Status:** Accepted (Codex consensus).
 
-Context: Combinate reduces data structurally (Scott per ADR 4, Church in the Quest),
-so arithmetic is O(n)/op and gcd/factorial blow the step budget. Decision (TBD):
-opt-in toggles (native numbers / lists / booleans / chars) that evaluate recognised
-value-subtrees natively, with the hard constraint that a native value round-trips to
-the exact pure tree (pure-ι semantics stays the default ground truth; toggling off,
-permalinks, and the Zoo probe must be unaffected). Records where the fast path lives
-and how it stays a single semantics, not two.
+Context: Combinate reduces data structurally (Scott per ADR 4), so a catalog arithmetic
+op recurses O(n) — slow for big computations (notably Haskell-panel programs, ADR 7).
+
+Decision: **Architecture B — a reducer-local peephole, no new `Node` kind.** Extend the
+existing optimize seam (the `fast`-mode saturated-named-`comb` hook in `reduce.ts`
+`redexAt` and `graph.ts` `contract`): when a **whitelisted saturated catalog op**
+(`(+)`,`(-)`,`(*)`,`(==)`,`(<)`,`cons`,`<>`,`map`,`not`,`and`,…) is applied to args that
+the `value.ts` matchers recognise as values, and the matching native toggle is on,
+compute natively and **emit the canonical pure tree immediately**. No native value ever
+escapes the reducer — so the round-trip invariant holds *by construction*: permalinks
+(`toEgg`), the behavioural probe, the type/read lenses, and toggling-off all keep seeing
+ordinary pure terms. The native flags thread through the reducer like `fast` does (the
+pure core never imports the view toggle); default off = today's exact reduction.
+
+**Scope / honest limit (Codex):** this is a **catalog-Scott (named-op)** fast path. It
+does **not** speed up the SKI-Quest's **Church** arithmetic — gcd/factorial there are
+compiled to raw S/K/I with no named op to intercept, so the reducer can't see them. The
+Quest's `gcd` (TODO §4) therefore stays an engine limit until **kernels** (ADR 11) or a
+separate Church abstract-interpreter lands. Native values v1 helps the main sandbox and
+Haskell-compiled programs, not raw-combinator Church terms.
 
 ## 11: Kernels / FFI
 [docs/adr/0009-kernels.md](adr/0009-kernels.md) — _to be written with Codex (TODO §3); the bigger one._

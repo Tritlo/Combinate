@@ -61,8 +61,10 @@ fast-path location + the "single semantics, not two" design with Codex before co
 
 The key (`scratchpad/answer-key.mts`) solves 99/102. Re-collaborate with Codex on:
 
-- [ ] **gcd** (`u1Sr43PU`) — Church Euclid is over-budget; **native numbers (§2) should
-      make it finish** — retry after §2 lands.
+- [ ] **gcd** (`u1Sr43PU`) — Church Euclid is over-budget. ⚠️ Native numbers (§2) do
+      **not** help: the solution is raw S/K/I with no named op to intercept (Codex,
+      ADR 10). gcd needs **kernels** (§3) or a Church abstract interpreter — or it stays
+      an honest engine limit. Reassess after §3.
 - [ ] **Identity but later** (`BzhFzwua`) — a delayed identity that is a *normal form* at
       2 args (`i (WI)(WI)` terminates); the η-long `λabc.abc` fails (normal order reduces
       its inner `Ω`). Needs an inert-holding arity-3 term.
