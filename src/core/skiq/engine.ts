@@ -178,9 +178,14 @@ function runCase(c: RawCase, scope: Scope): boolean {
   }
   const n1 = parseExpr(e1, scope);
   const n2 = parseExpr(e2, scope);
-  if (!opts.canonize) return nfEqual(n1, n2);
-  // recursion: equal if both settle to the same NF, or share a bounded reduct.
-  if (nfEqual(n1, n2) || canonEqual(n1, n2, opts.canonize.max ?? opts.max ?? 200)) return true;
+  // Equality is behavioural ("action on enough arguments"). By Church–Rosser, two
+  // terms are equal iff they share a reduct: settle to the same NF, or — for terms
+  // that don't settle (a fixed point `Y K`, whose `K x a` and `x a` both reduce back
+  // to `x`) — their reduction sequences intersect. This is sound: distinct normal
+  // forms can never share a reduct, so it never accepts a genuinely wrong answer.
+  const max = opts.canonize?.max ?? opts.max ?? 300;
+  if (nfEqual(n1, n2) || canonEqual(n1, n2, max)) return true;
+  if (!opts.canonize) return false;
   // genuinely divergent with no common finite reduct (different Y-wrappings of one
   // infinite value) — our reducer can't decide it; accept only if BOTH truly diverge
   // (a settling mismatch is a real failure). The puzzle's NF / self-equal cases gate.
