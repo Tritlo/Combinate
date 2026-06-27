@@ -75,7 +75,10 @@ Effects to toggle:
       isFluff("discovery"); the existing toast already stamps its name.
 - [x] **Living Zoo** — `Zoo.tickFluff(t)` gently floats the open creature's picture
       (driven by the shell ticker, gated by isFluff("livingZoo") + reduced-motion).
-- [ ] Codex review + simplify of the whole fluff layer.
+- [x] Codex review + simplify of the whole fluff layer — fixed: discovery chirp
+      now only plays if audio's already unlocked (non-gesture autoplay policy);
+      ambient resets on any fluff toggle *and* on OS reduced-motion change (drift +
+      living-Zoo snap back). `resume()` rejections swallowed.
 
 ## 4. New Special: a progression story / quest (adapted to ι)
 

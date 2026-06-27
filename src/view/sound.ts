@@ -38,7 +38,14 @@ export class Sound {
 
   private ensure(): void {
     if (!this.ctx) this.ctx = new AudioContext();
-    if (this.ctx.state === "suspended") void this.ctx.resume();
+    if (this.ctx.state === "suspended") void this.ctx.resume().catch(() => {});
+  }
+
+  /** Play only if the audio context is already unlocked + running — for non-gesture
+   *  events (a discovery chirp during auto-reduction) that must not trip the
+   *  browser's autoplay policy by starting a context. */
+  playIfReady(sym: string): void {
+    if (this.ctx?.state === "running") this.play(sym);
   }
 
   /** Play a short tone for the rule about to fire (no-op when off or at NF). */

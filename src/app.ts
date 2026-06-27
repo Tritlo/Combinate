@@ -311,7 +311,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   function discover(law: Law): void {
     discovered.add(law.sym);
     toast.show(`${law.lawText}  —  discovered!`);
-    if (isFluff("discovery")) sound.play(law.sym); // fluff: chirp the new bird's tone (the toast already stamps its name)
+    if (isFluff("discovery")) sound.playIfReady(law.sym); // fluff: chirp the new bird (only if audio's already unlocked — discovery isn't a gesture)
     hotbar.reveal(law.sym);
     for (const t of trees) t.refresh(); // reveal newly-known combinators everywhere
     zoo.refresh();
@@ -715,9 +715,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (isFluff("drift")) for (const tree of trees) tree.applyDrift(t);
     if (isFluff("livingZoo")) zoo.tickFluff(t); // float the open creature's picture
   });
-  onFluffChange(() => {
-    if (!isFluff("drift") || prefersReducedMotion()) for (const tree of trees) tree.clearDrift();
-  });
+  // Snap everything back to rest whenever ambient motion stops (a toggle changed,
+  // or the OS reduced-motion preference flipped). The ticker re-applies next frame
+  // if the effect is still on.
+  const resetAmbient = (): void => {
+    for (const tree of trees) tree.clearDrift();
+    zoo.clearFluff();
+  };
+  onFluffChange(resetAmbient);
+  window.matchMedia?.("(prefers-reduced-motion: reduce)").addEventListener("change", resetAmbient);
 
   // Stage receives pointer events over empty space (so panning works there).
   pixi.stage.eventMode = "static";
