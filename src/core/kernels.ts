@@ -12,8 +12,10 @@
  * force operands the rule wouldn't; cap materialised output. A kernel's own value-matching
  * must run the reducer **without** kernels (matchers pass no opts), so it can't re-enter.
  */
-import { type Node } from "./term";
+import { type Node, app } from "./term";
 import { type NativeOpts, NUM_OPS, LIST_OPS, BOOL_OPS, numberOp, listOp, boolOp } from "./native";
+import { normalize } from "./reduce";
+import { matchChurch, churchNum } from "./church";
 
 export type { NativeOpts };
 
@@ -42,7 +44,34 @@ export function kernelFor(sym: string, opts: NativeOpts | undefined): Kernel | u
   return k;
 }
 
+/** The arity of a registered kernel `sym`, for the SKIQ parser to resolve kernel-only
+ *  primitives (which aren't catalog combinators). Undefined if not a kernel. */
+export function kernelArity(sym: string): number | undefined {
+  return KERNELS.get(sym)?.arity;
+}
+
 // ---- built-in kernels: native values (ADR 10), gated by their optimize toggle ----
 for (const sym of NUM_OPS) registerKernel(sym, { arity: 2, enabled: (o) => !!o.numbers, run: (a) => numberOp(sym, a) });
 for (const sym of LIST_OPS) registerKernel(sym, { arity: sym === "concat" ? 1 : 2, enabled: (o) => !!o.lists, run: (a) => listOp(sym, a) });
 for (const sym of BOOL_OPS) registerKernel(sym, { arity: sym === "not" ? 1 : 2, enabled: (o) => !!o.booleans, run: (a) => boolOp(sym, a) });
+
+// ---- a pure Church kernel: `cmod a b = a mod b` on Church numerals (always on). It
+// unblocks the SKIQ gcd (raw Church Euclid is over budget — ADR 9/10): the answer builds
+// Euclid from `cmod` + Y. Match operands with a kernel-FREE reducer so it can't re-enter.
+const CHURCH_CAP = 60_000;
+const MAX_CHURCH = 4096; // cap materialised output like MAX_NAT (a Church numeral is also size ∝ value)
+const noKernels = (n: Node, cap: number): { term: Node; done: boolean } => normalize(n, cap, true);
+registerKernel("cmod", {
+  arity: 2,
+  run: (args) => {
+    const a = matchChurch(args[0], noKernels, CHURCH_CAP);
+    if (a === null) return null;
+    const b = matchChurch(args[1], noKernels, CHURCH_CAP);
+    if (b === null) return null;
+    const m = b === 0 ? a : a % b; // total: `a mod 0 = a` (the gcd answer never hits it; avoids a stuck term)
+    if (m > MAX_CHURCH) return null;
+    let res = churchNum(m);
+    for (let i = 2; i < args.length; i++) res = app(res, args[i]);
+    return res;
+  },
+});

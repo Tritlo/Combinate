@@ -33,6 +33,9 @@ const SOLUTIONS: Record<string, string> = {
   BzhFzwua: "B C C",
   // Plan first / if: `c x` (→ K/KI) selects `t x` vs `e x`.
   uvtknMlN: "c -> t -> e -> x -> c x (t x) (e x)",
+  // gcd — kernel-assisted (ADR 11): Euclid (Y + iszero) over a pure Church `cmod` kernel.
+  // Raw Church Euclid is over budget; the native `cmod` makes each step O(1).
+  u1Sr43PU: "Y (g -> m -> n -> (m (K (KI)) K) n (g (cmod n m) m))",
   // — authored Church arithmetic —
   FYutDKYw: "m -> n -> f -> x -> m f (n f x)", // add
   ZssuKELX: "m -> n -> f -> m (n f)", // mult
@@ -82,12 +85,8 @@ const SOLUTIONS: Record<string, string> = {
   U2xSO7on: "B",
 };
 
-/** Supported puzzles deliberately left unsolved, with why. */
-const PENDING: Record<string, string> = {
-  // Church Euclid is over budget; native values can't intercept raw S/K/I (ADR 10).
-  // A pure Church kernel (TODO §5) may unblock it; until then it's an engine limit.
-  u1Sr43PU: "gcd — gated on kernels (ADR 10/11)",
-};
+/** Supported puzzles deliberately left unsolved, with why. (gcd is now solved — ADR 11.) */
+const PENDING: Record<string, string> = {};
 
 const findName = (id: string): string => {
   for (const ch of SKIQ_CHAPTERS) for (const p of ch.content) if (p.id === id) return p.name;

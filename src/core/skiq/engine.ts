@@ -68,7 +68,10 @@ function inputName(input: Puzzle["input"]): string | undefined {
 // ---- numeral reading: apply to two fresh markers and count (Church) ----
 function readChurch(n: Node): number | null {
   const applied = app(app(n, freeVar("§f")), freeVar("§x"));
-  const { term, done } = normalize(applied, NUM_CAP, true);
+  // `{}` enables always-on kernels (the Church `cmod`, ADR 11) but not the native-value
+  // toggles — so a kernel-assisted answer (gcd via Euclid + cmod) reduces under budget,
+  // while every other puzzle reduces exactly as before.
+  const { term, done } = normalize(applied, NUM_CAP, true, {});
   if (!done) return null;
   let t = term;
   let k = 0;

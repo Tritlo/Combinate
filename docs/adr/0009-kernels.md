@@ -54,6 +54,18 @@ make them resolvable, and author the gcd answer as Euclid built from them (`Y`-r
 `cmod` + iszero). A `gcd` kernel is rejected — it makes the stage trivial; `cmod` is the
 defensible kernel-assisted route, and that answer-key entry is marked kernel-assisted.
 
+## Notes (Codex review)
+
+- **`cmod` is parse-global, allow-gated.** The SKIQ parser resolves any kernel name, so
+  `cmod` is available to every puzzle — but it's subject to each puzzle's `allow` set
+  (restricted puzzles reject it), and it's not on any canvas/hotbar, so only authored
+  source reaches it. This is deliberate, small language growth, not a per-puzzle hack.
+- **Kernel-only discovery is eager.** A kernel-only sym (no catalog `def`) matches in
+  `redexAt` discovery rather than `build`, relaxing the cheap-discovery invariant — fine
+  because such syms never appear on the canvas (`firingRule`/probes never hit them). A
+  future kernel-only primitive that needs cheap discovery should ship a `def` fallback.
+- **Totality + cap.** `cmod a 0 = a` (no stuck term); output capped at `MAX_CHURCH`.
+
 ## Consequences
 
 Native values and future primitives share one path. The Haskell panel can register

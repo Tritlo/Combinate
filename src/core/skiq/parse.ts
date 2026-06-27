@@ -21,6 +21,8 @@
  */
 import { type Node, app, comb, freeVar, freshId } from "../term";
 import { CATALOG, named } from "../catalog";
+import { kernelArity } from "../kernels";
+import { bracket, church } from "../church";
 
 const COMB_SYMS = new Set(CATALOG.map((l) => l.sym));
 
@@ -87,26 +89,6 @@ class P {
   }
 }
 
-// ---- bracket abstraction: λname.body → SKI (standard algorithm + η) ----
-const S = (): Node => comb("S");
-const K = (): Node => comb("K");
-const I = (): Node => comb("I");
-
-function occurs(name: string, n: Node): boolean {
-  switch (n.kind) {
-    case "free": return n.name === name;
-    case "app": return occurs(name, n.fn) || occurs(name, n.arg);
-    default: return false;
-  }
-}
-function bracket(name: string, t: Node): Node {
-  if (t.kind === "free" && t.name === name) return I();
-  if (!occurs(name, t)) return app(K(), t);
-  const a = t as Extract<Node, { kind: "app" }>;
-  if (a.arg.kind === "free" && a.arg.name === name && !occurs(name, a.fn)) return a.fn; // η
-  return app(app(S(), bracket(name, a.fn)), bracket(name, a.arg));
-}
-
 /** Deep-copy with fresh ids, so a scope term reused N times in one expression
  *  doesn't share node ids (the reducer keys substitutions by id). */
 export function cloneFresh(n: Node): Node {
@@ -132,12 +114,6 @@ export function freezeFree(n: Node): Node {
   }
 }
 
-/** The Church numeral `n` = λf x. fⁿ x, as a closed SKI term. */
-export function church(n: number): Node {
-  let body: Node = freeVar("x");
-  for (let i = 0; i < n; i++) body = app(freeVar("f"), body);
-  return bracket("f", bracket("x", body));
-}
 
 /** A resolver for free identifiers: returns a (freshly-cloned) term to splice in,
  *  or null to fall through to "catalog combinator, else free variable". */
@@ -160,6 +136,8 @@ function compile(ast: Ast, scope: Scope, bound: Set<string>): Node {
       const got = scope(ast.v);
       if (got) return cloneFresh(got);
       if (COMB_SYMS.has(ast.v)) return named(ast.v);
+      const ka = kernelArity(ast.v); // a kernel-only primitive (e.g. Church `cmod`, ADR 11)
+      if (ka !== undefined) return comb(ast.v, undefined, ka);
       return freeVar(ast.v);
     }
   }
