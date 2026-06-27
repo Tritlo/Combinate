@@ -16,7 +16,7 @@ import { ChallengePanel } from "./view/challenge";
 import { QuestPanel } from "./view/quest";
 import { QuestTracker } from "./view/questTracker";
 import { Sound } from "./view/sound";
-import { CATALOG, IOTA_CODE, HINTS, iotaTreeOf, countIotas, type Law } from "./core/catalog";
+import { CATALOG, IOTA_CODE, type Law } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
 import { makeRefolder, behavioralRefolder, recognizeDeep, fromEgg, toEgg, type Refolder } from "./core/refold";
@@ -145,20 +145,22 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   };
   placeExpr();
 
-  // The easiest undiscovered combinator to aim for next (fewest ι in its tree),
-  // shown with a research-backed hint on how to build it.
+  // The in-HUD hint reuses the Quest as the single hint source: the current stage's
+  // spoiler hint when it has one, else its objective (the last intro line). Refreshed
+  // whenever the quest advances (see `quest.onAdvance`).
   function updateHint(): void {
-    let best: Law | null = null;
-    let bestN = Infinity;
-    for (const law of CATALOG) {
-      if (isDiscovered(law.sym)) continue;
-      const n = countIotas(iotaTreeOf(law));
-      if (n < bestN) {
-        bestN = n;
-        best = law;
-      }
+    const stage = quest.current;
+    if (!stage) {
+      nextHint.text = "✦ every combinator discovered ✦";
+      return;
     }
-    nextHint.text = best ? `next to discover →  ${HINTS[best.sym] ?? best.lawText}` : "✦ every combinator discovered ✦";
+    const strip = (s: string): string =>
+      s
+        .replace(/<[^>]+>/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    const hint = stage.hint ? strip(stage.hint) : "";
+    nextHint.text = hint ? `hint →  ${hint}` : strip(stage.intro[stage.intro.length - 1] ?? "");
   }
 
   // ---- discovery (§7): the set of combinators found so far. Drives the
@@ -797,7 +799,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     done: () => quest.done,
     openQuest: () => quest.open(),
   });
-  quest.onAdvance(() => questTracker.refresh());
+  quest.onAdvance(() => {
+    questTracker.refresh();
+    updateHint(); // the in-HUD hint tracks the current quest stage
+  });
   hud.addChild(challenges.container); // overlays the hotbar, like the Zoo
 
   // Haskell → ι panel (ADR 0007): compile a curated or free-typed program (stock
