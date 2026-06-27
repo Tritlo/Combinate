@@ -193,7 +193,11 @@ export class Hotbar {
       const v = (this.slotRow.children as Array<Container & { sym?: string }>).find((c) => c.sym === this.popSym);
       if (v) {
         v.scale.set(0.2);
-        tween(this.ticker, 260, (t) => v.scale.set(0.2 + 0.8 * t));
+        // guard `destroyed`: a second discovery within 260ms relayouts the row and
+        // destroys this slot mid-tween (e.g. the Quest unlocking I/K/S in a row).
+        tween(this.ticker, 260, (t) => {
+          if (!v.destroyed) v.scale.set(0.2 + 0.8 * t);
+        });
       }
       this.popSym = null;
     }

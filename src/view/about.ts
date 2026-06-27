@@ -61,6 +61,7 @@ const BODY = `
     <h2>CREDITS</h2>
     <ul>
       <li><b>Combinator birds</b> — Raymond Smullyan, <em>To Mock a Mockingbird</em> (1985).</li>
+      <li><b>Quest</b> — adapted from the <a href="https://dallaylaen.github.io/ski-interpreter/quest.html" target="_blank" rel="noopener">SKI Quest</a> by Konstantin S. Uvarin (with permission).</li>
       <li><b>Haskell compiler &amp; inspiration</b> — MicroHs, by Lennart Augustsson.</li>
       <li><b>Re-folding</b> — egg (Max Willsey) · <b>Rendering</b> — Pixi.js · <b>Storage</b> — DuckDB · <b>Font</b> — IoskeleyMono (Ahmed Hatem).</li>
     </ul>

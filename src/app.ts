@@ -13,6 +13,7 @@ import { encodePermalink, decodePermalink, type Modes } from "./core/permalink";
 import { LocalStore } from "./store/local";
 import { DuckdbStore } from "./store/duckdb";
 import { ChallengePanel } from "./view/challenge";
+import { QuestPanel } from "./view/quest";
 import { Sound } from "./view/sound";
 import { CATALOG, IOTA_CODE, HINTS, iotaTreeOf, countIotas, type Law } from "./core/catalog";
 import { recognize } from "./core/probe";
@@ -447,6 +448,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   function finishNormalForm(tree: TreeView, a: AutoState): void {
     settle(tree);
     void challenges.onNormalForm(a.source ?? tree.node);
+    quest.onNormalForm(a.source ?? tree.node); // guided progression
   }
 
   // The auto-state for a tree, created (without a running timer) if missing —
@@ -777,6 +779,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // (the shared `store` is declared up top; `sound` is constructed up by the Zoo,
   // which needs sound.play for its tones.)
   const challenges = new ChallengePanel(store, { notify: (m) => toast.show(m), onShare: (token) => shareToken(token) });
+  const quest = new QuestPanel({
+    notify: (m) => toast.show(m),
+    onUnlock: (sym) => {
+      const law = CATALOG.find((l) => l.sym === sym);
+      if (law && !discovered.has(sym)) discover(law);
+    },
+  });
   hud.addChild(challenges.container); // overlays the hotbar, like the Zoo
 
   // Haskell → ι panel (ADR 0007): compile a curated or free-typed program (stock
@@ -1120,6 +1129,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "toggle", label: "Sound", checked: () => sound.enabled, run: () => sound.toggle() },
     ] },
     { title: "Special", items: [
+      { kind: "toggle", label: "Quest", checked: () => quest.isOpen, run: () => quest.toggle() },
       { kind: "toggle", label: "Zoo", accel: "Z", checked: () => zoo.isOpen, run: () => zoo.toggle() },
       { kind: "toggle", label: "Golf challenges", accel: "G", checked: () => challenges.isOpen, run: () => challenges.toggle() },
     ] },
@@ -1278,6 +1288,11 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
         toggle: () => challenges.toggle(),
         onNF: (s: string) => challenges.onNormalForm(fromEgg(s)),
         permalink: () => (focus ? encodePermalink(focus.node, currentModes()) : null),
+      },
+      quest: {
+        open: () => quest.open(),
+        stage: () => quest.stageIndex,
+        onNF: (s: string) => quest.onNormalForm(fromEgg(s)),
       },
       sound: { on: () => sound.enabled, toggle: () => sound.toggle() },
       haskell: { open: () => mhsPanel.open(), close: () => mhsPanel.close(), isOpen: () => mhsPanel.isOpen, run: (n: string) => mhsPanel.run(n), examples: () => mhsPanel.examples, compile: (s: string) => mhsPanel.compileLive(s) },
