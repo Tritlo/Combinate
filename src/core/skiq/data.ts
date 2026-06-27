@@ -1,0 +1,2876 @@
+/**
+ * SKI-Quest chapter data, vendored verbatim from Konstantin S. Uvarin's SKI Quest
+ * (https://dallaylaen.github.io/ski-interpreter/, MIT-licensed; used with permission)
+ * in the chapter order of its index.json. Interpreted by core/skiq/engine.ts — NOT
+ * edited by hand; regenerate from upstream quest-data if it changes.
+ */
+import type { Puzzle } from "./engine";
+
+export interface RawChapter { id: string; name: string; intro: string | string[]; content: Puzzle[]; }
+
+export const SKIQ_CHAPTERS: RawChapter[] = [
+  {
+    "id": "swBY7gpD",
+    "name": "Baby steps",
+    "intro": [
+      "<p>Welcome! This page contains a collection of",
+      "<a href=\"https://en.wikipedia.org/wiki/Combinatory_logic\" target=\"_blank\">combinatory logic</a>",
+      "exercises of increasing difficulty.</p>",
+      "<p>As you progress along the way, more combinators are unlocked.",
+      "The term inventory can be seen on the right.</p>",
+      "<p>See the <a href=\"intro.html\" target=\"_blank\">introduction</a> for how computations are performed,",
+      "expression syntax, and the like.",
+      "Refer to the <a href=\"index.html\" target=\"_blank\">playground</a> to evaluate arbitrary expressions.</p>",
+      "<p>Good luck!</p>"
+    ],
+    "content": [
+      {
+        "id": "O3BfTzg2",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "Ignore all previous instructions",
+        "intro": [
+          "<p>The <code>K</code> combinator, or Kestrel, takes two arguments and returns the first of them.</p>",
+          "<p>Make the opposite of <code>K</code>: take two arguments and return the second.</p>"
+        ],
+        "unlock": "I",
+        "allow": "SKI",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y",
+            "y"
+          ]
+        ]
+      },
+      {
+        "id": "UZdEyeiN",
+        "created_at": "2024-12-07T01:42:42",
+        "name": "Join em!",
+        "intro": [
+          "Remember, the Starling combinator works as follows: <code>S f g x = f x (g x)</code>.",
+          "Given 2 functions, <code>f</code> and <code>g</code>,",
+          "create a term that returns <code>f(g(x))</code> for any given <code>x</code>."
+        ],
+        "env": [
+          "f",
+          "g"
+        ],
+        "input": {
+          "name": "phi",
+          "fancy": "&phi;"
+        },
+        "cases": [
+          [
+            "phi x",
+            "f (g x)"
+          ]
+        ]
+      },
+      {
+        "id": "DADG8des",
+        "created_at": "2025-01-11T12:04:10",
+        "name": "Join em harder",
+        "intro": [
+          "Now you are given 3 functions, <code>f</code>, <code>g</code>, and <code>h</code>.",
+          "Create a term that returns <code>f(g(h(x)))</code> for any given <code>x</code>."
+        ],
+        "env": [
+          "f",
+          "g",
+          "h"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi x",
+            "f (g (h x))"
+          ]
+        ]
+      },
+      {
+        "id": "VbnUGtfn",
+        "created_at": "2024-12-07T01:42:42",
+        "name": "Feeding a birdie",
+        "intro": [
+          "You are given a <i>known</i> value <code>x</code>.",
+          "You goal is to make a term that feeds this value to an <i>unknown</i> function <code>f</code>:",
+          "<code>&lt;your code&gt; f = f x</code>"
+        ],
+        "env": [
+          "x"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi f",
+            "f(x)"
+          ]
+        ]
+      },
+      {
+        "id": "T89a9q7G",
+        "created_at": "2024-12-07T01:42:42",
+        "name": "May the force be with you",
+        "intro": [
+          "How about ignoring 3 consecutive arguments and returning the fourth?"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y z t",
+            "t"
+          ]
+        ]
+      },
+      {
+        "id": "4LmjXm1E",
+        "created_at": "2024-12-07T01:42:42",
+        "name": "Between the rock and a hard place",
+        "intro": [
+          "Given <code>f</code> and <code>x</code>, creating a term that outputs <code>f x y</code>",
+          "for <code>y</code> is very straightforward: it's just <code>f x</code>.",
+          "Returning <code>f y x</code> is a bit trickier. Can you do it?"
+        ],
+        "input": "phi",
+        "env": [
+          "f",
+          "x"
+        ],
+        "cases": [
+          [
+            "phi y",
+            "f y x"
+          ]
+        ]
+      },
+      {
+        "id": "Jz41j8ae",
+        "created_at": "2024-12-01T16:54:23",
+        "name": "The Mockingbird",
+        "intro": [
+          "<p><a href=\"https://en.wikipedia.org/wiki/To_Mock_a_Mockingbird\">To Mock A Mockingbird</a>",
+          "is a classical combinatory logic introduction book by Raymond Smulyan.</p>",
+          "<p>The Mockingbird itself <code>M x = x x</code> is of high importance in our further journey,",
+          "basically being an impersonation of recursion.</p>",
+          "<p>Derive it from <code>S</code>, <code>K</code>, and <code>I</code>.</p>"
+        ],
+        "hint": "Neither <code>K</code> nor <code>I</code> can duplicate arguments, so you can tell it's <code>S f g x</code>. What kind of <code>f</code> and <code>g</code> would you expect?..",
+        "allow": "SKI",
+        "input": "phi",
+        "unlock": "M",
+        "cases": [
+          [
+            "phi x",
+            "x x"
+          ]
+        ]
+      },
+      {
+        "id": "hiwf2WWz",
+        "created_at": "2025-07-22T23:59:08",
+        "name": "Triplication",
+        "intro": [
+          "<p>Create a term that make 3 copies of its only argument:</p>",
+          "<p><code>M<sub>3</sub> x = x x x</code>.</p>"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi x",
+            "x x x"
+          ]
+        ]
+      },
+      {
+        "id": "fvQITKZd",
+        "created_at": "2025-03-21T23:39:01",
+        "name": "A parliament of owls",
+        "intro": [
+          "<p>The Owl combinator is an important form of recursion, slightly more complicated than the Mockingbird:",
+          "<code>O x y = y (x y)</code>.</p>",
+          "<p>Here the duplicated argument is not just applied to itself, but also modified before doing so.</p>",
+          "<p>Find O.</p>"
+        ],
+        "unlock": "O",
+        "allow": "SKI",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y",
+            "y (x y)"
+          ]
+        ]
+      },
+      {
+        "id": "lNUrDS4M",
+        "created_at": "2024-12-01T16:54:23",
+        "name": "Lost identity",
+        "intro": [
+          "Sadly, after the previous exercise the Ibis (I) has flown away.",
+          "Ask the Starling and the Kestrel to call it back.",
+          "Emulate <code>x&rarr;x</code> with <code>S</code> and <code>K</code>.",
+          "This one has multiple solutions."
+        ],
+        "hint": "What kind of <code>f</code> does one need to reduce <code>S f g x</code> to <code>x</code>?",
+        "allow": "SK",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x",
+            "x"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "xQymFNkW",
+    "name": "Swing, swing!",
+    "intro": [
+      "Let's move some arguments around.",
+      "Just like in many chess and math problems, work backwards:",
+      "what &lambda;-expression do you want to see before applying to the last argument?",
+      "Then construct it via the above technique and go one argument back,",
+      "until you run out of them."
+    ],
+    "content": [
+      {
+        "id": "HQO9AiXx",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "Lost at GoF, found at g&compfn;f",
+        "intro": [
+          "<p>The combinator application is not associative, i.e. <code>(x y) z != x (y z)</code>",
+          "(find examples!). However, a different operation is: composition. ",
+          "And it will be used extensively in the subsequent quests, so buckle up...</p>",
+          "<p>...and provide a composition term: <code>B f g x = f(g x)</code>,",
+          "also known as the Bluebird.</p>"
+        ],
+        "hint": "You have already built a term that makes <code>f(g x)</code> from known <code>f</code>. Break it down so that <code>f</code> is in the last place!",
+        "unlock": "B",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y z",
+            "x(y z)"
+          ]
+        ]
+      },
+      {
+        "id": "5zTCoMld",
+        "created_at": "2025-03-01T02:00:42",
+        "name": "Blackbird singing in the dead of night",
+        "intro": [
+          "<p>Here comes Bluebird's cousin, Blackbird: <code>B<sub>1</sub> a b c d = a (b c d)</code>.</p>",
+          "<p>Unfortunately, this <s>small and simple</s> interpreter does not support indexed terms,",
+          "so no shortcut will be unlocked in this quest.</p>"
+        ],
+        "hint": "Use B to move the last term in the parentheses outside and see what is left.",
+        "input": "phi",
+        "cases": [
+          [
+            "phi a b c d",
+            "a (b c d)"
+          ]
+        ]
+      },
+      {
+        "id": "zhxYRTMO",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "Mirror image",
+        "intro": "Make a combinator <code>T</code> that swaps its two arguments, that is, <code>(x, y) &rarr; y x</code>",
+        "unlock": "T",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y",
+            "y x"
+          ]
+        ]
+      },
+      {
+        "id": "LAhD47Yg",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "What you like, do once more!",
+        "intro": "The <code>W</code> combinator is defined as x &rArr; y &rArr; x(y)(y). Implement it.",
+        "unlock": "W",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y",
+            "x y y"
+          ]
+        ]
+      },
+      {
+        "id": "cKg6FHW9",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "K forte",
+        "intro": [
+          "<p>Sometimes returning <code>x</code> for any given <code>y</code> is not enough.",
+          "Return it twice: <code>(x, y)&rarr;x x</code>.</p>",
+          "<p>Note: you should avoid applying <code>x</code> to itself until the next argument is given.</p>"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y",
+            "x x"
+          ],
+          [
+            {
+              "max": 20
+            },
+            "phi (SII)",
+            "phi (SII)"
+          ]
+        ]
+      },
+      {
+        "id": "WiTB9Xy0",
+        "created_at": "2025-02-27T20:24:16",
+        "name": "Round Robin",
+        "intro": [
+          "The Robin bird, <code>R</code>, puts its first argument after the next two: ",
+          "<code>R x y z = y z x</code>."
+        ],
+        "unlock": "R",
+        "input": "r",
+        "cases": [
+          [
+            "r x y z",
+            "y z x"
+          ]
+        ]
+      },
+      {
+        "id": "Qq7dQfBW",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "Éminence grise",
+        "intro": [
+          "<p>The King passes the judgement, but the Cardinal dictates the order of execution.</p>",
+          "<p>Derive the <code>C</code> combinator, or Cardinal: <code>C x y z = x z y</code>.</p>"
+        ],
+        "unlock": "C",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y z",
+            "x z y"
+          ]
+        ]
+      },
+      {
+        "id": "glGifOC9",
+        "created_at": "2024-10-20T12:27:35",
+        "name": "Double patience",
+        "unlock": "V",
+        "intro": [
+          "The <code>V</code> combinator, aka vireo bird, takes two arguments and waits patiently",
+          "for a function to apply them to: <code>V x y z = z x y</code>."
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y z",
+            "z x y"
+          ]
+        ]
+      },
+      {
+        "id": "WhYIkSJR",
+        "created_at": "2025-03-01T02:00:42",
+        "name": "The trident of Poseidon",
+        "intro": [
+          "<p>Create a term that takes three arguments and applies the fourth to them:",
+          "<code>f a b c d = d a b c</code>.</p>",
+          "<p>This combinator has no common name, so we'll just call it <code>v3</code>.",
+          "It might come in handy later.</p>"
+        ],
+        "input": "phi",
+        "unlock": "v3",
+        "cases": [
+          [
+            "phi a b c d",
+            "d a b c"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "rd1key1L",
+    "name": "The BCKW forest",
+    "intro": [
+      "<p>The <a href=\"https://en.wikipedia.org/wiki/B,_C,_K,_W_system\">BCKW system</a>",
+      "consists of four independent operations:</p>",
+      "<ul>",
+      "<li><code>B a b c = a (b c)</code> &mdash; composition,</li>",
+      "<li><code>C a b c = a c b</code> &mdash; swapping,</li>",
+      "<li><code>K a b = a</code> &mdash; discarding, and</li>",
+      "<li><code>W a b = a b b</code> &mdash; duplication.</li>",
+      "</ul>",
+      "<p>Those are sufficient to rewrite an arbitrary expression <code>E</code> in the form",
+      "<code>F x</code> where free variable <code>x</code> may or may not be present in <code>E</code>",
+      "but does not appear in <code>F</code>.</p>",
+      "<p>Such transformation is harder to formalize than the one for <code>S</code> and <code>K</code>,",
+      "but may be more convenient to perform for a human.</p>",
+      "<p>In order to do so, one needs to determine the <i>last</i> free variable to be extracted,",
+      "and then use <code>B</code> to pull it towards the root of the expression tree,",
+      "<code>C</code> to push it to the right, <code>W</code> to merge duplicates, ",
+      "and <code>K</code> to discard unneeded variables.",
+      "Once a variable gets to the end, it is <i>eliminated</i> and the process repeats",
+      "until only constants are left.</p>",
+      "<p>There are often multiple paths to the desired form,",
+      "e.g. it may be feasible to lift a whole subtree and not just one variable.",
+      "But the technique always succeeds.</p>"
+    ],
+    "content": [
+      {
+        "id": "EERaTEWg",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "Where am I?",
+        "intro": "Build the I combinator (yes, again) from B, C, K, and W.",
+        "allow": "BCKW",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x",
+            "x"
+          ]
+        ]
+      },
+      {
+        "id": "MH4kIGqY",
+        "created_at": "2024-11-13T01:18:18",
+        "name": "A cup of T",
+        "intro": [
+          "<p>An expression <code>f y x</code> can be written as <code>C f x y</code>, and vice versa.",
+          "But what if <code>f</code> is missing and you just have <code>y x</code>",
+          "and want them in different order?",
+          "Perhaps you have to add something to <code>C</code> to pull it off...</p>",
+          "<p>Find an expression <code>T</code> such that <code>T x y = y x</code>.</p>"
+        ],
+        "allow": "BCKWI",
+        "unlock": "T",
+        "input": "t",
+        "cases": [
+          [
+            "t x y",
+            "y x"
+          ]
+        ]
+      },
+      {
+        "name": "Mockingbird II",
+        "intro": [
+          "Build <code>M</code>: <code>M x = x x</code>."
+        ],
+        "id": "F9xS85rq",
+        "created_at": "2025-07-06T01:45:21",
+        "allow": "BCKIW",
+        "unlock": "M",
+        "input": "m",
+        "cases": [
+          [
+            "m x",
+            "x x"
+          ]
+        ]
+      },
+      {
+        "id": "DZgmxmiQ",
+        "created_at": "2024-11-15T01:01:00",
+        "name": "Dove",
+        "intro": "Provide a bird <code>D</code> such that <code>D x y z t = x y (z t)</code>",
+        "allow": "BCKIW",
+        "unlock": "D",
+        "input": "D",
+        "cases": [
+          [
+            "D x y z t",
+            "x y (z t)"
+          ]
+        ]
+      },
+      {
+        "id": "3MuxHf1M",
+        "created_at": "2024-11-15T01:01:00",
+        "name": "Robin",
+        "intro": "Provide <code>R</code> such that <code>R x y z = y z x</code>",
+        "allow": "BCKWI",
+        "unlock": "R",
+        "input": "R",
+        "cases": [
+          [
+            "R x y z",
+            "y z x"
+          ]
+        ]
+      },
+      {
+        "id": "FWZDq8fU",
+        "created_at": "2024-11-15T01:01:00",
+        "name": "Lark",
+        "intro": "Build the <code>L</code> combinator such that <code>L x y = x (y y)</code>",
+        "hint": "It can be done with just <code>B</code> and <code>W</code>",
+        "allow": "BCKWI",
+        "unlock": "L",
+        "input": "L",
+        "cases": [
+          [
+            "L x y",
+            "x (y y)"
+          ]
+        ]
+      },
+      {
+        "name": "The Turing bird",
+        "intro": [
+          "I've seen at least 3 things denoted by <code>U</code> in the literature concerning combinators.",
+          "This time <code>U</code> means a function of 2 arguments: <code>U a b = b (a a b)</code>.",
+          "Build it!"
+        ],
+        "id": "2LpsCjKe",
+        "created_at": "2026-03-29T17:21:21",
+        "allow": "BCKIW",
+        "input": "phi",
+        "cases": [
+          [
+            "phi a b",
+            "b (a a b)"
+          ]
+        ]
+      },
+      {
+        "name": "ADAC",
+        "intro": [
+          "<p><a href=\"https://en.wikipedia.org/wiki/ADAC\" target=\"_blank\">ADAC</a>",
+          "stands for <i>Allgemeiner Deutscher Automobil-Club</i>, meaning <i>General German Automobile Club</i>.",
+          "It is an organization that provides road-side assistance, insurance, and generally promotion of",
+          "automobile use across Germany.</p>",
+          "<p>Build <code>a d a c</code> from <code>a b c d</code>.</p>"
+        ],
+        "id": "fGRC4aUm",
+        "created_at": "2025-07-06T02:02:37",
+        "allow": "BCKIW",
+        "input": "phi",
+        "cases": [
+          [
+            "phi a b c d",
+            "a d a c"
+          ]
+        ]
+      },
+      {
+        "name": "Can't think of a name",
+        "intro": [
+          "Build a combinator of three arguments of form <code>a (b c) c</code>."
+        ],
+        "id": "NPQ1PIwx",
+        "created_at": "2025-07-06T01:10:24",
+        "allow": "BCKIW",
+        "input": "phi",
+        "cases": [
+          [
+            "phi a b c",
+            "a (b c) c"
+          ]
+        ]
+      },
+      {
+        "id": "SDFiIPyt",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "The way back home",
+        "intro": "Build <code>S</code> from <code>B</code>, <code>C</code>, <code>K</code>, and <code>W</code>.",
+        "allow": "BCIKW",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y z",
+            "x z (y z)"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "NJpjdogX",
+    "name": "The island of Iota",
+    "intro": [
+      "Now you know two bases: the SK(I) and the BCKW.",
+      "Apparently, there is a one element base: <code>X = x &rarr; xSK</code>. Try it!"
+    ],
+    "content": [
+      {
+        "id": "YAN4Mxrt",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "All you need is",
+        "intro": "Build <code>x &rarr; x(S)(K)</code>",
+        "input": "phi",
+        "cases": [
+          [
+            "phi K x y z",
+            "x z (y z)"
+          ],
+          [
+            "phi (KI) x y z",
+            "x z"
+          ]
+        ]
+      },
+      {
+        "id": "4e3mymsq",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "Easy peasy",
+        "intro": [
+          "Now build <code>I</code> from <code>X</code>. ",
+          "No other combinators are (hopefully temporarily) available."
+        ],
+        "allow": "I-I",
+        "env": [
+          "X=BC(CI)SK"
+        ],
+        "hint": "You might want to go back to the very first chapter...",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x",
+            "x"
+          ]
+        ]
+      },
+      {
+        "id": "XUVE0eoI",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "Ignore all previous instructions II",
+        "intro": [
+          "Build a combinator that omits its first argument and returns the second one"
+        ],
+        "allow": "I-I",
+        "env": [
+          "X=BC(CI)SK"
+        ],
+        "hint": "XXX... would alternate between I and X. Try parenthesis...",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y",
+            "y"
+          ]
+        ]
+      },
+      {
+        "id": "63bwJwPZ",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "Stay constant, whatever you receive",
+        "intro": [
+          "Build a combinator that omits its second argument and returns the first one",
+          "(i.e. <code>K</code>)"
+        ],
+        "allow": "I-I",
+        "env": [
+          "X=BC(CI)SK"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y",
+            "x"
+          ]
+        ]
+      },
+      {
+        "id": "QqpxVpZk",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "Last but not least",
+        "intro": [
+          "How about <code>S</code>?"
+        ],
+        "allow": "I-I",
+        "env": [
+          "X=BC(CI)SK"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y z",
+            "x z (y z)"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "uTxVHWJa",
+    "name": "MTAB jailbreak",
+    "intro": [
+      "<p>Another weird combinator base is <b>MTAB</b>.",
+      "Just like the BCKW system, it consists of four combinators,",
+      "representing duplication, swapping, discarding, and composition, respectively:",
+      "<code>M a = a a</code>, <code>T a b = b a</code>, <code>A a b = b</code>,",
+      "and <code>B a b c = a (b c)</code>.</p>",
+      "<p>Your task is to go back to BCKW from here. Good luck!</p>"
+    ],
+    "content": [
+      {
+        "id": "TNgeTiRp",
+        "created_at": "2025-03-13T00:56:13",
+        "name": "Identity, again",
+        "intro": [
+          "Build <code>I</code> from M, T, A, and B."
+        ],
+        "allow": "B",
+        "env": [
+          "M=WI",
+          "T=CI",
+          "A=KI"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi x",
+            "x"
+          ]
+        ]
+      },
+      {
+        "id": "QwHhI1rZ",
+        "created_at": "2025-03-13T00:56:13",
+        "name": "Cardinal revisited",
+        "intro": [
+          "Build <code>C</code> from M, T, A, and B."
+        ],
+        "allow": "B",
+        "env": [
+          "M=WI",
+          "T=CI",
+          "A=KI"
+        ],
+        "hint": "<code>B</code> and <code>T</code> are enough.",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y z",
+            "x z y"
+          ]
+        ]
+      },
+      {
+        "id": "IJfBd6Wj",
+        "created_at": "2025-03-13T00:56:13",
+        "name": "Truth coming out of her well",
+        "intro": [
+          "Build <code>K</code> from M, T, A, and B."
+        ],
+        "allow": "B",
+        "env": [
+          "M=WI",
+          "T=CI",
+          "A=KI"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y",
+            "x"
+          ]
+        ]
+      },
+      {
+        "id": "ZCMoK02Q",
+        "created_at": "2025-03-13T00:56:13",
+        "name": "The last step",
+        "intro": [
+          "Build <code>W</code> from M, T, A, and B."
+        ],
+        "allow": "B",
+        "env": [
+          "M=WI",
+          "T=CI",
+          "A=KI"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y",
+            "x y y"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "IheXweZm",
+    "name": "Linear combinators",
+    "intro": [
+      "<p>A lambda expression (and, subsequently, a combinator) is called <b>linear</b>",
+      "if it uses all of its arguments exactly once and adds no new terms.",
+      "It can thus compose and swap terms, but not duplicate or discard them.</p>",
+      "<p>For example, <code>B</code> and <code>C</code> are linear, but <code>W</code> and <code>K</code> are not.</p>",
+      "<p>Combinators built from linear combinators are linear as long as",
+      "they don't apply arguments to anything but arguments.</p>",
+      "<p>Let's move some terms around!</p>"
+    ],
+    "content": [
+      {
+        "id": "gi5mV965",
+        "created_at": "2025-03-24T20:55:56",
+        "name": "Cardinal once removed",
+        "intro": [
+          "<p>Make a combinator that swaps its 3rd and 4th arguments, starting from 1:</p>",
+          "<p><code>C<sup>*</sup> a b c d = a b d c</code>.</p>",
+          "<p>Only linear combinators are allowed.</p>"
+        ],
+        "allow": "BCTVIR",
+        "input": {
+          "name": "x",
+          "fancy": "C<sup>*</sup>"
+        },
+        "cases": [
+          [
+            "x a b c d",
+            "a b d c"
+          ]
+        ]
+      },
+      {
+        "id": "buOZQ9o7",
+        "created_at": "2025-06-30T00:00:51",
+        "name": "The Q<sub>n</sub> Quintuples",
+        "intro": [
+          "<p>Exactly six combinators of form <code>&lambda; a b c . x (y z)</code> (where xyz = abc in some order)",
+          "exist. Obviously they are linear.",
+          "One of them, <code>B</code>, is already known to us. Here come the other five.</p>",
+          "<p>Find the Queer bird: <code>Q a b c = b(a c)</code>.</p>"
+        ],
+        "input": "q",
+        "cases": [
+          [
+            "q a b c",
+            "b (a c)"
+          ]
+        ]
+      },
+      {
+        "id": "EuOQExqe",
+        "created_at": "2025-06-30T00:06:02",
+        "name": "The Q<sub>n</sub> Quintuples: Q<sub>1</sub>",
+        "intro": "Find the Quixotic bird: <code>Q<sub>1</sub> a b c = a(c b)</code>.",
+        "input": "q1",
+        "cases": [
+          [
+            "q1 a b c",
+            "a (c b)"
+          ]
+        ]
+      },
+      {
+        "id": "xAqffqWv",
+        "created_at": "2025-06-30T00:06:02",
+        "name": "The Q<sub>n</sub> Quintuples: Q<sub>2</sub>",
+        "intro": "Find the Quizzical bird: <code>Q<sub>2</sub> a b c = b(c a)</code>.",
+        "input": "q2",
+        "cases": [
+          [
+            "q2 a b c",
+            "b (c a)"
+          ]
+        ]
+      },
+      {
+        "id": "f6tNnmm1",
+        "created_at": "2025-06-30T00:06:02",
+        "name": "The Q<sub>n</sub> Quintuples: Q<sub>3</sub>",
+        "intro": "Find the Quirky bird: <code>Q<sub>3</sub> a b c = c(a b)</code>.",
+        "input": "q3",
+        "cases": [
+          [
+            "q3 a b c",
+            "c (a b)"
+          ]
+        ]
+      },
+      {
+        "id": "DAGc1HC2",
+        "created_at": "2025-06-30T00:06:02",
+        "name": "The Q<sub>n</sub> Quintuples: Q<sub>4</sub>",
+        "intro": "Find the Quacky bird: <code>Q<sub>4</sub> a b c = c(b a)</code>.",
+        "input": "q4",
+        "cases": [
+          [
+            "q4 a b c",
+            "c (b a)"
+          ]
+        ]
+      },
+      {
+        "id": "M3mOh0CW",
+        "created_at": "2025-08-22T01:42:18",
+        "name": "Wait four it",
+        "intro": [
+          "<p>Build a combinator that takes its first argument to the fourth position:",
+          "<code>R<sub>4</sub> a b c d = b c d a</code>.</p>",
+          "<p><i>(See also the Robin quest).</i></p>"
+        ],
+        "input": {
+          "name": "r4",
+          "fancy": "R<sub>4</sub>"
+        },
+        "cases": [
+          [
+            "r4 a b c d",
+            "b c d a"
+          ]
+        ]
+      },
+      {
+        "id": "BzhFzwua",
+        "created_at": "2025-10-27T21:20:31",
+        "name": "Identity but later",
+        "intro": [
+          "<p>Provide a combinator that takes 3 arguments and returns them applied in the same order:</p>",
+          "<p><code>I<sup>**</sup> a b c = a b c</code>.</p>",
+          "The catch is: <code>a</code> and <code>b</code> shall not be merged until <code>c</code> arrives."
+        ],
+        "input": {
+          "name": "i",
+          "fancy": "I<sup>**</sup>"
+        },
+        "cases": [
+          [
+            "i a b c",
+            "a b c"
+          ],
+          [
+            {
+              "max": 40
+            },
+            "i (WI) (WI)",
+            "i (WI) (WI)"
+          ]
+        ]
+      },
+      {
+        "id": "tfcVL6CR",
+        "created_at": "2025-03-24T20:55:56",
+        "name": "The linear base",
+        "intro": [
+          "<p>This is one of the hardest <i>[citation needed]</i> problems from To Mock a Mockingbird.</p>",
+          "<p>It can be proven that <code>I</code>, <code>B</code>, and either <code>C</code> or <code>T</code>",
+          "form a basis for all linear combinators. ",
+          "(Show that <code>C</code> and <code>T</code> are interchangeable here.)</p>",
+          "<p>However, does a base of less than 3 combinators exist?",
+          "Well apparently it's impossible to get rid of <code>I</code>, but the other two can indeed be merged.</p>",
+          "<p>Your task will be to <i>declare</i> a combinator that would, together with <code>I</code>,",
+          "form a basis for all linear combinators.",
+          "You'll then have to <i>prove</i> it's a basis by implementing <code>B</code> and <code>T</code>.</p>"
+        ],
+        "input": [
+          {
+            "name": "P",
+            "lambdas": true,
+            "allow": "I-I",
+            "note": "Declare your own combinator, lambdas allowed. It should be linear."
+          },
+          {
+            "name": "B",
+            "lambdas": false,
+            "allow": "I",
+            "note": "Implement <code>B</code>. <code>P</code> (declared above) and <code>I</code> are allowed."
+          },
+          {
+            "name": "T",
+            "lambdas": false,
+            "allow": "I",
+            "note": "Implement <code>T</code>. <code>P</code> (declared above) and <code>I</code> are allowed."
+          }
+        ],
+        "cases": [
+          [
+            {
+              "caps": {
+                "linear": true
+              }
+            },
+            "P"
+          ],
+          [
+            "B a b c",
+            "a (b c)"
+          ],
+          [
+            "T a b",
+            "b a"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "ZBSnYgvf",
+    "name": "Affine logic",
+    "intro": [
+      "<p>Much like the linear logic, affine logic allows for a restricted subset of operations,",
+      "namely, it can swap, discard, and compose terms, but not duplicate them.",
+      "It is therefore not Turing complete, which may actually be beneficial in some applications.</p>"
+    ],
+    "content": [
+      {
+        "id": "Jv13RWtU",
+        "created_at": "2025-08-01T00:52:21",
+        "name": "Identity",
+        "intro": [
+          "<p>Unlike in linear logic, identity is not required to be present in the initial set. ",
+          "This is because discarding is allowed and either <code>K x &lt;something&gt;</code> or",
+          "some variant of <code>KI</code> can be built.</p>",
+          "<p>Create identity from <code>B</code>, <code>K</code> and <code>T</code> combinators.",
+          "<i>(<code>C</code> would've been too easy...)</i></p>"
+        ],
+        "env": [
+          "T=CI"
+        ],
+        "allow": "BK",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x",
+            "x"
+          ]
+        ]
+      },
+      {
+        "id": "BWom23jE",
+        "created_at": "2025-08-01T00:52:21",
+        "name": "To rule them all",
+        "intro": [
+          "<p>Create a monobasis for affine logic. ",
+          "I made mine by taking <code>x&rarr;x</code>, attaching random affine combinators to the right, ",
+          "plugging the resulting function into itself, and shaking it violently.</p>"
+        ],
+        "input": [
+          {
+            "name": "X",
+            "allow": "I-I",
+            "lambdas": true,
+            "note": "Declare your own combinator <code>X</code>. It should not duplicate variables."
+          },
+          {
+            "name": "b",
+            "allow": "X",
+            "note": "Derive <code>B</code> from <code>X</code>."
+          },
+          {
+            "name": "k",
+            "allow": "X",
+            "note": "Derive <code>K</code> from <code>X</code>."
+          },
+          {
+            "name": "t",
+            "allow": "X",
+            "note": "Derive <code>T</code> from <code>X</code>."
+          }
+        ],
+        "cases": [
+          [
+            {
+              "caps": {
+                "affine": true
+              }
+            },
+            "X"
+          ],
+          [
+            "b x y z",
+            "x (y z)"
+          ],
+          [
+            "k x y",
+            "x"
+          ],
+          [
+            "t x y",
+            "y x"
+          ]
+        ]
+      },
+      {
+        "id": "9AOyLk8v",
+        "created_at": "2025-07-23T00:08:30",
+        "name": "Triple trouble",
+        "intro": [
+          "<p>Think <a href=\"#quest-ZCMoK02Q\">making</a> <code>W</code> from <code>M</code> was hard?",
+          "This time you are given <code>triple x = x x x</code> instead of <code>M</code>. Find <code>M</code>.</p>",
+          "<p><i>(Can you also build <code>W</code>?)</i></p>",
+          "<p>Of course you can't use any duplicating combinators except <code>triple</code>.</p>"
+        ],
+        "env": [
+          "triple=WW"
+        ],
+        "allow": "BCVIKT",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x",
+            "x x"
+          ]
+        ]
+      },
+      {
+        "id": "TOqpNIxi",
+        "created_at": "2026-03-12T22:10:21",
+        "name": "Head and shoulders",
+        "intro": [
+          "Given a function <code>f</code>, build a new function <code>g</code> such that",
+          "<code>g (V x (V y ( ... )))</code> = <code>f x y</code>, and the tail is discarded.",
+          "Easy if you can duplicate the list! But it's forbidden."
+        ],
+        "env": [
+          "V=BC(CI)",
+          "f"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            {
+              "caps": {
+                "affine": true
+              }
+            },
+            "phi"
+          ],
+          [
+            "phi (V x (V y z))",
+            "f x y"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "ffOQ5Bju",
+    "name": "The Joy Of Jay",
+    "intro": [
+      "<p>The <code>J</code> combinator, aka Jay bird, works as follows: ",
+      "<code>J a b c d = a b (a d c)</code>.",
+      "It was discovered in 1935 by",
+      "<a href=\"https://en.wikipedia.org/wiki/J._Barkley_Rosser\" target=\"_blank\">J. Barkley Rosser</a>.</p>",
+      "<p><code>J</code> and <code>I</code> form a basis for all operations that do not <i>discard</i> arguments,",
+      "as it incorporates the operations of composition, swapping, and duplication.</p>",
+      "<p>Let's prove it!</p>"
+    ],
+    "content": [
+      {
+        "id": "xWDGLJvA",
+        "created_at": "2025-07-13T16:44:03",
+        "name": "Enter Jay",
+        "intro": [
+          "<p>Build the J combinator: <code>J a b c d = a b (a d c)</code>.</p>"
+        ],
+        "unlock": "J",
+        "input": "J",
+        "cases": [
+          [
+            "J a b c d",
+            "a b (a d c)"
+          ]
+        ]
+      },
+      {
+        "id": "lphEyMXf",
+        "created_at": "2025-07-13T16:44:03",
+        "name": "Swap",
+        "intro": "<p>Easy one first. Implement <code>T x y = y x</code> with just <code>J</code> and <code>I</code>.</p>",
+        "allow": "JI",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y",
+            "y x"
+          ]
+        ]
+      },
+      {
+        "id": "7gLQo32W",
+        "created_at": "2025-07-13T16:44:03",
+        "name": "The missing link",
+        "intro": [
+          "<p>Implement the Quixotic bird: <code>Q<sub>1</sub> x y z = x (z y)</code>.</p>",
+          "<p>While of little interest by itself, it may be helpful as a building block",
+          "for subsequent exercises.</p>"
+        ],
+        "allow": "JI",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y z",
+            "x (z y)"
+          ]
+        ]
+      },
+      {
+        "id": "KKFt7eS5",
+        "created_at": "2025-07-13T16:44:03",
+        "name": "B patient",
+        "intro": [
+          "<p>Implement <code>B x y z = x (y z)</code> with just <code>J</code> and <code>I</code>.</p>"
+        ],
+        "allow": "JI",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y z",
+            "x (y z)"
+          ]
+        ]
+      },
+      {
+        "id": "16TntDIM",
+        "created_at": "2025-07-13T16:44:03",
+        "name": "C in J",
+        "intro": [
+          "<p>Now that you have both <code>B</code> and <code>T</code>,",
+          "C can be made, for sure. However, maybe you'll find a simpler expression...</p>"
+        ],
+        "allow": "JI",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y z",
+            "x z y"
+          ]
+        ]
+      },
+      {
+        "id": "ZpRyf6k6",
+        "created_at": "2025-07-13T16:44:03",
+        "name": "Duplication",
+        "intro": [
+          "<p>Duplication is somewhat trickier as the only duplicated argument (<code>a</code>) in J",
+          "only appears on the left hand side of something else. Still it is possible.</p>",
+          "<p>Implement <code>W x y = x y y</code> with just <code>J</code> and <code>I</code>.</p>"
+        ],
+        "allow": "JI",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y",
+            "x y y"
+          ]
+        ]
+      },
+      {
+        "id": "yY4t45l5",
+        "created_at": "2025-07-13T16:44:03",
+        "name": "For the sake of completeness",
+        "intro": [
+          "<p>It is not possible to generate all combinators from <code>J</code> and <code>K</code>.",
+          "<i>(If you know a counterexample, please send it to me.)</i></p>",
+          "<p>It is, however, possible to generate everything from <code>J</code> and false, or ",
+          "<code>A x y = y</code>.</p>"
+        ],
+        "env": [
+          "A = x->y->y",
+          "J=a->b->c->d->a b (a d c)"
+        ],
+        "allow": "I-I",
+        "input": [
+          {
+            "name": "i",
+            "note": "Create identity from J and A"
+          },
+          {
+            "name": "k",
+            "note": "Create K from J and A"
+          }
+        ],
+        "cases": [
+          [
+            "i x",
+            "x"
+          ],
+          [
+            "k x y",
+            "x"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "HhZsYmiI",
+    "name": "Those Not Included In This Classification",
+    "intro": [
+      "<p>Let's build some more combinators, useful and not.</p>"
+    ],
+    "content": [
+      {
+        "id": "HRESMOB6",
+        "created_at": "2026-06-23T00:49:14",
+        "name": "Double Mockingbird",
+        "intro": [
+          "<p>Find a term <code>M<sub>2</sub></code> such that <code>M<sub>2</sub> x y = x y (x y)</code>.</p>"
+        ],
+        "input": {
+          "name": "m2",
+          "fancy": "M<sub>2</sub>"
+        },
+        "cases": [
+          [
+            "m2 x y",
+            "x y (x y)"
+          ]
+        ]
+      },
+      {
+        "id": "HnLa4AzW",
+        "created_at": "2026-06-23T01:06:21",
+        "name": "Tartaglia",
+        "intro": [
+          "<p>Find a term such that <code>f x y = (x x)(y y)</code>.</p>",
+          "<p>Not sure if this has a common name, so we'll call it a stuttering mockingbird.</p>"
+        ],
+        "input": "f",
+        "cases": [
+          [
+            "f x y",
+            "(x x)(y y)"
+          ]
+        ]
+      },
+      {
+        "id": "Mls7TePA",
+        "created_at": "2026-06-23T01:16:19",
+        "name": "Sudo Make Me A Sandwich",
+        "intro": [
+          "<p>Also without a common name, find a term such that <code>f bread cheese = bread cheese bread</code>.</p>"
+        ],
+        "input": "f",
+        "cases": [
+          [
+            "f bread cheese",
+            "bread cheese bread"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "naAI2zi3",
+    "name": "Boolean logic",
+    "intro": [
+      "<p><code>K</code> and <code>KI</code> terms may be interpreted as <b>true</b> and <b>false</b>",
+      ", respectively, as <code>K then else</code> will result in <code>then</code>",
+      "and <code>KI then else</code> will result in <code>else</code>.",
+      "(Note: the <code>KI</code> can be replaced with euivalent terms, such as <code>SK</code> or <code>CK</code>.)</p>",
+      "<p>The trick is almost always to feed a function to a boolean value, and not the other way around.</p>",
+      "<p>Throughout this chapter, you don't have to return exactly <code>K</code> and <code>KI</code>,",
+      "any term(s) that affect their arguments in the same way will do.</p>"
+    ],
+    "content": [
+      {
+        "id": "1WLQktu6",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "not",
+        "intro": [
+          "<p>Implement <code>not x</code>, that is,",
+          "return <code>K</code> for <code>KI</code> and <code>KI</code> for <code>K</code>.</p>",
+          "<p>How short can you make it?</p>"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi (KI) true false",
+            "true"
+          ],
+          [
+            "phi K true false",
+            "false"
+          ]
+        ]
+      },
+      {
+        "id": "ZJQC2K3h",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "Postfix if statement",
+        "intro": [
+          "<p>Before we go further, let's implement a function that picks between two precalculated values.</p>",
+          "<p>Make a function of <code>x</code>, <code>y</code>, and <code>z</code>, ",
+          "such that it returns <code>x</code> for any true <code>z</code> and <code>y</code> for a false one.</p>"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y K",
+            "x"
+          ],
+          [
+            "phi x y (KI)",
+            "y"
+          ],
+          [
+            "phi x y (SK)",
+            "y"
+          ]
+        ]
+      },
+      {
+        "id": "RQq5xiBV",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "or",
+        "intro": [
+          "<p>The <code>or</code> is true if one of its arguments is true, or false if both are false.</p>"
+        ],
+        "hint": "Assume <code>or</code> is a function of <i>one</i> argument. What function should it return for true and false?",
+        "input": "phi",
+        "cases": [
+          [
+            "phi K K true false",
+            "true"
+          ],
+          [
+            "phi (KI) K true false",
+            "true"
+          ],
+          [
+            "phi K (KI) true false",
+            "true"
+          ],
+          [
+            "phi (KI) (KI) true false",
+            "false"
+          ]
+        ]
+      },
+      {
+        "id": "QRVhriTN",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "and",
+        "intro": [
+          "make a term that takes 2 arguments and returns true (<code>K</code>)",
+          " if and only if both are true"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi K K true false",
+            "true"
+          ],
+          [
+            "phi (KI) K true false",
+            "false"
+          ],
+          [
+            "phi K (KI) true false",
+            "false"
+          ],
+          [
+            "phi (KI) (KI) true false",
+            "false"
+          ]
+        ]
+      },
+      {
+        "id": "Uu9HxTCJ",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "nand",
+        "intro": [
+          "<p><code>nand</code> (not and) is true unless both of its inputs are true.</p>",
+          "<p>Given the ability to duplicate, swap, compose, and discard arguments, <i>just one</i>",
+          "<code>nand</code> term is enough to implement <i>any</i> boolean function.</p>"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi K K true false",
+            "false"
+          ],
+          [
+            "phi (KI) K true false",
+            "true"
+          ],
+          [
+            "phi K (KI) true false",
+            "true"
+          ],
+          [
+            "phi (KI) (KI) true false",
+            "true"
+          ]
+        ]
+      },
+      {
+        "id": "uvtknMlN",
+        "created_at": "2025-02-23T13:17:56",
+        "name": "Plan first, execute later",
+        "intro": [
+          "<p>Implement a function of four arguments: <code>check</code>, <code>then</code>, <code>else</code>,",
+          "and <code>x</code>. It should return <code>then x</code> if <code>check x</code> returns <code>K</code>,",
+          "and <code>else x</code> if <code>check x</code> returns <code>KI</code>.</p>"
+        ],
+        "unlock": "if",
+        "input": "if",
+        "cases": [
+          [
+            "if (K(KI)) b c d",
+            "c d"
+          ],
+          [
+            "if (KK) b c d",
+            "b d"
+          ],
+          [
+            "if I b c K",
+            "b K"
+          ],
+          [
+            "if I b c (KI)",
+            "c (KI)"
+          ],
+          [
+            "V=BC(CI); if (VCK) f g 6",
+            "f 6"
+          ],
+          [
+            "V=BC(CI); if (VCK) f g 7",
+            "g 7"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Oad7RqXx",
+    "name": "The Church of Numerals",
+    "intro": [
+      "As everything in the world of combinators is a function, numbers are functions, too.",
+      "A Church numeral (named after ",
+      "<a href=\"https://en.wikipedia.org/wiki/Alonzo_Church\" target=\"_blank\">Alonzo Church</a>)",
+      "is a function <code>N</code> that takes 2 arguments, <code>x</code> and <code>y</code>,",
+      "and returns <code>x(...N times...(x(y))...).</code>",
+      "By that definition, 0 is <code>KI</code> (just as false),",
+      "as it repeats the first argument exactly 0 times,",
+      "and 1 is <code>I</code> (easy to confuse)."
+    ],
+    "content": [
+      {
+        "id": "rARLv86e",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "zero... one... two?!",
+        "intro": [
+          "Look at the definition above once more. What would number 2 look like?"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi x y",
+            "x(x(y))"
+          ]
+        ]
+      },
+      {
+        "id": "6jZEOKHX",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "inc",
+        "intro": [
+          "Procure a term that increases given number by 1: <code>inc N x y &rarr; x(...N+1 times(y)...)</code>. "
+        ],
+        "hint": "<code>inc N x y &rarr; x (N x y)</code>.",
+        "unlock": "+",
+        "input": "phi",
+        "cases": [
+          [
+            "phi (KI) x y",
+            "x y"
+          ],
+          [
+            "phi (SK) x y",
+            "x y"
+          ],
+          [
+            "phi I x y",
+            "x (x y)"
+          ],
+          [
+            "phi 8 x y",
+            "9 x y"
+          ]
+        ]
+      },
+      {
+        "id": "FYutDKYw",
+        "created_at": "2024-09-08T23:55:19",
+        "name": "Adding numbers",
+        "intro": [
+          "Create a term that takes two numbers and produces their sum."
+        ],
+        "hint": "This can be done by applying <code>inc</code> m times to n",
+        "input": "phi",
+        "cases": [
+          [
+            "phi 0 0 + 0",
+            "0"
+          ],
+          [
+            "phi 5 0 + 0",
+            "5"
+          ],
+          [
+            "phi 0 5 + 0",
+            "5"
+          ],
+          [
+            "phi I I + 0",
+            "2"
+          ],
+          [
+            "phi (S(S(KS)K)I) (WB) + 0",
+            "4"
+          ]
+        ]
+      },
+      {
+        "id": "aVXplSUP",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "Hello? Is there anybody in there?",
+        "intro": [
+          "Make a term that returns <code>K</code> for 0 and <code>KI</code> for all other numbers. ",
+          "As often with numbers, you need to find <code>f</code> and <code>x</code>",
+          "such that <code>f(f(...f(x)...))</code> does what you want."
+        ],
+        "unlock": "is_zero",
+        "input": "phi",
+        "cases": [
+          [
+            "phi (KI) x y",
+            "x"
+          ],
+          [
+            "phi (SK) x y",
+            "x"
+          ],
+          [
+            "phi I x y",
+            "y"
+          ],
+          [
+            "phi 2 x y",
+            "y"
+          ],
+          [
+            "phi 43 x y",
+            "y"
+          ]
+        ]
+      },
+      {
+        "id": "c9RywwUB",
+        "created_at": "2025-03-01T01:12:54",
+        "name": "Space oddity",
+        "intro": [
+          "<p>Create a term that returns <code>K</code> (or equivalent) for even numbers",
+          "and <code>KI</code> for odd numbers.</p>",
+          "<p>Note that the test suite evaluates the effect of the term and not its composition",
+          "(e.g. SK instead of KI is fine).</p>"
+        ],
+        "unlock": "is_even",
+        "input": "phi",
+        "cases": [
+          [
+            "phi 0 x y",
+            "x"
+          ],
+          [
+            "phi 1 x y",
+            "y"
+          ],
+          [
+            "phi 22 x y",
+            "x"
+          ],
+          [
+            "phi 23 x y",
+            "y"
+          ]
+        ]
+      },
+      {
+        "id": "BkuOGuwe",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "Take a little trip back with father Tiresias...",
+        "intro": [
+          "<p>Here you'll have to return the predecessor of a number, or 0 for 0.</p>",
+          "<p>This cannot be done by passing just 2 arguments to a number (prove it!),",
+          "however, 3 should suffice.</p>"
+        ],
+        "unlock": "dec",
+        "input": "phi",
+        "cases": [
+          [
+            "phi (KI) + 0",
+            "0"
+          ],
+          [
+            "phi I + 0",
+            "0"
+          ],
+          [
+            "phi 2 + 0",
+            "1"
+          ],
+          [
+            "phi 13 + 0",
+            "12"
+          ]
+        ]
+      },
+      {
+        "id": "JrSTFmW9",
+        "created_at": "2025-03-01T01:12:54",
+        "name": "Half-life",
+        "intro": [
+          "<p>Create a term that takes a number <em>n</em> and returns <em>n/2</em>.</p>",
+          "<p>You can of course use <code>dec</code>, <code>is_zero</code>, and recursion,",
+          "however, doing the same trick as above will be more efficient,",
+          "as Church numeral already have recursion built into them.</p>"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi (KI) + 0",
+            "0"
+          ],
+          [
+            "phi I + 0",
+            "0"
+          ],
+          [
+            "phi 2 + 0",
+            "1"
+          ],
+          [
+            "phi 3 + 0",
+            "1"
+          ],
+          [
+            "phi 4 + 0",
+            "2"
+          ],
+          [
+            "phi 5 + 0",
+            "2"
+          ],
+          [
+            {
+              "max": 2000
+            },
+            "phi 20 + 0",
+            "10"
+          ],
+          [
+            {
+              "max": 2000
+            },
+            "phi 21 + 0",
+            "10"
+          ]
+        ]
+      },
+      {
+        "id": "ZssuKELX",
+        "created_at": "2025-02-23T18:43:32",
+        "name": "Multiplication",
+        "intro": [
+          "Create a term that takes two numbers and produces their product."
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi 0 0 + 0",
+            "0"
+          ],
+          [
+            "phi 0 5 + 0",
+            "0"
+          ],
+          [
+            "phi 5 0 + 0",
+            "0"
+          ],
+          [
+            "phi 2 3 + 0",
+            "6"
+          ],
+          [
+            "phi 3 2 + 0",
+            "6"
+          ],
+          [
+            "phi 3 3 + 0",
+            "9"
+          ],
+          [
+            "phi 4 4 + 0",
+            "16"
+          ],
+          [
+            "phi 5 5 + 0",
+            "25"
+          ]
+        ]
+      },
+      {
+        "id": "Q3UWpMFt",
+        "created_at": "2025-03-01T01:12:54",
+        "name": "Power to the people",
+        "intro": [
+          "Create a term that takes two numbers and produces the first number raised to the power of the second."
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi 0 0 + 0",
+            "1"
+          ],
+          [
+            "phi 0 5 + 0",
+            "0"
+          ],
+          [
+            "phi 5 0 + 0",
+            "1"
+          ],
+          [
+            "phi 1 1 + 0",
+            "1"
+          ],
+          [
+            "phi 2 3 + 0",
+            "8"
+          ],
+          [
+            "phi 3 2 + 0",
+            "9"
+          ],
+          [
+            "phi 3 3 + 0",
+            "27"
+          ],
+          [
+            "phi 4 4 + 0",
+            "256"
+          ],
+          [
+            "phi 2 6 + 0",
+            "64"
+          ],
+          [
+            "phi 6 2 + 0",
+            "36"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Mht88Mrm",
+    "name": "Cons: the building block",
+    "intro": [
+      "<p>As we have established earlier, a pair of values is just a special type of function.",
+      "From there, arbitrarily complex data structures - list, trees, hash tables, anything - can be built.</p>",
+      "<p>So a <i>pair</i> here is represented by the Vireo combinator: <code>V a b f = f a b</code>.",
+      "<code>V a b K = K a b = a</code> and <code>V a b (KI) = KI a b = Ib = b</code> allow extracting",
+      "the first and second elements of the pair, respectively.",
+      "However, in many cases manipulating both values simultaneously into a desired shape",
+      "is more convenient than extracting them.</p>",
+      "<p>Let's build some functions that manipulate pairs.</p>"
+    ],
+    "content": [
+      {
+        "id": "fWb8i2Gg",
+        "created_at": "2025-07-29T01:11:42",
+        "name": "Pair map",
+        "intro": [
+          "<p>Build a combinator that takes a function <code>f</code> and a pair <code>(V a b)</code>,",
+          "and returns a pair <code>(V (f a) (f b))</code>.</p>"
+        ],
+        "env": [
+          "V=BC(CI)"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi f (V a b) x",
+            "x (f a) (f b)"
+          ]
+        ]
+      },
+      {
+        "id": "NmPkROHm",
+        "created_at": "2025-07-29T01:39:58",
+        "name": "Quantum Starling",
+        "intro": [
+          "<p>Build a function that takes two functions, <code>f</code> and <code>g</code>,",
+          "and a pair <code>(V a b)</code>, and produces <code>f a (g b)</code>.</p>"
+        ],
+        "env": [
+          "V=BC(CI)"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi f g (V a b)",
+            "f a (g b)"
+          ]
+        ]
+      },
+      {
+        "id": "gjDIpuTl",
+        "created_at": "2025-07-29T00:47:13",
+        "name": "Pair transform",
+        "intro": [
+          "<p>Build a combinator that takes two functions, <code>f</code> and <code>g</code>,",
+          "and a pair <code>(V a b)</code> and returns a pair <code>(V (f a b) (g a b))</code>.</p>"
+        ],
+        "env": [
+          "V=BC(CI)"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi f g (V a b) x",
+            "x (f a b) (g a b)"
+          ]
+        ]
+      },
+      {
+        "id": "A4fAPvZb",
+        "created_at": "2026-06-26T17:03:57",
+        "name": "Poor man's pattern matching",
+        "intro": [
+          "<p>Create a term that takes a function, a default value, and an argument.",
+          "If the argument is a pair, the function should be applied to its content",
+          "and if the argument is false/nil, the default value should be returned instead:</p>",
+          "<p><code>myfun f d (V a b) = f a b</code>;</p>",
+          "<p><code>myfun f d (KI) = d</code>.</p>",
+          "<p>What the function does for other argument types, nobody cares.</p>"
+        ],
+        "input": "myfun",
+        "cases": [
+          [
+            "myfun f d (KI)",
+            "d"
+          ],
+          [
+            "myfun f d (z->z a b)",
+            "f a b"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "HxygT90G",
+    "name": "Least List Lost Last",
+    "intro": [
+      "<p>Just like Church numerals, lists can be encoded as parametric higher order functions:</p>",
+      "<p><code>[a, b, c] f x = f a (f b (f c x))</code>.</p>",
+      "<p>So a list in this notation is indistinguishable from its <code>fold</code> operation",
+      "(or <code>foldr</code> more specifically).</p>",
+      "<p>We won't (yet) extend the notation with the <code>[</code> and <code>]</code>;",
+      "you can find such syntactic sugar in your favourite programming language.",
+      "Instead, we'll use <code>nil</code> to denote an empty list and <code>lst val tail</code> for a list node,",
+      "where <code>tail</code> is either another node, or <code>nil</code>.",
+      "So <code>(list a (list b (list c nil))) f x</code> evaluates to <code>f a (f b (f c x))</code>",
+      "and <code>nil f x</code> evaluates to just <code>x</code>.</p>"
+    ],
+    "content": [
+      {
+        "id": "E2nhX4bs",
+        "created_at": "2025-02-23T13:17:21",
+        "name": "The blade itself",
+        "intro": [
+          "As is clear from the definition, <code>nil</code> equals to <code>KI</code>, as <code>nil f x = x</code>.",
+          "<code>lst a (something) f z</code> evaluates to <code>f a (something f z)</code>.",
+          "Find <code>lst</code>."
+        ],
+        "input": "lst",
+        "unlock": "lst",
+        "cases": [
+          [
+            "lst head tail f x",
+            "f head (tail f x)"
+          ]
+        ]
+      },
+      {
+        "id": "u27lZ0cN",
+        "created_at": "2025-02-23T18:02:36",
+        "name": "Mene, tekel, upharsin",
+        "intro": [
+          "Find the length of a given list."
+        ],
+        "env": [
+          "nil=KI",
+          "lst=BS(C(BB))"
+        ],
+        "input": "len",
+        "cases": [
+          [
+            "len nil + 0",
+            "0"
+          ],
+          [
+            "len (lst a nil) + 0",
+            "1"
+          ],
+          [
+            "len (lst a(lst b(lst c nil))) + 0",
+            "3"
+          ]
+        ]
+      },
+      {
+        "id": "uGAfI2SW",
+        "created_at": "2025-02-23T18:02:36",
+        "name": "The ring of the master cat",
+        "intro": [
+          "Concatenate two lists given as arguments."
+        ],
+        "env": [
+          "nil=KI",
+          "lst=BS(C(BB))"
+        ],
+        "input": "cat",
+        "cases": [
+          [
+            "cat nil nil f x",
+            "x"
+          ],
+          [
+            "cat nil (lst a nil) f x",
+            "f a x"
+          ],
+          [
+            "cat (lst a nil) nil f x",
+            "f a x"
+          ],
+          [
+            "cat (lst a nil) (lst b nil) f x",
+            "f a (f b x)"
+          ],
+          [
+            "cat (lst a(lst b nil)) (lst c(lst d nil)) f x",
+            "f a (f b (f c (f d x)))"
+          ]
+        ]
+      },
+      {
+        "id": "e1NlHHr6",
+        "created_at": "2025-02-23T18:02:36",
+        "name": "The antediluvian map fragment",
+        "intro": [
+          "Build function <code>map f</code> that applies a given function to each element of a list.",
+          "You can use <code>list</code> and <code>nil</code> to build the result, but aren't required to."
+        ],
+        "env": [
+          "nil=KI",
+          "lst=BS(C(BB))"
+        ],
+        "input": "map",
+        "cases": [
+          [
+            "map f nil",
+            "nil"
+          ],
+          [
+            "map f (lst a nil) g y",
+            "g (f a) y"
+          ],
+          [
+            "map f (lst a(lst b (lst c nil))) g y",
+            "g (f a) (g (f b) (g (f c) y))"
+          ]
+        ]
+      },
+      {
+        "id": "bmXggXLn",
+        "created_at": "2025-02-23T18:02:36",
+        "name": "The last argument",
+        "intro": [
+          "Find the last element of a nonempty list."
+        ],
+        "env": [
+          "nil=KI",
+          "lst=BS(C(BB))"
+        ],
+        "input": "last",
+        "cases": [
+          [
+            "last (lst a nil)",
+            "a"
+          ],
+          [
+            "last (lst a(lst b nil))",
+            "b"
+          ],
+          [
+            "last (lst a(lst b(lst c nil)))",
+            "c"
+          ]
+        ]
+      },
+      {
+        "id": "SltEHvuL",
+        "created_at": "2025-02-23T18:02:36",
+        "name": "The fairy tail",
+        "intro": [
+          "Find the tail of a list, or an empty list if the list is empty."
+        ],
+        "env": [
+          "nil=KI",
+          "lst=BS(C(BB))"
+        ],
+        "input": "tail",
+        "cases": [
+          [
+            "tail nil f x",
+            "x"
+          ],
+          [
+            "tail (lst a nil) f x",
+            "x"
+          ],
+          [
+            "tail (lst a(lst b nil)) f x",
+            "f b x"
+          ],
+          [
+            "tail (lst a(lst b(lst c nil))) f x",
+            "f b (f c x)"
+          ]
+        ]
+      },
+      {
+        "id": "EPtKyvC9",
+        "created_at": "2025-02-23T18:02:36",
+        "name": "Random access",
+        "intro": [
+          "Find the element at a <code>nth</code> position in a list.",
+          "Assume the list to have enough elements."
+        ],
+        "env": [
+          "nil=KI",
+          "lst=BS(C(BB))"
+        ],
+        "input": "nth",
+        "cases": [
+          [
+            "nth 0 (lst a nil)",
+            "a"
+          ],
+          [
+            "nth 1 (lst a(lst b nil))",
+            "b"
+          ],
+          [
+            "nth 2 (lst a(lst b(lst c nil)))",
+            "c"
+          ],
+          [
+            "nth 0 (lst a(lst b(lst c nil)))",
+            "a"
+          ]
+        ]
+      },
+      {
+        "id": "RtjKvs82",
+        "created_at": "2025-02-23T13:17:21",
+        "name": "Reverse a list",
+        "intro": [
+          "You are given 2 functions: <code>lst</code> and <code>nil</code>. ",
+          "Reverse a list."
+        ],
+        "env": [
+          "nil=KI",
+          "lst=BS(C(BB))"
+        ],
+        "input": "rev",
+        "cases": [
+          [
+            "rev nil f x",
+            "x"
+          ],
+          [
+            "rev (lst a nil) f x",
+            "f a x"
+          ],
+          [
+            "rev (lst a(lst b(lst c nil))) f x",
+            "f c (f b (f a x))"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "EGae2IkX",
+    "name": "Recursion",
+    "intro": [
+      "<p>Recursive functions can be expressed in combinators, however, they cannot refer to themselves by name.",
+      "Instead, such function has to be passed to itself as an argument.</p>",
+      "<p>Let's say we want to find <code>f</code> such that <code>f x = expr f x</code>",
+      "for a given expression <code>expr</code> and arbitrary <code>x</code>.",
+      "This cannot be done directly because <code>f</code> appears in both parts of the equation.",
+      "We have, however, a couple tricks",
+      "somewhat in the spirit of separation of variables in differential equations.</p>",
+      "<p>First, let's assume that <code>f = g g</code> for some <code>g</code>.",
+      "<i>(btw, can you prove that at least one such <code>g</code> exists for any given <code>f</code>?)</i>",
+      "The equation thus becomes <code>g g x = expr (g g) x</code>,",
+      "but it still contains <code>g</code> on both sides.</p>",
+      "<p>Second, instead of looking for <code>g</code> itself, we look for a <code>g<sub>0</sub></code>",
+      "satisfying <code>g<sub>0</sub> g x = expr (g g) x</code> for <i>any</i> <code>g</code>",
+      "(including, of course, <code>g<sub>0</sub></code>).</p>",
+      "<p>Now <i>this</i> can be solved for <code>g<sub>0</sub></code> using the methods from the previous quests,",
+      "and the function with the required properties is then <code>f = g<sub>0</sub> g<sub>0</sub></code>.</p>",
+      "<p>Side note: <code>C(KM) g x</code>, or cross constant mocker, may be used in place of <code>g g</code>",
+      "to defer evaluation. This can radically decrease computation time, or even avoid an infinite loop.</p>"
+    ],
+    "content": [
+      {
+        "id": "Z5FPLOrV",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "Quine",
+        "intro": [
+          "Technically, every irreducible combinator is a quine, for it returns itself. ",
+          "Write a combinator that returns itself when given <i>any</i> argument: <code>f x = f</code>.",
+          "Oh, and it should terminate."
+        ],
+        "hint": "If <code>g g x = g g</code>, what should <code>g</code> look like?..",
+        "input": "q",
+        "cases": [
+          [
+            "q x",
+            "q"
+          ],
+          [
+            "q x y z",
+            "q"
+          ]
+        ]
+      },
+      {
+        "id": "TdfaCuW3",
+        "created_at": "2026-06-24T00:23:44",
+        "name": "The crawl",
+        "intro": [
+          "<p>Create a term that satisfies the condition <code>f x = x f</code>. </p>"
+        ],
+        "input": "f",
+        "cases": [
+          [
+            "f x",
+            "x f"
+          ]
+        ]
+      },
+      {
+        "id": "RMSPwloE",
+        "created_at": "2024-08-29T09:15:33",
+        "name": "All of the above",
+        "intro": [
+          "<p>You are given a term <code>expr</code>.",
+          "Construct f such that <code>f x = expr f x</code> for any given <code>x</code>.</p>",
+          "<p>Bonus points for having <code>expr</code> at the end of your solution.</p>"
+        ],
+        "env": [
+          "expr"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi x",
+            "expr phi x"
+          ],
+          [
+            "phi",
+            "phi"
+          ]
+        ]
+      },
+      {
+        "id": "azxJgdmk",
+        "created_at": "2025-03-12T00:11:39",
+        "name": "Tell me Y",
+        "intro": [
+          "Implement the famous fixed point combinator, <code>Y</code>: <code>Y f = f (Y f)</code>."
+        ],
+        "input": "Y",
+        "unlock": "Y",
+        "comment": "Implementing meaningful tests for Y is damn hard I should say...",
+        "cases": [
+          [
+            "Y (Kx)",
+            "x"
+          ],
+          [
+            "Y (f->a->b->b (f (a b)) a ) filler K K K (KI)",
+            "filler KKK"
+          ],
+          [
+            {
+              "max": 200,
+              "canonize": {
+                "max": 100
+              }
+            },
+            "f = x->y->z->x(y z); Y f a b c d",
+            "f = x->y->z->x(y z); Y f (a b c d)"
+          ],
+          [
+            {
+              "max": 200,
+              "canonize": {
+                "max": 100
+              }
+            },
+            "f = x->y->z->x(z y); Y f a b c d",
+            "f = x->y->z->x(z y); Y f (d (c (b a)))"
+          ],
+          [
+            {
+              "max": 200,
+              "canonize": {
+                "max": 100
+              }
+            },
+            "f = x->y->z->x(lst z y); Y f nil a b c",
+            "f = x->y->z->x(lst z y); Y f (lst c (lst b (lst a nil)))"
+          ]
+        ]
+      },
+      {
+        "id": "0aFCHGH0",
+        "created_at": "2025-03-12T00:11:39",
+        "name": "The lazy fixed point",
+        "intro": [
+          "<p>Under a normal reduction strategy, the classical fixed point combinator will terminate",
+          "if given the right input. However, it may run indefinitely in <i>absence</i> of input.</p>",
+          "<p>Make a variant of <code>Y</code>, <code>Z</code>, that doesn't start until there's some input:",
+          "<code>Z f x = f (Z f) x</code>.</p>"
+        ],
+        "unlock": "Z",
+        "input": "Z",
+        "cases": [
+          [
+            {
+              "max": 200,
+              "canonize": {
+                "max": 100
+              }
+            },
+            "Z f",
+            "Z f"
+          ],
+          [
+            {
+              "max": 200,
+              "canonize": {
+                "max": 100
+              }
+            },
+            "Z f x",
+            "f (Z f) x"
+          ],
+          [
+            {
+              "max": 200,
+              "canonize": {
+                "max": 100
+              }
+            },
+            "Z (Kx) y",
+            "x y"
+          ]
+        ]
+      },
+      {
+        "id": "8JqqvQtV",
+        "created_at": "2026-06-24T00:29:51",
+        "name": "The harvester",
+        "intro": [
+          "<p>Create a terminating term such that <code>f x y = f(x y)</code>.",
+          "This means that <i>any</i> number of further arguments will be squashed into one.</p>"
+        ],
+        "input": "f",
+        "cases": [
+          [
+            {
+              "max": 200
+            },
+            "f",
+            "f"
+          ],
+          [
+            "f x y",
+            "f (x y)"
+          ],
+          [
+            "f a b c d",
+            "f (a b c d)"
+          ]
+        ]
+      },
+      {
+        "id": "3JcMqUYU",
+        "created_at": "2026-06-24T00:50:46",
+        "name": "Count Dracula",
+        "intro": [
+          "<p>You are given an unknown number of <code>K</code>'s, followed by a <code>KI</code>. ",
+          "Return the number of <code>K</code>'s as a Church numeral.",
+          "You can assume no other arguments are ever given. </p>"
+        ],
+        "input": "count",
+        "cases": [
+          [
+            "count (KI) + 0",
+            "0"
+          ],
+          [
+            "count K (KI) + 0",
+            "1"
+          ],
+          [
+            "count K K (KI) + 0",
+            "2"
+          ],
+          [
+            "count K K K K K K K (KI) + 0",
+            "7"
+          ]
+        ]
+      },
+      {
+        "id": "Ci0vMhSM",
+        "created_at": "2025-08-22T01:14:01",
+        "name": "Taming the infinity",
+        "intro": [
+          "<p>You are given a non-terminating fixed-point combinator, <code>Y</code>: ",
+          "<code>Y f = f(Y f) = f(f(Y f)) = ...</code>.",
+          "No other duplicating terms are allowed.</p>",
+          "<p>Build <code>M x = x x</code>.</p>"
+        ],
+        "env": [
+          "Y=WS(BWB)"
+        ],
+        "allow": "BCVIKT",
+        "input": "phi",
+        "cases": [
+          [
+            "phi x",
+            "x x"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "r2VQ7P35",
+    "name": "The Church of Numerals II",
+    "intro": [
+      "<p>Now that we can build loops, let's explore more numerical functions.",
+      "Note that some of them can also be built using the built-in recursion of the Church numerals.</p>"
+    ],
+    "content": [
+      {
+        "id": "l79rFZSF",
+        "created_at": "2024-09-08T23:55:19",
+        "name": "His Majesty Factorial",
+        "intro": [
+          "<p>Make a term that takes a number n and returns a product of all numbers from 1 to n.</p>",
+          "<p>Note that you can also use the built in recursion of the Church numerals for this quest.</p>"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi(KI) + 0",
+            "1"
+          ],
+          [
+            "phi I + 0",
+            "1"
+          ],
+          [
+            "phi 5 + 0",
+            "120"
+          ]
+        ]
+      },
+      {
+        "id": "ifb4SqXX",
+        "created_at": "2025-03-01T01:12:54",
+        "name": "Down the rabbit hole",
+        "intro": [
+          "<p>Create a term that takes a number n and returns the nth Fibonacci number.</p>",
+          "<p>Note that it might be easier to build n-th <i>pair</i> of Fibonacci numbers first.</p>"
+        ],
+        "input": "phi",
+        "cases": [
+          [
+            "phi(KI) + 0",
+            "0"
+          ],
+          [
+            "phi I + 0",
+            "1"
+          ],
+          [
+            "phi 5 + 0",
+            "5"
+          ],
+          [
+            "phi 6 + 0",
+            "8"
+          ],
+          [
+            "phi 7 + 0",
+            "13"
+          ]
+        ]
+      },
+      {
+        "id": "u1Sr43PU",
+        "created_at": "2025-03-01T01:12:54",
+        "name": "Something in common",
+        "intro": [
+          "<p>Create a term that takes two numbers and returns their greatest common divisor (GCD).</p>",
+          "<p>You can use the Euclid's algorithm: ",
+          "<code>gcd(0, n) = n</code>, <code>gcd(m, n) = gcd(n-m, m)</code> (where m < n).</p>"
+        ],
+        "input": "gcd",
+        "cases": [
+          [
+            "gcd  0  0 + 0",
+            "0"
+          ],
+          [
+            "gcd  1  0 + 0",
+            "1"
+          ],
+          [
+            "gcd  0  1 + 0",
+            "1"
+          ],
+          [
+            "gcd  1  1 + 0",
+            "1"
+          ],
+          [
+            "gcd  2  3 + 0",
+            "1"
+          ],
+          [
+            "gcd  4  6 + 0",
+            "2"
+          ],
+          [
+            "gcd  9  6 + 0",
+            "3"
+          ],
+          [
+            "gcd  12 15 + 0",
+            "3"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "Zc62TKDe",
+    "name": "Lists revisited",
+    "intro": [
+      "<p>Self-reducing lists are all fun and games, but in many applications (such as the LISP family)",
+      "simplicity and observability are more practical.",
+      "So here comes the linked list: each node is either a pair of (value, next)",
+      " - traditionally denoted cons - or a nil.",
+      "<code>nil</code> is, of course, <code>KI</code>, and <code>cons</code> is <code>V</code>.",
+      "Let's go!</p>"
+    ],
+    "content": [
+      {
+        "id": "bMdsUR5U",
+        "created_at": "2025-03-16T03:10:08",
+        "name": "Are we there yet?",
+        "intro": [
+          "<p>Before we start, we'll need a way to tell when a list ends</p>",
+          "<p>Find a function <code>is_empty</code> that returns <code>K</code> for <code>nil</code>",
+          "and <code>KI</code> for <code>V x y</code>, whatever <code>x</code> and <code>y</code> are.</p>"
+        ],
+        "input": "is_empty",
+        "unlock": "is_empty",
+        "cases": [
+          [
+            "is_empty (KI) x y",
+            "x"
+          ],
+          [
+            "V=BC(CI); is_empty (V a b) x y",
+            "y"
+          ]
+        ]
+      },
+      {
+        "id": "5yxwDzNg",
+        "created_at": "2025-09-27T00:38:44",
+        "name": "Failsafe tail",
+        "intro": [
+          "<p>Extracting the tail from a linked list is as simple as <code>T(KI)</code>.",
+          "However, applying it to an already empty list will lead to alternating",
+          "<code>I</code> and <code>KI</code>. Not too convenient.</p>",
+          "<p>Instead, create a looping tail function that returns",
+          "the second element of a pair when given a pair, and an empty list given an empty list.</p>",
+          "<p>That is <code>tail (V a b) = b</code>, and <code>tail (KI) = KI</code>.</p>"
+        ],
+        "input": "tail",
+        "cases": [
+          [
+            "tail (KI) x y",
+            "y"
+          ],
+          [
+            "V=BC(CI); tail (V a b)",
+            "b"
+          ]
+        ]
+      },
+      {
+        "id": "VvbGJqE1",
+        "created_at": "2025-03-16T03:10:08",
+        "name": "Fold",
+        "intro": [
+          "<p>Implement fold: <code>fold [a, b, ... z] f x = f a (f b (... (f z x) ...))</code>.",
+          "More specifically, <code>fold nil f x = x</code>",
+          "and <code>fold (V a b) f x = f a (fold b f x)</code>.</p>",
+          "<p>You can use <code>lst</code> and <code>nil</code> constants",
+          "to avoid pulling f and x into the recursing part, at a little performance cost.</p>"
+        ],
+        "env": [
+          "lst=BS(C(BB))",
+          "nil=KI"
+        ],
+        "input": "fold",
+        "unlock": "fold",
+        "cases": [
+          [
+            "fold (KI) f x",
+            "x"
+          ],
+          [
+            "V=BC(CI); fold (V a (KI)) f x",
+            "f a x"
+          ],
+          [
+            "V=BC(CI); fold (Va (Vb (Vc (KI)))) f x",
+            "f a (f b (f c x))"
+          ]
+        ]
+      },
+      {
+        "id": "Rpc0i8ff",
+        "created_at": "2025-05-31T14:11:17",
+        "name": "It's all just ones and zeros",
+        "intro": [
+          "<p>Convert a string of booleans (K/KI) starting from low bits (little-endian) to a Church numeral.",
+          "Empty list is zero.</p>"
+        ],
+        "input": "num",
+        "cases": [
+          [
+            "num (KI) + 0",
+            "0"
+          ],
+          [
+            "V=BC(CI); t=K; f=KI; num (V f f) + 0",
+            "0"
+          ],
+          [
+            "V=BC(CI); t=K; f=KI; num (V t f) + 0",
+            "1"
+          ],
+          [
+            "V=BC(CI); t=K; f=KI; num (V t (V f (V t f))) + 0",
+            "5"
+          ],
+          [
+            "V=BC(CI); t=K; f=KI; num (V f (V f (V f (V t f)))) + 0",
+            "8"
+          ],
+          [
+            "V=BC(CI); t=K; f=KI; num (V f (V f (V f (V f f)))) + 0",
+            "0"
+          ],
+          [
+            "V=BC(CI); t=K; f=KI; num (V t (V t (V f (V t f)))) + 0",
+            "11"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "sKjJba2q",
+    "name": "Terminating fixed point",
+    "intro": [
+      "<p>Per Raymond Smullyan's poetic definition, a bird <code>y</code> is said to be <i>fond of</i>",
+      "bird <code>x</code> if <code>y x = x</code>. </p>",
+      "<p>Equality here should usually be understood as action on appropriate number of arguments",
+      "rather than by composition, e.g. <code>SK = KI</code> because they act in the same way on two arguments.</p>",
+      "<p>As can be seen from the <a href=\"#chapter-EGae2IkX\">recursion</a> chapter,",
+      "every bird is fond of at least one bird,",
+      "or every combinator has at least one fixed point.",
+      "However, it's not guaranteed to reach the normal form.</p>",
+      "<p>But in some cases it does, i.e. an equation of form <code>f x = x</code>",
+      "has a specific solution <code>x</code> for a given <code>f</code>.",
+      "Let's have a look at such special cases.</p>"
+    ],
+    "content": [
+      {
+        "id": "sCvZqC2r",
+        "created_at": "2025-06-29T23:04:54",
+        "name": "The Mockingbird's favourite",
+        "intro": [
+          "<p>Find <code>x</code> such that <code>M x = x</code>.</p>",
+          "<p>At least in this case, a solution exists that requires no additional arguments.</p>"
+        ],
+        "input": "x",
+        "cases": [
+          [
+            "M=WI; M x",
+            "x"
+          ]
+        ]
+      },
+      {
+        "id": "Zlpj8BYe",
+        "created_at": "2025-06-24T01:52:15",
+        "name": "B simple",
+        "intro": [
+          "<p>Find <code>x</code> such that <code>B x a b = x a b</code>.</p>",
+          "<p>Since <code>B</code> requires 3 arguments to resolve into something else,",
+          "you'll need to provide two extra variables on the left, and, subsequently, on the right.",
+          "This logic applies to the following tasks as well.</p>"
+        ],
+        "input": "x",
+        "cases": [
+          [
+            "B x a b",
+            "x a b"
+          ]
+        ]
+      },
+      {
+        "id": "2vWAfjsP",
+        "created_at": "2025-06-24T01:52:15",
+        "name": "Kestrel's affection",
+        "intro": [
+          "<p>Find <code>x</code> such that <code>K x = x</code>. It might be hiding among the above quests.</p>",
+          "<p>The theorem about the properties of <i>every</i> fixed point of K is one of the exercises",
+          "in <i>To Mock A Mockingbird</i>. ",
+          "Unfortunately, the margins of this interpreter are too narrow to verify proofs...</p>"
+        ],
+        "input": "x",
+        "cases": [
+          [
+            "K x a",
+            "x a"
+          ]
+        ]
+      },
+      {
+        "id": "1fz2DwNy",
+        "created_at": "2025-06-24T01:52:15",
+        "name": "Use the force, Luke",
+        "intro": [
+          "<p>Remember, <code>T a b = b a</code>. Find <code>x</code> such that <code>T x = x</code>. </p>"
+        ],
+        "input": "x",
+        "env": [
+          "T=CI"
+        ],
+        "cases": [
+          [
+            "T x a",
+            "x a"
+          ]
+        ]
+      },
+      {
+        "id": "IWFhxleA",
+        "created_at": "2025-06-24T02:14:13",
+        "name": "Cardinal",
+        "intro": [
+          "<p>Find <code>x</code> such that <code>C x = x</code>.</p>",
+          "<p>If you write down the <code>YC a b</code>, you'll get <code>a</code> and <code>b</code>",
+          "swapped forever in an infinite loop. You'll have to be clever...</p>"
+        ],
+        "hint": "Can't make different variables indistinguishable? Discard them!",
+        "input": "x",
+        "cases": [
+          [
+            "C x a b",
+            "x a b"
+          ]
+        ]
+      },
+      {
+        "id": "JAfbcmSX",
+        "created_at": "2025-06-29T23:37:34",
+        "name": "Starlink",
+        "intro": [
+          "<p>Find <code>x</code> such that <code>S x = x</code>.</p>"
+        ],
+        "input": "x",
+        "cases": [
+          [
+            "S x a b",
+            "x a b"
+          ]
+        ]
+      },
+      {
+        "id": "U2xSO7on",
+        "created_at": "2025-06-24T02:14:13",
+        "name": "Iota",
+        "intro": [
+          "<p>Given &iota; = z &rarr; z S K, find <code>x</code> such that <code>&iota; x = x</code>.</p>",
+          "<p>As of this writing, I have no idea how to solve it, aside from adding more variables",
+          "and cycling through x=K, x=S, x=Kx<sub>0</sub>, x=Sx<sub>1</sub>y<sub>1</sub>,",
+          "repeating the process for new unknowns if necessary.</p>",
+          "<p>I happen to know the solution by chance though.</p>"
+        ],
+        "input": "x",
+        "cases": [
+          [
+            "iot=z->zSK; iot x a b c d e f",
+            "x a b c d e f"
+          ]
+        ]
+      },
+      {
+        "id": "iUn7wg3l",
+        "created_at": "2025-08-26T00:02:06",
+        "name": "Physician, heal thyself",
+        "intro": [
+          "<p>Oddly enough, the fixed point combinator itself has a terminating fixed point.",
+          "Find one!</p>"
+        ],
+        "input": "x",
+        "cases": [
+          [
+            "Y=WS(BWB); Y x",
+            "x"
+          ]
+        ]
+      }
+    ]
+  }
+];

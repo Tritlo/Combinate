@@ -62,7 +62,7 @@ export function probe(tree: Node, law: Law, cap = 2000): boolean {
 
 /** Structural key: trees are equal iff their keys match (free vars by name,
  * combinators by symbol; ids are ignored). */
-function structKey(n: Node): string {
+export function structKey(n: Node): string {
   switch (n.kind) {
     case "iota":
       return "ι";

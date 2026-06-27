@@ -1,0 +1,184 @@
+/**
+ * The SKI-Quest case engine: turn a puzzle's `cases` into a goal predicate over a
+ * built term. Pure — runs on Combinate's own reducer (no native numbers, no second
+ * engine). Three kinds of case:
+ *
+ *  - **reduction equality** `["phi x y", "y"]` — substitute the built term, reduce
+ *    both sides to normal form, compare structurally.
+ *  - **numeral** `["phi 5 0 + 0", "7"]` — the `+ 0` is SKI-Quest's "read a Church
+ *    numeral" idiom; we instead strip it and read the numeral directly (apply to two
+ *    fresh markers, count) — pure, no native arithmetic.
+ *  - **canonize** (recursion) — terms that never reach a normal form (Y, Z); reduce
+ *    both within a step budget and compare, falling back to applying fresh arguments.
+ *
+ * `allow` restricts the basis the *source* tree may use: with ι always available in
+ * Combinate, we read it as "source combinators ⊆ allowed, and ι only when the basis
+ * itself is ι (`I-I`)" — which makes the Iota chapter genuinely ι-only.
+ */
+import { type Node, app, freeVar } from "../term";
+import { normalize, step } from "../reduce";
+import { structKey } from "../probe";
+import { parseExpr, freezeFree, type Scope } from "./parse";
+
+const CAP = 4000; // reduction budget per side; SKI-Quest caps default to ~1000
+const DIVERGE_CAP = 8000; // higher bar to call a term non-terminating — so a finite
+// Church approximation (e.g. `C 1000 (KI)` posing as Y, settles at ~7k steps) is seen
+// to settle and gets rejected, while a true fixpoint keeps growing and is accepted
+
+// ---- one case, as authored in the chapter JSON ----
+export type RawCase = unknown[]; // [e1, e2] | [{max?,canonize?,caps?}, e1, e2] | [{caps}, e1]
+
+/** One input the puzzle asks you to build (multi-input puzzles list several). */
+export interface InputSpec {
+  name: string;
+  note?: string;
+  fancy?: string;
+  lambdas?: boolean;
+  allow?: string;
+  numbers?: boolean;
+}
+
+/** A quest puzzle, as carried verbatim in the vendored SKI-Quest chapter data. */
+export interface Puzzle {
+  id: string;
+  name: string;
+  intro: string | string[];
+  hint?: string;
+  unlock?: string;
+  allow?: string;
+  env?: string[];
+  input: string | InputSpec | InputSpec[];
+  cases: RawCase[];
+  /** Upstream authoring metadata, ignored here. */
+  created_at?: string;
+  comment?: string;
+}
+
+/** The name of a puzzle's (first) input — the placeholder you build. */
+function inputName(input: Puzzle["input"]): string | undefined {
+  if (typeof input === "string") return input;
+  return Array.isArray(input) ? input[0]?.name : input.name;
+}
+
+// ---- numeral reading: apply to two fresh markers and count (Church) ----
+function readChurch(n: Node): number | null {
+  const applied = app(app(n, freeVar("§f")), freeVar("§x"));
+  const { term, done } = normalize(applied, CAP, true);
+  if (!done) return null;
+  let t = term;
+  let k = 0;
+  while (t.kind === "app" && t.fn.kind === "free" && t.fn.name === "§f") {
+    k++;
+    t = t.arg;
+  }
+  return t.kind === "free" && t.name === "§x" ? k : null;
+}
+
+// ---- structural / behavioural comparison ----
+function nfEqual(n1: Node, n2: Node): boolean {
+  const r1 = normalize(n1, CAP, true);
+  const r2 = normalize(n2, CAP, true);
+  return r1.done && r2.done && structKey(r1.term) === structKey(r2.term);
+}
+
+/** For terms that may never reach normal form (Y/Z fixpoints): two terms are equal
+ *  iff they share a common reduct (Church–Rosser). Walk both reduction sequences
+ *  within a step budget and look for an intersection — `Y f a b c d` reduces *to*
+ *  `Y f (a b c d)`, so the sequences meet even though neither settles. */
+function canonEqual(n1: Node, n2: Node, maxSteps: number): boolean {
+  const seen = new Set<string>();
+  let cur: Node | null = n1;
+  for (let i = 0; i <= maxSteps && cur; i++) {
+    seen.add(structKey(cur));
+    cur = step(cur, 0, true);
+  }
+  cur = n2;
+  for (let i = 0; i <= maxSteps && cur; i++) {
+    if (seen.has(structKey(cur))) return true;
+    cur = step(cur, 0, true);
+  }
+  return false;
+}
+
+// ---- env scope (`["V=BC(CI)", "nil=KI", "f"]`) ----
+export function buildEnvScope(env: string[] | undefined): Map<string, Node> {
+  const map = new Map<string, Node>();
+  for (const entry of env ?? []) {
+    const eq = entry.indexOf("=");
+    if (eq < 0) continue; // a bare free-variable declaration — parser defaults to free
+    const name = entry.slice(0, eq).trim();
+    map.set(name, parseExpr(entry.slice(eq + 1), (n) => map.get(n) ?? null));
+  }
+  return map;
+}
+
+// ---- allow ----
+// `allow` restricts which *named* combinators the source may use. ι is Combinate's
+// one primitive — always on the hotbar, and the only block you start with — so it is
+// always permitted; SKI-Quest's `I-I` ("ι only") falls out as the empty named set.
+const ALLOW_ALIAS: Record<string, string> = { "I-I": "" };
+function allowOk(source: Node, allow: string | undefined): boolean {
+  if (!allow) return true;
+  const allowed = new Set((ALLOW_ALIAS[allow] ?? allow).split(""));
+  let ok = true;
+  const walk = (n: Node): void => {
+    switch (n.kind) {
+      case "comb": if (!allowed.has(n.sym)) ok = false; break;
+      case "app": walk(n.fn); walk(n.arg); break;
+      default: break; // ι and free variables are always fine
+    }
+  };
+  walk(source);
+  return ok;
+}
+
+/** Build the goal predicate for a puzzle: given the built (source) tree, does it
+ *  satisfy every case (and the `allow` restriction)? */
+export function makeGoal(p: Puzzle): (source: Node) => boolean {
+  const input = inputName(p.input);
+  const env = buildEnvScope(p.env);
+  return (source: Node): boolean => {
+    if (!allowOk(source, p.allow)) return false;
+    const scope: Scope = (name) => (name === input ? freezeFree(source) : env.get(name) ?? null);
+    try {
+      return p.cases.every((c) => runCase(c, scope));
+    } catch {
+      return false;
+    }
+  };
+}
+
+function runCase(c: RawCase, scope: Scope): boolean {
+  let opts: { canonize?: { max?: number }; caps?: unknown; max?: number } = {};
+  let strs = c;
+  if (typeof c[0] === "object" && c[0] !== null) {
+    opts = c[0] as typeof opts;
+    strs = c.slice(1);
+  }
+  if (opts.caps) return false; // structural-property cases not yet supported (skip-with-note in the loader)
+  const e1 = strs[0] as string;
+  const e2 = strs[1] as string;
+  // A self-equal case `[e, e]` is a termination / laziness check: `e` must reach a
+  // normal form (this is what tells a lazy fixed point `Z f` from an eager `Y f`).
+  if (e1.trim() === e2.trim()) return normalize(parseExpr(e1, scope), CAP, true).done;
+  if (/^\d+$/.test(e2.trim())) {
+    const stripped = e1.replace(/\s*\+\s*0\s*$/, "");
+    return readChurch(parseExpr(stripped, scope)) === Number(e2.trim());
+  }
+  const n1 = parseExpr(e1, scope);
+  const n2 = parseExpr(e2, scope);
+  if (!opts.canonize) return nfEqual(n1, n2);
+  // recursion: equal if both settle to the same NF, or share a bounded reduct.
+  if (nfEqual(n1, n2) || canonEqual(n1, n2, opts.canonize.max ?? opts.max ?? 200)) return true;
+  // genuinely divergent with no common finite reduct (different Y-wrappings of one
+  // infinite value) — our reducer can't decide it; accept only if BOTH truly diverge
+  // (a settling mismatch is a real failure). The puzzle's NF / self-equal cases gate.
+  return !normalize(n1, DIVERGE_CAP, true).done && !normalize(n2, DIVERGE_CAP, true).done;
+}
+
+/** A puzzle Combinate can't yet check on its single canvas: multi-term builds or
+ *  structural-property (`caps`) goals. Surfaced in the panel, not silently dropped. */
+export function isSupported(p: Puzzle): boolean {
+  if (Array.isArray(p.input) && p.input.length > 1) return false;
+  return !p.cases.some((c) => typeof c[0] === "object" && c[0] !== null && "caps" in (c[0] as object));
+}
