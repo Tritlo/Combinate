@@ -1,31 +1,16 @@
 /**
- * The About window (opened from the ι menu): who made it, what's clever about it,
- * and the credits / licenses. A System-1 Macintosh-styled DOM modal — black-and-
- * white chrome that inverts for dark mode, set in IoskeleyMono, like the menu bar.
+ * The About window (opened from the ι menu): who made it, what's clever about it, and the
+ * credits / licenses. On the shared System-1 {@link Modal} chrome (ADR 12); this file is
+ * just the content + its body CSS.
  */
-import { currentMode, onThemeChange, type Mode } from "./theme";
-import { vendorUrl } from "../vendorUrl";
-
-const PALETTE: Record<Mode, Record<string, string>> = {
-  light: { paper: "#ffffff", ink: "#000000", backdrop: "rgba(27,31,36,0.5)", shadow: "rgba(0,0,0,0.85)" },
-  dark: { paper: "#07090d", ink: "#f0f3f6", backdrop: "rgba(1,4,9,0.6)", shadow: "rgba(0,0,0,0.85)" },
-};
-const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
+import { Modal } from "./modal";
 
 let stylesInjected = false;
-function injectStyles(): void {
+function injectAboutStyles(): void {
   if (stylesInjected) return;
   stylesInjected = true;
   const css = `
-@font-face { font-family: 'IoskeleyMono'; src: url('${vendorUrl("vendor/fonts/IoskeleyMono-Regular.woff2")}') format('woff2'); font-display: swap; }
-.ab-root { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center;
-  background: var(--ab-backdrop); font-family: ${MONO}; }
-.ab-card { width: min(540px, 92vw); max-height: 86vh; display: flex; flex-direction: column;
-  background: var(--ab-paper); color: var(--ab-ink); border: 1px solid var(--ab-ink); box-shadow: 2px 2px 0 var(--ab-shadow); }
-.ab-title { display: flex; align-items: center; gap: 10px; padding: 4px 10px; background: var(--ab-ink); color: var(--ab-paper); }
-.ab-close { width: 12px; height: 12px; border: 1.5px solid var(--ab-paper); cursor: pointer; flex: 0 0 auto; }
-.ab-title span { font-weight: 600; font-size: 14px; }
-.ab-body { padding: 18px 22px 22px; overflow-y: auto; font-size: 14px; line-height: 1.5; }
+.ab-body { padding: 18px 22px 22px; font-size: 14px; line-height: 1.5; }
 .ab-h1 { font-size: 28px; font-weight: 600; letter-spacing: 0.02em; }
 .ab-dim { opacity: 0.6; }
 .ab-sec { margin-top: 16px; }
@@ -72,53 +57,11 @@ const BODY = `
   </div>
 `;
 
-export class About {
-  private readonly root = document.createElement("div");
-
+export class About extends Modal {
   constructor() {
-    injectStyles();
-    this.root.className = "ab-root";
-    this.applyPalette();
-    this.root.addEventListener("pointerdown", (e) => {
-      if (e.target === this.root) this.close(); // click the backdrop
-    });
-
-    const card = document.createElement("div");
-    card.className = "ab-card";
-    card.addEventListener("pointerdown", (e) => e.stopPropagation());
-
-    const title = document.createElement("div");
-    title.className = "ab-title";
-    const close = document.createElement("div");
-    close.className = "ab-close";
-    close.title = "Close";
-    close.addEventListener("pointerdown", () => this.close());
-    const label = document.createElement("span");
-    label.textContent = "About Combinate";
-    title.append(close, label);
-
-    const body = document.createElement("div");
-    body.className = "ab-body";
-    body.innerHTML = BODY;
-
-    card.append(title, body);
-    this.root.appendChild(card);
-    document.body.appendChild(this.root);
-    onThemeChange(() => this.applyPalette());
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") this.close();
-    });
-  }
-
-  open(): void {
-    this.root.style.display = "flex";
-  }
-  close(): void {
-    this.root.style.display = "none";
-  }
-
-  private applyPalette(): void {
-    const p = PALETTE[currentMode()];
-    for (const [k, v] of Object.entries(p)) this.root.style.setProperty(`--ab-${k}`, v);
+    super({ title: "About Combinate", width: "min(540px, 92vw)" });
+    injectAboutStyles();
+    this.body.classList.add("ab-body");
+    this.body.innerHTML = BODY;
   }
 }

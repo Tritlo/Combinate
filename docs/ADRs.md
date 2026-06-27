@@ -107,16 +107,35 @@ canonical pure tree, falls back to the catalog rule. Native numbers/lists/boolea
 registered kernels (thin adapter). Church helpers extracted to `core/church.ts`; a Church
 `cmod` kernel is the route to unblock gcd (not a `gcd` cheat kernel).
 
-## 12: Reorg — ports & adapters, shared modal base (refactor)
-**Status:** Proposed — _to be written with Codex (TODO §5)._
+## 12: Reorg — shared modal base (refactor)
+**Status:** Accepted (Codex consensus).
 
-Context: the codebase is drifting; some side-effecting concerns leak into `core/`, and
-4-5 System-1 modals each rebuild the same chrome (repeating bugs: blurry text from
-fractional pixels, scroll clamping). Decision (TBD): push ADR 1 deeper into **ports &
-adapters** — the pure core depends only on injected port interfaces (we already have
-`Store`; add renderer/sound/wasm/persistence as earns-its-keep), the shell wires the
-concrete adapters (Pixi, etc.). Within that, a shared `Modal` base / `SettingsModal`
-adapter so a chrome fix lands once. Behaviour-preserving pass.
+Context: the System-1 DOM modals (Fluff, Optimize, Quest, About) each re-inject the same
+chrome — `@font-face`, the paper/ink palette, `root/card/titlebar+close/body`, backdrop +
+ESC close, `onThemeChange→applyPalette` — so a chrome fix (blurry text from fractional
+pixels, scroll clamping) has to be made N times.
+
+Decision: a behaviour-preserving **`view/modal.ts`** — a `Modal` base owning *only* the
+chrome (`.md-*` classes, the font/style injected once, open/close/toggle, backdrop/ESC,
+the scroll fix `overflow-y:auto; min-height:0`, palette + an `extraVars` hook, a
+`--md-width` override), exposing a protected `body` and an `onOpen()` refresh hook; plus a
+thin `SettingsModal` for the checkbox-list ones. Subclasses keep their content **and their
+own store logic** (`isFluff`/`isOpt`/listeners) and their body CSS (`.ms-*`/`.ab-*`, so no
+selector collisions).
+
+This pass migrates **Fluff, Optimize, and About**. **Quest** is a follow-up (it was just
+extended with the tracker's `onAdvance`/getters; its gold accent uses the `extraVars`
+hook when migrated). Zoo/Golf (Pixi `Graphics` overlays) and the MhsPanel (GitHub-styled,
+not System-1) are intentionally out.
+
+**Scope correction (Codex):** TODO §6's "ports & adapters — push core to depend on
+renderer/sound/wasm port interfaces" is **rejected** — ADR 0001 deliberately chose
+shell→core with *no* formal port interfaces for this single-UI frontend, and `Store` is
+the one real port that earns its keep. The genuine impurity to fix is narrow:
+`QuestProgress` writes `localStorage` inside `core/quest.ts` despite its "pure" header —
+hoist that persistence to the shell later. **`app.ts` extraction** (1355 lines: transport,
+auto-reduce, dev seam, menu wiring) is real but needs its own boundary decisions — a
+follow-up, not this pass.
 
 ## 13: Quest Mode — tracked-quest side panel
 **Status:** Accepted (Codex consensus).
