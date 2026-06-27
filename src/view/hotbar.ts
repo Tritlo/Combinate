@@ -1,8 +1,11 @@
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text, type Ticker } from "pixi.js";
 import { type Node } from "../core/term";
-import { PAGES } from "../core/catalog";
+import { PAGES, CATALOG } from "../core/catalog";
 import { theme, currentMode } from "./theme";
 import { tween } from "./anim";
+
+/** Each combinator's defining law, keyed by symbol — the hover tooltip's text. */
+const LAW = new Map(CATALOG.map((l) => [l.sym, l] as const));
 
 const SLOT = 52;
 const GAP = 8;
@@ -30,6 +33,9 @@ export class Hotbar {
   private readonly tabBar = new Container();
   private readonly slotRow = new Container();
   private readonly pageLabel = new Text({ text: "", style: { fontFamily: "monospace", fontSize: 12, fill: theme.textDim } });
+  private readonly tip = new Container(); // hover tooltip: the combinator's law
+  private readonly tipBg = new Graphics();
+  private readonly tipText = new Text({ text: "", style: { fontFamily: "monospace", fontSize: 13, fill: theme.text } });
   private tab = 0;
   private sub = 0;
   private popSym: string | null = null;
@@ -41,7 +47,10 @@ export class Hotbar {
     private readonly spawnFor: (sym: string) => Node,
   ) {
     this.pageLabel.anchor.set(1, 0.5);
-    this.container.addChild(this.frame, this.tabBar, this.slotRow, this.pageLabel);
+    this.tip.eventMode = "none"; // never eat the pointer it's describing
+    this.tip.visible = false;
+    this.tip.addChild(this.tipBg, this.tipText);
+    this.container.addChild(this.frame, this.tabBar, this.slotRow, this.pageLabel, this.tip);
   }
 
   /** Reveal a newly-discovered combinator: jump to its tab + page and pop it in. */
@@ -94,6 +103,7 @@ export class Hotbar {
   }
 
   layout(): void {
+    this.hideTip(); // the hovered cell is about to be rebuilt; drop any stale tip
     this.frame.clear();
     for (const c of this.tabBar.removeChildren()) c.destroy({ children: true });
     for (const c of this.slotRow.removeChildren()) c.destroy({ children: true });
@@ -203,11 +213,49 @@ export class Hotbar {
     v.position.set(cx, cy);
     v.eventMode = "static";
     v.cursor = "grab";
+    v.on("pointerover", () => this.showTip(sym, cx, cy));
+    v.on("pointerout", () => this.hideTip());
     v.on("pointerdown", (e: FederatedPointerEvent) => {
       e.stopPropagation();
+      this.hideTip(); // grabbing it — the tip would just trail the drag
       this.onSpawnStart(this.spawnFor(sym), e);
     });
     return v;
+  }
+
+  /** The law shown when hovering a cell: ι's read-back, or the combinator's
+   *  `lawText`, prefixed with the page alias when it differs (e.g. "Mult = B"). */
+  private tipFor(sym: string): string {
+    const lawText = sym === "ι" ? "ι x = x S K" : (LAW.get(sym)?.lawText ?? sym);
+    const alias = this.aliasOf(sym);
+    return alias === sym ? lawText : `${alias} = ${sym}\n${lawText}`;
+  }
+
+  /** Float the law tooltip just above the hovered cell (System-1 white box). */
+  private showTip(sym: string, cx: number, cy: number): void {
+    const { paper, ink } = mono();
+    this.tipText.text = this.tipFor(sym);
+    this.tipText.style.fill = ink;
+    const padX = 10;
+    const padY = 7;
+    const w = this.tipText.width + 2 * padX;
+    const h = this.tipText.height + 2 * padY;
+    const x = Math.max(6, Math.min(cx - w / 2, window.innerWidth - w - 6)); // keep it on-screen
+    const y = cy - SLOT / 2 - h - 10; // hover above the cell, clear of the grid
+    this.tipBg
+      .clear()
+      .rect(3, 4, w, h)
+      .fill({ color: ink, alpha: 0.16 }) // hard-edged drop shadow, matching the palette frame
+      .rect(0, 0, w, h)
+      .fill({ color: paper })
+      .stroke({ width: 1, color: ink });
+    this.tipText.position.set(padX, padY);
+    this.tip.position.set(Math.round(x), Math.round(y));
+    this.tip.visible = true;
+  }
+
+  private hideTip(): void {
+    this.tip.visible = false;
   }
 
   private arrow(label: string, cx: number, cy: number, enabled: boolean, onClick: () => void): Container {
