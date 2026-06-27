@@ -30,21 +30,27 @@ export interface Theme {
   backdropAlpha: number;
 }
 
-// ---- Colour mode: the full palette (GitHub Primer high-contrast), quantised to
-// 4096 colours at apply() time. The three reserved hues match the mono scheme. ----
+// ---- Colour mode: the classic 1977–1999 Apple six-colour logo (green/yellow/
+// orange/red/purple/blue) — the macOS heritage palette, six widely-separated hues
+// — mapped to roles: function = red, argument = blue, ι = yellow/gold, combinator
+// node = purple, root = green, accent = orange. Quantised to RGB444 at apply()
+// (channels near 0x11 multiples survive). Mono stays 1-bit; this is the opt-in.
+// Lightness is tuned per mode for contrast: the vivid logo hues on dark, deepened
+// on white where a token doubles as text (ι = Zoo/Golf headings, root = the solved
+// tick, edges = strokes). Verified at those call sites. ----
 const COLOR_DARK: Theme = {
-  bg: 0x010409, panel: 0x151b23, inset: 0x010409, border: 0xb7bdc8,
-  text: 0xffffff, textDim: 0xb7bdc8, mutedDot: 0x9198a1,
-  accent: 0x74b9ff, node: 0x1f6feb, nodeGlyph: 0xffffff,
-  iota: 0xf0b72f, iotaGlyph: 0x010409, fnEdge: 0xfe9a2d, argEdge: 0xd3abff,
-  root: 0x2bd853, select: 0x213d5c, backdrop: 0x010409, backdropAlpha: 0.72,
+  bg: 0x111111, panel: 0x222222, inset: 0x000000, border: 0xcccccc,
+  text: 0xffffff, textDim: 0xaaaaaa, mutedDot: 0x888888,
+  accent: 0xff8822, node: 0xbb55bb, nodeGlyph: 0x111111, // Apple purple dot, dark glyph
+  iota: 0xffbb22, iotaGlyph: 0x111111, fnEdge: 0xee4444, argEdge: 0x33aadd, // Apple yellow / red / blue
+  root: 0x66cc44, select: 0x333344, backdrop: 0x000000, backdropAlpha: 0.72, // Apple green
 };
 const COLOR_LIGHT: Theme = {
-  bg: 0xffffff, panel: 0xe6eaef, inset: 0xeff2f5, border: 0x454c54,
-  text: 0x010409, textDim: 0x454c54, mutedDot: 0x59636e,
-  accent: 0x023b95, node: 0x023b95, nodeGlyph: 0xffffff,
-  iota: 0x603700, iotaGlyph: 0xffffff, fnEdge: 0x702c00, argEdge: 0x5e2bb4,
-  root: 0x04591f, select: 0xcfe3ff, backdrop: 0x010409, backdropAlpha: 0.45,
+  bg: 0xffffee, panel: 0xeeeedd, inset: 0xddddcc, border: 0x222222, // warm Mac paper, black ink
+  text: 0x000000, textDim: 0x555555, mutedDot: 0x999999,
+  accent: 0x0099dd, node: 0x994499, nodeGlyph: 0xffffff, // Apple purple dot, white glyph
+  iota: 0x995500, iotaGlyph: 0xffffff, fnEdge: 0xcc3333, argEdge: 0x0077cc, // deep gold (heading-safe) / red / blue
+  root: 0x006622, select: 0xdddddd, backdrop: 0x000000, backdropAlpha: 0.45, // deep green (tick-safe)
 };
 
 // ---- 1-bit mode (default): paper / ink, + the three reserved colours. ----
