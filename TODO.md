@@ -10,9 +10,17 @@ Work top-down. **Working rhythm for every task:**
 5. **Commit frequently** — small, reviewable commits; push each piece once verified
    (pushing is authorised).
 
-> Tasks 1 (Optimizations modal) and 2 (Native values) are **DONE and pushed**. Remaining
-> order: **(3) answer key → (4) Quest Mode → (5) Kernels → (6) Reorg → (7) Perf.** Kernels
-> is third-last, reorg penultimate, perf last.
+> **All tasks done and pushed.** 1 Optimizations modal · 2 Native values · 3 Answer key
+> (committed regression test, **gcd now solved** via the cmod kernel — 48/107, the rest a
+> backfill follow-up) · 4 Quest Mode · 5 Kernels (cmod unblocks gcd) · 6 Reorg (shared
+> Modal base; "core ports" dropped per ADR 0001; app.ts extraction + QuestProgress
+> persistence-hoist = follow-ups) · 7 Perf (engine spine O(L²)→O(L); heavy compute is
+> native/graph; deeper redexAt spine-rewalk + a profiled rendering pass = follow-ups).
+> Also: the in-HUD hint now reuses the Quest as the single hint source.
+>
+> **Open follow-ups:** answer-key backfill (59 uncovered lambda/recursion puzzles);
+> migrate Quest/Zoo/Golf onto the Modal base; hoist QuestProgress's localStorage to the
+> shell; app.ts extraction; the redexAt spine-rewalk; an interactively-profiled render pass.
 
 ## 1. Optimizations modal — ✅ DONE  · ADR 9 (mini)
 
