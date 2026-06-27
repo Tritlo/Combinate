@@ -97,6 +97,23 @@ Effects to toggle:
 - [x] **OpenGraph / link-sharing** — full OG/Twitter meta + a 1200×630 `og.png`
       (gold ι, wordmark, tagline, tree motif). Verified base-aware in the build.
 
+## 8. Leaf mode — full "vine" treatment (creative; with Codex)
+
+Turn "Leaf nodes" from just-leaf-sprites into a proper plant. When leaf mode is on:
+- [ ] **Branches sway too** — the edges sway in a gentle breeze, but **locked to
+      their application point**: the parent end stays anchored, the child end
+      follows its (drifting) leaf. So edges must be redrawn during drift in leaf
+      mode (the "stiff spine" becomes living branches).
+- [ ] **All-brown spine** — render the tree edges brown (vine), not the fn/arg
+      hues. The **argument branch is a thinner brown, no dashes** (both are
+      branches now; thickness, not dash/colour, marks function vs argument).
+- [ ] **Hide the app junctions** except the **root** — only leaves + the root show;
+      the branches connect them (a vine, not a node-graph).
+- [ ] **Generative uniqueness** — make each branch a little different (a slight
+      curve / taper / wobble seeded by the edge) so it reads organic, not CAD.
+- [ ] Consult Codex; express creativity. Keep it cheap (only below HEAVY, gated by
+      the toggle + reduced motion) — per-frame edge redraw in leaf mode is the cost.
+
 ## 7. Bugs / follow-ups
 
 - [x] **Edge colours reworked** — mono edges are now **grayscale** (function = ink
