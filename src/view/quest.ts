@@ -7,7 +7,7 @@
  */
 import { currentMode, onThemeChange, type Mode } from "./theme";
 import { vendorUrl } from "../vendorUrl";
-import { CHAPTERS, QuestProgress } from "../core/quest";
+import { CHAPTERS, QuestProgress, type QuestStage, type QuestLocation } from "../core/quest";
 import { type Node } from "../core/term";
 
 const PALETTE: Record<Mode, Record<string, string>> = {
@@ -69,6 +69,7 @@ export class QuestPanel {
   private readonly titleLabel = document.createElement("span");
   private readonly progress = new QuestProgress();
   private hintShown = false;
+  private readonly advanceListeners: Array<() => void> = [];
 
   constructor(private readonly opts: QuestOpts) {
     injectStyles();
@@ -118,6 +119,21 @@ export class QuestPanel {
   get stageIndex(): number {
     return this.progress.stage;
   }
+  // Read-only views of quest state, for the tracked-quest HUD (ADR 13) — the panel
+  // stays the sole owner/advancer of progress; the tracker only reflects it.
+  get current(): QuestStage | null {
+    return this.progress.current;
+  }
+  get location(): QuestLocation | null {
+    return this.progress.location;
+  }
+  get done(): boolean {
+    return this.progress.done;
+  }
+  /** Subscribe to stage advances (fired after a solve) — the tracker re-renders. */
+  onAdvance(cb: () => void): void {
+    this.advanceListeners.push(cb);
+  }
   open(): void {
     this.render();
     this.root.style.display = "flex";
@@ -140,6 +156,7 @@ export class QuestPanel {
     this.opts.notify(this.progress.done ? `Quest complete — you built it all from ι!` : `Quest: solved "${solved.name}"! →`);
     this.hintShown = false;
     if (this.isOpen) this.render();
+    for (const cb of this.advanceListeners) cb(); // refresh the tracked-quest HUD
   }
 
   private render(): void {

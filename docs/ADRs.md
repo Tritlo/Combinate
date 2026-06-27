@@ -116,12 +116,30 @@ adapters** — the pure core depends only on injected port interfaces (we alread
 concrete adapters (Pixi, etc.). Within that, a shared `Modal` base / `SettingsModal`
 adapter so a chrome fix lands once. Behaviour-preserving pass.
 
-## 13: Quest Mode — tracked-quest side panel (refactor)
-**Status:** Proposed — _to be written with Codex (TODO §4)._
+## 13: Quest Mode — tracked-quest side panel
+**Status:** Accepted (Codex consensus).
 
-Context: the SKI-Quest objective is only visible inside the Quest modal; while you build
-on the canvas, the goal is out of sight. Decision (TBD): a persistent "tracked quest" HUD
-on the side (WoW-style) showing the current chapter/puzzle, its objective, and the cases
-still to satisfy, updating live as cases pass. Reflects existing quest state
-(`core/quest.ts`, `core/skiq/engine.ts`) — a view, not a second copy of the goal logic.
-Records placement, how "current" is chosen (track button vs last-opened), and persistence.
+Context: the SKI-Quest objective lives only inside the Quest modal (under Special); while
+you build on the canvas the goal is out of sight, and the modal is easy to miss.
+
+Decision: a persistent, glanceable **tracked-quest HUD** (`view/questTracker.ts`) on the
+right rail — WoW-style — reflecting the *current* stage: chapter eyebrow, stage title, the
+objective (last `intro` line, HTML-stripped, with a fixed fallback), `stage i/N · chapter
+c/C` progress, and the unlock reward; the whole card opens the full modal. A **read-only
+view of existing state** — no second copy of the goal logic.
+
+Why this shape (Codex):
+- **Ownership stays in `QuestPanel`.** It already privately owns `QuestProgress` and is the
+  only path that advances it (`progress.check` in `onNormalForm`). The tracker subscribes
+  via a new `onAdvance(cb)` hook + reads `current()/location()/done`, and renders once
+  initially (progress loads a persisted stage in its constructor, so the hook alone
+  isn't enough). No hoisting — that would duplicate ownership for no goal-logic benefit.
+- **Cut the modal's density**: no hint UI, no chapter step-dots, no story — just the
+  objective. Those stay in the modal.
+- **Default ON while unfinished, auto-hide at `done`.** Persist only the user's explicit
+  hide (`View ▸ Track Quest`) and collapse prefs — not "unfinished ⇒ visible" itself.
+- **Placement** `top: 72px; right: 16px; width: min(320px, calc(100vw − 32px))` — below
+  the top HUD, clear of the transport bar (`innerWidth−18, 34`) and the top-center expr
+  readout (`y=32`). Narrow screens collapse to a small tab. System-1 chrome (matches
+  Fluff/Optimize/Quest; the shared-modal base is the later ADR 12), static DOM (no FPS
+  cost).

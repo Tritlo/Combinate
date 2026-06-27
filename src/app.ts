@@ -14,6 +14,7 @@ import { LocalStore } from "./store/local";
 import { DuckdbStore } from "./store/duckdb";
 import { ChallengePanel } from "./view/challenge";
 import { QuestPanel } from "./view/quest";
+import { QuestTracker } from "./view/questTracker";
 import { Sound } from "./view/sound";
 import { CATALOG, IOTA_CODE, HINTS, iotaTreeOf, countIotas, type Law } from "./core/catalog";
 import { recognize } from "./core/probe";
@@ -788,6 +789,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (law && !discovered.has(sym)) discover(law);
     },
   });
+  // Tracked-quest HUD (ADR 13): a glanceable side card mirroring the current stage,
+  // refreshed whenever the quest advances. The panel stays the sole owner of progress.
+  const questTracker = new QuestTracker({
+    current: () => quest.current,
+    location: () => quest.location,
+    done: () => quest.done,
+    openQuest: () => quest.open(),
+  });
+  quest.onAdvance(() => questTracker.refresh());
   hud.addChild(challenges.container); // overlays the hotbar, like the Zoo
 
   // Haskell → ι panel (ADR 0007): compile a curated or free-typed program (stock
@@ -1144,6 +1154,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     ] },
     { title: "Special", items: [
       { kind: "toggle", label: "Quest", checked: () => quest.isOpen, run: () => quest.toggle() },
+      { kind: "toggle", label: "Track Quest", checked: () => !quest.done && !questTracker.isHidden, run: () => { questTracker.setHidden(!questTracker.isHidden); paintRail(); } },
       { kind: "toggle", label: "Zoo", accel: "Z", checked: () => zoo.isOpen, run: () => zoo.toggle() },
       { kind: "toggle", label: "Golf challenges", accel: "G", checked: () => challenges.isOpen, run: () => challenges.toggle() },
     ] },
