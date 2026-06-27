@@ -81,27 +81,29 @@ Effects to toggle:
       ambient resets on any fluff toggle *and* on OS reduced-motion change (drift +
       living-Zoo snap back). `resume()` rejections swallowed.
 
-## 4. New Special: the Quest — Combinate's main game (adapted to ι) — ✅ DONE (pushed)
+## 4. The Quest — the full SKI Quest as Combinate's main game — ✅ DONE (pushed)
 
-- [x] **Permission granted.** Built a **Quest** Special, then expanded it into a
-      **multi-chapter main game** (14 stages, 4 chapters), each chapter using only
-      what earlier ones unlocked:
-      **From One** (I, K, S from ι) → **A Charm of Birds** (M, B, C, T) →
-      **True or False** (True, not, and, or) → **Numbers** (Succ, Three, Pred).
-      Every stage `unlock`s the real catalog bird (discovers it into the zoo/hotbar);
-      hints are concrete buildable terms (M = S I I, Succ = B K T, …) — all verified.
-- [x] **Shared goal core** `core/goals.ts` — extracted the behavioural-probe / value /
-      function goal predicates out of `challenges.ts`; Golf and Quest now share them
-      (no duplication). Function goals take a bounded budget (the Quest re-checks on
-      every settle).
-- [x] `core/quest.ts` is now `CHAPTERS[]` (flattened to `QUEST` for linear progress,
-      `locate()` maps a stage → its chapter). `view/quest.ts` panel shows the chapter
-      eyebrow, **Mac-square progress dots**, a chapter blurb on entry, a dynamic
-      titlebar, and a celebratory finale. localStorage bumped to `:v2`.
-- [x] Credit kept **only in the About page** (per request) — removed from the panel
-      footer. Credited **Konstantin S. Uvarin (with permission)**, linked.
-- [x] Fixed a latent hotbar crash it surfaced: a slot pop-tween touched a destroyed
-      container when two combinators were discovered within 260ms.
+- [x] Built a 4-chapter bespoke Quest first, then **ported the entire SKI Quest**
+      (Konstantin S. Uvarin's, with permission): **17 chapters, 107 playable
+      puzzles**, run on Combinate's own reducer (no second engine).
+- [x] **`core/skiq/`** — `parse.ts` (a parser for the SKI-Quest expression language
+      → Combinate `Node`: juxtaposition, λ via bracket abstraction, Church numerals,
+      per-string local defs; upper-case = single combinator, input/env names shadow
+      a same-letter bird), `engine.ts` (the case engine: reduction-equality, Church
+      readback, recursion via reduction-trace intersection + a self-equal termination
+      check, `allow` with ι always permitted, env free vars **lifted to leading
+      args** so closed ι-terms can solve them), `data.ts` (chapters vendored verbatim).
+- [x] `core/quest.ts` loads `CHAPTERS` from the vendored data (catalog-bird unlocks);
+      panel renders SKI-Quest HTML names/intros/hints. localStorage `:v3`.
+- [x] **Validated**: 23/23 upstream golden accepts+rejects, all 233 case strings
+      parse, e2e progression through the seam (stage 0→1→2), derived solutions across
+      boolean/arguments/pairs/numerals/recursion, pure-ι solves the SKI-restricted
+      opener. Codex consensus on the env-free-var lift.
+- [x] **Known gap**: 4 puzzles needing multi-term builds (3) or structural-property
+      `caps` goals (1) are left out — every chapter keeps its core stages.
+- [x] Credit kept **only in the About page** (per request). Fixed a latent hotbar
+      crash (slot pop-tween touched a destroyed container on near-simultaneous
+      discoveries).
 
 ## 5. Polish & sharing — ✅ DONE (pushed)
 
