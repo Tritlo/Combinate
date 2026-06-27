@@ -115,3 +115,13 @@ adapters** — the pure core depends only on injected port interfaces (we alread
 `Store`; add renderer/sound/wasm/persistence as earns-its-keep), the shell wires the
 concrete adapters (Pixi, etc.). Within that, a shared `Modal` base / `SettingsModal`
 adapter so a chrome fix lands once. Behaviour-preserving pass.
+
+## 13: Quest Mode — tracked-quest side panel (refactor)
+**Status:** Proposed — _to be written with Codex (TODO §4)._
+
+Context: the SKI-Quest objective is only visible inside the Quest modal; while you build
+on the canvas, the goal is out of sight. Decision (TBD): a persistent "tracked quest" HUD
+on the side (WoW-style) showing the current chapter/puzzle, its objective, and the cases
+still to satisfy, updating live as cases pass. Reflects existing quest state
+(`core/quest.ts`, `core/skiq/engine.ts`) — a view, not a second copy of the goal logic.
+Records placement, how "current" is chosen (track button vs last-opened), and persistence.
