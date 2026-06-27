@@ -1,169 +1,98 @@
 # TODO
 
-Overnight run. Work top-down. Collaborate with Codex on each step (plan before,
-review+simplify after). Use `/frontend-design:frontend-design` where it fits.
-**Push each piece as soon as it's verified** (the user authorised pushing freely).
+Work top-down. **Working rhythm for every task:**
+1. **Brainstorm the design with Codex** (the `codex-fusion` MCP times out less now;
+   pass an extended `time` when a derivation needs it). Push back, drive to consensus.
+2. **Write / fill its mini-ADR** in `docs/ADRs.md` (or its own file under `docs/adr/`
+   for the big ones) — the decision + the why, terse.
+3. Implement.
+4. **Review / simplify with Codex** (`review_diff`), then act on it.
+5. **Commit frequently** — small, reviewable commits; push each piece once verified
+   (pushing is authorised).
 
-## 1. Transport redesign — ✅ DONE (pushed)
+> Everything from the previous batch shipped: transport redesign, the Fluff modal +
+> effects, leaf/vine mode, the full **SKI Quest** port (prologue + 17 chapters),
+> polish/sharing, the render pass, and the behavioural-equality engine fix. The
+> hand-authored answer key verifies **99/102** supported puzzles; the last 3 are §4.
 
-- [x] Pause ‖ · Step |▷ · Play ▷ · Fast-forward ▷▷ as side-by-side glyphs.
-- [x] Active mode boxed in gold; Step is an action (never "active").
-- [x] Step pauses + advances the focused tree one reduction (shares the auto
-      loop's normal-form handling; ensureAuto for unscheduled focused trees).
-- [x] Live red/s readout kept; Reduce-menu radios + a Step item sync.
-- [x] Codex-reviewed (finishNormalForm, ensureAuto, setFastMode invalidation).
+## 1. Optimizations modal — do this FIRST  · ADR 9 (mini)
 
-## 2. Design pass on "fluff" — ✅ DONE (Codex brainstorm + frontend-design)
+The two reduction optimizations are loose toggles in the **Reduce** menu:
+`Optimize (rule steps)` (`fastMode`) and `Graph reduction (DAG)` (`shareMode`).
+Move them into a System-1 settings modal, mirroring Fluff
+(`src/view/fluff.ts` / `src/view/quest.ts` — paper/ink, IoskeleyMono, Mac square
+checkboxes, `Done`, injected CSS, light/dark via `onThemeChange`).
 
-Decisions captured in §3. Headlines:
-- [x] **Render architecture** decided (below). Ambient motion stays CPU + cheap
-      because fluff is **gated off above HEAVY=600** — only small trees drift, so
-      no custom shader needed. Reject whole-tree filters (break batches, distort
-      glyphs) and an edge-mesh rewrite (too much code) for v1.
-- [x] **Signature / one bold move**: leaves on a vine, drifting underwater — leaf
-      nodes flutter around a **stiff spine** (the edges don't move). Realizes both
-      "water drift" and "leaf/vine" with one cheap effect.
-- [x] Extra fun ideas folded in (marching-ants redex, discovery stamp + chirp).
-- [x] `sound.ts` `pitchFor` is private → export it (or add `Sound.play(sym)`) for
-      the Zoo tones, separate from the reduction `tick`.
-- [x] Gotcha: Pixi `ParticleContainer` has no `scale` dynamic prop (it's carried
-      by vertex data); animate node size via vertex/baseScale, not a scale flag.
+- [ ] `src/view/optimize.ts` — an `OptimizePanel` like `FluffPanel`: one checkbox +
+      one-line description per setting; persist to `combinate:optimize:v1`; expose
+      `isOpt(key)`/`optOn()`/`onOptChange()` (mirror `isFluff`/`fluffOn`/`onFluffChange`).
+- [ ] `Reduce ▸ Optimizations…`; drop the two loose toggles. Wire the existing two
+      through the object: `rules` (was `fastMode`), `graph` (was `shareMode`).
+      `onOptChange` re-schedules the focused tree / invalidates graphers exactly as the
+      menu items do (`setFastMode`, `scheduleAuto(focus)`). Keep `currentModes()`
+      permalink fields (`optimize`, `graph`) working.
+- [ ] Verify both themes + persistence; FPS unaffected.
 
-## 3. "Fluff" — a `View ▸ Fluff…` settings modal, ON by default
+## 2. Native values — new toggles in the modal  · ADR 10 (mini)
 
-A System-1 window (like Zoo / About), **paper/ink + IoskeleyMono**, with classic
-**Mac square checkboxes**: a **master on/off** at top, then one checkbox + a
-one-line plain-language description per effect, then a Done button. Persist to
-localStorage; on by default. All-off (or master off) = the current crisp view.
-Build the **modal first**, wire each effect to a `fluff` settings object, then add
-effects one at a time. Design with `/frontend-design` as you build.
+Combinate reduces data structurally, so arithmetic is O(n)/op — gcd/factorial blow the
+step budget. Add **opt-in native evaluation**, one toggle each, default OFF = today's
+exact pure-ι behaviour. **Hard constraint:** a native value round-trips to the exact
+pure tree (toggling off, permalinks, and the Zoo probe stay correct). Brainstorm the
+fast-path location + the "single semantics, not two" design with Codex before coding.
 
-**Global gates (every effect):** master + its own toggle, `prefers-reduced-motion`,
-and **`tree.heavy()` / HEAVY** (no ambient fluff on big trees). Never break the FPS
-counter or the auto-pause guard; sanity-check each effect with the FPS counter.
+- [ ] **Native numbers** — recognise Scott `Succ`ⁿ`Z` and Church `λf x. fⁿ x` as a JS
+      number; evaluate `+ - * == < …` (and the `+ 0` Church readback) natively.
+- [ ] **Native lists** — Scott/`cons` and the Quest's fold/`V` lists as a JS array;
+      `head/tail/map/<>/length` native.
+- [ ] **Native booleans** — `K`/`A` (Scott) & `K`/`KI` (Quest) ↔ JS bool; `not/and/or/if`.
+- [ ] **Native chars / strings** — Char ≡ codepoint (MicroHs Char page); strings as JS.
+- [ ] Re-test the Zoo probe + Golf metric still see the canonical pure tree.
 
-**Render architecture:**
-- *Ambient* (continuous): **CPU node-only sway** around each node's stored **base**
-  (layout) position — `particle.x = base.x + amp·sin(k·base + t)`, tiny amplitude
-  (~3px). **Don't redraw edges** → stiff spine, fluttering leaves. Runs only on
-  settled trees below HEAVY (a light ticker; hand off cleanly to the tween/layout,
-  which own positions during animation).
-- *Transient* (one-shot): the existing `tween` helper + a **transient `Graphics`
-  overlay above the tree** that draws a ring/dashes/pulse and dies after ~200–350ms.
-  No change to the particle batch.
+## 3. Kernels / FFI — stretch, longer  · ADR 11 (full ADR: `docs/adr/0009-kernels.md`)
 
-Effects to toggle:
+- [ ] Spike a MicroHs-style **FFI / kernel** mechanism: bind a named combinator to a
+      native JS kernel (registry `Map<sym, fn>` + arity + a saturated-call reducer hook).
+      Generalises §2; could surface real primitives in the Haskell panel. ADR first.
 
-- [x] **Modal + settings** (`fluff` object, localStorage, master, Mac checkboxes).
-      `src/view/fluff.ts`: `isFluff(key)`, `fluffOn()`, `onFluffChange`,
-      `prefersReducedMotion()`; `View ▸ Fluff…`. Verified both themes + persistence.
-- [x] **Grab / spawn pop** — `TreeView.popIn()` scales the new tree in on spawn
-      (gated by isFluff("grabPop") + reduced-motion).
-- [x] **Marching ants** — a gold dashed ring crawls + fades at the reduction site
-      on each step (`reduceFlourish`); skipped on fast-forward / heavy / reduced
-      motion. (Anchored at the tree root, where leftmost-outermost fires; exact
-      per-redex localisation would need reducer support — a later refinement.)
-- [x] **Water drift** — `TreeView.applyDrift(t)` sways nodes around their layout
-      base; one app ticker, gated by isFluff("drift")/reduced-motion/HEAVY; edges
-      stay (stiff spine). Verified: animates @60fps, frozen under reduced-motion.
-- [x] **Leaf / vine nodes** — leaf + circle packed in ONE texture atlas (so the
-      ParticleContainer still batches); leaf nodes use the leaf frame (tinted by
-      the combinator colour), app junctions stay dots, edges read as the vine.
-      Toggling it refreshes the trees. Verified (S=green, K=purple… leaves).
-- [x] **Zoo tone button** — `sound.play(sym)` added; a ♪ button in the Zoo detail;
-      `autoTone()` chirps the creature on open / select when isFluff("zooTone").
-- [x] **Discovery chirp** — `discover()` plays the new bird's tone when
-      isFluff("discovery"); the existing toast already stamps its name.
-- [x] **Living Zoo** — `Zoo.tickFluff(t)` gently floats the open creature's picture
-      (driven by the shell ticker, gated by isFluff("livingZoo") + reduced-motion).
-- [x] Codex review + simplify of the whole fluff layer — fixed: discovery chirp
-      now only plays if audio's already unlocked (non-gesture autoplay policy);
-      ambient resets on any fluff toggle *and* on OS reduced-motion change (drift +
-      living-Zoo snap back). `resume()` rejections swallowed.
+## 4. Finish the SKI-Quest answer key — last 3, with Codex
 
-## 4. The Quest — the full SKI Quest as Combinate's main game — ✅ DONE (pushed)
+The key (`scratchpad/answer-key.mts`) solves 99/102. Re-collaborate with Codex on:
 
-- [x] Built a 4-chapter bespoke Quest first, then **ported the entire SKI Quest**
-      (Konstantin S. Uvarin's, with permission): **17 chapters, 107 playable
-      puzzles**, run on Combinate's own reducer (no second engine).
-- [x] **`core/skiq/`** — `parse.ts` (a parser for the SKI-Quest expression language
-      → Combinate `Node`: juxtaposition, λ via bracket abstraction, Church numerals,
-      per-string local defs; upper-case = single combinator, input/env names shadow
-      a same-letter bird), `engine.ts` (the case engine: reduction-equality, Church
-      readback, recursion via reduction-trace intersection + a self-equal termination
-      check, `allow` with ι always permitted, env free vars **lifted to leading
-      args** so closed ι-terms can solve them), `data.ts` (chapters vendored verbatim).
-- [x] `core/quest.ts` loads `CHAPTERS` from the vendored data (catalog-bird unlocks);
-      panel renders SKI-Quest HTML names/intros/hints. localStorage `:v3`.
-- [x] **Validated**: 23/23 upstream golden accepts+rejects, all 233 case strings
-      parse, e2e progression through the seam (stage 0→1→2), derived solutions across
-      boolean/arguments/pairs/numerals/recursion, pure-ι solves the SKI-restricted
-      opener. Codex consensus on the env-free-var lift.
-- [x] **Known gap**: 4 puzzles needing multi-term builds (3) or structural-property
-      `caps` goals (1) are left out — every chapter keeps its core stages.
-- [x] Credit kept **only in the About page** (per request). Fixed a latent hotbar
-      crash (slot pop-tween touched a destroyed container on near-simultaneous
-      discoveries).
+- [ ] **gcd** (`u1Sr43PU`) — Church Euclid is over-budget; **native numbers (§2) should
+      make it finish** — retry after §2 lands.
+- [ ] **Identity but later** (`BzhFzwua`) — a delayed identity that is a *normal form* at
+      2 args (`i (WI)(WI)` terminates); the η-long `λabc.abc` fails (normal order reduces
+      its inner `Ω`). Needs an inert-holding arity-3 term.
+- [ ] **Plan first / `if`** (`uvtknMlN`) — the deferred-condition combinator. Reverse-engineer it.
+- [ ] Then clean the answer key into a committed regression test (vendor the puzzle data
+      so it runs without `/tmp`).
 
-## 5. Polish & sharing — ✅ DONE (pushed)
+## 5. Refactor pass — make the codebase manageable  · ADR 12 (mini)
 
-- [x] **Phone menu scrolling** — clamp the dropdown to `window.innerHeight` (not CSS
-      100vh, which spans behind the mobile address bar) so it scrolls in place.
-- [x] **GitHub link in About** — links to github.com/Tritlo/Combinate.
-- [x] **Favicon** — `public/favicon.svg` (gold ι on a dark rounded square).
-- [x] **OpenGraph / link-sharing** — full OG/Twitter meta + a 1200×630 `og.png`
-      (gold ι, wordmark, tagline, tree motif). Verified base-aware in the build.
+Discuss the plan with Codex; think hard about organization, not just the modals.
 
-## 8. Leaf mode — full "vine" treatment — ✅ first cut (pushed)
+- [ ] **Ports & adapters — deeper hexagonal (ADR 0001).** Push the functional-core /
+      imperative-shell split into proper ports & adapters: the core should depend only
+      on interfaces, the shell wires the concrete adapters. We already have one clean
+      port — `Store` (LocalStore / DuckdbStore adapters); generalise the pattern.
+      Candidate ports: a **renderer** port (Pixi as the adapter — so the core scene/layout
+      doesn't import Pixi), **sound**, the **wasm refolder** + **MicroHs compiler**
+      (already worker-ish), **persistence/settings**. Goal: the pure `core/` has zero
+      DOM/Pixi/wasm imports and every side-effecting capability is an injected port.
+      Map the seams with Codex; don't over-abstract — only ports that earn their keep.
+- [ ] **Shared modal base** — 4-5 System-1 modals (Fluff, Optimizations, Quest, Zoo,
+      Golf, About) each rebuild the same chrome and have repeated the same bugs (blurry
+      text from fractional pixels, scroll clamping). Factor the chrome + fixes into one
+      place — a `Modal` base and/or a `SettingsModal(spec)` for the checkbox-list ones —
+      so a fix lands once. Migrate the modals onto it. (A DOM/view adapter, in port terms.)
+- [ ] **`app.ts` is large** — look for cohesive seams to extract (transport, auto-reduce
+      loop, the dev seam, menu wiring) without breaking the functional-core/shell split.
+- [ ] Other organization / dead-code / naming cleanups Codex flags. Keep behaviour
+      identical (no feature changes in this pass); verify nothing regressed.
 
-Turning on "Leaf nodes" is now a proper plant (all gated; normal mode untouched):
-- [x] **Branches sway** — `applyDrift` anchors the app joints and redraws the
-      branches each drift frame, so they sway with their leaves (parent anchored).
-- [x] **All-brown spine** — brown branches; **argument = thinner, function = thicker,
-      no dashes** (thickness marks fn/arg, not colour/dash). Mode-aware brown.
-- [x] **Hidden joints except root** — app-junction particles go alpha 0; only the
-      leaves + the root ring show.
-- [x] **Leaves emerge from the branch** — leaf texture points up; each leaf
-      particle is rotated to its incoming branch angle so the blade grows outward.
-- [x] **Generative uniqueness** — each branch is a quadratic curve bowed by a
-      per-node seed → organic, not CAD.
-- Codex was timing out, so this is my own creative cut. *Follow-ups if wanted: a
-  little stem connecting blade↔branch; leaf-size jitter; tune sway/curve amounts.*
+## 6. Performance / efficiency pass — LAST, with Codex
 
-## 7. Bugs / follow-ups
-
-- [x] **Edge colours reworked** — mono edges are now **grayscale** (function = ink
-      solid, argument = dim dashed) — truly 1-bit beyond the brand gold ι. And in
-      **Colour** mode the bold red/blue edges became **muted**: a dark brown (almost
-      black) function edge + a light blue (almost grey) argument edge (warm tan /
-      blue-grey on the dark canvas) — the vibrant per-combinator nodes now carry the
-      colour; the edges recede. The solid/dashed style still tells fn from arg.
-- [x] **Fluff defaults** — grab/spawn pop is now **always on** (gated only by
-      reduced-motion); every other effect is **off by default** (storage bumped to
-      v2 so old all-on state resets). Pushed.
-- [x] **Phone menu can't scroll** — items fired on `pointerdown`, so a touch
-      scroll-drag triggered the option; now fire on tap (pointerup with no move).
-
-## 6. Render efficiency pass — ✅ mostly done
-
-The big lever (HEAVY jump-cut) already landed earlier, so this pass is cleanup +
-idle wins (the render path is otherwise minimal):
-- [x] Fixed the `ParticleContainer` config — `scale:true` was an unknown key (no-op);
-      it's now `{position:true, color:true}` (the only per-frame attrs: movement +
-      alpha fades). Vertices/uvs/rotation stay static.
-- [x] Cache the reduced-motion `MediaQueryList` (the drift ticker polled it every
-      frame).
-- [x] Idle the render/animation ticker while the tab is hidden (visibilitychange).
-- [ ] *Stretch:* per-node-kind particle textures → enables the deferred **leaf
-      nodes** fluff effect (one batch, leaf sprite for leaves + dot for junctions).
-
----
-
-## Shipped (recent batch — Codex-reviewed, pushed)
-
-- Apple six-colour-logo Colour palette; per-combinator dot colours (pinned +
-  hashed, glyph auto-contrasts); white light bg.
-- Dark mode toggle moved to View; FPS counter (View ▸ FPS, bottom-left).
-- Zoom-out floor 0.2 → 0.04. Factorial perf: jump-cut + solid edges above HEAVY=600.
-- Dashed argument edges (tree + legend + snap-preview); legend back on the left.
-- Auto-pause on non-termination; Golf list scrolls; hotbar law tooltips.
+- [ ] Final **rendering** pass (Pixi batches, per-frame work, ticker idling) and
+      **engine** pass (reducer allocations, the native-value fast paths, graph sharing).
+      Profile first, then optimize the real hot spots. Codex-review the changes.
