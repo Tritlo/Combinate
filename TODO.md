@@ -99,11 +99,14 @@ Effects to toggle:
 
 ## 7. Bugs / follow-ups
 
-- [ ] **Colours persist with Colour + Fluff both off** — turning off Colour (mono)
-      and Fluff still shows colours somewhere. Investigate: per-combinator dot
-      colours should be ink in mono (combinatorColor returns theme.node); is a tree
-      not refreshing on the Colour toggle, or is it the reserved warm/cool edge
-      hues (intentional) the user is seeing? Repro + fix.
+- [ ] **Colours persist with Colour + Fluff both off** — *characterised:* nodes DO
+      go ink in mono (verified, no bug there). The remaining colour is the **reserved
+      warm/cool edge hues** (brown fn / purple arg) + gold ι, which mono keeps by
+      design. But argument edges are now **dashed** (solid/dashed already tells fn
+      from arg), so those edge colours are redundant in mono. **Proposed fix:** in
+      MONO_DARK/MONO_LIGHT set fnEdge/argEdge to ink (text) → mono becomes truly
+      1-bit; keep gold ι as the brand (or also inkify if the user wants pure B/W).
+      Awaiting the go-ahead since it touches the deliberate System-1 identity.
 - [x] **Fluff defaults** — grab/spawn pop is now **always on** (gated only by
       reduced-motion); every other effect is **off by default** (storage bumped to
       v2 so old all-on state resets). Pushed.
