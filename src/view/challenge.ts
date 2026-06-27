@@ -193,8 +193,11 @@ export class ChallengePanel {
     const w = Math.min(880, window.innerWidth - 24);
     const h = Math.min(600, window.innerHeight - 24);
     this.cardW = w;
-    this.cardX = (window.innerWidth - w) / 2;
-    this.cardY = (window.innerHeight - h) / 2;
+    // Round the origin to whole pixels: text drawn at a sub-pixel x/y samples its
+    // glyph atlas off-grid and goes soft (the Zoo does the same). Everything else
+    // is positioned relative to these, so this keeps the whole panel crisp.
+    this.cardX = Math.round((window.innerWidth - w) / 2);
+    this.cardY = Math.round((window.innerHeight - h) / 2);
     this.backdrop.clear().rect(0, 0, window.innerWidth, window.innerHeight).fill({ color: theme.backdrop, alpha: theme.backdropAlpha });
     this.card.clear().roundRect(this.cardX, this.cardY, w, h, 14).fill({ color: theme.panel }).stroke({ width: 2, color: theme.border });
     this.title.position.set(this.cardX + 24, this.cardY + 18);
@@ -248,7 +251,7 @@ export class ChallengePanel {
 
     const line = (text: string, color: number, size: number, gap = 6): void => {
       const t = new Text({ text, style: { fontFamily: "monospace", fontSize: size, fill: color, wordWrap: true, wordWrapWidth: dw } });
-      t.position.set(dx, y);
+      t.position.set(dx, Math.round(y)); // whole-pixel baseline — fractional t.height would drift later lines off-grid
       this.detail.addChild(t);
       y += t.height + gap;
     };
@@ -285,7 +288,7 @@ export class ChallengePanel {
     t.position.set(12, 6);
     const bg = new Graphics().roundRect(0, 0, t.width + 24, 28, 7).fill({ color: theme.select }).stroke({ width: 1.5, color: theme.border });
     c.addChild(bg, t);
-    c.position.set(x, y);
+    c.position.set(Math.round(x), Math.round(y)); // whole-pixel so the label stays crisp
     c.eventMode = "static";
     c.cursor = "pointer";
     c.hitArea = new Rectangle(0, 0, t.width + 24, 28);
