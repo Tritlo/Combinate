@@ -19,6 +19,13 @@ import { theme } from "./theme";
 
 const HANDLE_KEY = "combinate:v1:handle";
 
+// Challenge-list geometry (the left column). The pack outgrows the card, so the
+// list scrolls inside a masked window — mirrors the Zoo.
+const LIST_TOP = 70; // list starts this far below the card top
+const ROW_H = 34;
+const LIST_W = 236;
+const LIST_BOTTOM = 20; // breathing room below the last visible row
+
 /** Read (or prompt once for) the player's leaderboard handle. */
 function handleName(): string {
   let h = "";
@@ -64,12 +71,16 @@ export class ChallengePanel {
   private readonly title = new Text({ text: "GOLF", style: { fontFamily: "monospace", fontSize: 22, fill: theme.iota } });
   private readonly closeBtn = new Container();
   private readonly listView = new Container();
+  private readonly listMask = new Graphics();
   private readonly detail = new Container();
 
   private selected = 0;
   private cardX = 0;
   private cardY = 0;
   private cardW = 0;
+  private cardH = 0;
+  private listScroll = 0; // pixels the list is scrolled down by
+  private listH = 0; // total height of all rows
 
   // store-backed caches, refreshed on open / submit / solve.
   private readonly bests = new Map<string, Best | null>();
@@ -167,12 +178,29 @@ export class ChallengePanel {
     this.opts.onShare(best.permalink);
   }
 
+  /** Visible height of the scrolling challenge list. */
+  private viewH(): number {
+    return this.cardH - LIST_TOP - LIST_BOTTOM;
+  }
+
+  /** Reposition the (masked) list for the current scroll offset. */
+  private placeList(): void {
+    this.listView.position.set(this.cardX + 16, this.cardY + LIST_TOP - this.listScroll);
+  }
+
   // ---- the overlay panel ------------------------------------------------
   private buildPanel(): void {
     this.backdrop.eventMode = "static";
     this.backdrop.on("pointerdown", () => this.close());
     this.card.eventMode = "static";
     this.card.on("pointerdown", (e: FederatedPointerEvent) => e.stopPropagation());
+    // wheel anywhere on the panel scrolls the challenge list
+    this.panel.eventMode = "static";
+    this.panel.on("wheel", (e: { deltaY: number }) => {
+      const max = Math.max(0, this.listH - this.viewH());
+      this.listScroll = Math.round(Math.min(max, Math.max(0, this.listScroll + e.deltaY))); // whole-pixel scroll keeps text crisp
+      this.placeList();
+    });
 
     const x = new Text({ text: "✕", style: { fontFamily: "monospace", fontSize: 20, fill: theme.textDim } });
     x.anchor.set(0.5);
@@ -185,7 +213,8 @@ export class ChallengePanel {
       this.close();
     });
 
-    this.panel.addChild(this.backdrop, this.card, this.title, this.closeBtn, this.listView, this.detail);
+    this.listView.mask = this.listMask;
+    this.panel.addChild(this.backdrop, this.card, this.title, this.closeBtn, this.listMask, this.listView, this.detail);
     this.placePanel();
   }
 
@@ -193,6 +222,7 @@ export class ChallengePanel {
     const w = Math.min(880, window.innerWidth - 24);
     const h = Math.min(600, window.innerHeight - 24);
     this.cardW = w;
+    this.cardH = h;
     // Round the origin to whole pixels: text drawn at a sub-pixel x/y samples its
     // glyph atlas off-grid and goes soft (the Zoo does the same). Everything else
     // is positioned relative to these, so this keeps the whole panel crisp.
@@ -202,6 +232,8 @@ export class ChallengePanel {
     this.card.clear().roundRect(this.cardX, this.cardY, w, h, 14).fill({ color: theme.panel }).stroke({ width: 2, color: theme.border });
     this.title.position.set(this.cardX + 24, this.cardY + 18);
     this.closeBtn.position.set(this.cardX + w - 28, this.cardY + 28);
+    this.listMask.clear().rect(this.cardX + 16, this.cardY + LIST_TOP, LIST_W, this.viewH()).fill({ color: 0xffffff });
+    this.placeList();
   }
 
   /** Rebuild the list + detail from the caches (sync; data is preloaded). */
@@ -212,14 +244,16 @@ export class ChallengePanel {
 
   private buildList(): void {
     for (const c of this.listView.removeChildren()) c.destroy({ children: true });
-    const rowH = 34;
-    const x0 = this.cardX + 16;
-    const y0 = this.cardY + 70;
-    const w = 236;
+    const w = LIST_W;
+    // Rows are list-local (the listView is offset by the scroll); the mask clips
+    // them to the card. Clamp the scroll in case the view grew taller than the list.
+    this.listH = CHALLENGES.length * ROW_H;
+    this.listScroll = Math.max(0, Math.min(this.listScroll, Math.max(0, this.listH - this.viewH())));
+    this.placeList();
     CHALLENGES.forEach((c, i) => {
       const row = new Container();
-      row.position.set(x0, y0 + i * rowH);
-      if (i === this.selected) row.addChild(new Graphics().roundRect(0, 0, w, rowH - 4, 6).fill({ color: theme.select }));
+      row.position.set(0, i * ROW_H);
+      if (i === this.selected) row.addChild(new Graphics().roundRect(0, 0, w, ROW_H - 4, 6).fill({ color: theme.select }));
       const best = this.bests.get(c.id);
       const tick = new Text({ text: best ? "✓" : "·", style: { fontFamily: "monospace", fontSize: 15, fill: best ? theme.root : theme.textDim } });
       tick.position.set(10, 7);
@@ -231,7 +265,7 @@ export class ChallengePanel {
       row.addChild(tick, name, score);
       row.eventMode = "static";
       row.cursor = "pointer";
-      row.hitArea = new Rectangle(0, 0, w, rowH - 4);
+      row.hitArea = new Rectangle(0, 0, w, ROW_H - 4);
       row.on("pointerdown", (e: FederatedPointerEvent) => {
         e.stopPropagation();
         this.selected = i;
