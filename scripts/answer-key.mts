@@ -20,10 +20,15 @@
  * `uncovered` (listed with --list) and can be backfilled; gcd is `PENDING` on kernels.
  */
 import { SKIQ_CHAPTERS } from "../src/core/skiq/data";
-import { makeGoal, isSupported, type Puzzle } from "../src/core/skiq/engine";
-import { parseExpr } from "../src/core/skiq/parse";
+import { makeGoal, isSupported, buildEnvScope, type Puzzle } from "../src/core/skiq/engine";
+import { parseExpr, type Scope } from "../src/core/skiq/parse";
 
-const empty = (_: string): null => null;
+// A solution may reference the puzzle's env combinators (e.g. `M A` for "I from M,T,A,B"),
+// so parse it in the puzzle's env scope (empty for env-less puzzles).
+const scopeFor = (p: Puzzle): Scope => {
+  const env = buildEnvScope(p.env);
+  return (name) => env.get(name) ?? null;
+};
 
 /** puzzle id → a solution source verified to satisfy `makeGoal`. */
 const SOLUTIONS: Record<string, string> = {
@@ -45,6 +50,31 @@ const SOLUTIONS: Record<string, string> = {
   DAGc1HC2: "a -> b -> c -> c (b a)", // Q4
   xWDGLJvA: "a -> b -> c -> d -> a b (a d c)", // J
   E2nhX4bs: "head -> tail -> f -> x -> f head (tail f x)", // fold-cons
+  // — fold-list ops · pairs (V) · booleans · recursion (Y) — authored —
+  YAN4Mxrt: "b -> b S K", // x -> x(S)(K)
+  Uu9HxTCJ: "p -> q -> t -> f -> p (q f t) t", // nand
+  fWb8i2Gg: "f -> p -> p (a -> b -> x -> x (f a) (f b))", // pair map
+  NmPkROHm: "f -> g -> p -> p (a -> b -> f a (g b))", // f a (g b) over a pair
+  gjDIpuTl: "f -> g -> p -> p (a -> b -> x -> x (f a b) (g a b))", // pair transform
+  A4fAPvZb: "f -> d -> arg -> arg (a -> b -> K (f a b)) d", // maybe/pattern-match
+  u27lZ0cN: "l -> l (K (S B)) (K I)", // len = fold succ over 0 (succ = S B, 0 = K I)
+  uGAfI2SW: "xs -> ys -> f -> x -> xs f (ys f x)", // cat (fold-list append)
+  e1NlHHr6: "f -> xs -> xs (a -> r -> g -> y -> g (f a) (r g y)) (K I)", // map
+  RtjKvs82: "xs -> xs (a -> r -> f -> x -> r f (f a x)) (K I)", // reverse
+  BkuOGuwe: "n -> f -> x -> n (g -> h -> h (g f)) (u -> x) (u -> u)", // Church predecessor
+  "3JcMqUYU": "Y (self -> n -> x -> x (self (S B n)) n) (K I)", // count K's before KI
+  Z5FPLOrV: "Y K", // quine: q x = q
+  TdfaCuW3: "Y (self -> x -> x self)", // crawl: f x = x f
+  // — restricted-basis builds (only the allowed/env combinators) —
+  NPQ1PIwx: "B (B W) B", // a(b c)c, from B,C,K,I,W
+  TNgeTiRp: "M A", // I, from M,T,A,B (M A = (K I)(K I) = I)
+  Jv13RWtU: "B (T B) K", // I, from B,K,T
+  lphEyMXf: "J I I", // T x y = y x, from J,I
+  "7gLQo32W": "J I", // Q1 x y z = x(z y), from J,I
+  "4e3mymsq": "X X", // I, from the universal X
+  XUVE0eoI: "X (X X)", // omit-first, from X
+  "63bwJwPZ": "X (X (X X))", // K, from X
+  QqpxVpZk: "X (X (X (X X)))", // S, from X
   // — authored Church arithmetic —
   FYutDKYw: "m -> n -> f -> x -> m f (n f x)", // add
   ZssuKELX: "m -> n -> f -> m (n f)", // mult
@@ -104,7 +134,7 @@ const findName = (id: string): string => {
 
 function passes(p: Puzzle): boolean {
   try {
-    return makeGoal(p)(parseExpr(SOLUTIONS[p.id], empty));
+    return makeGoal(p)(parseExpr(SOLUTIONS[p.id], scopeFor(p)));
   } catch {
     return false;
   }
