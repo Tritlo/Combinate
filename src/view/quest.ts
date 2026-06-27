@@ -152,10 +152,10 @@ export class QuestPanel {
       f.className = "qs-finale";
       f.innerHTML =
         "<p>🌿 <b>You built it all from one.</b></p>" +
-        "<p>From a single generator — ι — you grew the basis (I, K, S), a charm of birds " +
-        "(M, B, C, T), all of logic (not, and, or), and the numbers (Succ, Pred). Nothing " +
-        "was given; everything was made.</p>" +
-        "<p>The aviary is open — keep golfing, keep discovering. More chapters may yet sprout.</p>";
+        "<p>From the basis to birds, booleans, numerals, pairs, lists, and recursion — " +
+        "every combinator in the SKI Quest, grown on Combinate's canvas. Nothing was " +
+        "given; everything was made.</p>" +
+        "<p>The aviary is open — keep golfing, keep discovering.</p>";
       this.body.append(f);
       return;
     }
@@ -173,7 +173,7 @@ export class QuestPanel {
 
     const name = document.createElement("div");
     name.className = "qs-name";
-    name.textContent = stage.name;
+    name.innerHTML = stage.name; // SKI-Quest names carry markup (Q<sub>1</sub>, &phi;)
     const intro = document.createElement("div");
     intro.innerHTML = stage.intro.join("\n");
     const task = document.createElement("div");
@@ -182,12 +182,12 @@ export class QuestPanel {
 
     const hintWrap = document.createElement("div");
     hintWrap.className = "qs-hint";
-    if (this.hintShown) {
+    if (stage.hint && this.hintShown) {
       const h = document.createElement("div");
       h.className = "qs-hinttext";
-      h.textContent = `Hint:  ${stage.hint}`;
+      h.innerHTML = `Hint:  ${stage.hint}`;
       hintWrap.append(h);
-    } else {
+    } else if (stage.hint) {
       const btn = document.createElement("button");
       btn.className = "qs-hintbtn";
       btn.textContent = "Show hint";
