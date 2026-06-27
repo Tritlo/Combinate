@@ -71,9 +71,12 @@ export function fluffOn(): boolean {
 export function onFluffChange(cb: () => void): void {
   listeners.push(cb);
 }
+// Resolved once (not per call): prefersReducedMotion is polled every frame by the
+// drift ticker, so don't re-create a MediaQueryList each time.
+const reducedMotionMQ = typeof window !== "undefined" ? window.matchMedia?.("(prefers-reduced-motion: reduce)") : undefined;
 /** Does the user prefer reduced motion? Motion effects must honour this. */
 export function prefersReducedMotion(): boolean {
-  return typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  return !!reducedMotionMQ?.matches;
 }
 
 const PALETTE: Record<Mode, Record<string, string>> = {

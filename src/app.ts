@@ -1024,6 +1024,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     challenges.layout();
   });
 
+  // Render efficiency: stop the render/animation loop while the tab is hidden —
+  // no point drawing the drift to an invisible canvas. (Browsers throttle rAF in
+  // the background; this also idles the drift/rate samplers.) setTimeout-driven
+  // reduction keeps crawling and catches up on return.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) pixi.ticker.stop();
+    else pixi.ticker.start();
+  });
+
   // Remove every tree from the canvas (discoveries and the hotbar stay).
   function clearCanvas(): void {
     for (const t of trees) {
