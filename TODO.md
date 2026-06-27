@@ -3,41 +3,71 @@
 Overnight run. Work top-down. Collaborate with Codex on each step (plan before,
 review+simplify after). Use `/frontend-design:frontend-design` where it fits.
 
-## 1. Transport redesign — DO FIRST (commit + push when done)
+## 1. Transport redesign — ✅ DONE (pushed)
 
-Replace the single cycling transport icon (top-right) with a row of glyph buttons.
+- [x] Pause ‖ · Step |▷ · Play ▷ · Fast-forward ▷▷ as side-by-side glyphs.
+- [x] Active mode boxed in gold; Step is an action (never "active").
+- [x] Step pauses + advances the focused tree one reduction (shares the auto
+      loop's normal-form handling; ensureAuto for unscheduled focused trees).
+- [x] Live red/s readout kept; Reduce-menu radios + a Step item sync.
+- [x] Codex-reviewed (finishNormalForm, ensureAuto, setFastMode invalidation).
 
-- [ ] **Pause** ‖ · **Step** · **Play** ▶ · **Fast-forward** ⏩ as side-by-side glyphs.
-- [ ] Clear **"pressed/active" indication** on the current mode (Pause/Play/FF).
-- [ ] **Step** button **between Pause and Play**: runs exactly **one reduction**
-      then stays paused (glyph idea `|>`). An action, never shows "active".
-- [ ] Keep the live `red/s` readout + top-right placement; Reduce-menu radios sync.
-- [ ] Codex review + simplify; commit + push.
+## 2. Design pass on "fluff" — ✅ DONE (Codex brainstorm + frontend-design)
 
-## 2. Codex + frontend-design pass on the "fluff" plan — DO SECOND
-
-- [ ] `review_plan` with Codex; design with `/frontend-design:frontend-design`.
-- [ ] Add more fun ideas; design the settings modal + effect visuals (System-1).
-- [ ] Nail the **efficient render** strategy (thousands of GPU particles already;
-      must not tank FPS — respect the FPS counter + HEAVY jump-cut path).
-- [ ] Write the refined, concrete plan back into this file before building §3.
+Decisions captured in §3. Headlines:
+- [x] **Render architecture** decided (below). Ambient motion stays CPU + cheap
+      because fluff is **gated off above HEAVY=600** — only small trees drift, so
+      no custom shader needed. Reject whole-tree filters (break batches, distort
+      glyphs) and an edge-mesh rewrite (too much code) for v1.
+- [x] **Signature / one bold move**: leaves on a vine, drifting underwater — leaf
+      nodes flutter around a **stiff spine** (the edges don't move). Realizes both
+      "water drift" and "leaf/vine" with one cheap effect.
+- [x] Extra fun ideas folded in (marching-ants redex, discovery stamp + chirp).
+- [x] `sound.ts` `pitchFor` is private → export it (or add `Sound.play(sym)`) for
+      the Zoo tones, separate from the reduction `tick`.
+- [x] Gotcha: Pixi `ParticleContainer` has no `scale` dynamic prop (it's carried
+      by vertex data); animate node size via vertex/baseScale, not a scale flag.
 
 ## 3. "Fluff" — a `View ▸ Fluff…` settings modal, ON by default
 
-A System-1 window (like Zoo / About) with a **master on/off** + **individual
-toggles** per effect, wired to a fluff-settings object. All-off = the current
-crisp, fast view. Design the modal + visuals with `/frontend-design` (and Codex).
+A System-1 window (like Zoo / About), **paper/ink + IoskeleyMono**, with classic
+**Mac square checkboxes**: a **master on/off** at top, then one checkbox + a
+one-line plain-language description per effect, then a Done button. Persist to
+localStorage; on by default. All-off (or master off) = the current crisp view.
+Build the **modal first**, wire each effect to a `fluff` settings object, then add
+effects one at a time. Design with `/frontend-design` as you build.
 
-- [ ] **Build the modal first** (menu item → modal → toggles → settings object).
-- [ ] Grab/spawn animation — node pops/appears when grabbed or spawned.
-- [ ] Reduction flourish — "something more interesting when reducing" (TBD §2;
-      e.g. a ripple/pulse along the firing redex).
-- [ ] Water drift — gentle sway, as if nodes float in water.
-- [ ] Leaf / vine nodes held together by the spine (edges) — fits the water-drift.
-- [ ] Zoo tone button — play a combinator's `sound.ts` tone; with fluff on,
-      auto-play it when you open a creature's page (Pokédex-style).
-- [ ] Living Zoo — animations / drift so it feels alive.
-- [ ] Perf check each effect with the FPS counter; Codex review + simplify.
+**Global gates (every effect):** master + its own toggle, `prefers-reduced-motion`,
+and **`tree.heavy()` / HEAVY** (no ambient fluff on big trees). Never break the FPS
+counter or the auto-pause guard; sanity-check each effect with the FPS counter.
+
+**Render architecture:**
+- *Ambient* (continuous): **CPU node-only sway** around each node's stored **base**
+  (layout) position — `particle.x = base.x + amp·sin(k·base + t)`, tiny amplitude
+  (~3px). **Don't redraw edges** → stiff spine, fluttering leaves. Runs only on
+  settled trees below HEAVY (a light ticker; hand off cleanly to the tween/layout,
+  which own positions during animation).
+- *Transient* (one-shot): the existing `tween` helper + a **transient `Graphics`
+  overlay above the tree** that draws a ring/dashes/pulse and dies after ~200–350ms.
+  No change to the particle batch.
+
+Effects to toggle:
+
+- [ ] **Modal + settings** (`fluff` object, localStorage, master, Mac checkboxes).
+- [ ] **Grab / spawn pop** — node scales/fades in on grab or spawn (tween, transient).
+- [ ] **Marching-ants redex** — classic Mac selection dashes crawl along the firing
+      redex just before it contracts (transient `Graphics` overlay; very on-brand).
+- [ ] **Water drift** — the ambient node-only sway above (the signature effect).
+- [ ] **Leaf / vine nodes** — swap the leaf-node disc texture for a small **leaf**
+      sprite; edges read as the **vine/spine**. Still one particle batch (just a
+      different texture); the drift makes them flutter. *Stretch / bold.*
+- [ ] **Zoo tone button** — a "play tone" button in the Zoo detail (uses
+      `pitchFor`); with fluff on, **auto-play** the creature's tone when its page
+      opens (Pokédex-style).
+- [ ] **Discovery stamp + chirp** — on collapse/discovery, briefly stamp the bird
+      name by the root and play its tone (reuse Zoo metadata + `sound.ts`).
+- [ ] **Living Zoo** — gentle drift on the Zoo's creature preview (reuse the sway).
+- [ ] Per-effect FPS check; Codex review + simplify.
 
 ## 4. New Special: a progression story / quest (adapted to ι)
 
