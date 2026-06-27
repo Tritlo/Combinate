@@ -151,10 +151,10 @@ export class QuestPanel {
       const f = document.createElement("div");
       f.className = "qs-finale";
       f.innerHTML =
-        "<p>🌿 <b>You built it all from one.</b></p>" +
+        "<p>🌿 <b>Ex uno plures.</b> From one, many.</p>" +
         "<p>From the basis to birds, booleans, numerals, pairs, lists, and recursion — " +
-        "every combinator in the SKI Quest, grown on Combinate's canvas. Nothing was " +
-        "given; everything was made.</p>" +
+        "every combinator in the SKI Quest, grown on Combinate's canvas out of a single " +
+        "ι. Nothing was given; everything was made.</p>" +
         "<p>The aviary is open — keep golfing, keep discovering.</p>";
       this.body.append(f);
       return;

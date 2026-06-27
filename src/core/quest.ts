@@ -65,62 +65,61 @@ function toStage(p: Puzzle): QuestStage {
   };
 }
 
-// A Combinate-native prologue: the SKI Quest starts you with S/K/I already in hand,
-// but here you begin with one block — ι — so first grow the basis from it. Each stage
-// is an ordinary behavioural puzzle (run through the same engine); `allow: "I-I"`
-// keeps the ι-built ones honestly ι-only, while A is built from the K and I you just
-// unlocked. Solving them discovers the bird, so the inventory the Quest assumes is
-// actually earned.
+// A Combinate-native Prologue: the SKI Quest starts you with S/K/I already in hand,
+// but here you begin with a single block — ι — so first grow the basis from it. And
+// it is ι all the way: each combinator is ι fed the one before it, the Barker tower
+//   ι ι = I,  ι I = A,  ι A = K,  ι K = S.
+// Every stage is `allow: "I-I"` (ι-only — a catalog K is rejected). Solving each
+// discovers the bird, so the inventory the Quest assumes is genuinely earned.
 const PROLOGUE: Puzzle[] = [
   {
-    id: "from-one-i",
+    id: "prologue-i",
     name: "Out of One",
     allow: "I-I",
     unlock: "I",
     input: "phi",
     intro: [
       "<p>Welcome. Everything in Combinate grows from a single seed: <b>ι</b>, where <code>ι x = x S K</code>. Drag one from the hotbar, snap a second onto it, and watch it reduce.</p>",
-      "<p>Your first bird is the <b>Identity</b> — <code>I x = x</code> hands back whatever it is given. It is the cheapest thing there is: just ι applied to itself.</p>",
+      "<p>Your first bird is the <b>Identity</b> — <code>I x = x</code> hands back whatever it is given. It is the cheapest thing there is: ι applied to itself.</p>",
     ],
     hint: "<code>ι ι</code>",
     cases: [["phi x", "x"]],
   },
   {
-    id: "from-one-k",
+    id: "prologue-a",
+    name: "The Mirror",
+    allow: "I-I",
+    unlock: "A",
+    input: "phi",
+    intro: [
+      "<p>Now feed ι the bird you just made. <b>ι I</b> gives <b>A</b> — <code>A x y = y</code>, the mirror of the Kestrel: it keeps the <i>second</i> argument (the Scott <b>True</b>).</p>",
+      "<p>Still nothing but ι.</p>",
+    ],
+    hint: "<code>ι (ι ι)</code>  — feed ι the Identity",
+    cases: [["phi x y", "y"]],
+  },
+  {
+    id: "prologue-k",
     name: "The Kestrel",
     allow: "I-I",
     unlock: "K",
     input: "phi",
     intro: [
-      "<p>The <b>Kestrel</b> <code>K x y = x</code> keeps its first argument and forgets the second.</p>",
-      "<p>It hides a little deeper inside ι — feed ι to ι a few times.</p>",
+      "<p>Feed ι to <b>A</b> and the <b>Kestrel</b> appears — <code>K x y = x</code>, which keeps the first argument and forgets the second.</p>",
     ],
-    hint: "<code>ι (ι (ι ι))</code>",
+    hint: "<code>ι (ι (ι ι))</code>  — feed ι the Mirror",
     cases: [["phi x y", "x"]],
   },
   {
-    id: "from-one-a",
-    name: "Truth, from Two",
-    unlock: "A",
-    input: "phi",
-    intro: [
-      "<p>Now combine what you have unlocked. <b>A</b> <code>A x y = y</code> is the mirror of the Kestrel — it keeps the <i>second</i> argument. It is the Scott <b>True</b>, and you build it from two birds already in your hands.</p>",
-      "<p>Snap <code>K</code> onto <code>I</code>.</p>",
-    ],
-    hint: "<code>K I</code>",
-    cases: [["phi x y", "y"]],
-  },
-  {
-    id: "from-one-s",
+    id: "prologue-s",
     name: "The Starling",
     allow: "I-I",
     unlock: "S",
     input: "phi",
     intro: [
-      "<p>The last piece of the basis: the <b>Starling</b> <code>S x y z = x z (y z)</code>. With <code>S</code> and <code>K</code> you can spell <i>any</i> combinator at all — everything in the Quest ahead is built from here.</p>",
-      "<p>It is one ι deeper than the Kestrel.</p>",
+      "<p>One more. Feed ι to the <b>Kestrel</b> and out comes the <b>Starling</b> — <code>S x y z = x z (y z)</code>. With <code>S</code> and <code>K</code> you can spell <i>any</i> combinator at all; everything in the Quest ahead is built from here.</p>",
     ],
-    hint: "<code>ι (ι (ι (ι ι)))</code>",
+    hint: "<code>ι (ι (ι (ι ι)))</code>  — feed ι the Kestrel",
     cases: [["phi x y z", "x z (y z)"]],
   },
 ];
@@ -128,7 +127,7 @@ const PROLOGUE: Puzzle[] = [
 const PROLOGUE_CHAPTER: QuestChapter = {
   id: "prologue",
   name: "Prologue",
-  blurb: "Combinate begins with one seed — ι. The SKI Quest assumes you already hold I, K and S; here you grow them from ι yourself.",
+  blurb: "Ex uno plures — from one, many. Combinate begins with a single seed, ι. Feed it to itself and the whole basis unfolds: I, then A, then K, then S.",
   stages: PROLOGUE.map(toStage),
 };
 
@@ -173,7 +172,7 @@ export function locate(stageIndex: number): QuestLocation | null {
   return null;
 }
 
-const STORE_KEY = "combinate:quest:v5"; // bumped: Prologue chapter + dropped Iota chapter shifted indices
+const STORE_KEY = "combinate:quest:v6"; // bumped: Prologue is now the ι-only tower (I→A→K→S)
 
 /** Tracks how far the player has got, persisted to localStorage. */
 export class QuestProgress {
