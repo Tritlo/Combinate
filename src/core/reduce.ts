@@ -1,5 +1,6 @@
 import { type Node, type NodeId, app, comb, iota, freeVar } from "./term";
 import { RULES } from "./catalog";
+import { nativeContract, nativeOpArity, type NativeOpts } from "./native";
 
 /** Deep-copy a term with fresh ids — used to duplicate the shared argument in
  * the S rule so every node in the result has a unique id (the view keys layout
@@ -30,6 +31,14 @@ function dedupIds(n: Node, seen: Set<NodeId>): Node {
     return fn === n.fn && arg === n.arg ? n : { ...n, fn, arg };
   }
   return n;
+}
+
+/** Apply a catalog `rule` to the first `k` (its arity) of `args`, re-applying any
+ *  extra args to the result. (Shared by the optimize-mode and native-fallback paths.) */
+function applyRule(rule: (args: Node[]) => Node, args: Node[], k: number): Node {
+  let res = rule(args.slice(0, k));
+  for (let i = k; i < args.length; i++) res = app(res, args[i]);
+  return res;
 }
 
 /** The next redex in normal order: the rule it fires (`sym`) and a thunk that
@@ -68,11 +77,12 @@ interface Redex {
  * its SKI def and grinding ι/S/K/I. Off by default — raw SKI reduction (and
  * everything not in `RULES`: I/K/S/ι, undiscovered combinators) is unchanged.
  */
-export function redexAt(n: Node, argsAbove = 0, fast = false): Redex | null {
+export function redexAt(n: Node, argsAbove = 0, fast = false, native?: NativeOpts): Redex | null {
   if (n.kind !== "app") return null;
 
-  // optimize mode: reduce the leftmost-outermost *named* head redex by its rule.
-  if (fast) {
+  // optimize / native mode: reduce the leftmost-outermost *named* head redex — by a
+  // native value op (ADR 10) when recognised, else by its catalog rule (fast mode).
+  if (fast || native) {
     const args: Node[] = [];
     let head: Node = n;
     while (head.kind === "app") {
@@ -80,17 +90,25 @@ export function redexAt(n: Node, argsAbove = 0, fast = false): Redex | null {
       head = head.fn;
     }
     if (head.kind === "comb") {
-      const rule = RULES[head.sym];
       const k = head.arity ?? 1;
-      if (rule && args.length >= k) {
+      // Native value op (ADR 10): a CHEAP head check during discovery; the expensive
+      // match + canonical re-encode happen in `build`, which falls back to the catalog
+      // rule when the operands aren't recognised values (so `firingRule`/existence
+      // checks never trigger a match).
+      const nk = native ? nativeOpArity(head.sym, native) : null;
+      if (nk !== null && args.length >= nk) {
         return {
           sym: head.sym,
           build: () => {
-            let res = rule(args.slice(0, k));
-            for (let i = k; i < args.length; i++) res = app(res, args[i]);
+            const nat = nativeContract(head.sym, args, native!);
+            const res = nat ?? applyRule(RULES[head.sym], args, k);
             return dedupIds(res, new Set());
           },
         };
+      }
+      const rule = fast ? RULES[head.sym] : undefined;
+      if (rule && args.length >= k) {
+        return { sym: head.sym, build: () => dedupIds(applyRule(rule, args, k), new Set()) };
       }
     }
   }
@@ -126,17 +144,17 @@ export function redexAt(n: Node, argsAbove = 0, fast = false): Redex | null {
 
   // No rule fires at the root: recurse left spine first (one more arg above),
   // then the argument (a fresh spine). Context apps keep their id (`{ ...n }`).
-  const f = redexAt(fn, argsAbove + 1, fast);
+  const f = redexAt(fn, argsAbove + 1, fast, native);
   if (f) return { sym: f.sym, build: () => ({ ...n, fn: f.build() }) };
-  const a = redexAt(arg, 0, fast);
+  const a = redexAt(arg, 0, fast, native);
   if (a) return { sym: a.sym, build: () => ({ ...n, arg: a.build() }) };
   return null;
 }
 
 /** One normal-order (leftmost-outermost) reduction step, or `null` if `n` is
  *  already in normal form. See {@link redexAt} for the rules. */
-export function step(n: Node, argsAbove = 0, fast = false): Node | null {
-  return redexAt(n, argsAbove, fast)?.build() ?? null;
+export function step(n: Node, argsAbove = 0, fast = false, native?: NativeOpts): Node | null {
+  return redexAt(n, argsAbove, fast, native)?.build() ?? null;
 }
 
 /** The result of running a term toward normal form. */
@@ -152,11 +170,11 @@ export interface NormalizeResult {
  * non-terminating terms (e.g. Ω); on hitting it, returns the partial term with
  * `done: false`.
  */
-export function normalize(n: Node, cap = 10_000, fast = false): NormalizeResult {
+export function normalize(n: Node, cap = 10_000, fast = false, native?: NativeOpts): NormalizeResult {
   let cur = n;
   let steps = 0;
   for (; steps < cap; steps++) {
-    const next = step(cur, 0, fast);
+    const next = step(cur, 0, fast, native);
     if (!next) return { term: cur, steps, done: true };
     cur = next;
   }
@@ -170,6 +188,6 @@ export function normalize(n: Node, cap = 10_000, fast = false): NormalizeResult 
  * sonification layer (PLAN.md Phase A / ADR 0005) can pick a tone per reduction
  * without allocating.
  */
-export function firingRule(n: Node, fast = false, argsAbove = 0): string | null {
-  return redexAt(n, argsAbove, fast)?.sym ?? null;
+export function firingRule(n: Node, fast = false, argsAbove = 0, native?: NativeOpts): string | null {
+  return redexAt(n, argsAbove, fast, native)?.sym ?? null;
 }

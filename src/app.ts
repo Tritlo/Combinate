@@ -33,6 +33,7 @@ import { MenuBar, type Menu } from "./view/menubar";
 import { About } from "./view/about";
 import { FluffPanel, isFluff, prefersReducedMotion, onFluffChange } from "./view/fluff";
 import { OptimizePanel, isOpt, setOpt, onOptChange } from "./view/optimize";
+import { type NativeOpts } from "./core/native";
 import { tween } from "./view/anim";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
@@ -95,6 +96,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   let expandAll = false; // "Expand" view: draw every combinator as its full ι-tree
   let fastMode = isOpt("rules"); // "optimize" mode — mirror of view/optimize (the source of truth); reduce named combinators by their rule (not raw SKI)
   let shareMode = isOpt("graph"); // "graph" mode mirror: call-by-need graph reduction, shared subterms drawn as one node
+  // The active native-value optimizations (ADR 10), or undefined if none — read from
+  // the optimize store each reduction, passed into the reducer alongside `fastMode`.
+  const nativeOpts = (): NativeOpts | undefined => (isOpt("nativeNumbers") ? { numbers: true } : undefined);
   let menuBar: MenuBar | undefined; // the top menu bar (built below); paintRail() refreshes its open pull-down
 
   const hint = new Text({
@@ -531,7 +535,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     a.grapher = undefined; // optimize/raw path: no live graph
 
     // One traversal yields both the rule to sonify and the contractum to animate.
-    const redex = redexAt(tree.node, 0, fastMode);
+    const redex = redexAt(tree.node, 0, fastMode, nativeOpts());
     if (!redex) {
       finishNormalForm(tree, a); // normal form reached — recognise, collapse, score
       return;
@@ -567,7 +571,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       tree.animateTo(a.grapher.snapshot(), stepDur(), () => {});
     } else {
       a.grapher = undefined;
-      const redex = redexAt(tree.node, 0, fastMode);
+      const redex = redexAt(tree.node, 0, fastMode, nativeOpts());
       if (!redex) {
         finishNormalForm(tree, a);
         return;
@@ -594,7 +598,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       }
     } else if (wasPaused) {
       for (const [tree, a] of auto) {
-        if (redexAt(tree.node, 0, fastMode)) {
+        if (redexAt(tree.node, 0, fastMode, nativeOpts())) {
           a.steps = 0; // explicit resume = "keep going" → a fresh budget before auto-pause re-trips
           a.gen++;
           const gen = a.gen;
