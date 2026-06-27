@@ -35,6 +35,7 @@ const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.
 const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducing (§6.4)
 const STEP_MS = 300; // duration of one reduction-step tween
 const STEP_GAP = 130; // pause between reduction steps
+const HEAVY_GAP = 8; // big trees jump-cut each step; pace them fast but still yield to the renderer (≠ 0, which starves rAF)
 const STEP_CAP = 2000; // non-termination guard: stop auto-reducing past this many steps
 const GRAPH_STEP_CAP = 100_000; // graph mode shares (cheap steps) — let fac-scale reductions finish
 const COLLAPSE_MS = 340; // morph from a recognised normal form into its named node
@@ -462,7 +463,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
         const a2 = auto.get(tree);
         if (!a2 || a2.gen !== gen) return;
         if (transport === "pause") return;
-        a2.timer = window.setTimeout(() => stepAuto(tree, gen), stepGap());
+        a2.timer = window.setTimeout(() => stepAuto(tree, gen), tree.heavy() ? HEAVY_GAP : stepGap()); // big trees: jump-cut + a short gap (stays responsive)
       });
       return;
     }
