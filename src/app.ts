@@ -400,6 +400,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const speed = (): number => (transport === "ff" ? 3 : 1);
   const stepDur = (): number => STEP_MS / speed();
   const stepGap = (): number => STEP_GAP / speed();
+  // Delay before the next reduction step: big trees jump-cut, so pace them at a
+  // short fixed gap (still yields to the renderer); small trees use the speed gap.
+  const nextGap = (t: TreeView): number => (t.heavy() ? HEAVY_GAP : stepGap());
 
   function cancelAuto(tree: TreeView): void {
     const a = auto.get(tree);
@@ -463,7 +466,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
         const a2 = auto.get(tree);
         if (!a2 || a2.gen !== gen) return;
         if (transport === "pause") return;
-        a2.timer = window.setTimeout(() => stepAuto(tree, gen), tree.heavy() ? HEAVY_GAP : stepGap()); // big trees: jump-cut + a short gap (stays responsive)
+        a2.timer = window.setTimeout(() => stepAuto(tree, gen), nextGap(tree));
       });
       return;
     }
@@ -483,7 +486,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       const a2 = auto.get(tree);
       if (!a2 || a2.gen !== gen) return;
       if (transport === "pause") return; // paused mid-tween — stop scheduling
-      a2.timer = window.setTimeout(() => stepAuto(tree, gen), stepGap());
+      a2.timer = window.setTimeout(() => stepAuto(tree, gen), nextGap(tree));
     });
   }
 

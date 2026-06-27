@@ -139,15 +139,17 @@ export function combinatorColor(sym: string): number {
   return q4(hsl(hueOf(sym), s, l));
 }
 
-/** A near-white or near-black glyph, whichever contrasts with `color` (so a dot of
- *  any hue stays legible). */
+/** A near-white or near-black glyph, whichever has the higher WCAG contrast with
+ *  `color` (so a dot of any hue stays legible — a luminance threshold mis-picks
+ *  mid-tone hues like yellow). */
 export function glyphOn(color: number): number {
-  const lin = (v: number): number => {
+  const chan = (v: number): number => {
     const c = v / 255;
     return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
   };
-  const L = 0.2126 * lin((color >> 16) & 0xff) + 0.7152 * lin((color >> 8) & 0xff) + 0.0722 * lin(color & 0xff);
-  return L > 0.38 ? 0x111111 : 0xffffff;
+  const lum = (c: number): number => 0.2126 * chan((c >> 16) & 0xff) + 0.7152 * chan((c >> 8) & 0xff) + 0.0722 * chan(c & 0xff);
+  const L = lum(color);
+  return 1.05 / (L + 0.05) >= (L + 0.05) / (lum(0x111111) + 0.05) ? 0xffffff : 0x111111;
 }
 
 function apply(): void {
