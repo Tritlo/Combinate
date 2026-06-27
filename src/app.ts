@@ -21,7 +21,7 @@ import { makeRefolder, behavioralRefolder, recognizeDeep, fromEgg, toEgg, type R
 import { read, render, type Ty } from "./core/types";
 import { inferType } from "./core/infer";
 import { abstractLeaf, defineCombinator, findSubtree, isNameTaken, replaceSubtree, validateName } from "./core/authoring";
-import { TreeView } from "./view/tree";
+import { TreeView, dashedSegment } from "./view/tree";
 import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
 import { Zoo } from "./view/zoo";
@@ -731,8 +731,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const right = left === dragged ? target : dragged;
     const ax = (left.rootWorld.x + right.rootWorld.x) / 2;
     const ay = Math.min(left.rootWorld.y, right.rootWorld.y) - 56;
-    ghost.moveTo(ax, ay).lineTo(left.rootWorld.x, left.rootWorld.y).stroke({ width: 3, color: theme.fnEdge, alpha: 0.7 });
-    ghost.moveTo(ax, ay).lineTo(right.rootWorld.x, right.rootWorld.y).stroke({ width: 2.5, color: theme.argEdge, alpha: 0.7 });
+    ghost.moveTo(ax, ay).lineTo(left.rootWorld.x, left.rootWorld.y).stroke({ width: 3, color: theme.fnEdge, alpha: 0.7 }); // function: solid
+    dashedSegment(ghost, ax, ay, right.rootWorld.x, right.rootWorld.y); // argument: dashed, matching the committed tree
+    ghost.stroke({ width: 2.5, color: theme.argEdge, alpha: 0.7 });
     ghost.circle(ax, ay, 6).fill({ color: theme.mutedDot, alpha: 0.7 });
     // preview the resulting expression (left is the function), masked like the rest
     ghostLabel.text = `(${exprOf(left.node)} ${exprOf(right.node)})`;
@@ -824,9 +825,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   pixi.canvas.addEventListener("pointerup", endPointer);
   pixi.canvas.addEventListener("pointercancel", endPointer);
 
-  // Sit on the transport's line (top-right), just left of the "N.N red/s ▶" widget,
-  // vertically centred on it. legend.width is the wider of the two key rows.
-  const placeLegend = () => legend.position.set(Math.round(window.innerWidth - 116 - legend.width), 25);
+  // Top-left, just under the hint line (offset so the two rows don't overlap it).
+  const placeLegend = () => legend.position.set(16, 58);
   placeLegend();
   zoo.layout();
 
