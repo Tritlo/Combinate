@@ -166,7 +166,12 @@ export class MenuBar {
     const r = this.titleEls[this.narrow ? 0 : i].getBoundingClientRect();
     const left = Math.min(Math.round(r.left), window.innerWidth - this.dropdown.offsetWidth - 6);
     this.dropdown.style.left = `${Math.max(4, left)}px`;
-    this.dropdown.style.top = `${Math.round(r.bottom)}px`;
+    const top = Math.round(r.bottom);
+    this.dropdown.style.top = `${top}px`;
+    // Clamp to the *visible* viewport (window.innerHeight, not CSS 100vh — which on
+    // mobile spans behind the address bar) so a tall combined menu scrolls in place
+    // instead of running off the bottom of the screen.
+    this.dropdown.style.maxHeight = `${Math.max(120, window.innerHeight - top - 8)}px`;
   }
 
   private close(): void {

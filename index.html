@@ -6,11 +6,35 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <title>Combinate — iota sandbox</title>
-    <link
-      rel="icon"
-      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='14'>ι</text></svg>"
+    <title>Combinate — an ι / SKI combinator-calculus sandbox</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+
+    <!-- Link-sharing: description + OpenGraph / Twitter. og:image must be absolute,
+         so it points at the deployed subpath; the favicon/og.png live in public/. -->
+    <meta
+      name="description"
+      content="Drag ι, snap trees, and watch them reduce on their own. An interactive ι (iota) / SKI combinator-calculus sandbox — discover combinators, compile Haskell to combinator trees, and golf."
     />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Combinate" />
+    <meta property="og:title" content="Combinate — an ι / SKI combinator-calculus sandbox" />
+    <meta
+      property="og:description"
+      content="Drag ι, snap trees, and watch them reduce on their own. Discover combinators, compile Haskell to combinator trees, and golf."
+    />
+    <meta property="og:url" content="https://github.mpg.is/Combinate/" />
+    <meta property="og:image" content="https://github.mpg.is/Combinate/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Combinate — a gold ι over a combinator tree." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Combinate — an ι / SKI combinator-calculus sandbox" />
+    <meta
+      name="twitter:description"
+      content="Drag ι, snap trees, and watch them reduce on their own. Discover combinators, compile Haskell, and golf."
+    />
+    <meta name="twitter:image" content="https://github.mpg.is/Combinate/og.png" />
     <!-- Boot splash: a static shell that paints before any module loads, so the
          first frame is the wordmark + Y combinator art rather than a blank page.
          The colours mirror theme.ts (DARK / LIGHT) via prefers-color-scheme so the

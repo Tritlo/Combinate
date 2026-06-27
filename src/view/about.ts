@@ -41,8 +41,9 @@ function injectStyles(): void {
 
 const BODY = `
   <div class="ab-h1">Combinate</div>
-  <div class="ab-dim">v10 · an interactive ι / SKI combinator-calculus sandbox</div>
+  <div class="ab-dim">an interactive ι / SKI combinator-calculus sandbox</div>
   <div class="ab-dim">by Matthias Pall Gissurarson &lt;mpg@mpg.is&gt;</div>
+  <div class="ab-dim">source: <a href="https://github.com/Tritlo/Combinate" target="_blank" rel="noopener">github.com/Tritlo/Combinate</a></div>
 
   <div class="ab-sec">
     <h2>UNDER THE HOOD</h2>

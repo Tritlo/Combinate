@@ -80,14 +80,23 @@ Effects to toggle:
       into a Combinate **Special** — a guided progression "story" — for **iota (ι)**
       instead of SKI. New entry in the Special menu. Codex review + simplify.
 
-## 5. Polish & sharing
+## 5. Polish & sharing — ✅ DONE (pushed)
 
-- [ ] **Phone menu scrolling** — on a phone, tapping the ι (collapsed menu) opens a
-      dropdown that runs **off-screen**; it needs to scroll / clamp to the viewport.
-- [ ] **GitHub link in About** — the repo is now public; add a link to it.
-- [ ] **Favicon** — an ι favicon.
-- [ ] **OpenGraph / link-sharing** — favicon + OG/Twitter meta (title, description,
-      image) so shared links unfurl nicely.
+- [x] **Phone menu scrolling** — clamp the dropdown to `window.innerHeight` (not CSS
+      100vh, which spans behind the mobile address bar) so it scrolls in place.
+- [x] **GitHub link in About** — links to github.com/Tritlo/Combinate.
+- [x] **Favicon** — `public/favicon.svg` (gold ι on a dark rounded square).
+- [x] **OpenGraph / link-sharing** — full OG/Twitter meta + a 1200×630 `og.png`
+      (gold ι, wordmark, tagline, tree motif). Verified base-aware in the build.
+
+## 6. Render efficiency pass (with Codex)
+
+- [ ] A dedicated pass to make rendering as efficient as possible — profile with
+      the FPS counter on big trees + fluff on, find the hot paths, and cut them.
+      Collaborate with Codex (brainstorm levers → implement → review). Candidates
+      already noted: per-frame `drawEdges` cost, snapshot/layout per step, the
+      `ParticleContainer` dynamic-properties config (`scale` isn't a real prop),
+      batching graph steps per render, edge-mesh vs Graphics. Measure before/after.
 
 ---
 
