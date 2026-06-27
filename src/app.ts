@@ -390,7 +390,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // `source` is the tree as the player built/edited it (captured on release),
   // before reduction mutates it — the golf metric + challenge target score the
   // source, not its normal form.
-  const auto = new Map<TreeView, { gen: number; timer: number; steps: number; source?: Node; grapher?: GraphReducer }>();
+  type AutoState = { gen: number; timer: number; steps: number; source?: Node; grapher?: GraphReducer };
+  const auto = new Map<TreeView, AutoState>();
 
   // Playback transport (§6.4): auto-reduce can be paused/played, or fast-forwarded
   // at 3× (shorter step tween + gap). Speed is read live, so play↔ff is seamless;
@@ -434,6 +435,33 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     toast.show(`auto-paused — ${reason}`);
   }
 
+  // A tree reached normal form: recognise + collapse it, then score it for golf.
+  // Shared by the auto loop and the manual Step button so both record solves.
+  function finishNormalForm(tree: TreeView, a: AutoState): void {
+    settle(tree);
+    void challenges.onNormalForm(a.source ?? tree.node);
+  }
+
+  // The auto-state for a tree, created (without a running timer) if missing —
+  // some focused trees (e.g. spawned by the Haskell panel) were never scheduled.
+  function ensureAuto(tree: TreeView): AutoState {
+    let a = auto.get(tree);
+    if (!a) {
+      a = { gen: 0, timer: 0, steps: 0, source: tree.node };
+      auto.set(tree, a);
+    }
+    return a;
+  }
+
+  // Set "Optimize" (rule-step) mode. A GraphReducer bakes `fastMode` in at
+  // construction, so drop every live one — the next step rebuilds it with the new
+  // semantics (matters now that Step can resume a paused graph reducer).
+  function setFastMode(b: boolean): void {
+    fastMode = b;
+    for (const a of auto.values()) a.grapher = undefined;
+    paintRail();
+  }
+
   function stepAuto(tree: TreeView, gen: number): void {
     const a = auto.get(tree);
     if (!a || a.gen !== gen) return;
@@ -456,8 +484,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (!a.grapher) a.grapher = new GraphReducer(tree.node, fastMode);
       const g = a.grapher;
       if (!g.step()) {
-        settle(tree); // normal form
-        void challenges.onNormalForm(a.source ?? tree.node);
+        finishNormalForm(tree, a); // normal form
         return;
       }
       sound.tick(firingRule(tree.node, fastMode)); // a tone per contraction (approx)
@@ -475,8 +502,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     // One traversal yields both the rule to sonify and the contractum to animate.
     const redex = redexAt(tree.node, 0, fastMode);
     if (!redex) {
-      settle(tree); // normal form reached — recognise + collapse to a named node
-      void challenges.onNormalForm(a.source ?? tree.node); // golf: score the built tree
+      finishNormalForm(tree, a); // normal form reached — recognise, collapse, score
       return;
     }
     const next = redex.build(); // build before the side effects (sound/step count)
@@ -488,6 +514,35 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (transport === "pause") return; // paused mid-tween — stop scheduling
       a2.timer = window.setTimeout(() => stepAuto(tree, gen), nextGap(tree));
     });
+  }
+
+  // Step: pause, then advance the *focused* tree by exactly one reduction (no
+  // reschedule). An action, not a transport mode. No-op if nothing is focused.
+  function stepOnce(): void {
+    setTransport("pause"); // single-stepping implies the auto-run is stopped
+    const tree = focus && trees.includes(focus) ? focus : null;
+    if (!tree) return;
+    const a = ensureAuto(tree);
+    if (shareMode) {
+      if (!a.grapher) a.grapher = new GraphReducer(tree.node, fastMode);
+      if (!a.grapher.step()) {
+        finishNormalForm(tree, a);
+        return;
+      }
+      sound.tick(firingRule(tree.node, fastMode));
+      a.steps = a.grapher.steps;
+      tree.animateTo(a.grapher.snapshot(), stepDur(), () => {});
+    } else {
+      a.grapher = undefined;
+      const redex = redexAt(tree.node, 0, fastMode);
+      if (!redex) {
+        finishNormalForm(tree, a);
+        return;
+      }
+      sound.tick(redex.sym);
+      a.steps++;
+      tree.animateTo(redex.build(), stepDur(), () => {});
+    }
   }
 
   // Switch playback mode. Pause freezes every tree; resuming re-kicks the ones
@@ -517,37 +572,56 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // Cycle Pause → Play → Fast-forward → Pause.
   const cycleTransport = (): void => setTransport(transport === "pause" ? "play" : transport === "play" ? "ff" : "pause");
 
-  // ---- transport widget (top-right): the current mode (‖ / ▶ / ⏩) + the live
-  // reduction rate. Click to cycle. ----
+  // ---- transport bar (top-right): the live reduction rate + Pause / Step / Play /
+  // Fast-forward as side-by-side glyph buttons. The active mode is boxed in gold;
+  // Step (an action, never "active") advances the focused tree one reduction. ----
   const totalSteps = (): number => [...auto.values()].reduce((s, a) => s + a.steps, 0);
-  const transportBtn = new Container();
-  transportBtn.eventMode = "static";
-  transportBtn.cursor = "pointer";
-  transportBtn.hitArea = new Rectangle(-128, -16, 144, 32);
-  transportBtn.on("pointerdown", (e: FederatedPointerEvent) => {
-    e.stopPropagation();
-    cycleTransport();
-  });
-  const transportIcon = new Graphics();
+  const TBTN = 26; // button-cell pitch
+  type TKind = "pause" | "step" | "play" | "ff";
+  const transportBar = new Container();
+  hud.addChild(transportBar);
   const rateText = new Text({ text: "paused", style: { fontFamily: "monospace", fontSize: 12, fill: theme.textDim } });
   rateText.anchor.set(1, 0.5);
-  rateText.position.set(-14, 0);
-  transportBtn.addChild(rateText, transportIcon);
-  hud.addChild(transportBtn);
+  transportBar.addChild(rateText);
+
+  // Draw a transport glyph centred at the origin: ‖ / |▷ / ▷ / ▷▷.
+  const drawTGlyph = (g: Graphics, kind: TKind, color: number): void => {
+    g.clear();
+    if (kind === "pause") g.roundRect(-6, -7, 4, 14, 1).fill({ color }).roundRect(2, -7, 4, 14, 1).fill({ color });
+    else if (kind === "step") g.roundRect(-8, -7, 3, 14, 1).fill({ color }).poly([-3, -7, 6, 0, -3, 7]).fill({ color });
+    else if (kind === "play") g.poly([-5, -8, 7, 0, -5, 8]).fill({ color });
+    else g.poly([-8, -7, -1, 0, -8, 7]).fill({ color }).poly([0, -7, 7, 0, 0, 7]).fill({ color });
+  };
+  // Four buttons, laid out leftward from the corner: pause(-78) step(-52) play(-26) ff(0).
+  const tButtons = (["pause", "step", "play", "ff"] as const).map((kind, i) => {
+    const cont = new Container();
+    cont.position.set(-(3 - i) * TBTN, 0);
+    cont.eventMode = "static";
+    cont.cursor = "pointer";
+    cont.hitArea = new Rectangle(-TBTN / 2, -13, TBTN, 26);
+    const box = new Graphics();
+    const glyph = new Graphics();
+    cont.addChild(box, glyph);
+    cont.on("pointerdown", (e: FederatedPointerEvent) => {
+      e.stopPropagation();
+      if (kind === "step") stepOnce();
+      else setTransport(kind);
+    });
+    transportBar.addChild(cont);
+    return { kind, box, glyph };
+  });
   function paintTransport(): void {
-    const g = transportIcon.clear();
-    const c = transport === "pause" ? theme.textDim : theme.iota; // gold when live, dim when paused
-    if (transport === "pause") {
-      g.roundRect(-6, -7, 4, 14, 1).fill({ color: c }).roundRect(2, -7, 4, 14, 1).fill({ color: c });
-    } else if (transport === "ff") {
-      g.poly([-8, -7, -1, 0, -8, 7]).fill({ color: c }).poly([0, -7, 7, 0, 0, 7]).fill({ color: c });
-    } else {
-      g.poly([-5, -8, 7, 0, -5, 8]).fill({ color: c }); // play ▶
+    for (const b of tButtons) {
+      const active = b.kind !== "step" && transport === b.kind;
+      b.box.clear();
+      if (active) b.box.roundRect(-11, -11, 22, 22, 5).fill({ color: theme.iota, alpha: 0.18 }).stroke({ width: 1, color: theme.iota });
+      drawTGlyph(b.glyph, b.kind, active ? theme.iota : b.kind === "step" ? theme.text : theme.textDim);
     }
     rateText.style.fill = theme.textDim;
   }
   const placeTransport = (): void => {
-    transportBtn.position.set(window.innerWidth - 18, 34);
+    transportBar.position.set(window.innerWidth - 18, 34);
+    rateText.position.set(-3 * TBTN - 22, 0); // just left of the Pause button
   };
   let rateAccum = 0;
   let lastTotal = 0;
@@ -955,8 +1029,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "radio", label: "Pause", on: () => transport === "pause", run: () => setTransport("pause") },
       { kind: "radio", label: "Play", on: () => transport === "play", run: () => setTransport("play") },
       { kind: "radio", label: "Fast-forward", on: () => transport === "ff", run: () => setTransport("ff") },
+      { kind: "action", label: "Step", run: () => stepOnce() },
       { kind: "sep" },
-      { kind: "toggle", label: "Optimize (rule steps)", checked: () => fastMode, run: () => { fastMode = !fastMode; } },
+      { kind: "toggle", label: "Optimize (rule steps)", checked: () => fastMode, run: () => setFastMode(!fastMode) },
       { kind: "toggle", label: "Graph reduction (DAG)", checked: () => shareMode, run: () => { shareMode = !shareMode; if (focus) scheduleAuto(focus); } },
       { kind: "sep" },
       { kind: "toggle", label: "Sound", checked: () => sound.enabled, run: () => sound.toggle() },
@@ -1104,10 +1179,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       discovered: () => [...discovered],
       mode: () => (layoutFn === layoutRadial ? "radial" : "topdown"),
       toggleLayout: () => toggleLayout(),
-      transport: { mode: () => transport, set: (m: string) => setTransport(m as Transport), cycle: () => cycleTransport() },
+      transport: { mode: () => transport, set: (m: string) => setTransport(m as Transport), cycle: () => cycleTransport(), step: () => stepOnce() },
       autoSteps: () => [...auto.values()].reduce((s, a) => s + a.steps, 0),
       run: () => { if (focus) scheduleAuto(focus); },
-      fast: { on: () => fastMode, set: (b: boolean) => { fastMode = b; paintRail(); } },
+      fast: { on: () => fastMode, set: (b: boolean) => setFastMode(b) },
       graph: { on: () => shareMode, set: (b: boolean) => { shareMode = b; paintRail(); }, eval: (s: string) => sexp(evalShared(fromEgg(s), 500000, fastMode).term) },
       expr: () => exprText.text,
       page: () => hotbar.page,
