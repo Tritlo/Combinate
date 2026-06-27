@@ -46,7 +46,7 @@ const COLOR_DARK: Theme = {
   root: 0x66cc44, select: 0x333344, backdrop: 0x000000, backdropAlpha: 0.72, // Apple green
 };
 const COLOR_LIGHT: Theme = {
-  bg: 0xffffee, panel: 0xeeeedd, inset: 0xddddcc, border: 0x222222, // warm Mac paper, black ink
+  bg: 0xffffff, panel: 0xeeeeee, inset: 0xdddddd, border: 0x222222, // white canvas, black ink
   text: 0x000000, textDim: 0x555555, mutedDot: 0x999999,
   accent: 0x0099dd, node: 0x994499, nodeGlyph: 0xffffff, // Apple purple dot, white glyph
   iota: 0x995500, iotaGlyph: 0xffffff, fnEdge: 0xcc3333, argEdge: 0x0077cc, // deep gold (heading-safe) / red / blue
@@ -104,6 +104,50 @@ function quantize(p: Theme): Theme {
     if (k !== "backdropAlpha") (out[k] as number) = q4(out[k]);
   }
   return out;
+}
+
+// ---- Per-combinator dot colours (Colour mode only). The most common birds get
+// pinned hues — like sound.ts's FUNDAMENTAL — and the rest are hashed onto the
+// wheel, the way pitchFor hashes them onto the pentatonic scale. Mono keeps ink
+// dots. Saturation/lightness are fixed per mode so the glyph always contrasts. ----
+const COMB_HUE: Record<string, number> = {
+  S: 145, K: 280, I: 215, B: 30, C: 95, W: 325, M: 0, T: 60, A: 185, O: 255,
+};
+function hueOf(sym: string): number {
+  const pinned = COMB_HUE[sym];
+  if (pinned !== undefined) return pinned;
+  let x = 0;
+  for (let i = 0; i < sym.length; i++) x = (x * 31 + sym.charCodeAt(i)) >>> 0;
+  return (x * 137.508) % 360; // golden angle → an even spread around the wheel
+}
+function hsl(h: number, s: number, l: number): number {
+  h = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  const to = (v: number): number => Math.round((v + m) * 255);
+  return (to(r) << 16) | (to(g) << 8) | to(b);
+}
+
+/** A combinator's dot colour: hued in Colour mode (common birds pinned, others
+ *  hashed), ink in 1-bit mono. */
+export function combinatorColor(sym: string): number {
+  if (!colorMode) return theme.node; // 1-bit: ink dots
+  const l = mode === "dark" ? 0.6 : 0.42;
+  const s = mode === "dark" ? 0.7 : 0.62;
+  return q4(hsl(hueOf(sym), s, l));
+}
+
+/** A near-white or near-black glyph, whichever contrasts with `color` (so a dot of
+ *  any hue stays legible). */
+export function glyphOn(color: number): number {
+  const lin = (v: number): number => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const L = 0.2126 * lin((color >> 16) & 0xff) + 0.7152 * lin((color >> 8) & 0xff) + 0.0722 * lin(color & 0xff);
+  return L > 0.38 ? 0x111111 : 0xffffff;
 }
 
 function apply(): void {

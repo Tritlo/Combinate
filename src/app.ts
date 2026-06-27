@@ -562,6 +562,30 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   paintTransport();
   placeTransport();
 
+  // FPS counter (View ▸ FPS counter), bottom-left — for diagnosing render cost on
+  // big trees (factorial). Off by default; sampled ~4×/s from the Pixi ticker.
+  let fpsOn = false;
+  const fpsText = new Text({ text: "", style: { fontFamily: "monospace", fontSize: 12, fill: theme.textDim } });
+  fpsText.anchor.set(0, 1);
+  fpsText.visible = false;
+  hud.addChild(fpsText);
+  const placeFps = (): void => {
+    fpsText.position.set(14, window.innerHeight - 12);
+  };
+  const toggleFps = (): void => {
+    fpsOn = !fpsOn;
+    fpsText.visible = fpsOn;
+  };
+  placeFps();
+  let fpsAccum = 0;
+  pixi.ticker.add((tk: { deltaMS: number }) => {
+    if (!fpsOn) return;
+    fpsAccum += tk.deltaMS;
+    if (fpsAccum < 250) return;
+    fpsAccum = 0;
+    fpsText.text = `${pixi.ticker.FPS.toFixed(0)} fps`;
+  });
+
   // Stage receives pointer events over empty space (so panning works there).
   pixi.stage.eventMode = "static";
   const fitStage = () => {
@@ -775,7 +799,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // ---- camera zoom: mouse wheel (desktop) + two-finger pinch (touch) ----
   // Set a new scale while keeping the screen point (sx, sy) fixed under it.
   const zoomTo = (newScale: number, sx: number, sy: number): void => {
-    const s = Math.max(0.2, Math.min(4, newScale));
+    const s = Math.max(0.04, Math.min(4, newScale)); // floor low enough that a fac-scale tree fits
     const ratio = s / world.scale.x;
     world.position.set(sx - (sx - world.position.x) * ratio, sy - (sy - world.position.y) * ratio);
     world.scale.set(s);
@@ -838,6 +862,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     exprText.style.fill = theme.text;
     nextHint.style.fill = theme.textDim;
     ghostLabel.style.fill = theme.text;
+    fpsText.style.fill = theme.textDim;
     paintLegend(legend);
     paintTransport();
     hotbar.refresh();
@@ -852,6 +877,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     hotbar.layout();
     placeLegend();
     placeTransport();
+    placeFps();
     toast.layout();
     placeExpr();
     zoo.layout();
@@ -895,8 +921,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const menus: Menu[] = [
     { title: "ι", apple: true, items: [
       { kind: "action", label: "About Combinate…", run: () => about.open() },
-      { kind: "sep" },
-      { kind: "toggle", label: "Dark mode", checked: () => currentMode() === "dark", run: () => toggleMode() },
     ] },
     { title: "File", items: [
       { kind: "action", label: "Compile Haskell…", run: () => mhsPanel.open() },
@@ -918,7 +942,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "toggle", label: "Type lens", checked: () => typeOn, run: () => toggleType() },
       { kind: "toggle", label: "Re-fold lens", accel: "F", checked: () => refoldOn, run: () => toggleRefold() },
       { kind: "sep" },
+      { kind: "toggle", label: "Dark mode", checked: () => currentMode() === "dark", run: () => toggleMode() },
       { kind: "toggle", label: "Color (4096)", checked: () => colorOn(), run: () => toggleColor() },
+      { kind: "sep" },
+      { kind: "toggle", label: "FPS counter", checked: () => fpsOn, run: () => toggleFps() },
     ] },
     { title: "Reduce", items: [
       { kind: "radio", label: "Pause", on: () => transport === "pause", run: () => setTransport("pause") },
