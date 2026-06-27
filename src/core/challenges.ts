@@ -12,13 +12,9 @@
  * ι-count: a named combinator is charged for its full ι-tree, so dragging a
  * discovered bird costs exactly what building it from ι would.
  */
-import { type Node, app } from "./term";
-import { probe } from "./probe";
-import { CATALOG, IOTA_BITCODE, named, type Law } from "./catalog";
-import { evalShared } from "./graph";
-import { matchNumeral, matchList, matchBool } from "./value";
-
-const LAW_BY_SYM = new Map(CATALOG.map((l) => [l.sym, l] as const));
+import { type Node } from "./term";
+import { IOTA_BITCODE } from "./catalog";
+import { behavesAs, reducesToNumeral, reducesToBool, reducesToList, fn, nat, nil, list, tru, fls, outNat, outBool, outList } from "./goals";
 
 /** The honest golf cost of a built tree: total ι leaves, charging each named
  *  combinator for its full ι-tree (so a hotbar bird costs what it would to build
@@ -54,61 +50,8 @@ export interface Challenge {
   metricLabel: string;
 }
 
-/** Target: the tree behaves as the named combinator (via the behavioural probe). */
-function behavesAs(sym: string): (n: Node) => boolean {
-  const law = LAW_BY_SYM.get(sym) as Law;
-  return (n) => probe(n, law);
-}
-
-/** Target: the tree reduces to the Scott numeral `k`. */
-const reducesToNumeral = (k: number) => (n: Node): boolean => matchNumeral(n) === k;
-
-/** Target: the tree reduces to the Scott boolean `b`. */
-const reducesToBool = (b: boolean) => (n: Node): boolean => matchBool(n) === b;
-
-/** Target: the tree reduces to the list of Scott numerals `nums`. */
-const reducesToList = (nums: number[]) => (n: Node): boolean => {
-  const heads = matchList(n);
-  if (!heads || heads.length !== nums.length) return false;
-  return heads.every((h, i) => matchNumeral(h) === nums[i]);
-};
-
-// ---- function challenges: apply the built tree to concrete Scott inputs and
-// check its output. Inputs are built from the same catalog combinators value.ts
-// matches (Z/nil/False = K, S = Succ, cons, True = A), and reduced in optimize
-// (fast) mode so a real computation (even sort) finishes. Several cases pin the
-// behaviour, so you can't hardcode one answer. ----
-const FN_BUDGET = 120_000; // bounds a real computation (a compact sort needs ~1.3k steps); only run while the golf panel is open
-const nat = (k: number): Node => {
-  let t: Node = named("K");
-  for (let i = 0; i < k; i++) t = app(named("Succ"), t);
-  return t;
-};
-const nil = (): Node => named("K");
-const list = (ks: number[]): Node => ks.reduceRight<Node>((acc, k) => app(app(named("cons"), nat(k)), acc), nil());
-const tru = (): Node => named("A");
-const fls = (): Node => named("K");
-
-const outNat = (k: number) => (nf: Node): boolean => matchNumeral(nf) === k;
-const outBool = (b: boolean) => (nf: Node): boolean => matchBool(nf) === b;
-const outList = (ks: number[]) => (nf: Node): boolean => {
-  const h = matchList(nf);
-  return !!h && h.length === ks.length && h.every((x, i) => matchNumeral(x) === ks[i]);
-};
-
-/** Target: applied to each case's inputs, the tree reduces to the wanted output.
- *  Reduced by the **graph** reducer (call-by-need sharing) — recursive functions
- *  like sort would blow up the cloning tree reducer (as `fac` does); sharing keeps
- *  them feasible. The small output value is then read by the matchers. */
-function fn(cases: Array<{ in: Node[]; out: (nf: Node) => boolean }>): (built: Node) => boolean {
-  return (built) =>
-    cases.every((c) => {
-      const r = evalShared(c.in.reduce((acc, a) => app(acc, a), built), FN_BUDGET, true);
-      return r.done && c.out(r.term);
-    });
-}
-
-/** The starter challenge pack — all scored on fewest ι. */
+/** The starter challenge pack — all scored on fewest ι. The targets/inputs live in
+ *  {@link import("./goals")} (shared with the Quest); golf charges every solve in ι. */
 export const CHALLENGES: Challenge[] = [
   { id: "i", title: "Identity", goal: "Build a tree that behaves as I  (I x = x).", solved: behavesAs("I"), metric: iotaCost, metricLabel: "ι" },
   { id: "k", title: "Kestrel", goal: "Build a tree that behaves as K  (K x y = x).", solved: behavesAs("K"), metric: iotaCost, metricLabel: "ι" },

@@ -81,16 +81,25 @@ Effects to toggle:
       ambient resets on any fluff toggle *and* on OS reduced-motion change (drift +
       living-Zoo snap back). `resume()` rejections swallowed.
 
-## 4. New Special: a progression story / quest (adapted to ι) — ✅ DONE (pushed)
+## 4. New Special: the Quest — Combinate's main game (adapted to ι) — ✅ DONE (pushed)
 
-- [x] **Permission granted.** Built a **Quest** Special: the "From One" chapter —
-      a guided progression that builds I, K, S, True, 2, and M out of the single
-      generator ι. `core/quest.ts` (stages + goal predicates via the probe/value
-      matchers) + `view/quest.ts` (System-1 panel: narrative, on-demand hint,
-      progress, localStorage). Wired to the Special menu + the normal-form hook +
-      auto-discovers the unlocked combinator. Credited **Konstantin S. Uvarin (with
-      permission)**, linked, in the panel + the About page. (Format adapted from
-      his SKI Quest; content is ι-original.)
+- [x] **Permission granted.** Built a **Quest** Special, then expanded it into a
+      **multi-chapter main game** (14 stages, 4 chapters), each chapter using only
+      what earlier ones unlocked:
+      **From One** (I, K, S from ι) → **A Charm of Birds** (M, B, C, T) →
+      **True or False** (True, not, and, or) → **Numbers** (Succ, Three, Pred).
+      Every stage `unlock`s the real catalog bird (discovers it into the zoo/hotbar);
+      hints are concrete buildable terms (M = S I I, Succ = B K T, …) — all verified.
+- [x] **Shared goal core** `core/goals.ts` — extracted the behavioural-probe / value /
+      function goal predicates out of `challenges.ts`; Golf and Quest now share them
+      (no duplication). Function goals take a bounded budget (the Quest re-checks on
+      every settle).
+- [x] `core/quest.ts` is now `CHAPTERS[]` (flattened to `QUEST` for linear progress,
+      `locate()` maps a stage → its chapter). `view/quest.ts` panel shows the chapter
+      eyebrow, **Mac-square progress dots**, a chapter blurb on entry, a dynamic
+      titlebar, and a celebratory finale. localStorage bumped to `:v2`.
+- [x] Credit kept **only in the About page** (per request) — removed from the panel
+      footer. Credited **Konstantin S. Uvarin (with permission)**, linked.
 - [x] Fixed a latent hotbar crash it surfaced: a slot pop-tween touched a destroyed
       container when two combinators were discovered within 260ms.
 

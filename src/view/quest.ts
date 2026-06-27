@@ -7,7 +7,7 @@
  */
 import { currentMode, onThemeChange, type Mode } from "./theme";
 import { vendorUrl } from "../vendorUrl";
-import { QUEST, QuestProgress } from "../core/quest";
+import { CHAPTERS, QuestProgress } from "../core/quest";
 import { type Node } from "../core/term";
 
 const PALETTE: Record<Mode, Record<string, string>> = {
@@ -31,7 +31,13 @@ function injectStyles(): void {
 .qs-title span { font-weight: 600; font-size: 14px; }
 .qs-body { padding: 16px 20px 18px; overflow-y: auto; font-size: 14px; line-height: 1.5; }
 .qs-prog { font-size: 11px; letter-spacing: 0.08em; opacity: 0.55; text-transform: uppercase; }
-.qs-name { font-size: 24px; font-weight: 600; margin: 4px 0 10px; }
+.qs-chap { font-weight: 600; opacity: 0.85; }
+.qs-steps { display: flex; gap: 5px; margin: 9px 0 2px; }
+.qs-step { width: 11px; height: 11px; border: 1.5px solid var(--qs-ink); box-sizing: border-box; }
+.qs-step.done { background: var(--qs-ink); }
+.qs-step.now { border-color: var(--qs-gold); box-shadow: inset 0 0 0 2px var(--qs-gold); }
+.qs-name { font-size: 24px; font-weight: 600; margin: 6px 0 10px; }
+.qs-blurb { font-style: italic; opacity: 0.7; margin: 8px 0 2px; }
 .qs-body code { background: color-mix(in srgb, var(--qs-ink) 12%, transparent); padding: 0 3px; border-radius: 2px; }
 .qs-body p { margin: 0 0 9px; }
 .qs-task { margin-top: 12px; font-size: 13px; opacity: 0.7; }
@@ -40,9 +46,7 @@ function injectStyles(): void {
   border: 1px solid var(--qs-ink); padding: 3px 12px; cursor: pointer; }
 .qs-hinttext { margin-top: 8px; padding: 8px 10px; border-left: 2px solid var(--qs-gold);
   background: color-mix(in srgb, var(--qs-gold) 10%, transparent); font-size: 13px; }
-.qs-foot { display: flex; justify-content: space-between; align-items: center; padding: 0 20px 16px; }
-.qs-credit { font-size: 11px; opacity: 0.5; }
-.qs-credit a { color: inherit; }
+.qs-foot { display: flex; justify-content: flex-end; align-items: center; padding: 0 20px 16px; }
 .qs-done { font-family: ${MONO}; font-size: 13px; font-weight: 600; color: var(--qs-paper); background: var(--qs-ink);
   border: 1px solid var(--qs-ink); padding: 4px 16px; cursor: pointer; }
 .qs-finale { font-size: 16px; }
@@ -59,12 +63,10 @@ export interface QuestOpts {
   onUnlock: (sym: string) => void;
 }
 
-const CREDIT =
-  'Adapted with permission from the <a href="https://dallaylaen.github.io/ski-interpreter/quest.html" target="_blank" rel="noopener">SKI Quest</a> by Konstantin S. Uvarin.';
-
 export class QuestPanel {
   private readonly root = document.createElement("div");
   private readonly body = document.createElement("div");
+  private readonly titleLabel = document.createElement("span");
   private readonly progress = new QuestProgress();
   private hintShown = false;
 
@@ -86,22 +88,18 @@ export class QuestPanel {
     close.className = "qs-close";
     close.title = "Close";
     close.addEventListener("pointerdown", () => this.close());
-    const label = document.createElement("span");
-    label.textContent = "Quest — From One";
-    title.append(close, label);
+    this.titleLabel.textContent = "Quest";
+    title.append(close, this.titleLabel);
 
     this.body.className = "qs-body";
 
     const foot = document.createElement("div");
     foot.className = "qs-foot";
-    const credit = document.createElement("div");
-    credit.className = "qs-credit";
-    credit.innerHTML = CREDIT;
     const done = document.createElement("button");
     done.className = "qs-done";
     done.textContent = "Done";
     done.addEventListener("pointerdown", () => this.close());
-    foot.append(credit, done);
+    foot.append(done);
 
     card.append(title, this.body, foot);
     this.root.append(card);
@@ -146,21 +144,33 @@ export class QuestPanel {
 
   private render(): void {
     this.body.replaceChildren();
+    const loc = this.progress.location;
     const stage = this.progress.current;
-    if (!stage) {
+    this.titleLabel.textContent = loc ? `Quest — ${loc.chapter.name}` : "Quest";
+    if (!stage || !loc) {
       const f = document.createElement("div");
       f.className = "qs-finale";
       f.innerHTML =
-        "<p>🌱 <b>Chapter complete.</b></p>" +
-        "<p>From a single generator — ι — you grew the Identity, the Kestrel, the Starling, " +
-        "the booleans, the numbers, and the Mockingbird. Everything from one.</p>" +
-        "<p>More chapters may yet sprout…</p>";
+        "<p>🌿 <b>You built it all from one.</b></p>" +
+        "<p>From a single generator — ι — you grew the basis (I, K, S), a charm of birds " +
+        "(M, B, C, T), all of logic (not, and, or), and the numbers (Succ, Pred). Nothing " +
+        "was given; everything was made.</p>" +
+        "<p>The aviary is open — keep golfing, keep discovering. More chapters may yet sprout.</p>";
       this.body.append(f);
       return;
     }
     const prog = document.createElement("div");
     prog.className = "qs-prog";
-    prog.textContent = `Stage ${this.progress.stage + 1} of ${QUEST.length}`;
+    prog.textContent = `Chapter ${loc.chapterIndex + 1} of ${CHAPTERS.length} · ${loc.chapter.name}`;
+
+    const steps = document.createElement("div");
+    steps.className = "qs-steps";
+    loc.chapter.stages.forEach((_, i) => {
+      const s = document.createElement("div");
+      s.className = "qs-step" + (i < loc.stageInChapter ? " done" : i === loc.stageInChapter ? " now" : "");
+      steps.append(s);
+    });
+
     const name = document.createElement("div");
     name.className = "qs-name";
     name.textContent = stage.name;
@@ -187,7 +197,14 @@ export class QuestPanel {
       });
       hintWrap.append(btn);
     }
-    this.body.append(prog, name, intro, task, hintWrap);
+    this.body.append(prog, steps, name);
+    if (loc.stageInChapter === 0) {
+      const blurb = document.createElement("div");
+      blurb.className = "qs-blurb";
+      blurb.textContent = loc.chapter.blurb;
+      this.body.append(blurb);
+    }
+    this.body.append(intro, task, hintWrap);
   }
 
   private applyPalette(): void {
