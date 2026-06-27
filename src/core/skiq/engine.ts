@@ -8,22 +8,27 @@
  *  - **numeral** `["phi 5 0 + 0", "7"]` — the `+ 0` is SKI-Quest's "read a Church
  *    numeral" idiom; we instead strip it and read the numeral directly (apply to two
  *    fresh markers, count) — pure, no native arithmetic.
- *  - **canonize** (recursion) — terms that never reach a normal form (Y, Z); reduce
- *    both within a step budget and compare, falling back to applying fresh arguments.
+ *  - **canonize** (recursion) — terms that never reach a normal form (Y, Z); equal if
+ *    they share a reduct (their reduction sequences intersect), or — for self-equal
+ *    cases — if the term simply reaches a normal form (a termination/laziness check).
  *
- * `allow` restricts the basis the *source* tree may use: with ι always available in
- * Combinate, we read it as "source combinators ⊆ allowed, and ι only when the basis
- * itself is ι (`I-I`)" — which makes the Iota chapter genuinely ι-only.
+ * `allow` restricts the *named* combinators the source may use; ι (Combinate's one
+ * primitive) is always permitted, so `I-I` ("ι only") is the empty named set and
+ * every chapter stays solvable from ι.
  */
 import { type Node, app, freeVar } from "../term";
 import { normalize, step } from "../reduce";
 import { structKey } from "../probe";
 import { parseExpr, freezeFree, type Scope } from "./parse";
 
-const CAP = 4000; // reduction budget per side; SKI-Quest caps default to ~1000
-const DIVERGE_CAP = 8000; // higher bar to call a term non-terminating — so a finite
-// Church approximation (e.g. `C 1000 (KI)` posing as Y, settles at ~7k steps) is seen
-// to settle and gets rejected, while a true fixpoint keeps growing and is accepted
+const CAP = 4000; // reduction budget for an equality case; SKI-Quest caps at ~1000
+// Numeral readback budget. SKI-Quest reads numerals natively (O(1)); we reduce Church
+// arithmetic for real, and factorial(5)=120 alone is ~20k steps — so numeral cases get
+// a far larger budget. Only numeric cases pay it; correct terms settle before it.
+const NUM_CAP = 60_000;
+const DIVERGE_CAP = 8000; // a lower bar for "non-terminating": a finite Church
+// approximation (e.g. `C 1000 (KI)` posing as Y, settles at ~7k steps) is seen to
+// settle and gets rejected, while a true fixpoint keeps growing and is accepted
 
 // ---- one case, as authored in the chapter JSON ----
 export type RawCase = unknown[]; // [e1, e2] | [{max?,canonize?,caps?}, e1, e2] | [{caps}, e1]
@@ -63,7 +68,7 @@ function inputName(input: Puzzle["input"]): string | undefined {
 // ---- numeral reading: apply to two fresh markers and count (Church) ----
 function readChurch(n: Node): number | null {
   const applied = app(app(n, freeVar("§f")), freeVar("§x"));
-  const { term, done } = normalize(applied, CAP, true);
+  const { term, done } = normalize(applied, NUM_CAP, true);
   if (!done) return null;
   let t = term;
   let k = 0;
@@ -176,8 +181,9 @@ function runCase(c: RawCase, scope: Scope): boolean {
   return !normalize(n1, DIVERGE_CAP, true).done && !normalize(n2, DIVERGE_CAP, true).done;
 }
 
-/** A puzzle Combinate can't yet check on its single canvas: multi-term builds or
- *  structural-property (`caps`) goals. Surfaced in the panel, not silently dropped. */
+/** Whether Combinate can check this puzzle on its single canvas. Excludes multi-term
+ *  builds and structural-property (`caps`) goals — the 4 such puzzles are left out of
+ *  the playable chapters (a known gap, noted in the port's commit), not faked. */
 export function isSupported(p: Puzzle): boolean {
   if (Array.isArray(p.input) && p.input.length > 1) return false;
   return !p.cases.some((c) => typeof c[0] === "object" && c[0] !== null && "caps" in (c[0] as object));
