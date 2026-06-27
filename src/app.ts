@@ -90,7 +90,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   let menuBar: MenuBar | undefined; // the top menu bar (built below); paintRail() refreshes its open pull-down
 
   const hint = new Text({
-    text: "drag ι · snap trees · press ▶ (top-right) to reduce · right-click deletes a node",
+    text: "drag ι · snap trees · they reduce on their own · right-click deletes a node",
     style: { fontFamily: "monospace", fontSize: 14, fill: theme.textDim },
   });
   hint.position.set(16, 30); // below the menu bar
@@ -395,7 +395,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // at 3× (shorter step tween + gap). Speed is read live, so play↔ff is seamless;
   // only resuming from pause re-kicks the loop.
   type Transport = "play" | "pause" | "ff";
-  let transport: Transport = "pause"; // start paused: a half-built program never auto-reduces/settles until you press play
+  let transport: Transport = "play"; // trees reduce on their own; auto-pauses (with a toast) if a term won't terminate or blows up
   const speed = (): number => (transport === "ff" ? 3 : 1);
   const stepDur = (): number => STEP_MS / speed();
   const stepGap = (): number => STEP_GAP / speed();
@@ -423,6 +423,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     a.timer = window.setTimeout(() => stepAuto(tree, gen), AUTO_DELAY);
   }
 
+  // Auto-pause (with a toast) when a tree won't settle within its step budget,
+  // instead of grinding the reducer (and the frame rate) forever.
+  function autoPause(reason: string): void {
+    setTransport("pause");
+    toast.show(`auto-paused — ${reason}`);
+  }
+
   function stepAuto(tree: TreeView, gen: number): void {
     const a = auto.get(tree);
     if (!a || a.gen !== gen) return;
@@ -430,7 +437,12 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     // Non-termination guard. Graph mode shares, so it does far fewer, far cheaper
     // steps and can finish reductions the tree reducer can't (fac-scale) — give it
     // a much higher ceiling so the feasibility win actually lands.
-    if (a.steps >= (shareMode ? GRAPH_STEP_CAP : STEP_CAP)) return;
+    if (a.steps >= (shareMode ? GRAPH_STEP_CAP : STEP_CAP)) {
+      // Tree mode gives up early; graph mode shares (it can finish fac-scale work
+      // the tree reducer can't), so point the player there before declaring defeat.
+      autoPause(shareMode ? `no normal form after ${a.steps} steps` : `won't settle after ${a.steps} steps — try Graph reduction (Reduce menu)`);
+      return;
+    }
 
     // Graph mode: step the shared graph and animate each snapshot. A shared subterm
     // is one node with several incoming edges, and reducing it once updates it
@@ -490,6 +502,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     } else if (wasPaused) {
       for (const [tree, a] of auto) {
         if (redexAt(tree.node, 0, fastMode)) {
+          a.steps = 0; // explicit resume = "keep going" → a fresh budget before auto-pause re-trips
           a.gen++;
           const gen = a.gen;
           a.timer = window.setTimeout(() => stepAuto(tree, gen), 0);
