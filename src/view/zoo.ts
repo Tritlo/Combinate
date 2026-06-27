@@ -47,6 +47,8 @@ export class Zoo {
   private pageIdx = 0;
   private readonly rowH = 30;
   private selected = 0;
+  private pic: Container | null = null; // the current creature picture (fluff "living Zoo" floats it)
+  private picY = 0;
   private listScroll = 0;
   private listH = 0;
   private cardX = 0;
@@ -92,6 +94,12 @@ export class Zoo {
     this.mobileDetail = false; // narrow: start on the list
     this.refresh();
     this.autoTone();
+  }
+
+  /** Fluff "living Zoo": gently float the open creature's picture. Driven by the
+   *  shell's ticker (gated by isFluff("livingZoo") + reduced-motion). */
+  tickFluff(t: number): void {
+    if (this.pic && this.panel.visible) this.pic.y = this.picY + 3 * Math.sin(t * 1.4);
   }
 
   /** Fluff: chirp the selected creature's tone, Pokédex-style, when it's shown. */
@@ -279,6 +287,7 @@ export class Zoo {
 
   private buildDetail(): void {
     for (const c of this.detail.removeChildren()) c.destroy({ children: true });
+    this.pic = null; // dropped with the old children; reset before maybe re-storing
     const entry = this.entries[this.selected];
     const known = entry.law === null || this.isDiscovered(entry.sym);
     const dx = this.detailX;
@@ -309,6 +318,8 @@ export class Zoo {
       const pic = renderPicture(tree, boxSize - 28);
       pic.position.set(dx + dw / 2, dy + boxSize / 2);
       this.detail.addChild(pic);
+      this.pic = pic; // fluff: living Zoo floats this around its resting y
+      this.picY = pic.position.y;
       // a "play tone" button (top-right of the picture box) — chirps the bird
       const tone = new Text({ text: "♪", style: { fontFamily: "monospace", fontSize: 20, fill: theme.iota } });
       tone.anchor.set(0.5);
