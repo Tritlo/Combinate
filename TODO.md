@@ -97,22 +97,21 @@ Effects to toggle:
 - [x] **OpenGraph / link-sharing** — full OG/Twitter meta + a 1200×630 `og.png`
       (gold ι, wordmark, tagline, tree motif). Verified base-aware in the build.
 
-## 8. Leaf mode — full "vine" treatment (creative; with Codex)
+## 8. Leaf mode — full "vine" treatment — ✅ first cut (pushed)
 
-Turn "Leaf nodes" from just-leaf-sprites into a proper plant. When leaf mode is on:
-- [ ] **Branches sway too** — the edges sway in a gentle breeze, but **locked to
-      their application point**: the parent end stays anchored, the child end
-      follows its (drifting) leaf. So edges must be redrawn during drift in leaf
-      mode (the "stiff spine" becomes living branches).
-- [ ] **All-brown spine** — render the tree edges brown (vine), not the fn/arg
-      hues. The **argument branch is a thinner brown, no dashes** (both are
-      branches now; thickness, not dash/colour, marks function vs argument).
-- [ ] **Hide the app junctions** except the **root** — only leaves + the root show;
-      the branches connect them (a vine, not a node-graph).
-- [ ] **Generative uniqueness** — make each branch a little different (a slight
-      curve / taper / wobble seeded by the edge) so it reads organic, not CAD.
-- [ ] Consult Codex; express creativity. Keep it cheap (only below HEAVY, gated by
-      the toggle + reduced motion) — per-frame edge redraw in leaf mode is the cost.
+Turning on "Leaf nodes" is now a proper plant (all gated; normal mode untouched):
+- [x] **Branches sway** — `applyDrift` anchors the app joints and redraws the
+      branches each drift frame, so they sway with their leaves (parent anchored).
+- [x] **All-brown spine** — brown branches; **argument = thinner, function = thicker,
+      no dashes** (thickness marks fn/arg, not colour/dash). Mode-aware brown.
+- [x] **Hidden joints except root** — app-junction particles go alpha 0; only the
+      leaves + the root ring show.
+- [x] **Leaves emerge from the branch** — leaf texture points up; each leaf
+      particle is rotated to its incoming branch angle so the blade grows outward.
+- [x] **Generative uniqueness** — each branch is a quadratic curve bowed by a
+      per-node seed → organic, not CAD.
+- Codex was timing out, so this is my own creative cut. *Follow-ups if wanted: a
+  little stem connecting blade↔branch; leaf-size jitter; tune sway/curve amounts.*
 
 ## 7. Bugs / follow-ups
 
