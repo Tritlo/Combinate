@@ -142,9 +142,15 @@ function allowOk(source: Node, allow: string | undefined): boolean {
 export function makeGoal(p: Puzzle): (source: Node) => boolean {
   const input = inputName(p.input);
   const env = buildEnvScope(p.env);
+  // Bare-name env entries are abstract free variables the solution must consume
+  // (e.g. "Join em" gives f, g and wants f(g x)). Combinate builds closed terms, so
+  // we lift them to leading arguments of the input: the player builds the composition
+  // B and we check `B f g x = f (g x)`. (Defs `name=expr` stay in `env`.)
+  const lifted = (p.env ?? []).filter((e) => !e.includes("=")).map((e) => e.trim());
   return (source: Node): boolean => {
     if (!allowOk(source, p.allow)) return false;
-    const scope: Scope = (name) => (name === input ? freezeFree(source) : env.get(name) ?? null);
+    const applied = (): Node => lifted.reduce<Node>((acc, v) => app(acc, freeVar(v)), freezeFree(source));
+    const scope: Scope = (name) => (name === input ? applied() : env.get(name) ?? null);
     try {
       return p.cases.every((c) => runCase(c, scope));
     } catch {
