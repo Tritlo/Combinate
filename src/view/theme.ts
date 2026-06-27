@@ -42,23 +42,25 @@ const COLOR_DARK: Theme = {
   bg: 0x111111, panel: 0x222222, inset: 0x000000, border: 0xcccccc,
   text: 0xffffff, textDim: 0xaaaaaa, mutedDot: 0x888888,
   accent: 0xff8822, node: 0xbb55bb, nodeGlyph: 0x111111, // Apple purple dot, dark glyph
-  iota: 0xffbb22, iotaGlyph: 0x111111, fnEdge: 0xee4444, argEdge: 0x33aadd, // Apple yellow / red / blue
+  iota: 0xffbb22, iotaGlyph: 0x111111, fnEdge: 0xa07c54, argEdge: 0x7e9cc0, // muted warm brown / cool blue-grey (visible on the dark canvas)
   root: 0x66cc44, select: 0x333344, backdrop: 0x000000, backdropAlpha: 0.72, // Apple green
 };
 const COLOR_LIGHT: Theme = {
   bg: 0xffffff, panel: 0xeeeeee, inset: 0xdddddd, border: 0x222222, // white canvas, black ink
   text: 0x000000, textDim: 0x555555, mutedDot: 0x999999,
   accent: 0x0099dd, node: 0x994499, nodeGlyph: 0xffffff, // Apple purple dot, white glyph
-  iota: 0x995500, iotaGlyph: 0xffffff, fnEdge: 0xcc3333, argEdge: 0x0077cc, // deep gold (heading-safe) / red / blue
+  iota: 0x995500, iotaGlyph: 0xffffff, fnEdge: 0x33241a, argEdge: 0x7d97b3, // dark brown (almost black) / light blue (almost grey)
   root: 0x006622, select: 0xdddddd, backdrop: 0x000000, backdropAlpha: 0.45, // deep green (tick-safe)
 };
 
-// ---- 1-bit mode (default): paper / ink, + the three reserved colours. ----
+// ---- 1-bit mode (default): paper / ink + the gold ι (the one reserved colour).
+// Edges are grayscale — function = ink, argument = dim — and told apart by solid
+// vs dashed (so mono stays truly colourless beyond the brand ι). ----
 const MONO_DARK: Theme = {
   bg: 0x07090d, panel: 0x07090d, inset: 0x0d1117, border: 0xf0f3f6,
   text: 0xf0f3f6, textDim: 0x9aa3ad, mutedDot: 0x6e7681,
   accent: 0xf0b72f, node: 0xf0f3f6, nodeGlyph: 0x07090d,
-  iota: 0xf0b72f, iotaGlyph: 0x07090d, fnEdge: 0xfe9a2d, argEdge: 0xd3abff,
+  iota: 0xf0b72f, iotaGlyph: 0x07090d, fnEdge: 0xf0f3f6, argEdge: 0x9aa3ad,
   root: 0xf0f3f6, select: 0x21262d, backdrop: 0x000000, backdropAlpha: 0.72,
 };
 const MONO_LIGHT: Theme = {
@@ -67,7 +69,7 @@ const MONO_LIGHT: Theme = {
   // a darker gold so it passes contrast both as the ι dot (white glyph) and as
   // foreground text on white panels (Zoo tab/heading accents).
   accent: 0x8a6300, node: 0x000000, nodeGlyph: 0xffffff,
-  iota: 0x8a6300, iotaGlyph: 0xffffff, fnEdge: 0x702c00, argEdge: 0x5e2bb4,
+  iota: 0x8a6300, iotaGlyph: 0xffffff, fnEdge: 0x000000, argEdge: 0x5a5a5a,
   root: 0x000000, select: 0xdcdcdc, backdrop: 0x000000, backdropAlpha: 0.45,
 };
 

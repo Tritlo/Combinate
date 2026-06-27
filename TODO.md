@@ -99,14 +99,12 @@ Effects to toggle:
 
 ## 7. Bugs / follow-ups
 
-- [ ] **Colours persist with Colour + Fluff both off** — *characterised:* nodes DO
-      go ink in mono (verified, no bug there). The remaining colour is the **reserved
-      warm/cool edge hues** (brown fn / purple arg) + gold ι, which mono keeps by
-      design. But argument edges are now **dashed** (solid/dashed already tells fn
-      from arg), so those edge colours are redundant in mono. **Proposed fix:** in
-      MONO_DARK/MONO_LIGHT set fnEdge/argEdge to ink (text) → mono becomes truly
-      1-bit; keep gold ι as the brand (or also inkify if the user wants pure B/W).
-      Awaiting the go-ahead since it touches the deliberate System-1 identity.
+- [x] **Edge colours reworked** — mono edges are now **grayscale** (function = ink
+      solid, argument = dim dashed) — truly 1-bit beyond the brand gold ι. And in
+      **Colour** mode the bold red/blue edges became **muted**: a dark brown (almost
+      black) function edge + a light blue (almost grey) argument edge (warm tan /
+      blue-grey on the dark canvas) — the vibrant per-combinator nodes now carry the
+      colour; the edges recede. The solid/dashed style still tells fn from arg.
 - [x] **Fluff defaults** — grab/spawn pop is now **always on** (gated only by
       reduced-motion); every other effect is **off by default** (storage bumped to
       v2 so old all-on state resets). Pushed.
