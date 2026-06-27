@@ -32,6 +32,7 @@ import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThem
 import { MenuBar, type Menu } from "./view/menubar";
 import { About } from "./view/about";
 import { FluffPanel, isFluff, prefersReducedMotion, onFluffChange } from "./view/fluff";
+import { OptimizePanel, isOpt, setOpt, onOptChange } from "./view/optimize";
 import { tween } from "./view/anim";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
@@ -92,8 +93,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const pointers = new Map<number, { x: number; y: number }>();
   let pinch: { d: number; cx: number; cy: number } | null = null;
   let expandAll = false; // "Expand" view: draw every combinator as its full ι-tree
-  let fastMode = false; // "optimize" mode: reduce named combinators by their rule (not raw SKI)
-  let shareMode = false; // "graph" mode: call-by-need graph reduction, shared subterms drawn as one node
+  let fastMode = isOpt("rules"); // "optimize" mode — mirror of view/optimize (the source of truth); reduce named combinators by their rule (not raw SKI)
+  let shareMode = isOpt("graph"); // "graph" mode mirror: call-by-need graph reduction, shared subterms drawn as one node
   let menuBar: MenuBar | undefined; // the top menu bar (built below); paintRail() refreshes its open pull-down
 
   const hint = new Text({
@@ -460,15 +461,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       auto.set(tree, a);
     }
     return a;
-  }
-
-  // Set "Optimize" (rule-step) mode. A GraphReducer bakes `fastMode` in at
-  // construction, so drop every live one — the next step rebuilds it with the new
-  // semantics (matters now that Step can resume a paused graph reducer).
-  function setFastMode(b: boolean): void {
-    fastMode = b;
-    for (const a of auto.values()) a.grapher = undefined;
-    paintRail();
   }
 
   // Fluff "marching ants": a gold dashed ring crawls + fades at a tree's root when
@@ -1086,6 +1078,19 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   };
   const about = new About();
   const fluff = new FluffPanel();
+  const optimize = new OptimizePanel();
+  // The optimize store is the source of truth; mirror it into the reducer flags and do
+  // the per-mode invalidation (carry the changed key so we invalidate only what changed).
+  onOptChange((key) => {
+    if (key === "rules") {
+      fastMode = isOpt("rules");
+      for (const a of auto.values()) a.grapher = undefined; // graphers bake `fast` at construction
+    } else if (key === "graph") {
+      shareMode = isOpt("graph");
+      if (focus) scheduleAuto(focus);
+    }
+    paintRail();
+  });
   const menus: Menu[] = [
     { title: "ι", apple: true, items: [
       { kind: "action", label: "About Combinate…", run: () => about.open() },
@@ -1123,8 +1128,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "radio", label: "Fast-forward", on: () => transport === "ff", run: () => setTransport("ff") },
       { kind: "action", label: "Step", run: () => stepOnce() },
       { kind: "sep" },
-      { kind: "toggle", label: "Optimize (rule steps)", checked: () => fastMode, run: () => setFastMode(!fastMode) },
-      { kind: "toggle", label: "Graph reduction (DAG)", checked: () => shareMode, run: () => { shareMode = !shareMode; if (focus) scheduleAuto(focus); } },
+      { kind: "action", label: "Optimizations…", run: () => optimize.open() },
       { kind: "sep" },
       { kind: "toggle", label: "Sound", checked: () => sound.enabled, run: () => sound.toggle() },
     ] },
@@ -1156,8 +1160,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   /** Restore a tree's accompanying display modes (the inverse of currentModes). */
   function applyModes(m: Modes): void {
     expandAll = !!m.expand;
-    fastMode = !!m.optimize;
-    shareMode = !!m.graph;
+    setOpt("rules", !!m.optimize, false); // permalink modes are tree-local — drive the reducer, don't persist as a preference
+    setOpt("graph", !!m.graph, false);
     typeOn = !!m.type;
     refoldOn = !!m.refold;
     if (refoldOn && !refolder) {
@@ -1275,8 +1279,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       transport: { mode: () => transport, set: (m: string) => setTransport(m as Transport), cycle: () => cycleTransport(), step: () => stepOnce() },
       autoSteps: () => [...auto.values()].reduce((s, a) => s + a.steps, 0),
       run: () => { if (focus) scheduleAuto(focus); },
-      fast: { on: () => fastMode, set: (b: boolean) => setFastMode(b) },
-      graph: { on: () => shareMode, set: (b: boolean) => { shareMode = b; paintRail(); }, eval: (s: string) => sexp(evalShared(fromEgg(s), 500000, fastMode).term) },
+      fast: { on: () => isOpt("rules"), set: (b: boolean) => setOpt("rules", b) },
+      graph: { on: () => isOpt("graph"), set: (b: boolean) => setOpt("graph", b), eval: (s: string) => sexp(evalShared(fromEgg(s), 500000, fastMode).term) },
       expr: () => exprText.text,
       page: () => hotbar.page,
       setPage: (name: string) => hotbar.selectPage(name),

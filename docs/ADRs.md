@@ -36,13 +36,28 @@ Keep it terse and honest — short enough that people actually read it.
      work in TODO.md lands. Keep each to 1-3 short paragraphs. -->
 
 ## 9: Optimization settings modal
-**Status:** Proposed — _to be written with Codex (TODO §1)._
+**Status:** Accepted (Codex consensus).
 
-Context: the two reduction optimizations (`Optimize (rule steps)` = `fastMode`,
-`Graph reduction (DAG)` = `shareMode`) are loose toggles in the Reduce menu.
-Decision (TBD): move them into a System-1 settings modal mirroring Fluff, one toggle
-per setting, persisted to localStorage. Records the modal pattern + where the flags
-are wired. _Cross-ref the shared-modal refactor (ADR 12)._
+Context: the two reduction optimizations — `Optimize (rule steps)` (`fastMode`: reduce a
+saturated named combinator by its catalog rule) and `Graph reduction (DAG)` (`shareMode`:
+call-by-need sharing) — were loose toggles in the Reduce menu. Native-value toggles (ADR
+10) want a home too.
+
+Decision: a standalone System-1 settings modal `src/view/optimize.ts`, mirroring
+`view/fluff.ts` (paper/ink chrome, Mac checkbox rows, localStorage, light/dark). **No
+master switch** — unlike Fluff's playful layer, optimizations are independent
+capabilities (and already separate `optimize`/`graph` fields in permalinks). Opened from
+`Reduce ▸ Optimizations…`; the two loose menu toggles are removed.
+
+Why this shape: route **every** read/write through one explicit setter
+(`isOpt`/`setOpt`/`onOptChange`), so the persisted modal state is the single source of
+truth and the three other consumers stay in agreement — permalink restore
+(`applyModes`), the `__combinate.fast/.graph` dev hooks, and **GraphReducer
+invalidation** (a grapher bakes `fast` at construction, so changing `rules` must clear
+live graphers; changing `graph` reschedules the focused tree). `onOptChange` carries the
+changed key so the shell does exactly the right invalidation and nothing more. Build it
+standalone now; the shared-modal extraction is deferred to ADR 12 (avoid premature
+abstraction). Default off = today's exact behaviour.
 
 ## 10: Native values (opt-in evaluation)
 **Status:** Proposed — _to be written with Codex (TODO §2)._
@@ -59,8 +74,9 @@ and how it stays a single semantics, not two.
 [docs/adr/0009-kernels.md](adr/0009-kernels.md) — _to be written with Codex (TODO §3); the bigger one._
 
 A MicroHs-style mechanism binding a named combinator to a native JS "kernel"
-(primitive op), generalising native values. Full ADR because it's load-bearing and
-larger; spike first.
+(primitive op), generalising native values. **Pure kernels only for now** — a kernel is
+a pure function of its evaluated arguments, no IO/effects (effectful FFI is a possible
+future, out of scope). Full ADR because it's load-bearing and larger; spike first.
 
 ## 12: Reorg — ports & adapters, shared modal base (refactor)
 **Status:** Proposed — _to be written with Codex (TODO §5)._

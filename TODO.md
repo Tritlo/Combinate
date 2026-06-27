@@ -51,9 +51,11 @@ fast-path location + the "single semantics, not two" design with Codex before co
 
 ## 3. Kernels / FFI — stretch, longer  · ADR 11 (full ADR: `docs/adr/0009-kernels.md`)
 
-- [ ] Spike a MicroHs-style **FFI / kernel** mechanism: bind a named combinator to a
-      native JS kernel (registry `Map<sym, fn>` + arity + a saturated-call reducer hook).
+- [ ] Spike a MicroHs-style **kernel** mechanism: bind a named combinator to a native JS
+      kernel (registry `Map<sym, fn>` + arity + a saturated-call reducer hook).
       Generalises §2; could surface real primitives in the Haskell panel. ADR first.
+      **Kernels are PURE for now** — a kernel is a pure function of its (evaluated)
+      arguments, no IO/effects. (FFI with real effects is a possible future, out of scope.)
 
 ## 4. Finish the SKI-Quest answer key — last 3, with Codex
 
