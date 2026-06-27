@@ -552,7 +552,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     rateAccum += tk.deltaMS;
     if (rateAccum < 300) return;
     const total = totalSteps();
-    redPerSec = redPerSec * 0.5 + ((total - lastTotal) / (rateAccum / 1000)) * 0.5;
+    // max(0, …): an explicit resume resets per-tree step counts, so the delta (and
+    // the EMA) can dip below zero — never show a negative rate.
+    redPerSec = Math.max(0, redPerSec * 0.5 + ((total - lastTotal) / (rateAccum / 1000)) * 0.5);
     lastTotal = total;
     rateAccum = 0;
     rateText.text = transport === "pause" ? "paused" : `${redPerSec.toFixed(1)} red/s`;
@@ -822,7 +824,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   pixi.canvas.addEventListener("pointerup", endPointer);
   pixi.canvas.addEventListener("pointercancel", endPointer);
 
-  const placeLegend = () => legend.position.set(16, 64); // top-left, under the menu bar + hint (the rail freed this space)
+  // Sit on the transport's line (top-right), just left of the "N.N red/s ▶" widget,
+  // vertically centred on it. legend.width is the wider of the two key rows.
+  const placeLegend = () => legend.position.set(Math.round(window.innerWidth - 116 - legend.width), 25);
   placeLegend();
   zoo.layout();
 
@@ -1035,8 +1039,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   function paintLegend(c: Container): void {
     for (const ch of c.removeChildren()) ch.destroy({ children: true });
     const g = new Graphics();
-    g.moveTo(0, 0).lineTo(26, 0).stroke({ width: 3, color: theme.fnEdge });
-    g.moveTo(0, 18).lineTo(26, 18).stroke({ width: 2.5, color: theme.argEdge });
+    g.moveTo(0, 0).lineTo(26, 0).stroke({ width: 3, color: theme.fnEdge }); // function: solid
+    for (let x = 0; x < 26; x += 14) g.moveTo(x, 18).lineTo(Math.min(x + 8, 26), 18); // argument: dashed (matches the tree)
+    g.stroke({ width: 2.5, color: theme.argEdge });
     c.addChild(g);
     const style = { fontFamily: "monospace", fontSize: 12, fill: theme.textDim };
     const l1 = new Text({ text: "function (left)", style });
