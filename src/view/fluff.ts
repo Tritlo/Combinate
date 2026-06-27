@@ -9,20 +9,20 @@
 import { currentMode, onThemeChange, type Mode } from "./theme";
 import { vendorUrl } from "../vendorUrl";
 
-/** The individually-toggleable fluff effects. */
-export type FluffKey = "grabPop" | "redexAnts" | "drift" | "leaves" | "zooTone" | "discovery" | "livingZoo";
+/** The individually-toggleable fluff effects. (Grab/spawn pop isn't here — it's
+ *  always on, gated only by reduced-motion.) */
+export type FluffKey = "redexAnts" | "drift" | "leaves" | "zooTone" | "discovery" | "livingZoo";
 
 const EFFECTS: { key: FluffKey; label: string; desc: string }[] = [
-  { key: "grabPop", label: "Grab & spawn pops", desc: "Nodes scale in when you pull or drop them." },
+  { key: "drift", label: "Water drift", desc: "Nodes sway gently, as if floating in water." },
+  { key: "leaves", label: "Leaf nodes", desc: "Draw the leaf nodes as leaves, on the edge-vines." },
   { key: "redexAnts", label: "Marching ants", desc: "Dashes crawl along a redex just before it fires." },
-  { key: "drift", label: "Water drift", desc: "Leaves sway gently, as if floating in water." },
-  { key: "leaves", label: "Leaf nodes", desc: "Draw the leaves as leaves, on the edge-vines." },
   { key: "zooTone", label: "Zoo tones", desc: "Play a creature's tone when you open its page." },
   { key: "discovery", label: "Discovery fanfare", desc: "Stamp the bird's name and chirp when you find one." },
   { key: "livingZoo", label: "Living Zoo", desc: "The Zoo's creatures drift and breathe." },
 ];
 
-const STORE_KEY = "combinate:fluff:v1";
+const STORE_KEY = "combinate:fluff:v2"; // v2: effects now opt-in (was all-on) — reset saved state
 
 interface FluffState {
   on: boolean; // master switch
@@ -31,7 +31,7 @@ interface FluffState {
 
 function defaults(): FluffState {
   const fx = {} as Record<FluffKey, boolean>;
-  for (const e of EFFECTS) fx[e.key] = true;
+  for (const e of EFFECTS) fx[e.key] = false; // the ambient/extra effects are opt-in; grab/spawn pop is always on
   return { on: true, fx };
 }
 

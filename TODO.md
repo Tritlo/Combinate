@@ -66,9 +66,10 @@ Effects to toggle:
 - [x] **Water drift** — `TreeView.applyDrift(t)` sways nodes around their layout
       base; one app ticker, gated by isFluff("drift")/reduced-motion/HEAVY; edges
       stay (stiff spine). Verified: animates @60fps, frozen under reduced-motion.
-- [ ] **Leaf / vine nodes** — *deferred to §6.* Needs per-node-kind textures in the
-      ParticleContainer (leaf sprite for leaf nodes, dot for app junctions), which
-      is a render-architecture change — best done in the efficiency pass.
+- [x] **Leaf / vine nodes** — leaf + circle packed in ONE texture atlas (so the
+      ParticleContainer still batches); leaf nodes use the leaf frame (tinted by
+      the combinator colour), app junctions stay dots, edges read as the vine.
+      Toggling it refreshes the trees. Verified (S=green, K=purple… leaves).
 - [x] **Zoo tone button** — `sound.play(sym)` added; a ♪ button in the Zoo detail;
       `autoTone()` chirps the creature on open / select when isFluff("zooTone").
 - [x] **Discovery chirp** — `discover()` plays the new bird's tone when
@@ -80,11 +81,12 @@ Effects to toggle:
       ambient resets on any fluff toggle *and* on OS reduced-motion change (drift +
       living-Zoo snap back). `resume()` rejections swallowed.
 
-## 4. New Special: a progression story / quest (adapted to ι)
+## 4. New Special: a progression story / quest (adapted to ι) — ⏸ ON HOLD
 
-- [ ] Adapt the SKI quest <https://dallaylaen.github.io/ski-interpreter/quest.html>
-      into a Combinate **Special** — a guided progression "story" — for **iota (ι)**
-      instead of SKI. New entry in the Special menu. Codex review + simplify.
+- [ ] **Awaiting permission** (it adapts dallaylaen's SKI quest). When built, keep
+      it on a **local branch only — do NOT push to main** until permission is
+      granted. Adapt <https://dallaylaen.github.io/ski-interpreter/quest.html> into
+      a Combinate **Special** (guided ι progression). Codex review + simplify.
 
 ## 5. Polish & sharing — ✅ DONE (pushed)
 
@@ -94,6 +96,19 @@ Effects to toggle:
 - [x] **Favicon** — `public/favicon.svg` (gold ι on a dark rounded square).
 - [x] **OpenGraph / link-sharing** — full OG/Twitter meta + a 1200×630 `og.png`
       (gold ι, wordmark, tagline, tree motif). Verified base-aware in the build.
+
+## 7. Bugs / follow-ups
+
+- [ ] **Colours persist with Colour + Fluff both off** — turning off Colour (mono)
+      and Fluff still shows colours somewhere. Investigate: per-combinator dot
+      colours should be ink in mono (combinatorColor returns theme.node); is a tree
+      not refreshing on the Colour toggle, or is it the reserved warm/cool edge
+      hues (intentional) the user is seeing? Repro + fix.
+- [x] **Fluff defaults** — grab/spawn pop is now **always on** (gated only by
+      reduced-motion); every other effect is **off by default** (storage bumped to
+      v2 so old all-on state resets). Pushed.
+- [x] **Phone menu can't scroll** — items fired on `pointerdown`, so a touch
+      scroll-drag triggered the option; now fire on tap (pointerup with no move).
 
 ## 6. Render efficiency pass — ✅ mostly done
 
