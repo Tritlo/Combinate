@@ -125,9 +125,24 @@ export function buildEnvScope(env: string[] | undefined): Map<string, Node> {
 // one primitive — always on the hotbar, and the only block you start with — so it is
 // always permitted; SKI-Quest's `I-I` ("ι only") falls out as the empty named set.
 const ALLOW_ALIAS: Record<string, string> = { "I-I": "" };
-function allowOk(source: Node, allow: string | undefined): boolean {
+
+/** The combinator symbols appearing in the env term definitions. They're the given
+ *  building blocks (e.g. `M=WI` supplies W and I), so they're permitted even under a
+ *  tight `allow` — when the source uses `M`, the parser splices in `W I`, and `allowOk`
+ *  walks the spliced tree, so without this the env basis would reject its own answers. */
+function envCombs(env: Map<string, Node>): Set<string> {
+  const syms = new Set<string>();
+  const walk = (n: Node): void => {
+    if (n.kind === "comb") syms.add(n.sym);
+    else if (n.kind === "app") { walk(n.fn); walk(n.arg); }
+  };
+  for (const t of env.values()) walk(t);
+  return syms;
+}
+
+function allowOk(source: Node, allow: string | undefined, given: Set<string>): boolean {
   if (!allow) return true;
-  const allowed = new Set((ALLOW_ALIAS[allow] ?? allow).split(""));
+  const allowed = new Set([...(ALLOW_ALIAS[allow] ?? allow).split(""), ...given]);
   let ok = true;
   const walk = (n: Node): void => {
     switch (n.kind) {
@@ -150,8 +165,9 @@ export function makeGoal(p: Puzzle): (source: Node) => boolean {
   // we lift them to leading arguments of the input: the player builds the composition
   // B and we check `B f g x = f (g x)`. (Defs `name=expr` stay in `env`.)
   const lifted = (p.env ?? []).filter((e) => !e.includes("=")).map((e) => e.trim());
+  const given = envCombs(env);
   return (source: Node): boolean => {
-    if (!allowOk(source, p.allow)) return false;
+    if (!allowOk(source, p.allow, given)) return false;
     const applied = (): Node => lifted.reduce<Node>((acc, v) => app(acc, freeVar(v)), freezeFree(source));
     const scope: Scope = (name) => (name === input ? applied() : env.get(name) ?? null);
     try {

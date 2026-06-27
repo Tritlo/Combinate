@@ -36,6 +36,15 @@ const SOLUTIONS: Record<string, string> = {
   // gcd — kernel-assisted (ADR 11): Euclid (Y + iszero) over a pure Church `cmod` kernel.
   // Raw Church Euclid is over budget; the native `cmod` makes each step O(1).
   u1Sr43PU: "Y (g -> m -> n -> (m (K (KI)) K) n (g (cmod n m) m))",
+  // — combinator constructions (unrestricted): the λ from the case —
+  DADG8des: "f -> g -> h -> x -> f (g (h x))", // f(g(h x)) (env f,g,h)
+  T89a9q7G: "x -> y -> z -> t -> t", // ignore 3, return the 4th
+  WhYIkSJR: "a -> b -> c -> d -> d a b c", // v3
+  EuOQExqe: "a -> b -> c -> a (c b)", // Q1
+  xAqffqWv: "a -> b -> c -> b (c a)", // Q2
+  DAGc1HC2: "a -> b -> c -> c (b a)", // Q4
+  xWDGLJvA: "a -> b -> c -> d -> a b (a d c)", // J
+  E2nhX4bs: "head -> tail -> f -> x -> f head (tail f x)", // fold-cons
   // — authored Church arithmetic —
   FYutDKYw: "m -> n -> f -> x -> m f (n f x)", // add
   ZssuKELX: "m -> n -> f -> m (n f)", // mult
