@@ -102,6 +102,11 @@ export class Zoo {
     if (this.pic && this.panel.visible) this.pic.y = this.picY + 3 * Math.sin(t * 1.4);
   }
 
+  /** Reset the floating picture to its resting position (when living-Zoo is off). */
+  clearFluff(): void {
+    if (this.pic) this.pic.y = this.picY;
+  }
+
   /** Fluff: chirp the selected creature's tone, Pokédex-style, when it's shown. */
   private autoTone(): void {
     if (!isFluff("zooTone")) return;
