@@ -31,6 +31,7 @@ import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThem
 import { MenuBar, type Menu } from "./view/menubar";
 import { About } from "./view/about";
 import { FluffPanel, isFluff, prefersReducedMotion, onFluffChange } from "./view/fluff";
+import { tween } from "./view/anim";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
 const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducing (§6.4)
@@ -78,6 +79,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   ghostLabel.anchor.set(0.5, 1);
   ghostLabel.visible = false;
   ghostLayer.addChild(ghost, ghostLabel);
+  const flourish = new Graphics(); // fluff: a marching-ants ring at each reduction
+  flourish.eventMode = "none";
+  world.addChild(flourish); // brought to front in reduceFlourish so it's not hidden under trees
 
   const trees: TreeView[] = [];
   let drag: Drag = null;
@@ -465,6 +469,35 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     paintRail();
   }
 
+  // Fluff "marching ants": a gold dashed ring crawls + fades at a tree's root when
+  // a reduction fires — skipped on fast-forward (would strobe), big trees, reduced
+  // motion. One ring at a time; rapid steps restart it.
+  let flourishCancel: (() => void) | null = null;
+  function reduceFlourish(tree: TreeView): void {
+    if (!isFluff("redexAnts") || transport === "ff" || prefersReducedMotion() || tree.heavy()) return;
+    flourishCancel?.();
+    world.addChild(flourish); // bring to front (above the trees added after it)
+    const { x, y } = tree.rootWorld;
+    flourishCancel = tween(
+      pixi.ticker,
+      340,
+      (e) => {
+        const r = 26 + 22 * e; // start outside the root-mark ring, then expand
+        const N = 12;
+        const arc = (Math.PI * 2) / N;
+        const span = arc * 0.5;
+        const off = e * arc * 1.5; // crawling dashes
+        flourish.clear();
+        for (let i = 0; i < N; i++) flourish.arc(x, y, r, i * arc + off, i * arc + off + span);
+        flourish.stroke({ width: 2.5, color: theme.iota, alpha: 0.9 * (1 - e) });
+      },
+      () => {
+        flourish.clear();
+        flourishCancel = null;
+      },
+    );
+  }
+
   function stepAuto(tree: TreeView, gen: number): void {
     const a = auto.get(tree);
     if (!a || a.gen !== gen) return;
@@ -492,6 +525,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       }
       sound.tick(firingRule(tree.node, fastMode)); // a tone per contraction (approx)
       a.steps = g.steps;
+      reduceFlourish(tree);
       tree.animateTo(g.snapshot(), stepDur(), () => {
         const a2 = auto.get(tree);
         if (!a2 || a2.gen !== gen) return;
@@ -511,6 +545,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const next = redex.build(); // build before the side effects (sound/step count)
     sound.tick(redex.sym); // sonify the rule about to fire
     a.steps++;
+    reduceFlourish(tree);
     tree.animateTo(next, stepDur(), () => {
       const a2 = auto.get(tree);
       if (!a2 || a2.gen !== gen) return;
@@ -534,6 +569,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       }
       sound.tick(firingRule(tree.node, fastMode));
       a.steps = a.grapher.steps;
+      reduceFlourish(tree);
       tree.animateTo(a.grapher.snapshot(), stepDur(), () => {});
     } else {
       a.grapher = undefined;
@@ -544,6 +580,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       }
       sound.tick(redex.sym);
       a.steps++;
+      reduceFlourish(tree);
       tree.animateTo(redex.build(), stepDur(), () => {});
     }
   }
@@ -672,9 +709,11 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // while tweening or if it's big (heavy). Toggling drift off snaps everyone back.
   let driftT = 0;
   pixi.ticker.add((tk: { deltaMS: number }) => {
-    if (!isFluff("drift") || prefersReducedMotion()) return;
+    if (prefersReducedMotion()) return;
     driftT += tk.deltaMS;
-    for (const tree of trees) tree.applyDrift(driftT / 1000);
+    const t = driftT / 1000;
+    if (isFluff("drift")) for (const tree of trees) tree.applyDrift(t);
+    if (isFluff("livingZoo")) zoo.tickFluff(t); // float the open creature's picture
   });
   onFluffChange(() => {
     if (!isFluff("drift") || prefersReducedMotion()) for (const tree of trees) tree.clearDrift();

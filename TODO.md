@@ -59,20 +59,23 @@ Effects to toggle:
       `prefersReducedMotion()`; `View ▸ Fluff…`. Verified both themes + persistence.
 - [x] **Grab / spawn pop** — `TreeView.popIn()` scales the new tree in on spawn
       (gated by isFluff("grabPop") + reduced-motion).
-- [ ] **Marching-ants redex** — classic Mac selection dashes crawl along the firing
-      redex just before it contracts (transient `Graphics` overlay; very on-brand).
+- [x] **Marching ants** — a gold dashed ring crawls + fades at the reduction site
+      on each step (`reduceFlourish`); skipped on fast-forward / heavy / reduced
+      motion. (Anchored at the tree root, where leftmost-outermost fires; exact
+      per-redex localisation would need reducer support — a later refinement.)
 - [x] **Water drift** — `TreeView.applyDrift(t)` sways nodes around their layout
       base; one app ticker, gated by isFluff("drift")/reduced-motion/HEAVY; edges
       stay (stiff spine). Verified: animates @60fps, frozen under reduced-motion.
-- [ ] **Leaf / vine nodes** — swap the leaf-node disc texture for a small **leaf**
-      sprite; edges read as the **vine/spine**. Still one particle batch (just a
-      different texture); the drift makes them flutter. *Stretch / bold.*
+- [ ] **Leaf / vine nodes** — *deferred to §6.* Needs per-node-kind textures in the
+      ParticleContainer (leaf sprite for leaf nodes, dot for app junctions), which
+      is a render-architecture change — best done in the efficiency pass.
 - [x] **Zoo tone button** — `sound.play(sym)` added; a ♪ button in the Zoo detail;
       `autoTone()` chirps the creature on open / select when isFluff("zooTone").
 - [x] **Discovery chirp** — `discover()` plays the new bird's tone when
       isFluff("discovery"); the existing toast already stamps its name.
-- [ ] **Living Zoo** — gentle drift on the Zoo's creature preview (reuse the sway).
-- [ ] Per-effect FPS check; Codex review + simplify.
+- [x] **Living Zoo** — `Zoo.tickFluff(t)` gently floats the open creature's picture
+      (driven by the shell ticker, gated by isFluff("livingZoo") + reduced-motion).
+- [ ] Codex review + simplify of the whole fluff layer.
 
 ## 4. New Special: a progression story / quest (adapted to ι)
 
