@@ -43,7 +43,16 @@ export class Sound {
 
   /** Play a short tone for the rule about to fire (no-op when off or at NF). */
   tick(sym: string | null): void {
-    if (!this.enabled || !sym || !this.ctx) return;
+    if (!this.enabled || !sym) return;
+    this.play(sym);
+  }
+
+  /** Play a combinator's tone once, regardless of the reduction-sound toggle —
+   *  for explicit plays (the Zoo "play tone" button, discovery chirp). The call
+   *  must originate from a user gesture so the AudioContext can start. */
+  play(sym: string): void {
+    this.ensure();
+    if (!this.ctx) return;
     const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();

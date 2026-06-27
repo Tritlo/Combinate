@@ -278,7 +278,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // to unfold when applied.
   const collapsedNode = (law: Law): Node => comb(law.sym, law.def?.(), law.arity);
 
-  const zoo = new Zoo(isDiscovered); // added to the HUD last (below) so it overlays everything
+  const sound = new Sound();
+  const zoo = new Zoo(isDiscovered, (sym) => sound.play(sym)); // added to the HUD last (below) so it overlays everything
 
   // Reveal every combinator at once (the "U" cheat key + the Zoo unlock).
   function unlockAll(): void {
@@ -306,6 +307,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   function discover(law: Law): void {
     discovered.add(law.sym);
     toast.show(`${law.lawText}  —  discovered!`);
+    if (isFluff("discovery")) sound.play(law.sym); // fluff: chirp the new bird's tone (the toast already stamps its name)
     hotbar.reveal(law.sym);
     for (const t of trees) t.refresh(); // reveal newly-known combinators everywhere
     zoo.refresh();
@@ -718,8 +720,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   hud.addChild(zoo.container); // last → the Zoo overlay sits on top of the hotbar
 
   // ---- golf challenges + leaderboard + sonification (ADR 0005) ----
-  // (the shared `store` is declared up top, with the authoring load.)
-  const sound = new Sound();
+  // (the shared `store` is declared up top; `sound` is constructed up by the Zoo,
+  // which needs sound.play for its tones.)
   const challenges = new ChallengePanel(store, { notify: (m) => toast.show(m), onShare: (token) => shareToken(token) });
   hud.addChild(challenges.container); // overlays the hotbar, like the Zoo
 
