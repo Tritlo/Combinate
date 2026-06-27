@@ -442,7 +442,7 @@ export class TreeView {
   private drawEdges(): void {
     this.edges.clear();
     const v = this.viewRect();
-    const dash = this.edgeList.length <= HEAVY; // big trees draw solid — dashing multiplies geometry every frame
+    const dash = this.objs.size <= HEAVY; // big trees draw solid — dashing multiplies geometry every frame (same threshold as heavy())
     for (const e of this.edgeList) {
       const p = this.objs.get(e.p)?.particle;
       const rp = this.objs.get(e.r)?.particle;
