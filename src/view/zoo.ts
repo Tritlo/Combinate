@@ -3,6 +3,7 @@ import { CATALOG, countIotas, iotaTreeOf, type Law, META, PAGES } from "../core/
 import { iota, type Node, type NodeId } from "../core/term";
 import { layoutRadial } from "../core/layout";
 import { theme } from "./theme";
+import { isFluff } from "./fluff";
 
 const LIST_W = 248;
 const LIST_TOP = 88; // list/detail start below the title + tab row
@@ -75,7 +76,11 @@ export class Zoo {
     return this.pages[this.pageIdx].entries;
   }
 
-  constructor(private readonly isDiscovered: (sym: string) => boolean) {
+  constructor(
+    private readonly isDiscovered: (sym: string) => boolean,
+    /** Play a combinator's tone (wired to sound.play) — the "play tone" button + auto-chirp. */
+    private readonly playTone: (sym: string) => void,
+  ) {
     this.pages = buildPages();
     this.buildPanel();
     this.panel.visible = false;
@@ -86,6 +91,14 @@ export class Zoo {
     this.panel.visible = true;
     this.mobileDetail = false; // narrow: start on the list
     this.refresh();
+    this.autoTone();
+  }
+
+  /** Fluff: chirp the selected creature's tone, Pokédex-style, when it's shown. */
+  private autoTone(): void {
+    if (!isFluff("zooTone")) return;
+    const e = this.entries[this.selected];
+    if (e.law === null || this.isDiscovered(e.sym)) this.playTone(e.sym); // known (or ι) only
   }
   close(): void {
     this.panel.visible = false;
@@ -115,6 +128,7 @@ export class Zoo {
     this.listScroll = Math.max(0, Math.min(max, this.listScroll));
     this.listView.position.set(this.cardX + 16, this.cardY + LIST_TOP - this.listScroll);
     this.refresh();
+    this.autoTone();
   }
 
   /** Switch topic page (←/→ navigation), wrapping around. */
@@ -126,6 +140,7 @@ export class Zoo {
     this.mobileDetail = false; // switching tab returns to the list
     this.listView.position.set(this.cardX + 16, this.cardY + LIST_TOP);
     this.refresh();
+    this.autoTone();
   }
 
   /** Re-derive the pages from the shared catalog/`PAGES` — call after the player
@@ -255,6 +270,7 @@ export class Zoo {
         this.selected = i;
         if (this.narrow) this.mobileDetail = true; // narrow: tapping a row opens its detail
         this.refresh();
+        this.autoTone();
       });
       this.listView.addChild(row);
     });
@@ -293,6 +309,17 @@ export class Zoo {
       const pic = renderPicture(tree, boxSize - 28);
       pic.position.set(dx + dw / 2, dy + boxSize / 2);
       this.detail.addChild(pic);
+      // a "play tone" button (top-right of the picture box) — chirps the bird
+      const tone = new Text({ text: "♪", style: { fontFamily: "monospace", fontSize: 20, fill: theme.iota } });
+      tone.anchor.set(0.5);
+      tone.position.set(dx + dw - 18, dy + 16);
+      tone.eventMode = "static";
+      tone.cursor = "pointer";
+      tone.on("pointerdown", (e: FederatedPointerEvent) => {
+        e.stopPropagation();
+        this.playTone(entry.sym);
+      });
+      this.detail.addChild(tone);
     } else {
       const q = new Text({ text: "?", style: { fontFamily: "monospace", fontSize: 96, fill: theme.border } });
       q.anchor.set(0.5);

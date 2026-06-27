@@ -2,6 +2,7 @@
 
 Overnight run. Work top-down. Collaborate with Codex on each step (plan before,
 review+simplify after). Use `/frontend-design:frontend-design` where it fits.
+**Push each piece as soon as it's verified** (the user authorised pushing freely).
 
 ## 1. Transport redesign — ✅ DONE (pushed)
 
@@ -66,11 +67,10 @@ Effects to toggle:
 - [ ] **Leaf / vine nodes** — swap the leaf-node disc texture for a small **leaf**
       sprite; edges read as the **vine/spine**. Still one particle batch (just a
       different texture); the drift makes them flutter. *Stretch / bold.*
-- [ ] **Zoo tone button** — a "play tone" button in the Zoo detail (uses
-      `pitchFor`); with fluff on, **auto-play** the creature's tone when its page
-      opens (Pokédex-style).
-- [ ] **Discovery stamp + chirp** — on collapse/discovery, briefly stamp the bird
-      name by the root and play its tone (reuse Zoo metadata + `sound.ts`).
+- [x] **Zoo tone button** — `sound.play(sym)` added; a ♪ button in the Zoo detail;
+      `autoTone()` chirps the creature on open / select when isFluff("zooTone").
+- [x] **Discovery chirp** — `discover()` plays the new bird's tone when
+      isFluff("discovery"); the existing toast already stamps its name.
 - [ ] **Living Zoo** — gentle drift on the Zoo's creature preview (reuse the sway).
 - [ ] Per-effect FPS check; Codex review + simplify.
 
@@ -79,6 +79,15 @@ Effects to toggle:
 - [ ] Adapt the SKI quest <https://dallaylaen.github.io/ski-interpreter/quest.html>
       into a Combinate **Special** — a guided progression "story" — for **iota (ι)**
       instead of SKI. New entry in the Special menu. Codex review + simplify.
+
+## 5. Polish & sharing
+
+- [ ] **Phone menu scrolling** — on a phone, tapping the ι (collapsed menu) opens a
+      dropdown that runs **off-screen**; it needs to scroll / clamp to the viewport.
+- [ ] **GitHub link in About** — the repo is now public; add a link to it.
+- [ ] **Favicon** — an ι favicon.
+- [ ] **OpenGraph / link-sharing** — favicon + OG/Twitter meta (title, description,
+      image) so shared links unfurl nicely.
 
 ---
 
