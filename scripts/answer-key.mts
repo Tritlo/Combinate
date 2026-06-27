@@ -88,6 +88,7 @@ const SOLUTIONS: Record<string, string> = {
   l79rFZSF: "V=u->v->s->s u v; mul=m->n->f->m(n f); one=f->x->f x; n -> n (p -> V (S B (p K)) (mul (p K) (p (K I)))) (V one one) (K I)", // factorial
   ifb4SqXX: "V=u->v->s->s u v; add=m->n->f->x->m f(n f x); one=f->x->f x; n -> n (p -> V (p (K I)) (add (p K) (p (K I)))) (V (K I) one) K", // fibonacci
   JrSTFmW9: "V=u->v->s->s u v; n -> n (p -> p (r -> g -> g (V (S B r) (K I)) (V r K))) (V (K I) (K I)) K", // n/2
+  Rpc0i8ff: "double=n->f->x->n f(n f x); Y (self -> z -> z (b -> rest -> K (b (S B (double (self rest))) (double (self rest)))) (K I))", // little-endian binary → numeral
   // — authored Church arithmetic —
   FYutDKYw: "m -> n -> f -> x -> m f (n f x)", // add
   ZssuKELX: "m -> n -> f -> m (n f)", // mult
