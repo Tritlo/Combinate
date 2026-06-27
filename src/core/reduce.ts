@@ -97,10 +97,18 @@ export function redexAt(n: Node, argsAbove = 0, fast = false, native?: NativeOpt
       // `firingRule`/existence checks never trigger a match).
       const kernel = kernelFor(head.sym, native);
       if (kernel && args.length >= kernel.arity) {
-        return {
-          sym: head.sym,
-          build: () => dedupIds(kernel.run(args) ?? applyRule(RULES[head.sym], args, k), new Set()),
-        };
+        if (RULES[head.sym]) {
+          // Has a catalog-rule fallback (native value ops): cheap discovery, match in build.
+          return { sym: head.sym, build: () => dedupIds(kernel.run(args) ?? applyRule(RULES[head.sym], args, k), new Set()) };
+        }
+        // Kernel-only primitive (e.g. Church `cmod`): no rule to fall back to, so the
+        // match runs in *discovery* (only a redex if it fires; else reduce the operands
+        // and revisit). This relaxes the "discovery is cheap" invariant for such syms —
+        // acceptable because they're not on any canvas/hotbar (only reachable via authored
+        // SKIQ source), so `firingRule`/app probes never hit them. A future kernel-only
+        // primitive wanting cheap discovery should ship a catalog `def` fallback.
+        const res = kernel.run(args);
+        if (res) return { sym: head.sym, build: () => dedupIds(res, new Set()) };
       }
       const rule = fast ? RULES[head.sym] : undefined;
       if (rule && args.length >= k) {
