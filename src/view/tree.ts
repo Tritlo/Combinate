@@ -3,6 +3,7 @@ import { type Node, type NodeId, iotaTreeFrom, IOTA_ID_SPAN } from "../core/term
 import { IOTA_CODE, IOTA_BITCODE } from "../core/catalog";
 import { type Layout, type LayoutFn } from "../core/layout";
 import { theme, combinatorColor, glyphOn } from "./theme";
+import { tween } from "./anim";
 
 const LAYOUT_MS = 360; // duration of the layout-toggle reflow
 // Above this node count we drop the per-node text glyphs (you can't read them at
@@ -14,6 +15,7 @@ const GLYPH_MAX = 300;
 // and argument edges drop their dashes (which multiply edge geometry). Below it,
 // small trees keep the nice tween + dashed edges. Keeps fac-scale playback fast.
 const HEAVY = 600;
+const DRIFT_AMP = 3; // px — fluff "water drift": how far leaves sway around their layout spot
 // Radius of the shared white circle texture all node particles are drawn from; a
 // node of radius r renders at scale r / TEX_R, tinted by its kind.
 const TEX_R = 32;
@@ -293,6 +295,42 @@ export class TreeView {
    *  run fac-scale playback without paying ~6 tween frames per step. */
   heavy(): boolean {
     return this.objs.size > HEAVY;
+  }
+
+  /** Pop the whole tree in — a quick scale-up of the container around its anchor.
+   *  The fluff grab/spawn flourish; gated by the caller. */
+  popIn(): void {
+    const c = this.container;
+    c.scale.set(0.55);
+    tween(this.ticker, 240, (e) => c.scale.set(0.55 + 0.45 * e));
+  }
+
+  /** Fluff "water drift": sway each node a few px around its layout position
+   *  (the leaves), while the edges stay put (the spine). Caller drives `t` (sec)
+   *  and gates by the Fluff toggle / reduced-motion. Skipped while tweening (the
+   *  animation owns positions) or on big trees. */
+  applyDrift(t: number): void {
+    if (this.ticking || this.heavy()) return;
+    for (const [id, vis] of this.objs) {
+      const base = this.lay.pos.get(id);
+      if (!base) continue;
+      const x = base.x + DRIFT_AMP * Math.sin(t * 0.8 + base.y * 0.02);
+      const y = base.y + DRIFT_AMP * Math.cos(t * 0.6 + base.x * 0.02);
+      vis.particle.x = x;
+      vis.particle.y = y;
+      if (vis.glyph) vis.glyph.position.set(x, y);
+    }
+  }
+
+  /** Snap nodes back to their exact layout positions (when drift is turned off). */
+  clearDrift(): void {
+    for (const [id, vis] of this.objs) {
+      const base = this.lay.pos.get(id);
+      if (!base) continue;
+      vis.particle.x = base.x;
+      vis.particle.y = base.y;
+      if (vis.glyph) vis.glyph.position.set(base.x, base.y);
+    }
   }
 
   /** Cancel a running tween, snapping to its settled state (no `onDone`). */

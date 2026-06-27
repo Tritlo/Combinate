@@ -56,10 +56,13 @@ Effects to toggle:
 - [x] **Modal + settings** (`fluff` object, localStorage, master, Mac checkboxes).
       `src/view/fluff.ts`: `isFluff(key)`, `fluffOn()`, `onFluffChange`,
       `prefersReducedMotion()`; `View ▸ Fluff…`. Verified both themes + persistence.
-- [ ] **Grab / spawn pop** — node scales/fades in on grab or spawn (tween, transient).
+- [x] **Grab / spawn pop** — `TreeView.popIn()` scales the new tree in on spawn
+      (gated by isFluff("grabPop") + reduced-motion).
 - [ ] **Marching-ants redex** — classic Mac selection dashes crawl along the firing
       redex just before it contracts (transient `Graphics` overlay; very on-brand).
-- [ ] **Water drift** — the ambient node-only sway above (the signature effect).
+- [x] **Water drift** — `TreeView.applyDrift(t)` sways nodes around their layout
+      base; one app ticker, gated by isFluff("drift")/reduced-motion/HEAVY; edges
+      stay (stiff spine). Verified: animates @60fps, frozen under reduced-motion.
 - [ ] **Leaf / vine nodes** — swap the leaf-node disc texture for a small **leaf**
       sprite; edges read as the **vine/spine**. Still one particle batch (just a
       different texture); the drift makes them flutter. *Stretch / bold.*

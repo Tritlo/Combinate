@@ -30,7 +30,7 @@ import { preloadCompiler } from "./view/mhs/compiler";
 import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange } from "./view/theme";
 import { MenuBar, type Menu } from "./view/menubar";
 import { About } from "./view/about";
-import { FluffPanel } from "./view/fluff";
+import { FluffPanel, isFluff, prefersReducedMotion, onFluffChange } from "./view/fluff";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
 const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducing (§6.4)
@@ -665,6 +665,19 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     fpsText.text = `${pixi.ticker.FPS.toFixed(0)} fps`;
   });
 
+  // Fluff: water drift — sway settled trees' leaves around their layout positions
+  // (the edges/spine stay put). One ticker over all trees; each tree skips itself
+  // while tweening or if it's big (heavy). Toggling drift off snaps everyone back.
+  let driftT = 0;
+  pixi.ticker.add((tk: { deltaMS: number }) => {
+    if (!isFluff("drift") || prefersReducedMotion()) return;
+    driftT += tk.deltaMS;
+    for (const tree of trees) tree.applyDrift(driftT / 1000);
+  });
+  onFluffChange(() => {
+    if (!isFluff("drift") || prefersReducedMotion()) for (const tree of trees) tree.clearDrift();
+  });
+
   // Stage receives pointer events over empty space (so panning works there).
   pixi.stage.eventMode = "static";
   const fitStage = () => {
@@ -686,6 +699,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const tree = new TreeView(node, w.x, w.y, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
     addTree(tree);
     focus = tree;
+    if (isFluff("grabPop") && !prefersReducedMotion()) tree.popIn(); // fluff: pop the new node in
     return tree;
   }
 
