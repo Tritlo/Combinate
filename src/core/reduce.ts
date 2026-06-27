@@ -83,12 +83,16 @@ export function redexAt(n: Node, argsAbove = 0, fast = false, native?: NativeOpt
   // optimize / native mode: reduce the leftmost-outermost *named* head redex — by a
   // native value op (ADR 10) when recognised, else by its catalog rule (fast mode).
   if (fast || native) {
+    // Collect the applied spine head-first. `push`+`reverse` is O(spine); the old
+    // `unshift` was O(spine²) (it shifts the whole array each arg), which — re-run at
+    // every redexAt recursion level — made big-term fast reduction super-linear.
     const args: Node[] = [];
     let head: Node = n;
     while (head.kind === "app") {
-      args.unshift(head.arg);
+      args.push(head.arg);
       head = head.fn;
     }
+    args.reverse();
     if (head.kind === "comb") {
       const k = head.arity ?? 1;
       // Kernel (ADR 11 — native values are the built-in kernels): a CHEAP registry
