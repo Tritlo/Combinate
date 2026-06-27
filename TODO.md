@@ -95,14 +95,18 @@ Effects to toggle:
 - [x] **OpenGraph / link-sharing** — full OG/Twitter meta + a 1200×630 `og.png`
       (gold ι, wordmark, tagline, tree motif). Verified base-aware in the build.
 
-## 6. Render efficiency pass (with Codex)
+## 6. Render efficiency pass — ✅ mostly done
 
-- [ ] A dedicated pass to make rendering as efficient as possible — profile with
-      the FPS counter on big trees + fluff on, find the hot paths, and cut them.
-      Collaborate with Codex (brainstorm levers → implement → review). Candidates
-      already noted: per-frame `drawEdges` cost, snapshot/layout per step, the
-      `ParticleContainer` dynamic-properties config (`scale` isn't a real prop),
-      batching graph steps per render, edge-mesh vs Graphics. Measure before/after.
+The big lever (HEAVY jump-cut) already landed earlier, so this pass is cleanup +
+idle wins (the render path is otherwise minimal):
+- [x] Fixed the `ParticleContainer` config — `scale:true` was an unknown key (no-op);
+      it's now `{position:true, color:true}` (the only per-frame attrs: movement +
+      alpha fades). Vertices/uvs/rotation stay static.
+- [x] Cache the reduced-motion `MediaQueryList` (the drift ticker polled it every
+      frame).
+- [x] Idle the render/animation ticker while the tab is hidden (visibilitychange).
+- [ ] *Stretch:* per-node-kind particle textures → enables the deferred **leaf
+      nodes** fluff effect (one batch, leaf sprite for leaves + dot for junctions).
 
 ---
 

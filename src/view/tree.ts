@@ -99,7 +99,11 @@ export class TreeView {
   private readonly edges = new Graphics();
   private readonly rootMark = new Graphics(); // halo on the root (snap anchor)
   // All node discs in one GPU-instanced batch; glyphs in a thin layer on top.
-  private readonly particles = new ParticleContainer({ dynamicProperties: { position: true, scale: true, color: true } });
+  // Only position (movement/drift) + colour (tint + alpha fades) change per frame;
+  // vertices/uvs/rotation stay static (no per-dot scale/rotation animation — the
+  // grow-in is the Text glyph scaling + the dot alpha-fading). `scale` isn't a real
+  // Pixi v8 particle property, so it was a no-op before.
+  private readonly particles = new ParticleContainer({ dynamicProperties: { position: true, color: true } });
   private readonly glyphs = new Container();
   node: Node; // the logical term (used for reduction)
   private display: Node; // node with undiscovered S/K/I expanded to their ι-trees
