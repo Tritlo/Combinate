@@ -53,7 +53,9 @@ counter or the auto-pause guard; sanity-check each effect with the FPS counter.
 
 Effects to toggle:
 
-- [ ] **Modal + settings** (`fluff` object, localStorage, master, Mac checkboxes).
+- [x] **Modal + settings** (`fluff` object, localStorage, master, Mac checkboxes).
+      `src/view/fluff.ts`: `isFluff(key)`, `fluffOn()`, `onFluffChange`,
+      `prefersReducedMotion()`; `View ▸ Fluff…`. Verified both themes + persistence.
 - [ ] **Grab / spawn pop** — node scales/fades in on grab or spawn (tween, transient).
 - [ ] **Marching-ants redex** — classic Mac selection dashes crawl along the firing
       redex just before it contracts (transient `Graphics` overlay; very on-brand).
