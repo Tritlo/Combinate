@@ -1,7 +1,7 @@
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text, type Ticker } from "pixi.js";
 import { type Node } from "../core/term";
 import { PAGES, CATALOG } from "../core/catalog";
-import { theme, currentMode } from "./theme";
+import { theme, currentMode, combinatorColor } from "./theme";
 import { tween } from "./anim";
 
 /** Each combinator's defining law, keyed by symbol — the hover tooltip's text. */
@@ -201,7 +201,7 @@ export class Hotbar {
 
   private slot(sym: string, cx: number, cy: number): Container {
     const { paper, ink } = mono();
-    const glyphColor = sym === "ι" ? theme.iota : theme.node; // ι gold; other combinators ink (mono) / blue (colour)
+    const glyphColor = sym === "ι" ? theme.iota : combinatorColor(sym); // ι gold; other combinators ink (mono) / per-combinator hue (colour)
     const v = new Container() as Container & { sym: string };
     v.sym = sym;
     v.addChild(new Graphics().rect(-SLOT / 2, -SLOT / 2, SLOT, SLOT).fill({ color: paper }).stroke({ width: 1, color: ink }));

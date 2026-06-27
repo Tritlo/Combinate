@@ -2,7 +2,7 @@ import { Container, Graphics, ParticleContainer, Particle, Rectangle, Text, Text
 import { type Node, type NodeId, iotaTreeFrom, IOTA_ID_SPAN } from "../core/term";
 import { IOTA_CODE, IOTA_BITCODE } from "../core/catalog";
 import { type Layout, type LayoutFn } from "../core/layout";
-import { theme } from "./theme";
+import { theme, combinatorColor, glyphOn } from "./theme";
 
 const LAYOUT_MS = 360; // duration of the layout-toggle reflow
 // Above this node count we drop the per-node text glyphs (you can't read them at
@@ -39,8 +39,10 @@ function visSpec(n: Node): { radius: number; tint: number; glyph: { text: string
   switch (n.kind) {
     case "iota":
       return { radius: 7, tint: theme.iota, glyph: { text: "ι", color: theme.iotaGlyph, size: 10 } };
-    case "comb":
-      return { radius: 15, tint: theme.node, glyph: { text: n.sym, color: theme.nodeGlyph, size: 15 } };
+    case "comb": {
+      const tint = combinatorColor(n.sym); // per-combinator hue in Colour mode, ink in mono
+      return { radius: 15, tint, glyph: { text: n.sym, color: glyphOn(tint), size: 15 } };
+    }
     case "free":
       // a free var sits on a muted (grey) dot, so its glyph is ink (text), not
       // paper — paper-on-grey is too low-contrast.
