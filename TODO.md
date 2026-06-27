@@ -81,12 +81,18 @@ Effects to toggle:
       ambient resets on any fluff toggle *and* on OS reduced-motion change (drift +
       living-Zoo snap back). `resume()` rejections swallowed.
 
-## 4. New Special: a progression story / quest (adapted to ι) — ⏸ ON HOLD
+## 4. New Special: a progression story / quest (adapted to ι) — ✅ DONE (pushed)
 
-- [ ] **Awaiting permission** (it adapts dallaylaen's SKI quest). When built, keep
-      it on a **local branch only — do NOT push to main** until permission is
-      granted. Adapt <https://dallaylaen.github.io/ski-interpreter/quest.html> into
-      a Combinate **Special** (guided ι progression). Codex review + simplify.
+- [x] **Permission granted.** Built a **Quest** Special: the "From One" chapter —
+      a guided progression that builds I, K, S, True, 2, and M out of the single
+      generator ι. `core/quest.ts` (stages + goal predicates via the probe/value
+      matchers) + `view/quest.ts` (System-1 panel: narrative, on-demand hint,
+      progress, localStorage). Wired to the Special menu + the normal-form hook +
+      auto-discovers the unlocked combinator. Credited **Konstantin S. Uvarin (with
+      permission)**, linked, in the panel + the About page. (Format adapted from
+      his SKI Quest; content is ι-original.)
+- [x] Fixed a latent hotbar crash it surfaced: a slot pop-tween touched a destroyed
+      container when two combinators were discovered within 260ms.
 
 ## 5. Polish & sharing — ✅ DONE (pushed)
 
