@@ -10,12 +10,14 @@ import { currentMode, onThemeChange, type Mode } from "./theme";
 import { vendorUrl } from "../vendorUrl";
 
 /** A toggleable reduction optimization. */
-export type OptKey = "rules" | "graph" | "nativeNumbers";
+export type OptKey = "rules" | "graph" | "nativeNumbers" | "nativeLists" | "nativeBooleans";
 
 const SETTINGS: { key: OptKey; label: string; desc: string }[] = [
   { key: "rules", label: "Optimize (rule steps)", desc: "Reduce a named combinator by its law in one step, not its raw ι/SKI tree." },
   { key: "graph", label: "Graph reduction (DAG)", desc: "Call-by-need sharing — a shared subterm is drawn and reduced once." },
   { key: "nativeNumbers", label: "Native numbers", desc: "Compute catalog arithmetic (+, ×, =, <, …) on whole numbers directly." },
+  { key: "nativeLists", label: "Native lists", desc: "Evaluate list ops (<>, map, concat) on recognised lists directly." },
+  { key: "nativeBooleans", label: "Native booleans", desc: "Evaluate not, and, or on recognised booleans directly." },
 ];
 
 const STORE_KEY = "combinate:optimize:v1";
