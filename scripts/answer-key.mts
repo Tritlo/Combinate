@@ -75,6 +75,19 @@ const SOLUTIONS: Record<string, string> = {
   XUVE0eoI: "X (X X)", // omit-first, from X
   "63bwJwPZ": "X (X (X X))", // K, from X
   QqpxVpZk: "X (X (X (X X)))", // S, from X
+  // — V-pair (Scott) linked-list ops + fixed points —
+  bMdsUR5U: "z -> x -> y -> z (a -> b -> K y) x", // is_empty (K for nil, KI for a pair)
+  "5yxwDzNg": "z -> z (a -> b -> K b) (K I)", // failsafe tail (pair → b, nil → nil)
+  VvbGJqE1: "Y (self -> z -> f -> x -> z (a -> b -> K (f a (self b f x))) x)", // fold
+  SltEHvuL: "xs -> xs (a -> p -> s -> s (lst a (p K)) (p K)) (s -> s nil nil) (K I)", // tail (fold-list)
+  "2vWAfjsP": "Y K", // K x = x  (the K-fixed-point is the quine)
+  "1fz2DwNy": "Y T", // T x = x
+  bmXggXLn: "xs -> (xs (a -> r -> f -> x -> r f (f a x)) (K I)) (a -> r -> a) nil", // last = head ∘ reverse
+  EPtKyvC9: "tail=xs->xs (a->p->s->s (lst a (p K)) (p K)) (s->s nil nil) (K I); head=xs->xs (a->r->a) nil; n -> xs -> head (n tail xs)", // nth = head ∘ drop n
+  // — Church numerics via the pair-iteration trick (counter, accumulator) —
+  l79rFZSF: "V=u->v->s->s u v; mul=m->n->f->m(n f); one=f->x->f x; n -> n (p -> V (S B (p K)) (mul (p K) (p (K I)))) (V one one) (K I)", // factorial
+  ifb4SqXX: "V=u->v->s->s u v; add=m->n->f->x->m f(n f x); one=f->x->f x; n -> n (p -> V (p (K I)) (add (p K) (p (K I)))) (V (K I) one) K", // fibonacci
+  JrSTFmW9: "V=u->v->s->s u v; n -> n (p -> p (r -> g -> g (V (S B r) (K I)) (V r K))) (V (K I) (K I)) K", // n/2
   // — authored Church arithmetic —
   FYutDKYw: "m -> n -> f -> x -> m f (n f x)", // add
   ZssuKELX: "m -> n -> f -> m (n f)", // mult
