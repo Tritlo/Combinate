@@ -69,13 +69,15 @@ function toStage(p: Puzzle): QuestStage {
 // but here you begin with a single block — ι — so first grow the basis from it. And
 // it is ι all the way: each combinator is ι fed the one before it, the Barker tower
 //   ι ι = I,  ι I = A,  ι A = K,  ι K = S.
-// Every stage is `allow: "I-I"` (ι-only — a catalog K is rejected). Solving each
-// discovers the bird, so the inventory the Quest assumes is genuinely earned.
+// `allow` is set to ι plus the birds unlocked so far — exactly what is on the hotbar
+// at each stage — so "feed ι the bird you just made" works (and so does a pure-ι
+// build, since ι is always permitted). Solving each discovers the bird, so the
+// inventory the Quest assumes is genuinely earned.
 const PROLOGUE: Puzzle[] = [
   {
     id: "prologue-i",
     name: "Out of One",
-    allow: "I-I",
+    allow: "I-I", // you start with nothing but ι
     unlock: "I",
     input: "phi",
     intro: [
@@ -88,38 +90,38 @@ const PROLOGUE: Puzzle[] = [
   {
     id: "prologue-a",
     name: "The Mirror",
-    allow: "I-I",
+    allow: "I", // ι + the Identity you just unlocked
     unlock: "A",
     input: "phi",
     intro: [
       "<p>Now feed ι the bird you just made. <b>ι I</b> gives <b>A</b> — <code>A x y = y</code>, the mirror of the Kestrel: it keeps the <i>second</i> argument (the Scott <b>True</b>).</p>",
-      "<p>Still nothing but ι.</p>",
+      "<p>Drag an ι onto your <code>I</code>.</p>",
     ],
-    hint: "<code>ι (ι ι)</code>  — feed ι the Identity",
+    hint: "<code>ι I</code>  — feed ι the Identity (or, all in ι: <code>ι (ι ι)</code>)",
     cases: [["phi x y", "y"]],
   },
   {
     id: "prologue-k",
     name: "The Kestrel",
-    allow: "I-I",
+    allow: "IA", // ι + I + the Mirror
     unlock: "K",
     input: "phi",
     intro: [
       "<p>Feed ι to <b>A</b> and the <b>Kestrel</b> appears — <code>K x y = x</code>, which keeps the first argument and forgets the second.</p>",
     ],
-    hint: "<code>ι (ι (ι ι))</code>  — feed ι the Mirror",
+    hint: "<code>ι A</code>  — feed ι the Mirror (or <code>ι (ι (ι ι))</code>)",
     cases: [["phi x y", "x"]],
   },
   {
     id: "prologue-s",
     name: "The Starling",
-    allow: "I-I",
+    allow: "IAK", // ι + I + A + the Kestrel
     unlock: "S",
     input: "phi",
     intro: [
       "<p>One more. Feed ι to the <b>Kestrel</b> and out comes the <b>Starling</b> — <code>S x y z = x z (y z)</code>. With <code>S</code> and <code>K</code> you can spell <i>any</i> combinator at all; everything in the Quest ahead is built from here.</p>",
     ],
-    hint: "<code>ι (ι (ι (ι ι)))</code>  — feed ι the Kestrel",
+    hint: "<code>ι K</code>  — feed ι the Kestrel (or <code>ι (ι (ι (ι ι)))</code>)",
     cases: [["phi x y z", "x z (y z)"]],
   },
 ];
