@@ -26,5 +26,8 @@ Codex before pushing.
       render bug.)
 
 ## Wrap-up
-- [ ] Codex review + simplify pass.
-- [ ] Typecheck, verify in-browser, push.
+- [x] Codex review + simplify pass — found & fixed: heavy gap missing on the raw
+      reduction path, glyphOn contrast mis-pick, hotbar text-on-white contrast;
+      unified the dash threshold. Codex verdict: CONSENSUS, resolved.
+- [x] Typecheck clean; in-browser smoke (colours, white bg, FPS, dashed ghost,
+      heavy-path reduction) verified; pushed.
