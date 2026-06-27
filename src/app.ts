@@ -782,6 +782,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     "wheel",
     (ev) => {
       ev.preventDefault();
+      if (zoo.isOpen || challenges.isOpen) return; // an open overlay owns the wheel (its list scrolls instead of zooming the canvas behind it)
       zoomTo(world.scale.x * (ev.deltaY < 0 ? 1.1 : 1 / 1.1), ev.clientX, ev.clientY);
     },
     { passive: false },
