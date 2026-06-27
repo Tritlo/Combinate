@@ -16,9 +16,14 @@ Codex before pushing.
 
 ## Performance
 - [x] **FPS counter** — View ▸ FPS counter, shown bottom-left.
-- [ ] **Factorial is very slow** even with Optimize. Diagnose: render-bound or
-      reduce-bound? Consider differential rendering (only update changed nodes
-      instead of rebuilding the whole display each step).
+- [x] **Factorial slowness** — diagnosed render-bound: `animateTo` redraws the
+      whole edge path every tween frame (~6/step), and my new dashing multiplied
+      that. Fix (Codex-reviewed): above `HEAVY=600` displayed nodes, jump-cut each
+      step (settle instantly, no per-frame tween/redraw), draw argument edges
+      solid, and pace steps at an 8ms gap. Validated: a bounded many-step
+      reduction settles to the correct NF via the heavy path. (Exponential blow-up
+      like `2 2 2 2` is still bounded by its 100k-node output — inherent, not a
+      render bug.)
 
 ## Wrap-up
 - [ ] Codex review + simplify pass.

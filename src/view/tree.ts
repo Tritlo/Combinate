@@ -9,6 +9,11 @@ const LAYOUT_MS = 360; // duration of the layout-toggle reflow
 // that density anyway) and render dots only — the expensive `Text` objects are
 // what cost the most. Tune to taste; the particle nodes/edges scale far past it.
 const GLYPH_MAX = 300;
+// Above this many displayed nodes we stop animating reduction steps: each step
+// jump-cuts to its settled layout (no per-frame tween, no per-frame edge redraw)
+// and argument edges drop their dashes (which multiply edge geometry). Below it,
+// small trees keep the nice tween + dashed edges. Keeps fac-scale playback fast.
+const HEAVY = 600;
 // Radius of the shared white circle texture all node particles are drawn from; a
 // node of radius r renders at scale r / TEX_R, tinted by its kind.
 const TEX_R = 32;
@@ -276,8 +281,18 @@ export class TreeView {
     this.elapsed = 0;
     this.duration = duration;
     this.onDone = onDone;
-    this.drawEdges();
-    this.startTicker();
+    if (newNodes.size > HEAVY) {
+      this.finish(); // big tree: jump-cut to the settled state — no per-frame tween/edge redraw
+    } else {
+      this.drawEdges();
+      this.startTicker();
+    }
+  }
+
+  /** Big enough that we jump-cut steps (skip per-step animation)? Lets the shell
+   *  run fac-scale playback without paying ~6 tween frames per step. */
+  heavy(): boolean {
+    return this.objs.size > HEAVY;
   }
 
   /** Cancel a running tween, snapping to its settled state (no `onDone`). */
@@ -427,10 +442,14 @@ export class TreeView {
   private drawEdges(): void {
     this.edges.clear();
     const v = this.viewRect();
+    const dash = this.edgeList.length <= HEAVY; // big trees draw solid — dashing multiplies geometry every frame
     for (const e of this.edgeList) {
       const p = this.objs.get(e.p)?.particle;
       const rp = this.objs.get(e.r)?.particle;
-      if (p && rp && (!v || overlaps(p, rp, v))) dashedSegment(this.edges, p.x, p.y, rp.x, rp.y); // argument edge: dashed
+      if (p && rp && (!v || overlaps(p, rp, v))) {
+        if (dash) dashedSegment(this.edges, p.x, p.y, rp.x, rp.y); // argument edge: dashed
+        else this.edges.moveTo(p.x, p.y).lineTo(rp.x, rp.y);
+      }
     }
     this.edges.stroke({ width: 2.5, color: theme.argEdge });
     for (const e of this.edgeList) {
