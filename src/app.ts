@@ -30,6 +30,7 @@ import { preloadCompiler } from "./view/mhs/compiler";
 import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange } from "./view/theme";
 import { MenuBar, type Menu } from "./view/menubar";
 import { About } from "./view/about";
+import { FluffPanel } from "./view/fluff";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
 const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducing (§6.4)
@@ -996,6 +997,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (layoutFn !== fn) toggleLayout();
   };
   const about = new About();
+  const fluff = new FluffPanel();
   const menus: Menu[] = [
     { title: "ι", apple: true, items: [
       { kind: "action", label: "About Combinate…", run: () => about.open() },
@@ -1024,6 +1026,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "toggle", label: "Color (4096)", checked: () => colorOn(), run: () => toggleColor() },
       { kind: "sep" },
       { kind: "toggle", label: "FPS counter", checked: () => fpsOn, run: () => toggleFps() },
+      { kind: "sep" },
+      { kind: "action", label: "Fluff…", run: () => fluff.open() },
     ] },
     { title: "Reduce", items: [
       { kind: "radio", label: "Pause", on: () => transport === "pause", run: () => setTransport("pause") },
