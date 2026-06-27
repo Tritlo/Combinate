@@ -724,6 +724,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   };
   onFluffChange(resetAmbient);
   window.matchMedia?.("(prefers-reduced-motion: reduce)").addEventListener("change", resetAmbient);
+  // Leaf-nodes toggle changes the particle texture, baked in at creation — rebuild
+  // each tree's display so it applies immediately (only when that toggle flips).
+  let prevLeaves = isFluff("leaves");
+  onFluffChange(() => {
+    if (isFluff("leaves") !== prevLeaves) {
+      prevLeaves = isFluff("leaves");
+      for (const tree of trees) tree.refresh();
+    }
+  });
 
   // Stage receives pointer events over empty space (so panning works there).
   pixi.stage.eventMode = "static";
@@ -746,7 +755,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const tree = new TreeView(node, w.x, w.y, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
     addTree(tree);
     focus = tree;
-    if (isFluff("grabPop") && !prefersReducedMotion()) tree.popIn(); // fluff: pop the new node in
+    if (!prefersReducedMotion()) tree.popIn(); // grab/spawn pop is always on (only reduced-motion suppresses it)
     return tree;
   }
 

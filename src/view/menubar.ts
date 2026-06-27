@@ -218,8 +218,22 @@ export class MenuBar {
       a.textContent = it.accel;
       row.append(a);
     }
+    // Fire on tap, not pointerdown — otherwise a touch *scroll* of a tall (phone)
+    // menu triggers whatever option you started the drag on. Run only if the
+    // pointer didn't move (a tap); a drag scrolls the dropdown instead.
+    let downY = 0;
+    let moved = false;
     row.addEventListener("pointerdown", (e) => {
+      e.stopPropagation(); // keep the backdrop-close from firing
+      downY = e.clientY;
+      moved = false;
+    });
+    row.addEventListener("pointermove", (e) => {
+      if (Math.abs(e.clientY - downY) > 8) moved = true;
+    });
+    row.addEventListener("pointerup", (e) => {
       e.stopPropagation();
+      if (moved) return; // a scroll, not a tap
       it.run();
       this.close();
     });

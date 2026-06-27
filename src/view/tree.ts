@@ -4,6 +4,7 @@ import { IOTA_CODE, IOTA_BITCODE } from "../core/catalog";
 import { type Layout, type LayoutFn } from "../core/layout";
 import { theme, combinatorColor, glyphOn } from "./theme";
 import { tween } from "./anim";
+import { isFluff } from "./fluff";
 
 const LAYOUT_MS = 360; // duration of the layout-toggle reflow
 // Above this node count we drop the per-node text glyphs (you can't read them at
@@ -24,21 +25,45 @@ const TEX_R = 32;
 // (left) = theme.fnEdge (warm), argument (right) = theme.argEdge (cool) — two
 // distinct hues so `(ι X)` and `(X ι)` read differently.
 
-let circleTex: Texture | null = null;
-/** A shared, antialiased white circle texture for every node particle (tinted
- *  per kind). Built once from a 2D canvas — no renderer needed. */
-function circleTexture(): Texture {
-  if (circleTex) return circleTex;
-  const size = TEX_R * 2;
+let nodeTex: { circle: Texture; leaf: Texture } | null = null;
+/** Two white node-particle shapes — a circle and a leaf — packed into ONE texture
+ *  atlas (so the ParticleContainer still batches): the leaf is the fluff "leaf
+ *  nodes" look. Built once from a 2D canvas; tinted per kind. */
+function nodeTextures(): { circle: Texture; leaf: Texture } {
+  if (nodeTex) return nodeTex;
+  const s = TEX_R * 2;
   const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = size;
+  canvas.width = s * 2; // [circle | leaf]
+  canvas.height = s;
   const ctx = canvas.getContext("2d")!;
   ctx.fillStyle = "#ffffff";
   ctx.beginPath();
   ctx.arc(TEX_R, TEX_R, TEX_R - 1, 0, Math.PI * 2); // -1px of AA breathing room
   ctx.fill();
-  circleTex = Texture.from(canvas);
-  return circleTex;
+  // leaf: a pointed ellipse (two quadratics), tilted, with a midrib cut out
+  ctx.save();
+  ctx.translate(s + TEX_R, TEX_R);
+  ctx.rotate(-Math.PI / 5);
+  const r = TEX_R - 2;
+  ctx.beginPath();
+  ctx.moveTo(0, -r);
+  ctx.quadraticCurveTo(r, -r * 0.1, 0, r);
+  ctx.quadraticCurveTo(-r, -r * 0.1, 0, -r);
+  ctx.fill();
+  ctx.globalCompositeOperation = "destination-out"; // midrib
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = "#000";
+  ctx.beginPath();
+  ctx.moveTo(0, -r * 0.85);
+  ctx.lineTo(0, r * 0.85);
+  ctx.stroke();
+  ctx.restore();
+  const source = Texture.from(canvas).source;
+  nodeTex = {
+    circle: new Texture({ source, frame: new Rectangle(0, 0, s, s) }),
+    leaf: new Texture({ source, frame: new Rectangle(s, 0, s, s) }),
+  };
+  return nodeTex;
 }
 
 /** The disc radius and (optional) text glyph for each node kind. */
@@ -536,7 +561,9 @@ export class TreeView {
   // contains discovered combinators (undiscovered S/K/I are expanded to ι-trees).
   private makeVis(n: Node): NodeVis {
     const spec = visSpec(n);
-    const particle = new Particle({ texture: circleTexture(), anchorX: 0.5, anchorY: 0.5, tint: spec.tint });
+    const tex = nodeTextures();
+    const leafy = isFluff("leaves") && n.kind !== "app"; // fluff: terminal nodes become leaves; app junctions stay dots
+    const particle = new Particle({ texture: leafy ? tex.leaf : tex.circle, anchorX: 0.5, anchorY: 0.5, tint: spec.tint });
     this.particles.addParticle(particle);
     return { particle, baseScale: spec.radius / TEX_R, glyphSpec: spec.glyph, glyph: null };
   }
