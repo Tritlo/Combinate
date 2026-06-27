@@ -126,18 +126,23 @@ const PROLOGUE: Puzzle[] = [
 ];
 
 const PROLOGUE_CHAPTER: QuestChapter = {
-  id: "from-one",
-  name: "From One",
+  id: "prologue",
+  name: "Prologue",
   blurb: "Combinate begins with one seed — ι. The SKI Quest assumes you already hold I, K and S; here you grow them from ι yourself.",
   stages: PROLOGUE.map(toStage),
 };
 
-/** The chapters: the ι→basis prologue, then the SKI-Quest proper (vendored data).
+// The SKI-Quest "island of Iota" chapter derives I/K/S from ι (allow:"I-I") — which
+// is exactly what the Prologue now does, and Combinate already builds everything from
+// ι. Dropped to avoid the redundancy.
+const DROP_CHAPTERS = new Set(["NJpjdogX"]);
+
+/** The chapters: the ι→basis Prologue, then the SKI-Quest proper (vendored data).
  *  Puzzles Combinate can't yet check on its single canvas (multi-term builds,
  *  structural-property goals) are left out — every chapter still has its core stages. */
 export const CHAPTERS: QuestChapter[] = [
   PROLOGUE_CHAPTER,
-  ...SKIQ_CHAPTERS.map((c) => ({
+  ...SKIQ_CHAPTERS.filter((c) => !DROP_CHAPTERS.has(c.id)).map((c) => ({
     id: c.id,
     name: c.name,
     blurb: blurbOf(c.intro),
@@ -168,7 +173,7 @@ export function locate(stageIndex: number): QuestLocation | null {
   return null;
 }
 
-const STORE_KEY = "combinate:quest:v4"; // v1–v3 predate the ι→basis prologue chapter
+const STORE_KEY = "combinate:quest:v5"; // bumped: Prologue chapter + dropped Iota chapter shifted indices
 
 /** Tracks how far the player has got, persisted to localStorage. */
 export class QuestProgress {
