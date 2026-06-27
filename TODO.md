@@ -41,13 +41,17 @@ exact pure-ι behaviour. **Hard constraint:** a native value round-trips to the 
 pure tree (toggling off, permalinks, and the Zoo probe stay correct). Brainstorm the
 fast-path location + the "single semantics, not two" design with Codex before coding.
 
-- [ ] **Native numbers** — recognise Scott `Succ`ⁿ`Z` and Church `λf x. fⁿ x` as a JS
-      number; evaluate `+ - * == < …` (and the `+ 0` Church readback) natively.
-- [ ] **Native lists** — Scott/`cons` and the Quest's fold/`V` lists as a JS array;
-      `head/tail/map/<>/length` native.
-- [ ] **Native booleans** — `K`/`A` (Scott) & `K`/`KI` (Quest) ↔ JS bool; `not/and/or/if`.
-- [ ] **Native chars / strings** — Char ≡ codepoint (MicroHs Char page); strings as JS.
-- [ ] Re-test the Zoo probe + Golf metric still see the canonical pure tree.
+- [x] **Native numbers** — Scott `Succ`ⁿ`Z`; `(+) (-) (*) (==) (/=) (<) (<=) (>) (>=)
+      compare` native (one step vs ~1232 for `(*) 12 15`). _Church is out of scope — no
+      named op to intercept (ADR 10)._
+- [x] **Native lists** — Scott/`cons`; `<> map concat` native (force the structure-driving
+      operand only; the other stays raw, matching the pure rule).
+- [x] **Native booleans** — Scott `K`/`KI`; `not and or` native (short-circuit `and`/`or`).
+- [~] **Native chars / strings** — dropped as a peephole: Char ≡ Scott numeral, so char
+      comparison is already the number ops; string *display* is a read-lens follow-up (ADR 10).
+- [x] Round-trip verified: a 490+17-case grid asserts native output == pure output
+      structurally (so the probe / Golf / permalinks see the canonical tree). _Graph-mode
+      native is unwired (tree mode is the default); a follow-up._
 
 ## 3. Kernels / FFI — stretch, longer  · ADR 11 (full ADR: `docs/adr/0009-kernels.md`)
 

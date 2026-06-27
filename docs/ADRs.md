@@ -76,6 +76,20 @@ escapes the reducer — so the round-trip invariant holds *by construction*: per
 ordinary pure terms. The native flags thread through the reducer like `fast` does (the
 pure core never imports the view toggle); default off = today's exact reduction.
 
+Implemented (`core/native.ts`): **numbers** (`(+) (-) (*) (==) (/=) (<) (<=) (>) (>=)
+compare`), **lists** (`<> map concat`), **booleans** (`not and or`) — each a toggle.
+Each op mirrors its catalog rule's forcing (`(+) a n = Succ^a n` never forces `n`;
+`(*) 0 _ = 0`; `[] <> ys = ys`; `and False _ = False`), so native never reduces an
+operand the pure rule wouldn't. The discovery check (`nativeOpArity`) is cheap; the
+match happens in the redex's `build` (so `firingRule`/existence checks don't pay for it).
+A 490+17-case grid asserts native output == pure output structurally. Numeral output is
+capped (`MAX_NAT`) because a Scott numeral is a depth-N tree the recursive reducer walks.
+
+**No native `chars` toggle:** a Char is a Scott numeral (codepoint), so char comparison
+is already the number ops — a separate char peephole would be redundant. Rendering a
+char-list as a *string* is a read-lens concern (`types.ts`), not a reducer peephole;
+left as a possible follow-up.
+
 **Scope / honest limit (Codex):** this is a **catalog-Scott (named-op)** fast path. It
 does **not** speed up the SKI-Quest's **Church** arithmetic — gcd/factorial there are
 compiled to raw S/K/I with no named op to intercept, so the reducer can't see them. The

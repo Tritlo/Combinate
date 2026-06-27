@@ -98,7 +98,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   let shareMode = isOpt("graph"); // "graph" mode mirror: call-by-need graph reduction, shared subterms drawn as one node
   // The active native-value optimizations (ADR 10), or undefined if none — read from
   // the optimize store each reduction, passed into the reducer alongside `fastMode`.
-  const nativeOpts = (): NativeOpts | undefined => (isOpt("nativeNumbers") ? { numbers: true } : undefined);
+  const nativeOpts = (): NativeOpts | undefined => {
+    const o: NativeOpts = {};
+    if (isOpt("nativeNumbers")) o.numbers = true;
+    if (isOpt("nativeLists")) o.lists = true;
+    if (isOpt("nativeBooleans")) o.booleans = true;
+    return o.numbers || o.lists || o.booleans ? o : undefined;
+  };
   let menuBar: MenuBar | undefined; // the top menu bar (built below); paintRail() refreshes its open pull-down
 
   const hint = new Text({
