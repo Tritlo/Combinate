@@ -428,7 +428,7 @@ export class TreeView {
     for (const e of this.edgeList) {
       const p = this.objs.get(e.p)?.particle;
       const rp = this.objs.get(e.r)?.particle;
-      if (p && rp && (!v || overlaps(p, rp, v))) this.edges.moveTo(p.x, p.y).lineTo(rp.x, rp.y);
+      if (p && rp && (!v || overlaps(p, rp, v))) dashedSegment(this.edges, p.x, p.y, rp.x, rp.y); // argument edge: dashed
     }
     this.edges.stroke({ width: 2.5, color: theme.argEdge });
     for (const e of this.edgeList) {
@@ -506,6 +506,21 @@ export class TreeView {
     const vis = this.objs.get(this.display.id);
     if (!vis) return;
     this.rootMark.circle(vis.particle.x, vis.particle.y, radiusOf(this.display.kind) + 6).stroke({ width: 3, color: theme.root });
+  }
+}
+
+/** Emit dashed sub-segments along a→b into the graphics path (caller strokes once).
+ *  Dashing the argument edge gives function vs argument a style cue, not just a
+ *  colour one — the distinction survives 1-bit black-and-white. */
+function dashedSegment(g: Graphics, ax: number, ay: number, bx: number, by: number, dash = 8, gap = 6): void {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len;
+  const uy = dy / len;
+  for (let d = 0; d < len; d += dash + gap) {
+    const e = Math.min(d + dash, len);
+    g.moveTo(ax + ux * d, ay + uy * d).lineTo(ax + ux * e, ay + uy * e);
   }
 }
 
