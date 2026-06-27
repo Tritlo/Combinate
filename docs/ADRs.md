@@ -98,12 +98,14 @@ separate Church abstract-interpreter lands. Native values v1 helps the main sand
 Haskell-compiled programs, not raw-combinator Church terms.
 
 ## 11: Kernels / FFI
-[docs/adr/0009-kernels.md](adr/0009-kernels.md) — _to be written with Codex (TODO §3); the bigger one._
+[docs/adr/0009-kernels.md](adr/0009-kernels.md) — **Accepted** (Codex consensus).
 
 A MicroHs-style mechanism binding a named combinator to a native JS "kernel"
-(primitive op), generalising native values. **Pure kernels only for now** — a kernel is
-a pure function of its evaluated arguments, no IO/effects (effectful FFI is a possible
-future, out of scope). Full ADR because it's load-bearing and larger; spike first.
+(primitive op), generalising native values into one registry + reducer hook. **Pure
+kernels only** — a deterministic function of its evaluated args, no IO/effects; emits the
+canonical pure tree, falls back to the catalog rule. Native numbers/lists/booleans become
+registered kernels (thin adapter). Church helpers extracted to `core/church.ts`; a Church
+`cmod` kernel is the route to unblock gcd (not a `gcd` cheat kernel).
 
 ## 12: Reorg — ports & adapters, shared modal base (refactor)
 **Status:** Proposed — _to be written with Codex (TODO §5)._

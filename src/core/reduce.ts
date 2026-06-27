@@ -1,6 +1,6 @@
 import { type Node, type NodeId, app, comb, iota, freeVar } from "./term";
 import { RULES } from "./catalog";
-import { nativeContract, nativeOpArity, type NativeOpts } from "./native";
+import { kernelFor, type NativeOpts } from "./kernels";
 
 /** Deep-copy a term with fresh ids — used to duplicate the shared argument in
  * the S rule so every node in the result has a unique id (the view keys layout
@@ -91,19 +91,15 @@ export function redexAt(n: Node, argsAbove = 0, fast = false, native?: NativeOpt
     }
     if (head.kind === "comb") {
       const k = head.arity ?? 1;
-      // Native value op (ADR 10): a CHEAP head check during discovery; the expensive
-      // match + canonical re-encode happen in `build`, which falls back to the catalog
-      // rule when the operands aren't recognised values (so `firingRule`/existence
-      // checks never trigger a match).
-      const nk = native ? nativeOpArity(head.sym, native) : null;
-      if (nk !== null && args.length >= nk) {
+      // Kernel (ADR 11 — native values are the built-in kernels): a CHEAP registry
+      // lookup during discovery; the expensive match + canonical re-encode happen in
+      // `build`, which falls back to the catalog rule when the kernel returns null (so
+      // `firingRule`/existence checks never trigger a match).
+      const kernel = kernelFor(head.sym, native);
+      if (kernel && args.length >= kernel.arity) {
         return {
           sym: head.sym,
-          build: () => {
-            const nat = nativeContract(head.sym, args, native!);
-            const res = nat ?? applyRule(RULES[head.sym], args, k);
-            return dedupIds(res, new Set());
-          },
+          build: () => dedupIds(kernel.run(args) ?? applyRule(RULES[head.sym], args, k), new Set()),
         };
       }
       const rule = fast ? RULES[head.sym] : undefined;

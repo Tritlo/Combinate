@@ -7,12 +7,11 @@
  * round-trip invariant holds by construction: permalinks, the behavioural probe, and
  * toggling-off all keep seeing ordinary pure terms. Default off = plain pure reduction.
  *
- * Discovery is cheap ({@link nativeOpArity} is just a Set lookup); the expensive match
- * happens in {@link nativeContract}, which the reducer calls only when a redex actually
- * fires (so `firingRule`/existence checks stay cheap). Each op mirrors its catalog
- * rule's forcing — it never reduces an operand the pure rule wouldn't — and the
- * materialised numeral size is capped (a huge product falls back to the step-capped
- * pure reducer rather than allocating it in one step).
+ * These ops are registered as **kernels** (ADR 11) in `kernels.ts`; the reducer
+ * dispatches through that one registry (cheap arity discovery, the match in the redex's
+ * `build`, fall back to the catalog rule). Each op mirrors its catalog rule's forcing —
+ * it never reduces an operand the pure rule wouldn't — and the materialised numeral size
+ * is capped (a huge product falls back to the step-capped pure reducer instead).
  *
  * Scope: a catalog-Scott (named-op) fast path; it does NOT touch arithmetic built from
  * raw S/K/I (the SKI-Quest's Church numerals — no named op to intercept). See ADR 10.
@@ -49,9 +48,9 @@ const ordTree = (c: number): Node => named(c < 0 ? "LT" : c > 0 ? "GT" : "EQ");
 /** A Scott list of `heads` ending in `tail`: `cons h₀ (cons h₁ (… tail))`, nil = K. */
 const consTree = (heads: Node[], tail: Node): Node => heads.reduceRight((acc, h) => app(app(named("cons"), h), acc), tail);
 
-const NUM_OPS = new Set(["(+)", "(-)", "(*)", "(==)", "(/=)", "(<)", "(<=)", "(>)", "(>=)", "compare"]);
-const LIST_OPS = new Set(["<>", "map", "concat"]);
-const BOOL_OPS = new Set(["not", "and", "or"]);
+export const NUM_OPS = ["(+)", "(-)", "(*)", "(==)", "(/=)", "(<)", "(<=)", "(>)", "(>=)", "compare"];
+export const LIST_OPS = ["<>", "map", "concat"];
+export const BOOL_OPS = ["not", "and", "or"];
 const CMP: Record<string, (a: number, b: number) => Node> = {
   "(==)": (a, b) => boolTree(a === b),
   "(/=)": (a, b) => boolTree(a !== b),
@@ -62,32 +61,16 @@ const CMP: Record<string, (a: number, b: number) => Node> = {
   compare: (a, b) => ordTree(a === b ? 0 : a < b ? -1 : 1),
 };
 
-/** If `sym` is a native op for the enabled value classes, its arity — for cheap redex
- *  discovery. Null otherwise. The actual match/compute is in {@link nativeContract}. */
-export function nativeOpArity(sym: string, opts: NativeOpts): number | null {
-  if (opts.numbers && NUM_OPS.has(sym)) return 2;
-  if (opts.lists && LIST_OPS.has(sym)) return sym === "concat" ? 1 : 2;
-  if (opts.booleans && BOOL_OPS.has(sym)) return sym === "not" ? 1 : 2;
-  return null;
-}
-
-/**
- * Contract a saturated native op on recognised values → the canonical pure tree, or
- * `null` to fall back to the catalog rule. `args` is the full spine (length ≥ arity).
- */
-export function nativeContract(sym: string, args: Node[], opts: NativeOpts): Node | null {
-  if (opts.numbers && NUM_OPS.has(sym)) return numberOp(sym, args);
-  if (opts.lists && LIST_OPS.has(sym)) return listOp(sym, args);
-  if (opts.booleans && BOOL_OPS.has(sym)) return boolOp(sym, args);
-  return null;
-}
+// The op sets + the per-class compute functions are registered as kernels in
+// `kernels.ts` (ADR 11); the reducer dispatches through that one registry. The matching
+// + canonical re-encode + forcing logic lives here, unchanged.
 
 const reapply = (res: Node, args: Node[], from: number): Node => {
   for (let i = from; i < args.length; i++) res = app(res, args[i]);
   return res;
 };
 
-function numberOp(sym: string, args: Node[]): Node | null {
+export function numberOp(sym: string, args: Node[]): Node | null {
   if (args.length < 2) return null;
   const [x, y] = args;
   switch (sym) {
@@ -129,7 +112,7 @@ function numberOp(sym: string, args: Node[]): Node | null {
   }
 }
 
-function listOp(sym: string, args: Node[]): Node | null {
+export function listOp(sym: string, args: Node[]): Node | null {
   switch (sym) {
     case "<>": {
       // [] <> ys = ys; (h:t) <> ys = h : (t <> ys). Force only the left list; ys stays raw.
@@ -162,7 +145,7 @@ function listOp(sym: string, args: Node[]): Node | null {
   return null;
 }
 
-function boolOp(sym: string, args: Node[]): Node | null {
+export function boolOp(sym: string, args: Node[]): Node | null {
   switch (sym) {
     case "not": {
       const b = matchBool(args[0]);
