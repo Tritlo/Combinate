@@ -65,15 +65,85 @@ function toStage(p: Puzzle): QuestStage {
   };
 }
 
-/** The chapters, built from the vendored SKI-Quest data. Puzzles Combinate can't yet
- *  check on its single canvas (multi-term builds, structural-property goals) are left
- *  out — every chapter still has its core stages. */
-export const CHAPTERS: QuestChapter[] = SKIQ_CHAPTERS.map((c) => ({
-  id: c.id,
-  name: c.name,
-  blurb: blurbOf(c.intro),
-  stages: c.content.filter(isSupported).map(toStage),
-})).filter((c) => c.stages.length > 0);
+// A Combinate-native prologue: the SKI Quest starts you with S/K/I already in hand,
+// but here you begin with one block — ι — so first grow the basis from it. Each stage
+// is an ordinary behavioural puzzle (run through the same engine); `allow: "I-I"`
+// keeps the ι-built ones honestly ι-only, while A is built from the K and I you just
+// unlocked. Solving them discovers the bird, so the inventory the Quest assumes is
+// actually earned.
+const PROLOGUE: Puzzle[] = [
+  {
+    id: "from-one-i",
+    name: "Out of One",
+    allow: "I-I",
+    unlock: "I",
+    input: "phi",
+    intro: [
+      "<p>Welcome. Everything in Combinate grows from a single seed: <b>ι</b>, where <code>ι x = x S K</code>. Drag one from the hotbar, snap a second onto it, and watch it reduce.</p>",
+      "<p>Your first bird is the <b>Identity</b> — <code>I x = x</code> hands back whatever it is given. It is the cheapest thing there is: just ι applied to itself.</p>",
+    ],
+    hint: "<code>ι ι</code>",
+    cases: [["phi x", "x"]],
+  },
+  {
+    id: "from-one-k",
+    name: "The Kestrel",
+    allow: "I-I",
+    unlock: "K",
+    input: "phi",
+    intro: [
+      "<p>The <b>Kestrel</b> <code>K x y = x</code> keeps its first argument and forgets the second.</p>",
+      "<p>It hides a little deeper inside ι — feed ι to ι a few times.</p>",
+    ],
+    hint: "<code>ι (ι (ι ι))</code>",
+    cases: [["phi x y", "x"]],
+  },
+  {
+    id: "from-one-a",
+    name: "Truth, from Two",
+    unlock: "A",
+    input: "phi",
+    intro: [
+      "<p>Now combine what you have unlocked. <b>A</b> <code>A x y = y</code> is the mirror of the Kestrel — it keeps the <i>second</i> argument. It is the Scott <b>True</b>, and you build it from two birds already in your hands.</p>",
+      "<p>Snap <code>K</code> onto <code>I</code>.</p>",
+    ],
+    hint: "<code>K I</code>",
+    cases: [["phi x y", "y"]],
+  },
+  {
+    id: "from-one-s",
+    name: "The Starling",
+    allow: "I-I",
+    unlock: "S",
+    input: "phi",
+    intro: [
+      "<p>The last piece of the basis: the <b>Starling</b> <code>S x y z = x z (y z)</code>. With <code>S</code> and <code>K</code> you can spell <i>any</i> combinator at all — everything in the Quest ahead is built from here.</p>",
+      "<p>It is one ι deeper than the Kestrel.</p>",
+    ],
+    hint: "<code>ι (ι (ι (ι ι)))</code>",
+    cases: [["phi x y z", "x z (y z)"]],
+  },
+];
+
+const PROLOGUE_CHAPTER: QuestChapter = {
+  id: "from-one",
+  name: "From One",
+  blurb: "Combinate begins with one seed — ι. The SKI Quest assumes you already hold I, K and S; here you grow them from ι yourself.",
+  stages: PROLOGUE.map(toStage),
+};
+
+/** The chapters: the ι→basis prologue, then the SKI-Quest proper (vendored data).
+ *  Puzzles Combinate can't yet check on its single canvas (multi-term builds,
+ *  structural-property goals) are left out — every chapter still has its core stages. */
+export const CHAPTERS: QuestChapter[] = [
+  PROLOGUE_CHAPTER,
+  ...SKIQ_CHAPTERS.map((c) => ({
+    id: c.id,
+    name: c.name,
+    blurb: blurbOf(c.intro),
+    stages: c.content.filter(isSupported).map(toStage),
+  })),
+].filter((c) => c.stages.length > 0);
 
 /** All stages, flattened into play order. */
 export const QUEST: QuestStage[] = CHAPTERS.flatMap((c) => c.stages);
@@ -98,7 +168,7 @@ export function locate(stageIndex: number): QuestLocation | null {
   return null;
 }
 
-const STORE_KEY = "combinate:quest:v3"; // v1/v2 were the bespoke pre-SKI-Quest chapters
+const STORE_KEY = "combinate:quest:v4"; // v1–v3 predate the ι→basis prologue chapter
 
 /** Tracks how far the player has got, persisted to localStorage. */
 export class QuestProgress {
