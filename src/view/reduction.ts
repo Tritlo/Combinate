@@ -96,14 +96,12 @@ export class ReductionController {
     this.auto.delete(tree);
   }
 
-  // Turbo (the wasm graph engine) does call-by-need sharing + the NUMBER kernels, but not the
-  // catalog rules, graph-mode driver, or the list/bool kernels — so it's eligible when those
-  // are off. Native *numbers* may be on (the wasm kernels handle them). `makeSession` returns
-  // null until the wasm has loaded, so we transparently fall back to the TS reducer then too.
+  // Turbo (the wasm graph engine) does call-by-need sharing + the number/list/bool kernels,
+  // but not the catalog rules (fast mode) or the graph-mode driver — so it's eligible when
+  // those are off; any native-value toggle may be on (the wasm kernels handle them).
+  // `makeSession` returns null until the wasm has loaded → transparent fallback to TS then.
   private turboEligible(): boolean {
-    const n = this.deps.getNative();
-    const unportedNative = !!(n && (n.lists || n.booleans));
-    return this.deps.getTurbo() && !this.deps.getShare() && !this.deps.getFast() && !unportedNative;
+    return this.deps.getTurbo() && !this.deps.getShare() && !this.deps.getFast();
   }
   // Auto-switch: engage the wasm engine once a tree is BIG (the TS reducer is plenty fast on
   // small trees AND gives the pretty per-step animation) OR a reduction is STRUGGLING (many

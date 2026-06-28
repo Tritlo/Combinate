@@ -39,15 +39,18 @@ struct Sym {
     kernel: i32, // number-kernel kind (1=(+) … 10=compare), or 0 if not a kernel op
 }
 
-// Constructor symIds + the native-kernel gate, parsed from the wire header. Lets the graph
-// reducer fire native.ts's number kernels (clean Scott arithmetic) directly in wasm.
+// Constructor symIds + the native-kernel gates, parsed from the wire header. Lets the graph
+// reducer fire native.ts's kernels (clean Scott arithmetic / lists / booleans) directly.
 #[derive(Clone, Copy)]
 struct Kernels {
     succ: i32,
     lt: i32,
     eq: i32,
     gt: i32,
+    cons: i32,
     numbers: bool,
+    lists: bool,
+    bools: bool,
 }
 
 // Persistent reduction bump-allocates and never frees, so a divergent / explosively growing
@@ -76,9 +79,19 @@ impl Reducer {
         let n = data[4] as usize;
         let m = data[5] as usize;
         let def_len = data[6] as usize;
-        let kern = Kernels { succ: data[7], lt: data[8], eq: data[9], gt: data[10], numbers: data[11] != 0 };
+        let flags = data[11];
+        let kern = Kernels {
+            succ: data[7],
+            lt: data[8],
+            eq: data[9],
+            gt: data[10],
+            cons: data[12],
+            numbers: flags & 1 != 0,
+            lists: flags & 2 != 0,
+            bools: flags & 4 != 0,
+        };
         let mut nodes = Vec::with_capacity(n + extra_capacity);
-        let base = 12;
+        let base = 13;
         for j in 0..n {
             let o = base + j * 3;
             nodes.push(Node { tag: data[o], a: data[o + 1], b: data[o + 2] });
@@ -570,6 +583,151 @@ impl Graph {
         }
     }
 
+    // ---- list + bool kernels (port of native.ts's listOp / boolOp, same forcing) ----
+
+    /// Reduce a cell to WHNF in place (head a constructor / free) — for matching the SPINE of
+    /// a list or a bool without forcing the (lazy) elements. Returns the forced top cell.
+    fn force_whnf(&mut self, idx: i32, budget: &mut u32) -> i32 {
+        loop {
+            if *budget == 0 {
+                return self.force(idx);
+            }
+            let mut spine: Vec<i32> = Vec::new();
+            let mut cur = self.force(idx);
+            while self.nodes[cur as usize].tag == TAG_APP {
+                spine.push(cur);
+                cur = self.force(self.nodes[cur as usize].a);
+            }
+            if self.contract(cur, &spine) {
+                *budget -= 1;
+                continue;
+            }
+            return self.force(idx);
+        }
+    }
+
+    /// Match a Scott list `cons h₀ (cons h₁ (… K))` by forcing only the SPINE (heads stay lazy
+    /// thunks, like native.ts). Returns the head cell indices, or None if it isn't a list.
+    fn match_list(&mut self, idx: i32, budget: &mut u32) -> Option<Vec<i32>> {
+        let mut heads: Vec<i32> = Vec::new();
+        let mut cur = idx;
+        for _ in 0..=64 {
+            // MAX_LIST
+            let top = self.force_whnf(cur, budget);
+            let n = self.nodes[top as usize];
+            if n.tag == TAG_COMB && n.a == self.sym_k {
+                return Some(heads); // nil = K
+            }
+            if n.tag == TAG_APP {
+                let x = self.force(n.a);
+                let xc = self.nodes[x as usize];
+                if xc.tag == TAG_APP {
+                    let c = self.force(xc.a);
+                    if self.nodes[c as usize].tag == TAG_COMB && self.nodes[c as usize].a == self.kern.cons {
+                        heads.push(xc.b); // h (unforced)
+                        cur = n.b; // the raw tail
+                        continue;
+                    }
+                }
+            }
+            return None;
+        }
+        None
+    }
+
+    /// Match a Scott bool: `True = K I`, `False = K`. None if it isn't a (canonical) bool.
+    fn match_bool(&mut self, idx: i32, budget: &mut u32) -> Option<bool> {
+        let top = self.force_whnf(idx, budget);
+        let n = self.nodes[top as usize];
+        if n.tag == TAG_COMB && n.a == self.sym_k {
+            return Some(false); // False = K
+        }
+        if n.tag == TAG_APP {
+            let f = self.force(n.a);
+            let a = self.force(n.b);
+            if self.nodes[f as usize].tag == TAG_COMB
+                && self.nodes[f as usize].a == self.sym_k
+                && self.nodes[a as usize].tag == TAG_COMB
+                && self.nodes[a as usize].a == self.sym_i
+            {
+                return Some(true); // True = K I
+            }
+        }
+        None
+    }
+
+    /// `cons h₀ (cons h₁ (… tail))` — build a Scott list of `heads` ending in `tail` (shared).
+    fn cons_chain(&mut self, heads: &[i32], tail: i32) -> i32 {
+        let mut r = tail;
+        for &h in heads.iter().rev() {
+            let c = self.push(TAG_COMB, self.kern.cons, 0);
+            let ch = self.app(c, h);
+            r = self.app(ch, r);
+        }
+        r
+    }
+
+    /// Fire a list kernel; None → an operand isn't a list yet (fall back to def-unfold).
+    fn fire_list_kernel(&mut self, kind: i32, a: i32, b: i32) -> Option<i32> {
+        let mut bud: u32 = 500_000;
+        match kind {
+            11 => {
+                // [] <> ys = ys; (h:t) <> ys = h : (t <> ys). Force the LEFT list only; ys lazy.
+                let xs = self.match_list(a, &mut bud)?;
+                Some(self.cons_chain(&xs, b))
+            }
+            12 => {
+                // map f [] = []; map f (h:t) = f h : map f t. Force the list (b); f (a) lazy.
+                let xs = self.match_list(b, &mut bud)?;
+                let mapped: Vec<i32> = xs.iter().map(|&h| self.app(a, h)).collect();
+                let nil = self.push(TAG_COMB, self.sym_k, 0);
+                Some(self.cons_chain(&mapped, nil))
+            }
+            13 => {
+                // concat: flatten a list of lists (force the outer spine + each inner spine).
+                let xss = self.match_list(a, &mut bud)?;
+                let mut flat: Vec<i32> = Vec::new();
+                for xs in xss {
+                    let inner = self.match_list(xs, &mut bud)?;
+                    flat.extend(inner);
+                }
+                let nil = self.push(TAG_COMB, self.sym_k, 0);
+                Some(self.cons_chain(&flat, nil))
+            }
+            _ => None,
+        }
+    }
+
+    /// Fire a bool kernel; None → an operand isn't a bool yet (fall back to def-unfold).
+    fn fire_bool_kernel(&mut self, kind: i32, a: i32, b: i32) -> Option<i32> {
+        let mut bud: u32 = 500_000;
+        match kind {
+            14 => {
+                let p = self.match_bool(a, &mut bud)?;
+                Some(self.bool_cell(!p))
+            }
+            15 => {
+                // and p q = if p then q else False — force p; if false, q stays unforced.
+                let p = self.match_bool(a, &mut bud)?;
+                if !p {
+                    return Some(self.bool_cell(false));
+                }
+                let q = self.match_bool(b, &mut bud)?;
+                Some(self.bool_cell(q))
+            }
+            16 => {
+                // or p q = if p then True else q — force p; if true, q stays unforced.
+                let p = self.match_bool(a, &mut bud)?;
+                if p {
+                    return Some(self.bool_cell(true));
+                }
+                let q = self.match_bool(b, &mut bud)?;
+                Some(self.bool_cell(q))
+            }
+            _ => None,
+        }
+    }
+
     /// Contract the leftmost-outermost redex at `head` + its unwound `spine` (app-cell indices,
     /// outermost first). Mutates in place; false if `head` is WHNF for these args. Dispatch
     /// order mirrors `reduce.ts`/`graph.ts` so the normal form matches.
@@ -632,16 +790,30 @@ impl Graph {
             if m < arity {
                 return false;
             } // partial named combinator → WHNF
-            // Number kernel: a saturated native op, when its operands are values, computes
-            // the canonical Scott result directly (clean Succ^k K — no raw blow-up). On a
-            // miss (operand not yet a value) fall through to def-unfold / keep reducing.
+            // Kernel: a saturated native op, when its operands are values, computes the
+            // canonical Scott result directly (clean — no raw blow-up). On a miss (operand not
+            // yet a value) fall through to def-unfold / keep reducing. Number ops are arity 2;
+            // list/bool ops carry their own arity, so the redex is spine[m - arity].
             let kind = self.syms[sym as usize].kernel;
-            if kind > 0 && self.kern.numbers && m >= 2 {
-                let a = self.arg_of(spine[m - 1]); // left operand
-                let b = self.arg_of(spine[m - 2]); // right operand
-                if let Some(r) = self.fire_number_kernel(kind, a, b) {
-                    self.set_ind(spine[m - 2], r); // the saturated (op a b) redex
-                    return true;
+            if kind > 0 {
+                let gated = match kind {
+                    1..=10 => self.kern.numbers,
+                    11..=13 => self.kern.lists,
+                    14..=16 => self.kern.bools,
+                    _ => false,
+                };
+                if gated {
+                    let a = self.arg_of(spine[m - 1]); // first operand
+                    let b = if m >= 2 { self.arg_of(spine[m - 2]) } else { -1 }; // second (if any)
+                    let r = match kind {
+                        1..=10 => self.fire_number_kernel(kind, a, b),
+                        11..=13 => self.fire_list_kernel(kind, a, b),
+                        _ => self.fire_bool_kernel(kind, a, b),
+                    };
+                    if let Some(res) = r {
+                        self.set_ind(spine[m - arity], res); // the saturated (op …) redex
+                        return true;
+                    }
                 }
             }
             let def_root = self.syms[sym as usize].def_root;
