@@ -138,10 +138,27 @@ const PROLOGUE_CHAPTER: QuestChapter = {
 // ι. Dropped to avoid the redundancy.
 const DROP_CHAPTERS = new Set(["NJpjdogX"]);
 
+/** Drop a stage that re-unlocks a bird an earlier stage already gave — e.g. the SKIQ
+ *  basis stage that rebuilds I (= the Prologue's job), which is redundant now that the
+ *  ι Prologue already discovers I/A/K/S. Stages with no unlock are always kept. */
+function dedupeUnlocks(chapters: QuestChapter[]): QuestChapter[] {
+  const seen = new Set<string>();
+  return chapters
+    .map((c) => ({
+      ...c,
+      stages: c.stages.filter((s) => {
+        if (s.unlock && seen.has(s.unlock)) return false;
+        if (s.unlock) seen.add(s.unlock);
+        return true;
+      }),
+    }))
+    .filter((c) => c.stages.length > 0);
+}
+
 /** The chapters: the ι→basis Prologue, then the SKI-Quest proper (vendored data).
  *  Puzzles Combinate can't yet check on its single canvas (multi-term builds,
  *  structural-property goals) are left out — every chapter still has its core stages. */
-export const CHAPTERS: QuestChapter[] = [
+export const CHAPTERS: QuestChapter[] = dedupeUnlocks([
   PROLOGUE_CHAPTER,
   ...SKIQ_CHAPTERS.filter((c) => !DROP_CHAPTERS.has(c.id)).map((c) => ({
     id: c.id,
@@ -149,7 +166,7 @@ export const CHAPTERS: QuestChapter[] = [
     blurb: blurbOf(c.intro),
     stages: c.content.filter(isSupported).map(toStage),
   })),
-].filter((c) => c.stages.length > 0);
+]);
 
 /** All stages, flattened into play order. */
 export const QUEST: QuestStage[] = CHAPTERS.flatMap((c) => c.stages);

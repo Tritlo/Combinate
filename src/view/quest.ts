@@ -70,6 +70,8 @@ export interface QuestOpts {
   notify: (msg: string) => void;
   /** Reveal a combinator the player just built (wired to the shell's discover). */
   onUnlock: (sym: string) => void;
+  /** Reset side effects beyond the quest stage — the shell forgets discovered combos. */
+  onReset: () => void;
 }
 
 export class QuestPanel {
@@ -116,6 +118,7 @@ export class QuestPanel {
         return;
       }
       this.progress.reset();
+      this.opts.onReset(); // the shell forgets discovered combinators (keeps authored ones)
       this.hintShown = false;
       for (const cb of this.advanceListeners) cb(); // refresh the tracker + the in-HUD hint
       this.render();

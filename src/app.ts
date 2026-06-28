@@ -166,7 +166,24 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // ---- discovery (§7): the set of combinators found so far. Drives the
   // behavioural probe (what to still look for) and the masking of transient
   // S/K/I nodes (undiscovered ones render as "?", revealed on discovery). ----
+  // Discovered combinators persist across sessions (localStorage); the player's own
+  // authored combos are tracked separately so a "Reset progress" keeps them.
+  const DISCOVERED_KEY = "combinate:discovered:v1";
   const discovered = new Set<string>();
+  const authoredNames = new Set<string>();
+  try {
+    const raw = localStorage.getItem(DISCOVERED_KEY);
+    if (raw) for (const s of JSON.parse(raw) as string[]) discovered.add(s);
+  } catch {
+    /* ignore */
+  }
+  const saveDiscovered = (): void => {
+    try {
+      localStorage.setItem(DISCOVERED_KEY, JSON.stringify([...discovered]));
+    } catch {
+      /* ignore */
+    }
+  };
   const isDiscovered = (sym: string): boolean => discovered.has(sym);
 
   // ---- authoring (ADR 0006): load the player's own combinators from the store
@@ -182,6 +199,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     try {
       defineCombinator(d.name, fromEgg(d.egg));
       discovered.add(d.name);
+      authoredNames.add(d.name);
     } catch {
       /* malformed stored definition — drop it */
     }
@@ -303,12 +321,27 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // Reveal every combinator at once (the "U" cheat key + the Zoo unlock).
   function unlockAll(): void {
     for (const law of CATALOG) discovered.add(law.sym);
+    saveDiscovered();
     hotbar.refresh();
     for (const t of trees) t.refresh();
     zoo.refresh();
     updateHint();
     paintRail();
     toast.show("all combinators unlocked");
+  }
+
+  // Reset progress (wired to the Quest modal's Reset button): forget the discovered
+  // combinators — but keep the player's own authored combos — and refresh everything.
+  // The Quest stage is reset by the panel itself; this clears the discovery side.
+  function resetProgress(): void {
+    discovered.clear();
+    for (const n of authoredNames) discovered.add(n);
+    saveDiscovered();
+    hotbar.refresh();
+    for (const t of trees) t.refresh();
+    zoo.refresh();
+    updateHint();
+    paintRail();
   }
 
   // When a tree settles at normal form, recognise what it does: unlock the law
@@ -325,6 +358,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   function discover(law: Law): void {
     discovered.add(law.sym);
+    saveDiscovered();
     toast.show(`${law.lawText}  —  discovered!`);
     if (isFluff("discovery")) sound.playIfReady(law.sym); // fluff: chirp the new bird (only if audio's already unlocked — discovery isn't a gesture)
     hotbar.reveal(law.sym);
@@ -366,6 +400,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   function register(name: string, body: Node): Law {
     const law = defineCombinator(name, body);
     discovered.add(name);
+    authoredNames.add(name);
+    saveDiscovered();
     void store.putDefinition({ name, egg: toEgg(body) });
     hotbar.refresh();
     hotbar.reveal(name);
@@ -790,6 +826,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       const law = CATALOG.find((l) => l.sym === sym);
       if (law && !discovered.has(sym)) discover(law);
     },
+    onReset: () => resetProgress(),
   });
   // Tracked-quest HUD (ADR 13): a glanceable side card mirroring the current stage,
   // refreshed whenever the quest advances. The panel stays the sole owner of progress.
