@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "gen:rules": "tsx scripts/gen-rules.ts",
-    "build:wasm": "npm run gen:rules && (cd crates/refold && wasm-pack build --target web --out-dir pkg --release) && rm -f crates/refold/pkg/.gitignore",
+    "build:wasm": "npm run gen:rules && (cd crates/refold && wasm-pack build --target web --out-dir pkg --release) && rm -f crates/refold/pkg/.gitignore && (cd crates/reduce && wasm-pack build --target web --out-dir pkg --release) && rm -f crates/reduce/pkg/.gitignore",
     "build:reduce-wasm": "wasm-pack build crates/reduce --target nodejs --release --out-dir pkg-node",
     "check:reduce-wasm": "npm run build:reduce-wasm && tsx scripts/wasm-reduce-check.mts"
   },
