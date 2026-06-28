@@ -164,3 +164,43 @@ Why this shape (Codex):
   readout (`y=32`). Narrow screens collapse to a small tab. System-1 chrome (matches
   Fluff/Optimize/Quest; the shared-modal base is the later ADR 12), static DOM (no FPS
   cost).
+
+## 14: Deep perf + reorg push (`reorg-perf`)
+**Status:** Accepted (Codex consensus).
+
+A perf cut across the app plus the `app.ts` extraction deferred in ADR 12.
+
+**Perf — engine hot path.** `redexAt`'s fast/native scan re-collected the applied spine at
+*every* recursion level, so checking a settled D-deep spine for normal form (the value-read
+/ NF hot path, run on every edit) was O(D²). The head comb is unchanged down the function
+spine, so a private `redexAtGo(..., headChecked)` skips the head re-scan in the
+`fn`-recursion (built-in ι/I/K/S/def handlers stay outside it and still fire deep heads) →
+O(D). Made correct-by-construction (Codex): kernels now receive exactly their arity and the
+reducer reapplies extras (`reapplyExtras`), so `headChecked` can't skip a kernel that only
+fires on an exact-arity prefix.
+
+**Perf — rendering.** The per-frame edge draw cached each edge's endpoint `NodeVis` at index
+time, dropping ~4 `objs` Map lookups per edge per frame. The floor is the `Graphics`
+geometry + GPU upload — wasm can't help there (see below).
+
+**Impurity (ADR 0001).** `QuestProgress` read/wrote `localStorage`; made pure — the starting
+stage + a `persist` callback are injected by the view. `core/` is now 0 DOM/localStorage refs.
+
+**`app.ts` extraction.** Codex order: ReadoutLens → ReductionController → (TransportBar) →
+CanvasController, app.ts stays the composition root, no global `AppState` (that just renames
+the tangle). Landed `ReadoutLens` (the focused-tree read-out + re-fold/type lenses),
+`ReductionController` (the auto-reduce loop + transport state machine; Pixi flourish +
+transport bar injected as callbacks), and `TransportBar`. app.ts 1416 → 1089. **CanvasController
+(trees/focus/drag/snap/pan/pinch) is deferred** — Codex: it's the riskiest/most stateful;
+split it (a `TreeCanvas` owner first) rather than lifting it all at once, and only after the
+boundary is proven.
+
+**wasm reducer — investigated, built, verified, *shelved*.** Spiked a Rust→wasm flat-arena
+raw reducer (ι/I/K/S + def-unfold, defs imported from TS catalog — zero rule/kernel
+duplication). Verified equivalent to the TS non-fast reducer (213/0 cross-check) and 42×
+faster in isolation. **Not wired:** end-to-end (encode+wasm+decode) is only 2–3× on
+already-sub-10ms terms — the JS codec dominates, and escaping it needs a wasm-resident term
+(a second runtime + view rewrite, not an adapter). Heavy arithmetic/data already have native
+kernels + graph sharing. Kept as a documented, cross-checked capability (`crates/reduce`,
+`src/core/wasmCodec.ts`, `npm run check:reduce-wasm`); revisit only for a visibly-slow
+(>100 ms) raw-reduction path. Full rationale + numbers: `docs/perf-spike-findings.md`.

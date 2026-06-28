@@ -16,6 +16,24 @@ const PALETTE: Record<Mode, Record<string, string>> = {
 };
 const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
 
+// The player's quest stage, persisted here in the view (the shell) — `core/quest.ts`
+// stays pure (ADR 0001) and just gets the starting stage + a persist callback.
+const QUEST_STORE_KEY = "combinate:quest:v6"; // Prologue is the ι-only tower (I→A→K→S)
+function loadStage(): number {
+  try {
+    return JSON.parse(localStorage.getItem(QUEST_STORE_KEY) ?? "0") as number;
+  } catch {
+    return 0;
+  }
+}
+function saveStage(stage: number): void {
+  try {
+    localStorage.setItem(QUEST_STORE_KEY, JSON.stringify(stage));
+  } catch {
+    /* ignore */
+  }
+}
+
 let stylesInjected = false;
 function injectStyles(): void {
   if (stylesInjected) return;
@@ -78,7 +96,7 @@ export class QuestPanel {
   private readonly root = document.createElement("div");
   private readonly body = document.createElement("div");
   private readonly titleLabel = document.createElement("span");
-  private readonly progress = new QuestProgress();
+  private readonly progress = new QuestProgress(loadStage(), saveStage);
   private hintShown = false;
   private readonly advanceListeners: Array<() => void> = [];
 

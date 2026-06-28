@@ -20,3 +20,7 @@ shots.local.mjs
 # DuckDB loads from the jsDelivr CDN at runtime — not vendored at all.
 public/vendor/
 .claude/
+
+# wasm reduce capability — built from source, never committed (like refold)
+crates/reduce/target/
+crates/reduce/pkg-node/

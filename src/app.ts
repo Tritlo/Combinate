@@ -6,9 +6,8 @@ import {
   Rectangle,
   Text,
 } from "pixi.js";
-import { app as mkApp, comb, decode, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
-import { firingRule, redexAt } from "./core/reduce";
-import { GraphReducer, evalShared } from "./core/graph";
+import { app as mkApp, comb, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
+import { evalShared } from "./core/graph";
 import { encodePermalink, decodePermalink, type Modes } from "./core/permalink";
 import { LocalStore } from "./store/local";
 import { DuckdbStore } from "./store/duckdb";
@@ -16,10 +15,10 @@ import { ChallengePanel } from "./view/challenge";
 import { QuestPanel } from "./view/quest";
 import { QuestTracker } from "./view/questTracker";
 import { Sound } from "./view/sound";
-import { CATALOG, IOTA_CODE, type Law } from "./core/catalog";
+import { CATALOG, type Law } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutAuto, layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
-import { makeRefolder, behavioralRefolder, recognizeDeep, fromEgg, toEgg, type Refolder } from "./core/refold";
+import { recognizeDeep, fromEgg, toEgg } from "./core/refold";
 import { read, render, type Ty } from "./core/types";
 import { inferType } from "./core/infer";
 import { abstractLeaf, defineCombinator, findSubtree, isNameTaken, replaceSubtree, validateName } from "./core/authoring";
@@ -28,6 +27,9 @@ import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
 import { Zoo } from "./view/zoo";
 import { MhsPanel } from "./view/mhs/panel";
+import { ReadoutLens } from "./view/readoutLens";
+import { ReductionController, type Transport } from "./view/reduction";
+import { TransportBar } from "./view/transportBar";
 import { preloadCompiler } from "./view/mhs/compiler";
 import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange } from "./view/theme";
 import { MenuBar, type Menu } from "./view/menubar";
@@ -38,12 +40,6 @@ import { type NativeOpts } from "./core/native";
 import { tween } from "./view/anim";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
-const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducing (§6.4)
-const STEP_MS = 300; // duration of one reduction-step tween
-const STEP_GAP = 130; // pause between reduction steps
-const HEAVY_GAP = 8; // big trees jump-cut each step; pace them fast but still yield to the renderer (≠ 0, which starves rAF)
-const STEP_CAP = 2000; // non-termination guard: stop auto-reducing past this many steps
-const GRAPH_STEP_CAP = 100_000; // graph mode shares (cheap steps) — let fac-scale reductions finish
 const COLLAPSE_MS = 340; // morph from a recognised normal form into its named node
 const ATTACH_MS = 280; // glide two trees together when snapped
 const DELETE_MS = 240; // fade out a right-clicked subtree
@@ -206,105 +202,17 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
   onStep("catalog"); // splash step 2/3
 
-  // S-expression of a term; an undiscovered S/K/I is shown as its full ι-tree
-  // (not its letter), matching the tree view, so the read-out never spoils a
-  // combinator before it's found.
-  const exprOf = (n: Node): string => {
-    switch (n.kind) {
-      case "iota":
-        return "ι";
-      case "comb": {
-        const code = !isDiscovered(n.sym) ? IOTA_CODE[n.sym] : undefined;
-        return code ? exprOf(decode(code)) : n.sym;
-      }
-      case "free":
-        return n.name;
-      case "app":
-        return `(${exprOf(n.fn)} ${exprOf(n.arg)})`;
-    }
-  };
-  // ---- re-folding lens (PLAN.md Phase 2): an opt-in read-out that runs the
-  // focused term through the egg-via-WASM re-sugarer and shows its most-named
-  // reading (e.g. S(KS)K → B). The wasm is a driven adapter, lazy-loaded on
-  // first use; the core stays Pixi/DOM-free behind the `Refolder` port. ----
-  let refoldOn = false;
-  let refolder: Refolder | null = null;
-  let refolderLoading = false;
-  let refoldRaw: ((sexpr: string) => string) | null = null;
-
-  // Upgrade the lens from the pure behavioural pre-pass to the full
-  // behavioural→egg pipeline once the wasm loads. If it fails to load, the
-  // behavioural-only re-folder keeps working (no need to disable the lens).
-  async function ensureRefolder(): Promise<void> {
-    if (refoldRaw || refolderLoading) return;
-    refolderLoading = true;
-    try {
-      const mod = await import("../crates/refold/pkg/refold.js");
-      await mod.default();
-      refoldRaw = mod.refold;
-      refolder = makeRefolder(mod.refold);
-      lastShownNode = null; // recompute now the egg stage is live
-    } catch {
-      toast.show("re-folder: behavioural only (wasm unavailable)");
-    } finally {
-      refolderLoading = false;
-    }
-  }
-
-  function toggleRefold(): void {
-    refoldOn = !refoldOn;
-    lastShownNode = null; // force a recompute on the next frame
-    if (refoldOn) {
-      if (!refolder) refolder = behavioralRefolder; // instant pure-TS lens
-      void ensureRefolder(); // then upgrade with the egg stage
-    }
-    paintRail();
-  }
-
-  // ---- type lens (ADR 0003): an opt-in badge appending the focused term's
-  // principal simple type to the read-out (or "no simple type" for the
-  // self-application birds — M, L, U, Y). Pure inference on the normal form. ----
-  let typeOn = false;
-  function toggleType(): void {
-    typeOn = !typeOn;
-    lastShownNode = null; // force a read-out recompute on the next frame
-    paintRail();
-  }
-
-  // The read-as mode is just the current hotbar page (ADR 0003): a typed page
-  // forces that reading and resolves the bare-A ambiguity `read` otherwise defers
-  // (A → 0 / [] / false). The Programs page has no type → auto-discovery.
-  const READ_AS: Record<string, Ty> = { Arithmetic: "Int", Booleans: "Bool", Lists: "List", Char: "Char" };
-
-  // Live read-out of the focused tree's expression, recomputed only when its
-  // node identity (or the read-as page) changes — so the probes never run every
-  // frame. A compact data value (Phase 1) is shown whenever the term is data —
-  // always on; the refold lens additionally names combinators (Phase 2) when the
-  // term isn't data.
-  let lastShownNode: Node | null = null;
-  let lastMode: Ty | undefined;
-  let lastExpr = "";
-  pixi.ticker.add(() => {
-    const node = focus && trees.includes(focus) ? focus.node : null;
-    const mode = READ_AS[hotbar.page];
-    if (node === lastShownNode && mode === lastMode) return;
-    lastShownNode = node;
-    lastMode = mode;
-    let txt = "";
-    if (node) {
-      // Type-guided data reading: the page forces a reading (mode), elements
-      // propagate a sibling's type and route non-data parts to their combinator
-      // name. Falls back to the egg lens / raw sexp when the term isn't data.
-      const v = read(node, mode ?? null); // Phase 1 (+ propagation/routing)
-      const value = v ? render(v) : null;
-      const folded = !value && refoldOn && refolder ? refolder(node) : null; // Phase 2: combinator naming, behind the lens
-      txt = value ?? (folded ? sexp(folded) : exprOf(node));
-      if (typeOn) txt += `  ::  ${inferType(node) ?? "no simple type"}`; // type lens
-    }
-    if (txt !== lastExpr) {
-      lastExpr = txt;
-      exprText.text = txt;
-    }
+  // The read-out lens (ADR 12): the focused tree's live top-centre expression + the
+  // re-fold / type lenses. Owns the lens state, `exprOf`, and the per-frame render; the
+  // shell owns the `exprText` placement/theme. Created here so `isDiscovered` exists.
+  const readout = new ReadoutLens({
+    ticker: pixi.ticker,
+    exprText,
+    focusNode: () => (focus && trees.includes(focus) ? focus.node : null),
+    readPage: () => hotbar.page,
+    isDiscovered,
+    onToggle: () => paintRail(),
+    toast,
   });
 
   // Layout: top-down by default; T toggles the radial view (§5.1).
@@ -418,7 +326,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const name = promptName();
     if (!name) return;
     const law = register(name, sub);
-    cancelAuto(tree);
+    reduce.cancel(tree);
     tree.animateTo(replaceSubtree(tree.node, id, collapsedNode(law)), COLLAPSE_MS, () => {});
     focus = tree;
     toast.show(`defined ${name}`);
@@ -435,89 +343,39 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const name = promptName();
     if (!name) return;
     const law = register(name, body);
-    cancelAuto(tree);
+    reduce.cancel(tree);
     tree.animateTo(collapsedNode(law), COLLAPSE_MS, () => {});
     focus = tree;
     toast.show(`abstracted → ${name}`);
   }
 
-  // ---- auto-reduce on idle (§6.4): each tree, left untouched for a beat,
-  // plays itself to normal form one tween at a time; touching it cancels. A
-  // per-tree generation token invalidates pending callbacks on cancel. On
-  // reaching normal form, probe it for a discovery (§7.1). ----
-  // `source` is the tree as the player built/edited it (captured on release),
-  // before reduction mutates it — the golf metric + challenge target score the
-  // source, not its normal form.
-  type AutoState = { gen: number; timer: number; steps: number; source?: Node; grapher?: GraphReducer };
-  const auto = new Map<TreeView, AutoState>();
-
-  // Playback transport (§6.4): auto-reduce can be paused/played, or fast-forwarded
-  // at 3× (shorter step tween + gap). Speed is read live, so play↔ff is seamless;
-  // only resuming from pause re-kicks the loop.
-  type Transport = "play" | "pause" | "ff";
-  let transport: Transport = "play"; // trees reduce on their own; auto-pauses (with a toast) if a term won't terminate or blows up
-  const speed = (): number => (transport === "ff" ? 3 : 1);
-  const stepDur = (): number => STEP_MS / speed();
-  const stepGap = (): number => STEP_GAP / speed();
-  // Delay before the next reduction step: big trees jump-cut, so pace them at a
-  // short fixed gap (still yields to the renderer); small trees use the speed gap.
-  const nextGap = (t: TreeView): number => (t.heavy() ? HEAVY_GAP : stepGap());
-
-  function cancelAuto(tree: TreeView): void {
-    const a = auto.get(tree);
-    if (a) {
-      a.gen++;
-      clearTimeout(a.timer);
-    }
-    tree.stopAnimation();
-  }
-
-  function scheduleAuto(tree: TreeView): void {
-    let a = auto.get(tree);
-    if (!a) {
-      a = { gen: 0, timer: 0, steps: 0 };
-      auto.set(tree, a);
-    }
-    a.gen++;
-    a.steps = 0;
-    a.source = tree.node; // score the tree as built, before reduction
-    a.grapher = shareMode ? new GraphReducer(tree.node, fastMode) : undefined; // graph mode: a fresh shared graph
-    const gen = a.gen;
-    a.timer = window.setTimeout(() => stepAuto(tree, gen), AUTO_DELAY);
-  }
-
-  // Auto-pause (with a toast) when a tree won't settle within its step budget,
-  // instead of grinding the reducer (and the frame rate) forever.
-  function autoPause(reason: string): void {
-    setTransport("pause");
-    toast.show(`auto-paused — ${reason}`);
-  }
-
-  // A tree reached normal form: recognise + collapse it, then score it for golf.
-  // Shared by the auto loop and the manual Step button so both record solves.
-  function finishNormalForm(tree: TreeView, a: AutoState): void {
-    settle(tree);
-    void challenges.onNormalForm(a.source ?? tree.node);
-    quest.onNormalForm(a.source ?? tree.node); // guided progression
-  }
-
-  // The auto-state for a tree, created (without a running timer) if missing —
-  // some focused trees (e.g. spawned by the Haskell panel) were never scheduled.
-  function ensureAuto(tree: TreeView): AutoState {
-    let a = auto.get(tree);
-    if (!a) {
-      a = { gen: 0, timer: 0, steps: 0, source: tree.node };
-      auto.set(tree, a);
-    }
-    return a;
-  }
+  // ---- auto-reduce + transport (extracted to view/reduction.ts, ADR 12). The Pixi
+  // side effects (the redex flourish, the transport bar) stay here and are injected. ----
+  const reduce = new ReductionController({
+    getFast: () => fastMode,
+    getShare: () => shareMode,
+    getNative: () => nativeOpts(),
+    focusedLive: () => (focus && trees.includes(focus) ? focus : null),
+    settle: (tree) => settle(tree),
+    onNormalForm: (source) => {
+      void challenges.onNormalForm(source);
+      quest.onNormalForm(source); // guided progression
+    },
+    tickSound: (sym) => sound.tick(sym),
+    flourish: (tree) => reduceFlourish(tree),
+    notify: (msg) => toast.show(msg),
+    onTransportChange: () => {
+      paintRail();
+      transportBar.paint();
+    },
+  });
 
   // Fluff "marching ants": a gold dashed ring crawls + fades at a tree's root when
   // a reduction fires — skipped on fast-forward (would strobe), big trees, reduced
   // motion. One ring at a time; rapid steps restart it.
   let flourishCancel: (() => void) | null = null;
   function reduceFlourish(tree: TreeView): void {
-    if (!isFluff("redexAnts") || transport === "ff" || prefersReducedMotion() || tree.heavy()) return;
+    if (!isFluff("redexAnts") || reduce.mode === "ff" || prefersReducedMotion() || tree.heavy()) return;
     flourishCancel?.();
     world.addChild(flourish); // bring to front (above the trees added after it)
     const { x, y } = tree.rootWorld;
@@ -541,187 +399,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     );
   }
 
-  function stepAuto(tree: TreeView, gen: number): void {
-    const a = auto.get(tree);
-    if (!a || a.gen !== gen) return;
-    if (transport === "pause") return; // frozen — resume re-kicks from setTransport
-    // Non-termination guard. Graph mode shares, so it does far fewer, far cheaper
-    // steps and can finish reductions the tree reducer can't (fac-scale) — give it
-    // a much higher ceiling so the feasibility win actually lands.
-    if (a.steps >= (shareMode ? GRAPH_STEP_CAP : STEP_CAP)) {
-      // Tree mode gives up early; graph mode shares (it can finish fac-scale work
-      // the tree reducer can't), so point the player there before declaring defeat.
-      autoPause(shareMode ? `no normal form after ${a.steps} steps` : `won't settle after ${a.steps} steps — try Graph reduction (Reduce menu)`);
-      return;
-    }
-
-    // Graph mode: step the shared graph and animate each snapshot. A shared subterm
-    // is one node with several incoming edges, and reducing it once updates it
-    // everywhere — sharing made visible (and `fac`-scale becomes feasible). Toggled
-    // mid-flight → make/clear the grapher to match.
-    if (shareMode) {
-      if (!a.grapher) a.grapher = new GraphReducer(tree.node, fastMode);
-      const g = a.grapher;
-      if (!g.step()) {
-        finishNormalForm(tree, a); // normal form
-        return;
-      }
-      sound.tick(firingRule(tree.node, fastMode)); // a tone per contraction (approx)
-      a.steps = g.steps;
-      reduceFlourish(tree);
-      tree.animateTo(g.snapshot(), stepDur(), () => {
-        const a2 = auto.get(tree);
-        if (!a2 || a2.gen !== gen) return;
-        if (transport === "pause") return;
-        a2.timer = window.setTimeout(() => stepAuto(tree, gen), nextGap(tree));
-      });
-      return;
-    }
-    a.grapher = undefined; // optimize/raw path: no live graph
-
-    // One traversal yields both the rule to sonify and the contractum to animate.
-    const redex = redexAt(tree.node, 0, fastMode, nativeOpts());
-    if (!redex) {
-      finishNormalForm(tree, a); // normal form reached — recognise, collapse, score
-      return;
-    }
-    const next = redex.build(); // build before the side effects (sound/step count)
-    sound.tick(redex.sym); // sonify the rule about to fire
-    a.steps++;
-    reduceFlourish(tree);
-    tree.animateTo(next, stepDur(), () => {
-      const a2 = auto.get(tree);
-      if (!a2 || a2.gen !== gen) return;
-      if (transport === "pause") return; // paused mid-tween — stop scheduling
-      a2.timer = window.setTimeout(() => stepAuto(tree, gen), nextGap(tree));
-    });
-  }
-
-  // Step: pause, then advance the *focused* tree by exactly one reduction (no
-  // reschedule). An action, not a transport mode. No-op if nothing is focused.
-  function stepOnce(): void {
-    setTransport("pause"); // single-stepping implies the auto-run is stopped
-    const tree = focus && trees.includes(focus) ? focus : null;
-    if (!tree) return;
-    const a = ensureAuto(tree);
-    if (shareMode) {
-      if (!a.grapher) a.grapher = new GraphReducer(tree.node, fastMode);
-      if (!a.grapher.step()) {
-        finishNormalForm(tree, a);
-        return;
-      }
-      sound.tick(firingRule(tree.node, fastMode));
-      a.steps = a.grapher.steps;
-      reduceFlourish(tree);
-      tree.animateTo(a.grapher.snapshot(), stepDur(), () => {});
-    } else {
-      a.grapher = undefined;
-      const redex = redexAt(tree.node, 0, fastMode, nativeOpts());
-      if (!redex) {
-        finishNormalForm(tree, a);
-        return;
-      }
-      sound.tick(redex.sym);
-      a.steps++;
-      reduceFlourish(tree);
-      tree.animateTo(redex.build(), stepDur(), () => {});
-    }
-  }
-
-  // Switch playback mode. Pause freezes every tree; resuming re-kicks the ones
-  // that still have a reduction left (settled trees stay put). play↔ff needs no
-  // re-kick — stepDur/stepGap read `transport` live.
-  function setTransport(mode: Transport): void {
-    const wasPaused = transport === "pause";
-    transport = mode;
-    paintRail();
-    paintTransport();
-    if (mode === "pause") {
-      for (const [tree, a] of auto) {
-        clearTimeout(a.timer);
-        tree.stopAnimation();
-      }
-    } else if (wasPaused) {
-      for (const [tree, a] of auto) {
-        if (redexAt(tree.node, 0, fastMode, nativeOpts())) {
-          a.steps = 0; // explicit resume = "keep going" → a fresh budget before auto-pause re-trips
-          a.gen++;
-          const gen = a.gen;
-          a.timer = window.setTimeout(() => stepAuto(tree, gen), 0);
-        }
-      }
-    }
-  }
-  // Cycle Pause → Play → Fast-forward → Pause.
-  const cycleTransport = (): void => setTransport(transport === "pause" ? "play" : transport === "play" ? "ff" : "pause");
-
-  // ---- transport bar (top-right): the live reduction rate + Pause / Step / Play /
-  // Fast-forward as side-by-side glyph buttons. The active mode is boxed in gold;
-  // Step (an action, never "active") advances the focused tree one reduction. ----
-  const totalSteps = (): number => [...auto.values()].reduce((s, a) => s + a.steps, 0);
-  const TBTN = 26; // button-cell pitch
-  type TKind = "pause" | "step" | "play" | "ff";
-  const transportBar = new Container();
-  hud.addChild(transportBar);
-  const rateText = new Text({ text: "paused", style: { fontFamily: "monospace", fontSize: 12, fill: theme.textDim } });
-  rateText.anchor.set(1, 0.5);
-  transportBar.addChild(rateText);
-
-  // Draw a transport glyph centred at the origin: ‖ / |▷ / ▷ / ▷▷.
-  const drawTGlyph = (g: Graphics, kind: TKind, color: number): void => {
-    g.clear();
-    if (kind === "pause") g.roundRect(-6, -7, 4, 14, 1).fill({ color }).roundRect(2, -7, 4, 14, 1).fill({ color });
-    else if (kind === "step") g.roundRect(-8, -7, 3, 14, 1).fill({ color }).poly([-3, -7, 6, 0, -3, 7]).fill({ color });
-    else if (kind === "play") g.poly([-5, -8, 7, 0, -5, 8]).fill({ color });
-    else g.poly([-8, -7, -1, 0, -8, 7]).fill({ color }).poly([0, -7, 7, 0, 0, 7]).fill({ color });
-  };
-  // Four buttons, laid out leftward from the corner: pause(-78) step(-52) play(-26) ff(0).
-  const tButtons = (["pause", "step", "play", "ff"] as const).map((kind, i) => {
-    const cont = new Container();
-    cont.position.set(-(3 - i) * TBTN, 0);
-    cont.eventMode = "static";
-    cont.cursor = "pointer";
-    cont.hitArea = new Rectangle(-TBTN / 2, -13, TBTN, 26);
-    const box = new Graphics();
-    const glyph = new Graphics();
-    cont.addChild(box, glyph);
-    cont.on("pointerdown", (e: FederatedPointerEvent) => {
-      e.stopPropagation();
-      if (kind === "step") stepOnce();
-      else setTransport(kind);
-    });
-    transportBar.addChild(cont);
-    return { kind, box, glyph };
-  });
-  function paintTransport(): void {
-    for (const b of tButtons) {
-      const active = b.kind !== "step" && transport === b.kind;
-      b.box.clear();
-      if (active) b.box.roundRect(-11, -11, 22, 22, 5).fill({ color: theme.iota, alpha: 0.18 }).stroke({ width: 1, color: theme.iota });
-      drawTGlyph(b.glyph, b.kind, active ? theme.iota : b.kind === "step" ? theme.text : theme.textDim);
-    }
-    rateText.style.fill = theme.textDim;
-  }
-  const placeTransport = (): void => {
-    transportBar.position.set(window.innerWidth - 18, 34);
-    rateText.position.set(-3 * TBTN - 22, 0); // just left of the Pause button
-  };
-  let rateAccum = 0;
-  let lastTotal = 0;
-  let redPerSec = 0;
-  pixi.ticker.add((tk: { deltaMS: number }) => {
-    rateAccum += tk.deltaMS;
-    if (rateAccum < 300) return;
-    const total = totalSteps();
-    // max(0, …): an explicit resume resets per-tree step counts, so the delta (and
-    // the EMA) can dip below zero — never show a negative rate.
-    redPerSec = Math.max(0, redPerSec * 0.5 + ((total - lastTotal) / (rateAccum / 1000)) * 0.5);
-    lastTotal = total;
-    rateAccum = 0;
-    rateText.text = transport === "pause" ? "paused" : `${redPerSec.toFixed(1)} red/s`;
-  });
-  paintTransport();
-  placeTransport();
+  // Transport bar (top-right): rate read-out + Pause/Step/Play/FF — a thin view over the
+  // ReductionController (extracted to view/transportBar.ts, ADR 12).
+  const transportBar = new TransportBar(hud, pixi.ticker, reduce);
 
   // FPS counter (View ▸ FPS counter), bottom-left — for diagnosing render cost on
   // big trees (factorial). Off by default; sampled ~4×/s from the Pixi ticker.
@@ -873,7 +553,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       return;
     }
     focus = tree;
-    cancelAuto(tree); // touching a tree freezes it (§6.4)
+    reduce.cancel(tree); // touching a tree freezes it (§6.4)
     const w = screenToWorld(e.global.x, e.global.y);
     world.addChild(tree.container); // bring to front
     drag = {
@@ -889,18 +569,18 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     e.stopPropagation();
     const id = tree.pickNode(e.global);
     if (id === null) return;
-    cancelAuto(tree);
+    reduce.cancel(tree);
     const next = removeSubtree(tree.node, id);
     if (next === null) {
       // deleted the root → the whole tree goes
-      auto.delete(tree);
+      reduce.forget(tree);
       trees.splice(trees.indexOf(tree), 1);
       tree.destroy();
       if (focus === tree) focus = null;
     } else {
       focus = tree;
       tree.animateTo(next, DELETE_MS, () => {});
-      scheduleAuto(tree); // re-reduce the edited tree once it's left alone
+      reduce.schedule(tree); // re-reduce the edited tree once it's left alone
     }
   }
 
@@ -938,7 +618,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (snapTarget) {
         commitSnap(tree, snapTarget);
       } else {
-        scheduleAuto(tree); // released untouched → it begins reducing
+        reduce.schedule(tree); // released untouched → it begins reducing
       }
     }
     clearGhost();
@@ -976,7 +656,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     ghost.stroke({ width: 2.5, color: theme.argEdge, alpha: 0.7 });
     ghost.circle(ax, ay, 6).fill({ color: theme.mutedDot, alpha: 0.7 });
     // preview the resulting expression (left is the function), masked like the rest
-    ghostLabel.text = `(${exprOf(left.node)} ${exprOf(right.node)})`;
+    ghostLabel.text = `(${readout.exprOf(left.node)} ${readout.exprOf(right.node)})`;
     ghostLabel.position.set(ax, ay - 12);
     ghostLabel.visible = true;
   }
@@ -1000,8 +680,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       for (const [id, p] of t.nodeWorldPositions()) fromWorld.set(id, p);
     }
     for (const old of [dragged, target]) {
-      cancelAuto(old);
-      auto.delete(old);
+      reduce.forget(old);
       trees.splice(trees.indexOf(old), 1);
       old.destroy();
     }
@@ -1009,7 +688,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     addTree(merged);
     focus = merged;
     merged.animateAttachFrom(fromWorld, ATTACH_MS); // smooth merge into the app tree
-    scheduleAuto(merged); // then it reduces on its own
+    reduce.schedule(merged); // then it reduces on its own
   }
 
   // ---- camera zoom: mouse wheel (desktop) + two-finger pinch (touch) ----
@@ -1080,7 +759,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     ghostLabel.style.fill = theme.text;
     fpsText.style.fill = theme.textDim;
     paintLegend(legend);
-    paintTransport();
+    // (the transport bar self-subscribes to theme changes)
     hotbar.refresh();
     zoo.applyTheme();
     challenges.applyTheme();
@@ -1092,7 +771,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     fitStage();
     hotbar.layout();
     placeLegend();
-    placeTransport();
+    transportBar.place();
     placeFps();
     toast.layout();
     placeExpr();
@@ -1112,8 +791,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // Remove every tree from the canvas (discoveries and the hotbar stay).
   function clearCanvas(): void {
     for (const t of trees) {
-      cancelAuto(t);
-      auto.delete(t);
+      reduce.forget(t);
       t.destroy();
     }
     trees.length = 0;
@@ -1164,10 +842,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   onOptChange((key) => {
     if (key === "rules") {
       fastMode = isOpt("rules");
-      for (const a of auto.values()) a.grapher = undefined; // graphers bake `fast` at construction
+      reduce.invalidateGraphers(); // graphers bake `fast` at construction
     } else if (key === "graph") {
       shareMode = isOpt("graph");
-      if (focus) scheduleAuto(focus);
+      if (focus) reduce.schedule(focus);
     }
     paintRail();
   });
@@ -1193,8 +871,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "radio", label: "Radial layout", accel: "T", on: () => layoutFn === layoutRadial, run: () => setLayoutMode(layoutRadial) },
       { kind: "sep" },
       { kind: "toggle", label: "Expand ι-trees", accel: "X", checked: () => expandAll, run: () => toggleExpand() },
-      { kind: "toggle", label: "Type lens", checked: () => typeOn, run: () => toggleType() },
-      { kind: "toggle", label: "Re-fold lens", accel: "F", checked: () => refoldOn, run: () => toggleRefold() },
+      { kind: "toggle", label: "Type lens", checked: () => readout.isTypeOn, run: () => readout.toggleType() },
+      { kind: "toggle", label: "Re-fold lens", accel: "F", checked: () => readout.isRefoldOn, run: () => readout.toggleRefold() },
       { kind: "sep" },
       { kind: "toggle", label: "Dark mode", checked: () => currentMode() === "dark", run: () => toggleMode() },
       { kind: "toggle", label: "Color (4096)", checked: () => colorOn(), run: () => toggleColor() },
@@ -1204,10 +882,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "action", label: "Fluff…", run: () => fluff.open() },
     ] },
     { title: "Reduce", items: [
-      { kind: "radio", label: "Pause", on: () => transport === "pause", run: () => setTransport("pause") },
-      { kind: "radio", label: "Play", on: () => transport === "play", run: () => setTransport("play") },
-      { kind: "radio", label: "Fast-forward", on: () => transport === "ff", run: () => setTransport("ff") },
-      { kind: "action", label: "Step", run: () => stepOnce() },
+      { kind: "radio", label: "Pause", on: () => reduce.mode === "pause", run: () => reduce.setTransport("pause") },
+      { kind: "radio", label: "Play", on: () => reduce.mode === "play", run: () => reduce.setTransport("play") },
+      { kind: "radio", label: "Fast-forward", on: () => reduce.mode === "ff", run: () => reduce.setTransport("ff") },
+      { kind: "action", label: "Step", run: () => reduce.stepOnce() },
       { kind: "sep" },
       { kind: "action", label: "Optimizations…", run: () => optimize.open() },
       { kind: "sep" },
@@ -1232,11 +910,11 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const currentModes = (): Modes => ({
     optimize: fastMode || undefined,
     graph: shareMode || undefined,
-    refold: refoldOn || undefined,
-    type: typeOn || undefined,
+    refold: readout.isRefoldOn || undefined,
+    type: readout.isTypeOn || undefined,
     expand: expandAll || undefined,
     page: hotbar.page,
-    transport,
+    transport: reduce.mode,
   });
 
   /** Restore a tree's accompanying display modes (the inverse of currentModes). */
@@ -1244,15 +922,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     expandAll = !!m.expand;
     setOpt("rules", !!m.optimize, false); // permalink modes are tree-local — drive the reducer, don't persist as a preference
     setOpt("graph", !!m.graph, false);
-    typeOn = !!m.type;
-    refoldOn = !!m.refold;
-    if (refoldOn && !refolder) {
-      refolder = behavioralRefolder;
-      void ensureRefolder();
-    }
+    readout.applyModes(m);
     if (m.page) hotbar.selectPage(m.page);
-    if (m.transport) setTransport(m.transport);
-    lastShownNode = null; // force a read-out recompute
+    if (m.transport) reduce.setTransport(m.transport);
+    readout.invalidate(); // force a read-out recompute
     paintRail();
     for (const t of trees) t.refresh();
   }
@@ -1291,7 +964,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (decoded) {
       applyModes(decoded.modes);
       const t = spawnTree(decoded.tree, window.innerWidth / 2, window.innerHeight / 2);
-      scheduleAuto(t);
+      reduce.schedule(t);
       hint.visible = false;
       toast.show("restored from link");
     }
@@ -1309,7 +982,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     else if (e.key === "t" || e.key === "T") toggleLayout();
     else if (e.key === "u" || e.key === "U") unlockAll();
     else if (e.key === "x" || e.key === "X") toggleExpand();
-    else if (e.key === "f" || e.key === "F") toggleRefold();
+    else if (e.key === "f" || e.key === "F") readout.toggleRefold();
     else if (e.key === "z" || e.key === "Z") zoo.toggle();
     else if (e.key === "g" || e.key === "G") challenges.toggle();
     else if (e.key === "d" || e.key === "D") setAuthorMode("define");
@@ -1340,7 +1013,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // first toggle). A real asset fetch — and it makes the lens instant when first
   // used. ensureRefolder swallows a load failure (the behavioural-only re-folder
   // still works), so this never blocks startup.
-  await ensureRefolder();
+  await readout.ensureRefolder();
   onStep("lenses"); // splash step 3/4
 
   // Warm the MicroHs live-compile blob + cache (the 3 MB compiler), so the Haskell
@@ -1358,15 +1031,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       discovered: () => [...discovered],
       mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : "topdown"),
       toggleLayout: () => toggleLayout(),
-      transport: { mode: () => transport, set: (m: string) => setTransport(m as Transport), cycle: () => cycleTransport(), step: () => stepOnce() },
-      autoSteps: () => [...auto.values()].reduce((s, a) => s + a.steps, 0),
-      run: () => { if (focus) scheduleAuto(focus); },
+      transport: { mode: () => reduce.mode, set: (m: string) => reduce.setTransport(m as Transport), cycle: () => reduce.cycleTransport(), step: () => reduce.stepOnce() },
+      autoSteps: () => reduce.totalSteps(),
+      run: () => { if (focus) reduce.schedule(focus); },
       fast: { on: () => isOpt("rules"), set: (b: boolean) => setOpt("rules", b) },
       graph: { on: () => isOpt("graph"), set: (b: boolean) => setOpt("graph", b), eval: (s: string) => sexp(evalShared(fromEgg(s), 500000, fastMode).term) },
       expr: () => exprText.text,
       page: () => hotbar.page,
       setPage: (name: string) => hotbar.selectPage(name),
-      type: { on: () => typeOn, toggle: () => toggleType(), of: (s: string) => inferType(fromEgg(s)) },
+      type: { on: () => readout.isTypeOn, toggle: () => readout.toggleType(), of: (s: string) => inferType(fromEgg(s)) },
       unlockAll: () => unlockAll(),
       openZoo: () => zoo.open(),
       camera: () => ({ scale: world.scale.x, x: world.position.x, y: world.position.y }),
@@ -1396,11 +1069,11 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
         defs: () => CATALOG.filter((l) => l.userDefined).map((l) => l.sym),
       },
       refold: {
-        on: () => refoldOn,
-        ready: () => !!refolder,
-        init: () => ensureRefolder(),
-        toggle: () => toggleRefold(),
-        raw: (s: string) => refoldRaw?.(s) ?? null,
+        on: () => readout.isRefoldOn,
+        ready: () => readout.refolderReady,
+        init: () => readout.ensureRefolder(),
+        toggle: () => readout.toggleRefold(),
+        raw: (s: string) => readout.rawRefold(s),
         // behavioural pre-pass alone, on an egg s-expression term
         deep: (s: string) => sexp(recognizeDeep(fromEgg(s))),
         // Phase 1 value reader, on an egg s-expression term
