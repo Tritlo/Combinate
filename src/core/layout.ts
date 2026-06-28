@@ -115,3 +115,13 @@ export function layoutRadial(root: Node): Layout {
   }
   return { pos, ...bounds(pos) };
 }
+
+/** Past this top-down span (px) a tree is too wide/tall for a typical screen, so it gets
+ *  the more compact radial layout instead. */
+export const RADIAL_SPAN = 1400;
+
+/** Auto layout: top-down for normal trees, radial once a tree gets too big to fit. */
+export function layoutAuto(root: Node): Layout {
+  const td = layoutTopDown(root);
+  return td.width > RADIAL_SPAN || td.height > RADIAL_SPAN ? layoutRadial(root) : td;
+}
