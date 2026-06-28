@@ -18,7 +18,7 @@ import { QuestTracker } from "./view/questTracker";
 import { Sound } from "./view/sound";
 import { CATALOG, IOTA_CODE, type Law } from "./core/catalog";
 import { recognize } from "./core/probe";
-import { layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
+import { layoutAuto, layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
 import { makeRefolder, behavioralRefolder, recognizeDeep, fromEgg, toEgg, type Refolder } from "./core/refold";
 import { read, render, type Ty } from "./core/types";
 import { inferType } from "./core/infer";
@@ -308,7 +308,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   });
 
   // Layout: top-down by default; T toggles the radial view (§5.1).
-  let layoutFn: LayoutFn = layoutTopDown;
+  let layoutFn: LayoutFn = layoutAuto;
 
   // What a recognised tree collapses into: a single named node. I/K/S reduce by
   // built-in rules; the rest carry their definition (law.def) for the reducer
@@ -849,8 +849,12 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const TY_PAGE: Record<Ty, string> = { Int: "Arithmetic", Bool: "Booleans", List: "Lists", Char: "Char" };
   const mhsPanel = new MhsPanel(
     (tree, read) => {
-      spawnTree(tree, window.innerWidth / 2, window.innerHeight / 2);
+      // Compiled programs are big: optimize, lay out radially, and zoom to fit.
+      setOpt("rules", true);
+      setLayoutMode(layoutRadial);
+      const view = spawnTree(tree, window.innerWidth / 2, window.innerHeight / 2);
       if (read) hotbar.selectPage(TY_PAGE[read]);
+      fitTree(view);
       toast.show("compiled from Haskell");
     },
     () => paintRail(),
@@ -1118,10 +1122,27 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     focus = null;
   }
 
-  // Toggle the layout for every tree (and trees spawned afterward).
+  // Set the layout for every tree (and trees spawned afterward).
+  const setLayoutMode = (fn: LayoutFn): void => {
+    if (layoutFn === fn) return;
+    layoutFn = fn;
+    for (const t of trees) t.setLayout(fn);
+    paintRail();
+  };
+  // T cycles auto → top-down → radial → auto.
   function toggleLayout(): void {
-    layoutFn = layoutFn === layoutTopDown ? layoutRadial : layoutTopDown;
-    for (const t of trees) t.setLayout(layoutFn);
+    setLayoutMode(layoutFn === layoutAuto ? layoutTopDown : layoutFn === layoutTopDown ? layoutRadial : layoutAuto);
+  }
+
+  /** Frame a tree to fill the viewport (zoom + centre) — from its layout bbox. */
+  function fitTree(tree: TreeView): void {
+    const b = tree.worldBounds();
+    const margin = 0.82;
+    const scale = Math.max(0.04, Math.min(2.5, Math.min((window.innerWidth * margin) / Math.max(b.w, 1), (window.innerHeight * margin) / Math.max(b.h, 1))));
+    const cx = b.x + b.w / 2;
+    const cy = b.y + b.h / 2;
+    world.scale.set(scale);
+    world.position.set(window.innerWidth / 2 - cx * scale, window.innerHeight / 2 - cy * scale);
   }
 
   // Toggle the "expand everything to ι" view (read by TreeView.expand).
@@ -1135,9 +1156,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // pull-downs. Reuses the action callbacks below; a ✓ marks an active toggle,
   // a • the selected option in a group. paintRail() (kept for its many callers)
   // now just refreshes the open pull-down's checkmarks. ----
-  const setLayoutMode = (fn: LayoutFn): void => {
-    if (layoutFn !== fn) toggleLayout();
-  };
   const about = new About();
   const fluff = new FluffPanel();
   const optimize = new OptimizePanel();
@@ -1170,7 +1188,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "action", label: "Unlock all combinators", accel: "U", run: () => unlockAll() },
     ] },
     { title: "View", items: [
-      { kind: "radio", label: "Top-down layout", accel: "T", on: () => layoutFn === layoutTopDown, run: () => setLayoutMode(layoutTopDown) },
+      { kind: "radio", label: "Auto layout", on: () => layoutFn === layoutAuto, run: () => setLayoutMode(layoutAuto) },
+      { kind: "radio", label: "Top-down layout", on: () => layoutFn === layoutTopDown, run: () => setLayoutMode(layoutTopDown) },
       { kind: "radio", label: "Radial layout", accel: "T", on: () => layoutFn === layoutRadial, run: () => setLayoutMode(layoutRadial) },
       { kind: "sep" },
       { kind: "toggle", label: "Expand ι-trees", accel: "X", checked: () => expandAll, run: () => toggleExpand() },
@@ -1337,7 +1356,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       sexps: () => trees.map((t) => sexp(t.node)),
       roots: () => trees.map((t) => t.rootWorld),
       discovered: () => [...discovered],
-      mode: () => (layoutFn === layoutRadial ? "radial" : "topdown"),
+      mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : "topdown"),
       toggleLayout: () => toggleLayout(),
       transport: { mode: () => transport, set: (m: string) => setTransport(m as Transport), cycle: () => cycleTransport(), step: () => stepOnce() },
       autoSteps: () => [...auto.values()].reduce((s, a) => s + a.steps, 0),

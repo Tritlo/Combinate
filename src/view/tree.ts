@@ -177,6 +177,12 @@ export class TreeView {
     return { x: this.container.position.x, y: this.container.position.y };
   }
 
+  /** The tree's world-space bounding box (from the layout — animation-independent), for
+   *  zoom-to-fit. */
+  worldBounds(): { x: number; y: number; w: number; h: number } {
+    return { x: this.container.position.x + this.lay.minX, y: this.container.position.y + this.lay.minY, w: this.lay.width, h: this.lay.height };
+  }
+
   destroy(): void {
     this.stopTicker();
     this.container.destroy({ children: true });
