@@ -485,6 +485,7 @@ export class TreeView {
   }
 
   private rebuild(): void {
+    this.rootMarkKind = null; // force a root-halo redraw (rebuild runs on theme/display change)
     this.particles.removeParticles();
     for (const g of this.glyphs.removeChildren()) g.destroy();
     this.objs.clear();
@@ -658,11 +659,21 @@ export class TreeView {
    *  all the central node in the radial layout. Tracks the root node's current
    *  position (it follows during a reduction tween, and the root changes across
    *  steps). Called from drawEdges, so it stays in sync on every redraw. */
-  private placeRootMark(): void {
+  // The root halo's circle geometry only changes when the root node's kind changes (a
+  // collapse) or the theme flips — but it has to *follow* the root every frame. So draw it
+  // once at the origin (redrawRootMark) and just move the Graphics per frame, instead of
+  // re-tessellating + re-uploading the circle on every animation frame.
+  private rootMarkKind: Node["kind"] | null = null;
+  private redrawRootMark(): void {
     this.rootMark.clear();
+    this.rootMark.circle(0, 0, radiusOf(this.display.kind) + 6).stroke({ width: 3, color: theme.root });
+    this.rootMarkKind = this.display.kind;
+  }
+  private placeRootMark(): void {
     const vis = this.objs.get(this.display.id);
     if (!vis) return;
-    this.rootMark.circle(vis.particle.x, vis.particle.y, radiusOf(this.display.kind) + 6).stroke({ width: 3, color: theme.root });
+    if (this.rootMarkKind !== this.display.kind) this.redrawRootMark(); // root kind changed → re-tessellate once
+    this.rootMark.position.set(vis.particle.x, vis.particle.y);
   }
 }
 
