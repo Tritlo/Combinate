@@ -191,20 +191,15 @@ export function locate(stageIndex: number): QuestLocation | null {
   return null;
 }
 
-const STORE_KEY = "combinate:quest:v6"; // bumped: Prologue is now the ι-only tower (I→A→K→S)
-
-/** Tracks how far the player has got, persisted to localStorage. */
+/** Tracks how far the player has got. Pure (ADR 0001): persistence is injected — the
+ *  shell loads the starting stage and supplies a `persist` callback (so `core/` does no
+ *  localStorage of its own). */
 export class QuestProgress {
   /** Index of the current (unsolved) stage; === QUEST.length when finished. */
-  stage = 0;
+  stage: number;
 
-  constructor() {
-    try {
-      const raw = localStorage.getItem(STORE_KEY);
-      if (raw) this.stage = Math.max(0, Math.min(QUEST.length, JSON.parse(raw) as number));
-    } catch {
-      /* ignore */
-    }
+  constructor(initial = 0, private readonly persist: (stage: number) => void = () => {}) {
+    this.stage = Math.max(0, Math.min(QUEST.length, initial));
   }
 
   get done(): boolean {
@@ -231,21 +226,13 @@ export class QuestProgress {
     }
     if (!ok) return null;
     this.stage += 1;
-    this.save();
+    this.persist(this.stage);
     return stage;
   }
 
   /** Start the quest over (back to the Prologue). */
   reset(): void {
     this.stage = 0;
-    this.save();
-  }
-
-  private save(): void {
-    try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(this.stage));
-    } catch {
-      /* ignore */
-    }
+    this.persist(0);
   }
 }
