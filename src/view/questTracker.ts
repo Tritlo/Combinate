@@ -10,6 +10,8 @@ import { currentMode, onThemeChange, type Mode } from "./theme";
 import { vendorUrl } from "../vendorUrl";
 import { type QuestStage, type QuestLocation } from "../core/quest";
 import { CHAPTERS } from "../core/quest";
+import { CATALOG, iotaTreeOf } from "../core/catalog";
+import { type Node } from "../core/term";
 
 /** What the tracker reads — the live quest state + how to open the full modal. */
 export interface TrackerDeps {
@@ -49,10 +51,34 @@ function injectStyles(): void {
 .qt-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 9px; }
 .qt-prog { font-size: 11px; opacity: 0.6; }
 .qt-reward { font-size: 11px; color: var(--qt-gold); border: 1px solid var(--qt-gold); padding: 0 6px; border-radius: 2px; white-space: nowrap; }
+.qt-iota { margin-top: 9px; padding-top: 8px; border-top: 1px solid color-mix(in srgb, var(--qt-ink) 18%, transparent); }
+.qt-iolabel { font-size: 11px; opacity: 0.6; }
+.qt-ioform { margin-top: 3px; font-size: 12px; line-height: 1.45; max-height: 4.4em; overflow-y: auto; word-break: break-word;
+  color: color-mix(in srgb, var(--qt-ink) 75%, var(--qt-gold)); }
 `;
   const style = document.createElement("style");
   style.textContent = css;
   document.head.appendChild(style);
+}
+
+/** Render an ι-tree as text: `ι`, `ι ι`, `ι (ι ι)`, … */
+function iotaForm(n: Node): string {
+  if (n.kind === "iota") return "ι";
+  if (n.kind === "app") {
+    const a = n.arg.kind === "app" ? `(${iotaForm(n.arg)})` : iotaForm(n.arg);
+    return `${iotaForm(n.fn)} ${a}`;
+  }
+  return n.kind === "comb" ? n.sym : "?";
+}
+const iotaCount = (n: Node): number => (n.kind === "app" ? iotaCount(n.fn) + iotaCount(n.arg) : n.kind === "iota" ? 1 : 0);
+
+/** The unlock bird's ι-form + ι-count for the preview, or null if it isn't a catalog bird. */
+function iotaPreview(sym: string | undefined): { form: string; count: number } | null {
+  if (!sym) return null;
+  const law = CATALOG.find((l) => l.sym === sym);
+  if (!law) return null;
+  const t = iotaTreeOf(law);
+  return { form: iotaForm(t), count: iotaCount(t) };
 }
 
 /** Strip HTML to plain text (the objective line) but keep `<code>` content readable. */
@@ -115,12 +141,20 @@ export class QuestTracker {
     this.body.style.display = this.collapsed ? "none" : "block";
     if (!visible || !stage || !loc) return;
     this.titleLabel.textContent = this.collapsed ? stage.name : "Tracked Quest";
-    this.body.replaceChildren(
+    const kids: HTMLElement[] = [
       el("div", "qt-eyebrow", loc.chapter.name.replace(/<[^>]+>/g, "")),
       el("div", "qt-stage", stage.name.replace(/<[^>]+>/g, "")),
       objective(stage),
       meta(loc, stage),
-    );
+    ];
+    const prev = iotaPreview(stage.unlock); // the target bird, in ι form (ADR 13)
+    if (prev) {
+      const wrap = document.createElement("div");
+      wrap.className = "qt-iota";
+      wrap.append(el("div", "qt-iolabel", `discover ${stage.unlock}  ·  ${prev.count} ι`), el("div", "qt-ioform", prev.form));
+      kids.push(wrap);
+    }
+    this.body.replaceChildren(...kids);
   }
 
   /** Hide / show the tracker (the View-menu toggle). Persisted. */

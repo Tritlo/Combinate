@@ -18,9 +18,25 @@ Work top-down. **Working rhythm for every task:**
 > native/graph; deeper redexAt spine-rewalk + a profiled rendering pass = follow-ups).
 > Also: the in-HUD hint now reuses the Quest as the single hint source.
 >
-> **Open follow-ups:** answer-key backfill (59 uncovered lambda/recursion puzzles);
-> migrate Quest/Zoo/Golf onto the Modal base; hoist QuestProgress's localStorage to the
-> shell; app.ts extraction; the redexAt spine-rewalk; an interactively-profiled render pass.
+> **Answer key — DONE: 107/107 supported puzzles solvable** (was a 48/107 partial). Fixed
+> `allowOk` to permit env-given combinators (basis puzzles like "I from M,T,A,B" were
+> unsolvable); backfilled fold-lists, pairs, Church numerics, restricted-basis
+> combinatory-completeness builds + terminating fixed points (with Codex). The 4
+> unsupported are `caps` (linear/affine structural goals) + multi-input — **kept as-is**
+> (already filtered out of play; vendored data left intact for fidelity).
+>
+> **Open follow-ups:** migrate Quest/Zoo/Golf onto the Modal base; hoist QuestProgress's
+> localStorage to the shell; app.ts extraction; the redexAt spine-rewalk; an
+> interactively-profiled render pass.
+
+## 8. Quest UX — log + iota preview
+
+- [x] **Prologue order** — already correct (`prologue-i` ι ι=I → `prologue-a` ι I=A →
+      `prologue-k` ι A=K → `prologue-s` ι K=S); no change.
+- [ ] **Quest log** — see previously-solved quests (the completed stages), not just the
+      current one. A scrollable list (chapter · stage · the bird unlocked).
+- [ ] **Iota preview** — preview the combinator you're about to discover *in ι form* (its
+      `iotaTreeOf` / `IOTA_CODE`), so you can see the target you're building.
 
 ## 1. Optimizations modal — ✅ DONE  · ADR 9 (mini)
 

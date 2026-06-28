@@ -218,6 +218,12 @@ export class QuestProgress {
     return stage;
   }
 
+  /** Start the quest over (back to the Prologue). */
+  reset(): void {
+    this.stage = 0;
+    this.save();
+  }
+
   private save(): void {
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify(this.stage));
