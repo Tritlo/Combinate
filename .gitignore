@@ -24,3 +24,4 @@ public/vendor/
 # wasm reduce capability — built from source, never committed (like refold)
 crates/reduce/target/
 crates/reduce/pkg-node/
+crates/reduce/pkg/

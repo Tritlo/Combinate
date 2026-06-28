@@ -116,3 +116,19 @@ export function sexp(n: Node): string {
       return `(${sexp(n.fn)} ${sexp(n.arg)})`;
   }
 }
+
+/** True if `n` has more than `max` nodes. Early-exit and **iterative** (an explicit heap
+ *  stack, not recursion), so it costs O(min(size, max)) and can't blow the call stack on a
+ *  deep spine — used as a size guard on potentially-huge reduction snapshots. */
+export function exceedsNodes(n: Node, max: number): boolean {
+  let count = 0;
+  const stack: Node[] = [n];
+  while (stack.length) {
+    const m = stack.pop()!;
+    if (++count > max) return true;
+    if (m.kind === "app") {
+      stack.push(m.fn, m.arg);
+    }
+  }
+  return false;
+}

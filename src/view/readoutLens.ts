@@ -7,7 +7,7 @@
  * composition wiring.
  */
 import { Text, type Ticker } from "pixi.js";
-import { decode, sexp, type Node } from "../core/term";
+import { decode, sexp, exceedsNodes, type Node } from "../core/term";
 import { IOTA_CODE } from "../core/catalog";
 import { makeRefolder, behavioralRefolder, type Refolder } from "../core/refold";
 import { read, render, type Ty } from "../core/types";
@@ -32,6 +32,14 @@ export interface ReadoutDeps {
 
 // The hotbar page → the data reading it forces.
 const READ_AS: Record<string, Ty> = { Arithmetic: "Int", Booleans: "Bool", Lists: "List", Char: "Char" };
+
+// Above this node count, skip the (reducing) value/type/re-fold probes in the read-out — the
+// raw s-expression is shown instead. The probes are internally size-bounded now (normalize's
+// maxNodes), so this can be generous enough to read a big CLEAN numeral as its value (a
+// Turbo result like (*) 20 20 = 400 is an ~800-node Succ-spine) without freezing on a term
+// that would explode under probing (that bails via the size guard).
+const READOUT_PROBE_MAX = 3000;
+
 
 export class ReadoutLens {
   // re-folding lens (lazy WASM adapter; behavioural pre-pass works without it)
@@ -76,11 +84,15 @@ export class ReadoutLens {
     this.lastMode = mode;
     let txt = "";
     if (node) {
-      const v = read(node, mode ?? null);
+      // The value probe (`read`) and the re-fold lens reduce the term — too slow on a big
+      // term, and run on EVERY identity change (so they'd freeze playback of a big tree,
+      // turbo or not). Past a node budget, skip them and show the raw s-expression.
+      const big = exceedsNodes(node, READOUT_PROBE_MAX);
+      const v = big ? null : read(node, mode ?? null);
       const value = v ? render(v) : null;
-      const folded = !value && this.refoldOn && this.refolder ? this.refolder(node) : null;
+      const folded = !value && !big && this.refoldOn && this.refolder ? this.refolder(node) : null;
       txt = value ?? (folded ? sexp(folded) : this.exprOf(node));
-      if (this.typeOn) txt += `  ::  ${inferType(node) ?? "no simple type"}`;
+      if (this.typeOn) txt += `  ::  ${big ? "(tree too large to type)" : (inferType(node) ?? "no simple type")}`;
     }
     if (txt !== this.lastExpr) {
       this.lastExpr = txt;

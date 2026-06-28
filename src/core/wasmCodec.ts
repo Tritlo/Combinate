@@ -10,6 +10,7 @@
  */
 import { type Node, type Sym, comb, freeVar, app } from "./term";
 import { CATALOG, named } from "./catalog";
+import { type NativeOpts } from "./native";
 
 const TAG_IOTA = 0;
 const TAG_COMB = 1;
@@ -19,6 +20,32 @@ const TAG_APP = 3;
 const LAW = new Map(CATALOG.map((l) => [l.sym, l] as const));
 const isCatalog = (sym: Sym): boolean => LAW.has(sym);
 
+// Kernel kinds (1-based) the wasm GraphSession dispatches — number ops 1-10 (native.ts
+// NUM_OPS order), list ops 11-13, bool ops 14-16. The kernel *logic* is ported once in Rust
+// and cross-checked against native.ts; this just tags which sym is which op.
+const KERNEL_KIND: Record<string, number> = {
+  "(+)": 1,
+  "(-)": 2,
+  "(*)": 3,
+  "(==)": 4,
+  "(/=)": 5,
+  "(<)": 6,
+  "(<=)": 7,
+  "(>)": 8,
+  "(>=)": 9,
+  compare: 10,
+  "<>": 11,
+  map: 12,
+  concat: 13,
+  not: 14,
+  and: 15,
+  or: 16,
+};
+// Native-kernel gate bits (mirror the optimize toggles) packed into the wire header.
+const NATIVE_NUMBERS = 1;
+const NATIVE_LISTS = 2;
+const NATIVE_BOOLS = 4;
+
 /** The flat encoding plus the maps needed to decode the wasm result back to `Node`. */
 export interface Encoded {
   data: Int32Array;
@@ -26,8 +53,9 @@ export interface Encoded {
   freeName: string[]; // freeId → free-var name
 }
 
-/** Encode a term into the wasm wire format (see `crates/reduce/src/lib.rs`). */
-export function encode(term: Node): Encoded {
+/** Encode a term into the wasm wire format (see `crates/reduce/src/lib.rs`). `opts` enables
+ *  the wasm number kernels (clean Scott arithmetic) when the native-numbers toggle is on. */
+export function encode(term: Node, opts?: NativeOpts): Encoded {
   // ---- close over every combinator reachable from the term and (transitively) from
   // each combinator's def, resolving each sym's def tree once. ----
   const collectCombs = (n: Node, into: Set<Sym>): void => {
@@ -39,6 +67,12 @@ export function encode(term: Node): Encoded {
   };
   const defTree = new Map<Sym, Node | null>();
   const queue: Sym[] = ["S", "K", "I"]; // primitives + the ι rule's fresh S/K
+  // The kernels emit canonical Scott values built from these constructors, so they must be in
+  // the closure (get symIds) even if the term doesn't mention them. (I = True's K I; cons for
+  // list results; nil/False are K, already interned.)
+  if (opts?.numbers) queue.push("Succ", "LT", "EQ", "GT");
+  if (opts?.lists) queue.push("cons");
+  // bool results are K / K I — K and I are already interned as primitives.
   const seed = new Set<Sym>();
   collectCombs(term, seed);
   for (const s of seed) queue.push(s);
@@ -107,29 +141,42 @@ export function encode(term: Node): Encoded {
   };
 
   const defRoot = new Array<number>(symName.length).fill(-1);
-  // emit def trees in symId order so symTable can reference their roots
+  // emit def trees FIRST (in symId order, so the sym table can reference their roots) —
+  // they form an immutable prefix [0, defLen) that a resident session never compacts, so
+  // def_root indices stay valid for the life of the reduction. The term follows.
   for (let id = 0; id < symName.length; id++) {
     const def = defTree.get(symName[id]) ?? null;
     if (def) defRoot[id] = emit(def);
   }
+  const defLen = nodes.length / 3; // boundary: nodes [0, defLen) are the def prefix
   const root = emit(term);
 
   // ---- assemble: header + nodes + sym table ----
+  // header: [root,symS,symK,symI,nodeCount,symCount,defLen, symSucc,symLT,symEQ,symGT, flags, symCons]
+  const HEADER = 13;
   const nodeCount = nodes.length / 3;
   const symCount = symName.length;
-  const out = new Int32Array(6 + nodes.length + symCount * 2);
+  const out = new Int32Array(HEADER + nodes.length + symCount * 3);
   out[0] = root;
   out[1] = symId.get("S")!;
   out[2] = symId.get("K")!;
   out[3] = symId.get("I")!;
   out[4] = nodeCount;
   out[5] = symCount;
-  out.set(nodes, 6);
-  const sbase = 6 + nodes.length;
+  out[6] = defLen;
+  out[7] = symId.get("Succ") ?? -1;
+  out[8] = symId.get("LT") ?? -1;
+  out[9] = symId.get("EQ") ?? -1;
+  out[10] = symId.get("GT") ?? -1;
+  out[11] = (opts?.numbers ? NATIVE_NUMBERS : 0) | (opts?.lists ? NATIVE_LISTS : 0) | (opts?.booleans ? NATIVE_BOOLS : 0);
+  out[12] = symId.get("cons") ?? -1;
+  out.set(nodes, HEADER);
+  const sbase = HEADER + nodes.length;
   for (let id = 0; id < symCount; id++) {
     const law = LAW.get(symName[id]);
-    out[sbase + id * 2] = law?.arity ?? 1;
-    out[sbase + id * 2 + 1] = defRoot[id];
+    out[sbase + id * 3] = law?.arity ?? 1;
+    out[sbase + id * 3 + 1] = defRoot[id];
+    out[sbase + id * 3 + 2] = KERNEL_KIND[symName[id]] ?? 0; // number-kernel kind, or 0
   }
   return { data: out, symName, freeName };
 }
@@ -141,7 +188,10 @@ export interface Decoded {
   done: boolean;
 }
 
-/** Decode the wasm result array back into a `Node` term. */
+/** Decode the wasm result array back into a `Node` term. ITERATIVE (an explicit stack +
+ *  post-order build) — a recursive decode overflows the JS call stack on a deep result (a big
+ *  Scott numeral is thousands of nodes deep). Sharing in the wasm DAG is preserved via the memo
+ *  (a shared index → one `Node`). */
 export function decode(result: Int32Array, symName: string[], freeName: string[]): Decoded {
   const done = result[0] === 1;
   const steps = result[1];
@@ -149,20 +199,29 @@ export function decode(result: Int32Array, symName: string[], freeName: string[]
   const n = result[3];
   const base = 4;
   const memo = new Array<Node | undefined>(n);
-  const build = (i: number): Node => {
-    const cached = memo[i];
-    if (cached) return cached;
+  const leaf = (i: number): Node => {
     const o = base + i * 3;
     const tag = result[o];
-    let node: Node;
-    if (tag === TAG_APP) node = app(build(result[o + 1]), build(result[o + 2]));
-    else if (tag === TAG_IOTA) node = { id: 0, kind: "iota" } as Node;
-    else if (tag === TAG_COMB) {
+    if (tag === TAG_IOTA) return { id: 0, kind: "iota" } as Node;
+    if (tag === TAG_COMB) {
       const sym = symName[result[o + 1]];
-      node = isCatalog(sym) ? named(sym) : comb(sym);
-    } else node = freeVar(freeName[result[o + 1]]);
-    memo[i] = node;
-    return node;
+      return isCatalog(sym) ? named(sym) : comb(sym);
+    }
+    return freeVar(freeName[result[o + 1]]);
   };
-  return { term: build(root), steps, done };
+  // stack of (index, childrenReady): first visit pushes children, second builds the app.
+  const stack: Array<[number, boolean]> = [[root, false]];
+  while (stack.length) {
+    const [i, ready] = stack.pop()!;
+    if (memo[i]) continue;
+    const o = base + i * 3;
+    if (result[o] !== TAG_APP) {
+      memo[i] = leaf(i);
+    } else if (!ready) {
+      stack.push([i, true], [result[o + 1], false], [result[o + 2], false]);
+    } else {
+      memo[i] = app(memo[result[o + 1]]!, memo[result[o + 2]]!);
+    }
+  }
+  return { term: memo[root]!, steps, done };
 }

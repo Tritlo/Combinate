@@ -28,6 +28,7 @@ import { Toast } from "./view/toast";
 import { Zoo } from "./view/zoo";
 import { MhsPanel } from "./view/mhs/panel";
 import { ReadoutLens } from "./view/readoutLens";
+import { loadWasmReducer, wasmReady, WasmSession } from "./view/wasmReducer";
 import { ReductionController, type Transport } from "./view/reduction";
 import { TransportBar } from "./view/transportBar";
 import { preloadCompiler } from "./view/mhs/compiler";
@@ -355,6 +356,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     getFast: () => fastMode,
     getShare: () => shareMode,
     getNative: () => nativeOpts(),
+    getTurbo: () => isOpt("wasm"),
+    makeSession: (term) => (wasmReady() ? new WasmSession(term, nativeOpts()) : null),
     focusedLive: () => (focus && trees.includes(focus) ? focus : null),
     settle: (tree) => settle(tree),
     onNormalForm: (source) => {
@@ -529,13 +532,19 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const TY_PAGE: Record<Ty, string> = { Int: "Arithmetic", Bool: "Booleans", List: "Lists", Char: "Char" };
   const mhsPanel = new MhsPanel(
     (tree, read) => {
-      // Compiled programs are big: optimize, lay out radially, and zoom to fit.
-      setOpt("rules", true);
+      // Compiled programs get big: turn on Turbo (the wasm graph engine — sharing + number
+      // kernels) so the reduction is fast + doesn't blow up, lay out radially, zoom to fit.
+      // (rules off — it gates Turbo; native numbers on for clean fast arithmetic.) Turbo
+      // auto-engages by size, so small steps still animate; the big reduction runs in wasm.
+      setOpt("rules", false);
+      setOpt("nativeNumbers", true);
+      setOpt("wasm", true);
+      void loadWasmReducer(); // warm the wasm so the first big reduction uses it
       setLayoutMode(layoutRadial);
       const view = spawnTree(tree, window.innerWidth / 2, window.innerHeight / 2);
       if (read) hotbar.selectPage(TY_PAGE[read]);
       fitTree(view);
-      toast.show("compiled from Haskell");
+      toast.show("compiled from Haskell — Turbo on");
     },
     () => paintRail(),
   );
@@ -846,6 +855,22 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     } else if (key === "graph") {
       shareMode = isOpt("graph");
       if (focus) reduce.schedule(focus);
+    } else if (key === "wasm") {
+      // Turbo toggled: preload the wasm (so the next reduction can use it), drop any stale
+      // sessions, and re-decide turbo-vs-TS for the focused tree.
+      if (isOpt("wasm")) {
+        const armed = focus; // re-check on resolve: Turbo still on AND the same tree still focused
+        void loadWasmReducer().then(() => {
+          if (isOpt("wasm") && armed && focus === armed && trees.includes(armed)) reduce.schedule(armed);
+        });
+      }
+      reduce.invalidateSessions();
+      if (focus) reduce.schedule(focus);
+    } else if (key === "nativeNumbers" || key === "nativeLists" || key === "nativeBooleans") {
+      // A wasm session bakes the native opts at creation (number kernels / turbo eligibility),
+      // so a native-toggle change needs a fresh session.
+      reduce.invalidateSessions();
+      if (focus) reduce.schedule(focus);
     }
     paintRail();
   });
@@ -1014,6 +1039,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // used. ensureRefolder swallows a load failure (the behavioural-only re-folder
   // still works), so this never blocks startup.
   await readout.ensureRefolder();
+  if (isOpt("wasm")) void loadWasmReducer(); // persisted Turbo → warm the wasm so the first reduction uses it
   onStep("lenses"); // splash step 3/4
 
   // Warm the MicroHs live-compile blob + cache (the 3 MB compiler), so the Haskell
@@ -1083,6 +1109,19 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
         },
         // spawn a term from an egg s-expression and focus it (drives the read-out)
         spawn: (s: string) => sexp(spawnTree(fromEgg(s), window.innerWidth / 2, window.innerHeight / 2).node),
+      },
+      // wasm turbo reducer (ADR 15): load + drive a resident session to NF, for tests.
+      wasm: {
+        load: async () => !!(await loadWasmReducer()),
+        ready: () => wasmReady(),
+        nf: async (s: string, batch = 5000): Promise<string | null> => {
+          if (!(await loadWasmReducer())) return null;
+          const sess = new WasmSession(fromEgg(s));
+          while (!sess.isDone) if (sess.stepBudget(batch) === 0) break;
+          const out = sexp(sess.snapshot());
+          sess.free();
+          return out;
+        },
       },
     };
   }

@@ -204,3 +204,54 @@ already-sub-10ms terms — the JS codec dominates, and escaping it needs a wasm-
 kernels + graph sharing. Kept as a documented, cross-checked capability (`crates/reduce`,
 `src/core/wasmCodec.ts`, `npm run check:reduce-wasm`); revisit only for a visibly-slow
 (>100 ms) raw-reduction path. Full rationale + numbers: `docs/perf-spike-findings.md`.
+**(Superseded by ADR 16 — the visibly-slow path appeared: big MicroHaskell programs.)**
+
+## 16: Turbo — wasm resident reduction for big trees
+**Status:** Accepted (Codex consensus).
+
+Context: ADR 14 shelved the wasm reducer because the *per-call* codec floor capped it at
+2–3× end-to-end. But big raw trees — a compiled MicroHaskell program applied to input —
+reduce through thousands of steps where the TS persistent reducer is allocation/GC-bound
+(measured: a 1801-node church-mul intermediate is 559 ms in TS) and one tween-per-step
+playback is unwatchably slow (minutes). That's the visibly-slow path ADR 14 said to wait for.
+
+Decision: a **resident wasm reduction** behind a "Turbo (wasm)" optimize toggle.
+- **Resident session** (`crates/reduce` `Session`): the term + def trees live in linear
+  memory, so the playback loop runs thousands of contractions per frame with no marshalling,
+  snapshotting the current term out only for display — this escapes the codec floor (the
+  reduction dominates; encode/decode amortise to ~0). `snapshot()` compacts the arena while
+  preserving an immutable def-tree prefix (`def_len`) so `def_root` stays valid (Codex's trap).
+- **Raw turbo, gated.** It does raw ι/I/K/S + def-unfold only (= TS non-fast mode); eligible
+  only when rules/native/graph are all off, else the TS reducer runs. No rule/kernel port (no
+  drift). The cross-check (`npm run check:reduce-wasm`) drives it: 213/0 + invariance 3/0.
+- **Frame-budget playback** (`ReductionController` turbo path): cap steps/frame + a perceptible
+  reflow gap → a big tree churns through a few **dramatic reflows** instead of one jump or one
+  slow tween/step. A huge ballooning intermediate (Scott arithmetic) is reduced resident +
+  undrawn (render-skip) until it resolves; an explosion guard pauses true blow-ups.
+- **Bounded probes (the real blocker).** Turbo surfaced a *pre-existing* freeze: the value /
+  `recognize` / quest / golf probes REDUCE the focused term unbounded and explode on big
+  Church arithmetic (`read()` OOM'd on a 175-node term). Fixed: `normalize` gains an opt-in
+  `maxNodes` size guard (a step-capped reduction can still build a heap-blowing tree via the
+  S-rule clone); the value matchers + `probe()` use it; `recognize` skips > 256-node terms;
+  the read-out skips its probes > 400 nodes; `finishNormalForm` skips the catalog/quest/golf
+  probes when the result/source > 150 nodes (a big result is neither a bird nor a solution).
+
+Measured (in-browser, Turbo on): church-mul egg(30) ~1.0 s, egg(50) ~1.3 s, vs DEFAULT
+minutes (it managed 723/4714 steps in 19 s). No freezes; the intermediate spine renders
+mid-churn.
+
+**Update — the engine is now a wasm GRAPH reducer with number kernels** (the persistent
+Session became the cross-check oracle). Call-by-need sharing (a faithful port of `graph.ts`:
+cells iota|comb|free|app|IND, `force` chases indirections, the S-rule shares its arg by
+index) tames the materialisation blow-up that bailed the persistent engine — Scott `(*) 5 5`
+reduces in 1 ms / 1910 cells vs 16.7 M nodes / bail. The **number kernels** (a port of
+`native.ts`'s `numberOp` with its exact forcing — `(+) a n` keeps n a thunk, `(*) 0 _`
+short-circuits, `(-) m 0 → m`) compute clean canonical Scott results in the wasm directly, so
+`(*) 8 8` reads "64" in ~500 ms. Turbo is eligible with native *numbers* on (kernels handle
+them); rules/graph/list/bool kernels still gate it off. Hardening (Codex review): step /
+readback / decode made ITERATIVE (deep Succ^k overflowed the stack), snapshot compacts the
+arena (drop IND chains + dead cells, preserve the def prefix), caps aligned to native.ts
+(match 9999 / `(*)` product 4096), and a normal form too large to lay out is not drawn.
+Cross-check (`npm run check:reduce-wasm`): one-shot + persistent + graph 213/0 vs
+`normalize(_,false)`/`evalShared(_,false)`, graph+kernels 253/0 vs `normalize(_,false,
+{numbers:true})`, session invariance 3/0. Deferred: list/bool kernels; a wasm value-read.
