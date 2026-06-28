@@ -68,15 +68,22 @@ export interface ReductionDeps {
   onTransportChange: () => void; // repaint the menu + transport bar
 }
 
+// Speed levels 0-4 (the game-mode `0`-`4` keys): 0 = pause, then the running multiplier.
+// `ff` is level 3 (4×), so the legacy Pause/Play/Fast-forward still line up.
+const SPEED_MULT = [1, 1, 2, 4, 8]; // index = level (0 maps to pause, so its mult is unused)
+const FF_MULT = 4; // what the legacy "ff" transport means as a multiplier (= level 3)
+const LEVEL_OF_MULT: Record<number, number> = { 1: 1, 2: 2, 4: 3, 8: 4 };
+
 export class ReductionController {
   private readonly auto = new Map<TreeView, AutoState>();
   private transport: Transport = "play"; // trees reduce on their own; auto-pauses if a term won't terminate or blows up
+  private mult = 1; // running speed multiplier (set by play/ff or setSpeedLevel); read live so speed changes are seamless
 
   constructor(private readonly deps: ReductionDeps) {}
 
-  // Speed is read live, so play↔ff is seamless; only resuming from pause re-kicks the loop.
+  // The live speed multiplier (1× … 8×); only resuming from pause re-kicks the loop.
   private speed(): number {
-    return this.transport === "ff" ? 3 : 1;
+    return this.mult;
   }
   private stepDur(): number {
     return STEP_MS / this.speed();
@@ -84,9 +91,17 @@ export class ReductionController {
   private stepGap(): number {
     return STEP_GAP / this.speed();
   }
-  // Big trees jump-cut, so pace them at a short fixed gap (still yields); small use the speed gap.
+  // Big trees jump-cut, so pace them at a short fixed gap (still yields); small use the speed
+  // gap. The multiplier speeds the jump-cut too, so a high level actually accelerates big trees.
   private nextGap(t: TreeView): number {
-    return t.heavy() ? HEAVY_GAP : this.stepGap();
+    return t.heavy() ? Math.max(1, HEAVY_GAP / this.mult) : this.stepGap();
+  }
+  // Turbo reflow gap + steps-per-reflow, scaled by the speed level (faster + bigger jumps).
+  private turboGap(): number {
+    return Math.max(4, TURBO_GAP / this.mult);
+  }
+  private turboStepsPerFrame(): number {
+    return TURBO_MAX_STEPS_PER_FRAME * this.mult;
   }
 
   /** Forget a tree entirely (it was deleted from the canvas): cancel its loop first so no
@@ -168,7 +183,8 @@ export class ReductionController {
     // frame so a fast reduction is shown as a few dramatic reflows, not one instant jump.
     const start = performance.now();
     const startSteps = s.totalSteps;
-    while (performance.now() - start < TURBO_BUDGET_MS && s.totalSteps - startSteps < TURBO_MAX_STEPS_PER_FRAME) {
+    const stepsPerFrame = this.turboStepsPerFrame();
+    while (performance.now() - start < TURBO_BUDGET_MS && s.totalSteps - startSteps < stepsPerFrame) {
       const n = s.stepBudget(TURBO_CHUNK);
       if (s.isDone || n === 0) break;
       if (s.nodeCount > TURBO_EXPLODE_NODES) {
@@ -190,7 +206,7 @@ export class ReductionController {
     const reschedule = (): void => {
       const a2 = this.auto.get(tree);
       if (!a2 || a2.gen !== gen || this.transport === "pause") return;
-      a2.timer = window.setTimeout(() => this.turboTick(tree, gen), TURBO_GAP);
+      a2.timer = window.setTimeout(() => this.turboTick(tree, gen), this.turboGap());
     };
     if (!done && s.nodeCount > TURBO_RENDER_SKIP_NODES) {
       reschedule(); // big intermediate — skip the (expensive) reflow, keep churning
@@ -219,7 +235,7 @@ export class ReductionController {
         this.freeSession(a2);
         return;
       }
-      a2.timer = window.setTimeout(() => this.turboTick(tree, gen), TURBO_GAP);
+      a2.timer = window.setTimeout(() => this.turboTick(tree, gen), this.turboGap());
     });
   }
 
@@ -304,7 +320,7 @@ export class ReductionController {
       // Auto-upgrade: a tree that has grown big (or a reduction grinding many steps) hands off
       // to the wasm engine instead of continuing the per-step TS path.
       if (this.wantsTurbo(tree, a2.steps) && this.engageTurbo(tree, a2)) {
-        a2.timer = window.setTimeout(() => this.turboTick(tree, gen), TURBO_GAP);
+        a2.timer = window.setTimeout(() => this.turboTick(tree, gen), this.turboGap());
       } else {
         a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(tree));
       }
@@ -344,29 +360,55 @@ export class ReductionController {
   }
 
   /** Switch playback mode. Pause freezes every tree; resuming re-kicks the ones that still
-   *  have a reduction left (settled trees stay put). play↔ff needs no re-kick. */
+   *  have a reduction left (settled trees stay put). play↔ff needs no re-kick. play = 1×, ff
+   *  = the fast-forward multiplier (level 3). */
   setTransport(mode: Transport): void {
     const wasPaused = this.transport === "pause";
     this.transport = mode;
+    if (mode === "play") this.mult = 1;
+    else if (mode === "ff") this.mult = FF_MULT;
     this.deps.onTransportChange();
-    if (mode === "pause") {
-      for (const [tree, a] of this.auto) {
-        clearTimeout(a.timer);
-        tree.stopAnimation();
-      }
-    } else if (wasPaused) {
-      for (const [tree, a] of this.auto) {
-        if (a.session && !a.session.isDone) {
-          // a resident turbo reduction in flight — continue it (the session holds the state)
-          a.gen++;
-          const gen = a.gen;
-          a.timer = window.setTimeout(() => this.turboTick(tree, gen), 0);
-        } else if (redexAt(tree.node, 0, this.deps.getFast(), this.deps.getNative())) {
-          a.steps = 0; // explicit resume = "keep going" → a fresh budget before auto-pause re-trips
-          a.gen++;
-          const gen = a.gen;
-          a.timer = window.setTimeout(() => this.stepAuto(tree, gen), 0);
-        }
+    if (mode === "pause") this.pauseAll();
+    else if (wasPaused) this.resumeAll();
+  }
+
+  /** Set the reduction speed by level 0-4 (the game-mode `0`-`4` keys): 0 = pause, 1 = 1×,
+   *  2 = 2×, 3 = 4×, 4 = 8×. Reflects in the transport (ff when >1×) so the menu/bar agree. */
+  setSpeedLevel(level: number): void {
+    const n = Math.max(0, Math.min(4, Math.round(level)));
+    if (n === 0) return this.setTransport("pause");
+    const wasPaused = this.transport === "pause";
+    this.mult = SPEED_MULT[n];
+    this.transport = this.mult > 1 ? "ff" : "play"; // keep the menu/bar highlight sensible
+    this.deps.onTransportChange();
+    if (wasPaused) this.resumeAll();
+  }
+
+  /** The current speed level 0-4 (0 = paused). */
+  get speedLevel(): number {
+    return this.transport === "pause" ? 0 : (LEVEL_OF_MULT[this.mult] ?? 1);
+  }
+
+  // Freeze every tree (cancel its timer + animation).
+  private pauseAll(): void {
+    for (const [tree, a] of this.auto) {
+      clearTimeout(a.timer);
+      tree.stopAnimation();
+    }
+  }
+  // Re-kick every tree that still has a reduction left (a resident session, or a TS redex).
+  private resumeAll(): void {
+    for (const [tree, a] of this.auto) {
+      if (a.session && !a.session.isDone) {
+        // a resident turbo reduction in flight — continue it (the session holds the state)
+        a.gen++;
+        const gen = a.gen;
+        a.timer = window.setTimeout(() => this.turboTick(tree, gen), 0);
+      } else if (redexAt(tree.node, 0, this.deps.getFast(), this.deps.getNative())) {
+        a.steps = 0; // explicit resume = "keep going" → a fresh budget before auto-pause re-trips
+        a.gen++;
+        const gen = a.gen;
+        a.timer = window.setTimeout(() => this.stepAuto(tree, gen), 0);
       }
     }
   }
