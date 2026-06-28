@@ -24,9 +24,18 @@ if (!fs.existsSync(WASM)) {
   console.error(`missing ${WASM} — run \`npm run build:reduce-wasm\` first.`);
   process.exit(2);
 }
-const inst = new WebAssembly.Instance(new WebAssembly.Module(fs.readFileSync(WASM)), {
-  "./reduce_bg.js": { __wbindgen_init_externref_table: () => {} },
-});
+const mod = new WebAssembly.Module(fs.readFileSync(WASM));
+// Stub the wasm-bindgen glue imports generically (names are hashed): no-ops, except the
+// panic hook which throws. Our exports are plain i32-array in/out, so no real glue runs.
+const imports: Record<string, Record<string, (...a: number[]) => unknown>> = {};
+for (const im of WebAssembly.Module.imports(mod)) {
+  (imports[im.module] ??= {})[im.name] = im.name.includes("throw")
+    ? () => {
+        throw new Error("wasm panic");
+      }
+    : () => undefined;
+}
+const inst = new WebAssembly.Instance(mod, imports);
 const wasm = inst.exports as Record<string, (...a: number[]) => number | number[]> & { memory: WebAssembly.Memory };
 (wasm.__wbindgen_start as (() => void) | undefined)?.();
 
@@ -48,6 +57,38 @@ function wasmNF(t: Node, cap: number): { term: Node; done: boolean } {
   return decode(callWasm(data, cap), symName, freeName);
 }
 
+// Drive the resident Session in `batch`-sized step budgets (exercising compaction +
+// snapshot between batches), then snapshot the result. The wasm-bindgen struct is reached
+// via the raw `session_*` exports + the `__wbg_session_free` finalizer.
+const malloc = wasm.__wbindgen_malloc as (n: number, a: number) => number;
+const free = wasm.__wbindgen_free as (p: number, n: number, a: number) => void;
+const S = wasm as unknown as {
+  session_new: (p: number, l: number) => number;
+  session_step_budget: (h: number, n: number) => number;
+  session_is_done: (h: number) => number;
+  session_total_steps: (h: number) => number;
+  session_snapshot: (h: number) => number[];
+  __wbg_session_free: (h: number, x: number) => void;
+};
+function sessionNF(t: Node, batch: number, cap: number): { term: Node; done: boolean } {
+  const { data, symName, freeName } = encode(t);
+  const ptr = malloc(data.length * 4, 4) >>> 0;
+  new Int32Array(wasm.memory.buffer, ptr, data.length).set(data);
+  const h = S.session_new(ptr, data.length);
+  let total = 0;
+  while (total < cap) {
+    const did = S.session_step_budget(h, batch);
+    total += did;
+    if (S.session_is_done(h) || did === 0) break;
+  }
+  const ret = S.session_snapshot(h);
+  const out = new Int32Array(wasm.memory.buffer, ret[0] >>> 0, ret[1] >>> 0).slice();
+  free(ret[0] >>> 0, (ret[1] >>> 0) * 4, 4);
+  const done = !!S.session_is_done(h);
+  S.__wbg_session_free(h, 0);
+  return { term: decode(out, symName, freeName).term, done };
+}
+
 let pass = 0;
 let fail = 0;
 let skip = 0;
@@ -58,11 +99,17 @@ function check(label: string, t: Node, cap = 5_000): void {
     skip++; // divergent within cap — not a correctness signal (both bail)
     return;
   }
+  const expect = struct(ts.term);
+  // one-shot reduce_to_nf
   const w = wasmNF(t, cap);
-  if (w.done && struct(ts.term) === struct(w.term)) pass++;
+  // resident session (small batch → exercises compaction + snapshot between batches)
+  const s = sessionNF(t, 7, cap);
+  const okW = w.done && struct(w.term) === expect;
+  const okS = s.done && struct(s.term) === expect;
+  if (okW && okS) pass++;
   else {
     fail++;
-    if (fails.length < 16) fails.push(`${label}: TS=${struct(ts.term).slice(0, 36)}  WASM(${w.done})=${struct(w.term).slice(0, 36)}`);
+    if (fails.length < 16) fails.push(`${label}: TS=${expect.slice(0, 30)} | one-shot ok=${okW} | session ok=${okS}`);
   }
 }
 
@@ -98,6 +145,50 @@ const church = (n: number): Node => {
 };
 for (const n of [0, 1, 5, 10, 30]) check(`church(${n}) I x`, app(app(church(n), named("I")), freeVar("x")));
 
+// ---- session-specific: def must survive snapshot/compaction (Codex's regression), and the
+// result must be batch-invariant (same NF whatever the step-budget granularity). ----
+let sPass = 0;
+let sFail = 0;
+function sessionInvariant(label: string, t: Node, cap = 5_000): void {
+  const expect = struct(normalize(t, cap, false).term);
+  for (const batch of [1, 2, 3, 13, 5000]) {
+    // batch=1 forces a snapshot/compaction after a single step — the def prefix must persist
+    const s = batch === 1 ? sessionStepThenFinish(t, cap) : sessionNF(t, batch, cap);
+    if (!s.done || struct(s.term) !== expect) {
+      sFail++;
+      if (fails.length < 16) fails.push(`${label} [batch=${batch}]: expected ${expect.slice(0, 30)}, got ${struct(s.term).slice(0, 30)}`);
+      return;
+    }
+  }
+  sPass++;
+}
+// step once, snapshot (compact), then run to NF — the harshest compaction timing
+function sessionStepThenFinish(t: Node, cap: number): { term: Node; done: boolean } {
+  const { data, symName, freeName } = encode(t);
+  const ptr = malloc(data.length * 4, 4) >>> 0;
+  new Int32Array(wasm.memory.buffer, ptr, data.length).set(data);
+  const h = S.session_new(ptr, data.length);
+  S.session_step_budget(h, 1);
+  const snap1 = S.session_snapshot(h); // snapshot (compacts the arena) + discard
+  free(snap1[0] >>> 0, (snap1[1] >>> 0) * 4, 4);
+  let total = 1;
+  while (total < cap) {
+    const did = S.session_step_budget(h, 5000);
+    total += did;
+    if (S.session_is_done(h) || did === 0) break;
+  }
+  const ret = S.session_snapshot(h);
+  const out = new Int32Array(wasm.memory.buffer, ret[0] >>> 0, ret[1] >>> 0).slice();
+  free(ret[0] >>> 0, (ret[1] >>> 0) * 4, 4);
+  const done = !!S.session_is_done(h);
+  S.__wbg_session_free(h, 0);
+  return { term: decode(out, symName, freeName).term, done };
+}
+sessionInvariant("(((I B) x) y) z [def-after-compact]", app(app(app(app(named("I"), named("B")), freeVar("x")), freeVar("y")), freeVar("z")));
+sessionInvariant("church(60) I x", app(app(church(60), named("I")), freeVar("x")));
+sessionInvariant("(*) 3 3", app(app(named("(*)"), nat(3)), nat(3)));
+
 console.log(`wasm-reduce cross-check: ${pass} pass, ${fail} fail, ${skip} skipped(divergent)`);
+console.log(`session invariance: ${sPass} pass, ${sFail} fail`);
 for (const f of fails) console.log(`  FAIL ${f}`);
-process.exit(fail === 0 ? 0 : 1);
+process.exit(fail === 0 && sFail === 0 ? 0 : 1);

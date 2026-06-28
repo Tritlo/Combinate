@@ -11,7 +11,8 @@
 //! Wire format (flat `i32` array), input:
 //!   [0] root node index
 //!   [1] symId of S   [2] symId of K   [3] symId of I   (-1 if absent)
-//!   [4] node count N   [5] sym count M
+//!   [4] node count N   [5] sym count M   [6] def-prefix length (nodes[0..defLen) are the
+//!       immutable def trees, emitted before the term — a resident session never compacts them)
 //!   then N nodes × 3:  [tag, a, b]   tag 0=IOTA 1=COMB(a=symId) 2=FREE(a=freeId) 3=APP(a=fn,b=arg)
 //!   then M syms × 2:   [arity, defRoot]   defRoot = -1 when the comb has no def (a primitive)
 //! Output:
@@ -37,15 +38,84 @@ struct Sym {
     def_root: i32,
 }
 
+// Persistent reduction bump-allocates and never frees, so a divergent / explosively growing
+// term would exhaust wasm memory. Bail / compact past this. ~16M nodes × 12 B ≈ 200 MB.
+const MAX_NODES: usize = 16_000_000;
+
 struct Reducer {
     nodes: Vec<Node>,
     syms: Vec<Sym>,
     sym_s: i32,
     sym_k: i32,
     sym_i: i32,
+    /// Length of the immutable def-tree prefix `nodes[0..def_len)` — `compact` preserves it
+    /// so every `Sym::def_root` stays valid for the life of the reduction.
+    def_len: usize,
 }
 
 impl Reducer {
+    /// Parse the flat wire format (see the module header) into a reducer + the term root.
+    fn from_wire(data: &[i32], extra_capacity: usize) -> (Reducer, i32) {
+        let root = data[0];
+        let sym_s = data[1];
+        let sym_k = data[2];
+        let sym_i = data[3];
+        let n = data[4] as usize;
+        let m = data[5] as usize;
+        let def_len = data[6] as usize;
+        let mut nodes = Vec::with_capacity(n + extra_capacity);
+        let base = 7;
+        for j in 0..n {
+            let o = base + j * 3;
+            nodes.push(Node { tag: data[o], a: data[o + 1], b: data[o + 2] });
+        }
+        let mut syms = Vec::with_capacity(m);
+        let sbase = base + n * 3;
+        for j in 0..m {
+            let o = sbase + j * 2;
+            syms.push(Sym { arity: data[o], def_root: data[o + 1] });
+        }
+        (Reducer { nodes, syms, sym_s, sym_k, sym_i, def_len }, root)
+    }
+
+    /// Reclaim garbage: rebuild the working region `nodes[def_len..)` from the live term,
+    /// keeping the immutable def prefix in place (so `def_root` indices stay valid). Working
+    /// nodes never reference into the prefix (def-unfold clones the whole def subtree into the
+    /// working region; comb nodes reference defs by *symId*, not index), so this is safe.
+    fn compact(&mut self, root: i32) -> i32 {
+        let dl = self.def_len as i32;
+        let mut out: Vec<Node> = Vec::new();
+        let mut memo = vec![-1i32; self.nodes.len() - self.def_len];
+        let new_root = self.compact_copy(root, &mut out, &mut memo, dl);
+        self.nodes.truncate(self.def_len);
+        self.nodes.extend(out);
+        new_root
+    }
+
+    fn compact_copy(&self, i: i32, out: &mut Vec<Node>, memo: &mut [i32], def_len: i32) -> i32 {
+        if i < def_len {
+            return i; // def node — stays in the immutable prefix, index unchanged
+        }
+        let k = (i - def_len) as usize;
+        if memo[k] >= 0 {
+            return memo[k]; // shared (S-duplicated) working node → one output node
+        }
+        let n = self.get(i);
+        let idx = if n.tag == TAG_APP {
+            let f = self.compact_copy(n.a, out, memo, def_len);
+            let x = self.compact_copy(n.b, out, memo, def_len);
+            let id = def_len + out.len() as i32;
+            out.push(Node { tag: TAG_APP, a: f, b: x });
+            id
+        } else {
+            let id = def_len + out.len() as i32;
+            out.push(n);
+            id
+        };
+        memo[k] = idx;
+        idx
+    }
+
     #[inline]
     fn push(&mut self, tag: i32, a: i32, b: i32) -> i32 {
         let i = self.nodes.len() as i32;
@@ -182,39 +252,15 @@ impl Reducer {
 }
 
 /// Reduce a flat-encoded term to normal form (or until `cap` contractions). Returns the
-/// re-encoded NF (see the wire format above).
+/// re-encoded NF (see the wire format above). One-shot; the cross-check oracle.
 #[wasm_bindgen]
 pub fn reduce_to_nf(data: &[i32], cap: u32) -> Vec<i32> {
-    let root = data[0];
-    let sym_s = data[1];
-    let sym_k = data[2];
-    let sym_i = data[3];
-    let n = data[4] as usize;
-    let m = data[5] as usize;
-    let mut nodes = Vec::with_capacity(n + (cap as usize).min(1 << 22));
-    let base = 6;
-    for j in 0..n {
-        let o = base + j * 3;
-        nodes.push(Node { tag: data[o], a: data[o + 1], b: data[o + 2] });
-    }
-    let mut syms = Vec::with_capacity(m);
-    let sbase = base + n * 3;
-    for j in 0..m {
-        let o = sbase + j * 2;
-        syms.push(Sym { arity: data[o], def_root: data[o + 1] });
-    }
-    let mut r = Reducer { nodes, syms, sym_s, sym_k, sym_i };
-
-    // Persistent reduction bump-allocates and never frees, so a divergent / explosively
-    // growing term (e.g. a catalog op applied to non-numeral free vars) would exhaust wasm
-    // memory. Bail (done=false) past a node budget — the caller falls back to the TS
-    // reducer, which reclaims via GC. ~16M nodes × 12 bytes ≈ 200 MB ceiling.
-    const MAX_NODES: usize = 16_000_000;
+    let (mut r, root) = Reducer::from_wire(data, (cap as usize).min(1 << 22));
     let mut cur = root;
     let mut steps: u32 = 0;
     let done = loop {
         if r.nodes.len() >= MAX_NODES {
-            break false;
+            break false; // the caller (TS) falls back to its GC'd reducer
         }
         match r.step(cur, 0) {
             Some(next) => {
@@ -228,4 +274,75 @@ pub fn reduce_to_nf(data: &[i32], cap: u32) -> Vec<i32> {
         }
     };
     r.encode(cur, steps as i32, done)
+}
+
+/// A resident reduction: the term + def trees live in wasm linear memory, so a turbo loop
+/// can run thousands of contractions without marshalling, and only snapshot the current term
+/// out (for display) once per frame. The frame-budget / total cap is the JS caller's job —
+/// it calls `step_budget` repeatedly and reads the clock; this only enforces the memory cap.
+#[wasm_bindgen]
+pub struct Session {
+    r: Reducer,
+    root: i32,
+    steps: u32,
+    done: bool,
+}
+
+// Compact internally once the working arena grows past this between snapshots, so a single
+// large `step_budget` batch on a big intermediate can't hit MAX_NODES and stall.
+const COMPACT_AT: usize = 2_000_000;
+
+#[wasm_bindgen]
+impl Session {
+    #[wasm_bindgen(constructor)]
+    pub fn new(data: &[i32]) -> Session {
+        let (r, root) = Reducer::from_wire(data, 1 << 16);
+        Session { r, root, steps: 0, done: false }
+    }
+
+    /// Run up to `max_steps` more contractions (or to NF). Returns the steps done this call
+    /// (0 once at normal form). Compacts internally if the arena gets large.
+    pub fn step_budget(&mut self, max_steps: u32) -> u32 {
+        if self.done {
+            return 0;
+        }
+        let mut did = 0u32;
+        while did < max_steps {
+            if self.r.nodes.len() >= COMPACT_AT {
+                self.root = self.r.compact(self.root);
+                if self.r.nodes.len() >= MAX_NODES {
+                    break; // pathological: even compacted it's over the ceiling
+                }
+            }
+            match self.r.step(self.root, 0) {
+                Some(next) => {
+                    self.root = next;
+                    self.steps += 1;
+                    did += 1;
+                }
+                None => {
+                    self.done = true;
+                    break;
+                }
+            }
+        }
+        did
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.done
+    }
+    pub fn total_steps(&self) -> u32 {
+        self.steps
+    }
+    pub fn node_count(&self) -> u32 {
+        self.r.nodes.len() as u32
+    }
+
+    /// Compact the arena (reclaim garbage, preserve the def prefix) and return the encoded
+    /// current term for display.
+    pub fn snapshot(&mut self) -> Vec<i32> {
+        self.root = self.r.compact(self.root);
+        self.r.encode(self.root, self.steps as i32, self.done)
+    }
 }
