@@ -7,6 +7,7 @@
  * trees — MicroHaskell-compiled programs — where the TS persistent reducer is GC-bound.
  */
 import { type Node } from "../core/term";
+import { type NativeOpts } from "../core/native";
 import { encode, decode } from "../core/wasmCodec";
 
 type WasmModule = typeof import("../../crates/reduce/pkg/reduce.js");
@@ -42,9 +43,9 @@ export class WasmSession {
   private readonly symName: string[];
   private readonly freeName: string[];
 
-  constructor(term: Node) {
+  constructor(term: Node, opts?: NativeOpts) {
     if (!mod) throw new Error("wasm reducer not loaded");
-    const { data, symName, freeName } = encode(term);
+    const { data, symName, freeName } = encode(term, opts); // opts.numbers → wasm number kernels
     this.symName = symName;
     this.freeName = freeName;
     this.session = new mod.GraphSession(data);

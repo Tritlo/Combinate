@@ -357,7 +357,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     getShare: () => shareMode,
     getNative: () => nativeOpts(),
     getTurbo: () => isOpt("wasm"),
-    makeSession: (term) => (wasmReady() ? new WasmSession(term) : null),
+    makeSession: (term) => (wasmReady() ? new WasmSession(term, nativeOpts()) : null),
     focusedLive: () => (focus && trees.includes(focus) ? focus : null),
     settle: (tree) => settle(tree),
     onNormalForm: (source) => {
@@ -858,6 +858,11 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
           if (isOpt("wasm") && armed && focus === armed && trees.includes(armed)) reduce.schedule(armed);
         });
       }
+      reduce.invalidateSessions();
+      if (focus) reduce.schedule(focus);
+    } else if (key === "nativeNumbers" || key === "nativeLists" || key === "nativeBooleans") {
+      // A wasm session bakes the native opts at creation (number kernels / turbo eligibility),
+      // so a native-toggle change needs a fresh session.
       reduce.invalidateSessions();
       if (focus) reduce.schedule(focus);
     }

@@ -10,6 +10,7 @@
  */
 import { type Node, type Sym, comb, freeVar, app } from "./term";
 import { CATALOG, named } from "./catalog";
+import { type NativeOpts } from "./native";
 
 const TAG_IOTA = 0;
 const TAG_COMB = 1;
@@ -19,6 +20,22 @@ const TAG_APP = 3;
 const LAW = new Map(CATALOG.map((l) => [l.sym, l] as const));
 const isCatalog = (sym: Sym): boolean => LAW.has(sym);
 
+// Number-kernel kinds (1-based; mirrors native.ts's NUM_OPS order). 0 = not a kernel op.
+// The wasm GraphSession dispatches the arithmetic + canonical Scott emit from this tag, so
+// the kernel *logic* is ported once in Rust and cross-checked against native.ts.
+const KERNEL_KIND: Record<string, number> = {
+  "(+)": 1,
+  "(-)": 2,
+  "(*)": 3,
+  "(==)": 4,
+  "(/=)": 5,
+  "(<)": 6,
+  "(<=)": 7,
+  "(>)": 8,
+  "(>=)": 9,
+  compare: 10,
+};
+
 /** The flat encoding plus the maps needed to decode the wasm result back to `Node`. */
 export interface Encoded {
   data: Int32Array;
@@ -26,8 +43,9 @@ export interface Encoded {
   freeName: string[]; // freeId → free-var name
 }
 
-/** Encode a term into the wasm wire format (see `crates/reduce/src/lib.rs`). */
-export function encode(term: Node): Encoded {
+/** Encode a term into the wasm wire format (see `crates/reduce/src/lib.rs`). `opts` enables
+ *  the wasm number kernels (clean Scott arithmetic) when the native-numbers toggle is on. */
+export function encode(term: Node, opts?: NativeOpts): Encoded {
   // ---- close over every combinator reachable from the term and (transitively) from
   // each combinator's def, resolving each sym's def tree once. ----
   const collectCombs = (n: Node, into: Set<Sym>): void => {
@@ -39,6 +57,9 @@ export function encode(term: Node): Encoded {
   };
   const defTree = new Map<Sym, Node | null>();
   const queue: Sym[] = ["S", "K", "I"]; // primitives + the ι rule's fresh S/K
+  // The number kernels emit canonical Scott values built from these constructors, so they
+  // must be in the closure (get symIds) even if the term doesn't mention them.
+  if (opts?.numbers) queue.push("Succ", "LT", "EQ", "GT");
   const seed = new Set<Sym>();
   collectCombs(term, seed);
   for (const s of seed) queue.push(s);
@@ -118,10 +139,11 @@ export function encode(term: Node): Encoded {
   const root = emit(term);
 
   // ---- assemble: header + nodes + sym table ----
-  const HEADER = 7;
+  // header: [root,symS,symK,symI,nodeCount,symCount,defLen, symSucc,symLT,symEQ,symGT, nativeFlags]
+  const HEADER = 12;
   const nodeCount = nodes.length / 3;
   const symCount = symName.length;
-  const out = new Int32Array(HEADER + nodes.length + symCount * 2);
+  const out = new Int32Array(HEADER + nodes.length + symCount * 3);
   out[0] = root;
   out[1] = symId.get("S")!;
   out[2] = symId.get("K")!;
@@ -129,12 +151,18 @@ export function encode(term: Node): Encoded {
   out[4] = nodeCount;
   out[5] = symCount;
   out[6] = defLen;
+  out[7] = symId.get("Succ") ?? -1;
+  out[8] = symId.get("LT") ?? -1;
+  out[9] = symId.get("EQ") ?? -1;
+  out[10] = symId.get("GT") ?? -1;
+  out[11] = opts?.numbers ? 1 : 0; // bit0: number kernels (lists/bools = future bits)
   out.set(nodes, HEADER);
   const sbase = HEADER + nodes.length;
   for (let id = 0; id < symCount; id++) {
     const law = LAW.get(symName[id]);
-    out[sbase + id * 2] = law?.arity ?? 1;
-    out[sbase + id * 2 + 1] = defRoot[id];
+    out[sbase + id * 3] = law?.arity ?? 1;
+    out[sbase + id * 3 + 1] = defRoot[id];
+    out[sbase + id * 3 + 2] = KERNEL_KIND[symName[id]] ?? 0; // number-kernel kind, or 0
   }
   return { data: out, symName, freeName };
 }

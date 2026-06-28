@@ -84,11 +84,14 @@ export class ReductionController {
     this.auto.delete(tree);
   }
 
-  // Turbo is raw-only: it doesn't know rules / native ops / graph sharing, so it's eligible
-  // only when those are all off (else fall back to the TS reducer). `makeSession` returns
-  // null until the wasm has loaded, so we transparently fall back then too.
+  // Turbo (the wasm graph engine) does call-by-need sharing + the NUMBER kernels, but not the
+  // catalog rules, graph-mode driver, or the list/bool kernels — so it's eligible when those
+  // are off. Native *numbers* may be on (the wasm kernels handle them). `makeSession` returns
+  // null until the wasm has loaded, so we transparently fall back to the TS reducer then too.
   private turboEligible(): boolean {
-    return this.deps.getTurbo() && !this.deps.getShare() && !this.deps.getFast() && !this.deps.getNative();
+    const n = this.deps.getNative();
+    const unportedNative = !!(n && (n.lists || n.booleans));
+    return this.deps.getTurbo() && !this.deps.getShare() && !this.deps.getFast() && !unportedNative;
   }
 
   private freeSession(a: AutoState): void {
