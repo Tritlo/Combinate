@@ -284,8 +284,10 @@ unchanged), and selecting auto-fits the camera to it.
   buttons choose direction, so the x-position rule is dropped on this path.
 - **Coexists with mouse.** A `GameInputController` runs parallel to pointer input; mouse
   drag/drop/delete stay fully live. Mouse-dragging a bucket-owned tree *detaches* it from its
-  slot (the one desync rule). Game mode is a toggle (View menu + a key), **OFF by default**;
-  when ON it OWNS the keymap (so `z`/`x` mean zoom, not Zoo/expand) and shows the tray + a
+  slot (the one desync rule). Game mode is a toggle (Special menu), **OFF by default**; when ON
+  it OWNS the keyboard — game keys act and every *other* desktop letter-shortcut is suspended
+  (so a stray `r` can't clear the canvas; `z`/`x` mean zoom not Zoo/expand) — while modifier
+  combos (Ctrl/Cmd/Alt) and the menu bar (Esc / mouse) still pass through. Shows the tray + a
   button-hint bar.
 - **Speeds.** Transport gains numeric speed levels 0-4 (0=pause … 4=8×), wired into the
   normal, heavy-jump-cut, AND turbo pacing (so level 4 actually speeds the big trees the mode

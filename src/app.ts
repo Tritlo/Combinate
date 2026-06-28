@@ -1066,12 +1066,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (e.key === "ArrowLeft") return e.preventDefault(), zoo.cyclePage(-1);
       if (e.key === "Escape") return zoo.close();
     }
-    // Game mode owns the keymap (ADR 17) — but never while an overlay or a text field is up.
+    // Game mode OWNS the keyboard (ADR 17): game keys act, every other desktop letter-shortcut
+    // below is suspended (so e.g. `r` can't wipe the canvas mid-play) — the menu bar (Esc /
+    // mouse) still reaches them. Never while an overlay or text field is up, and modifier combos
+    // (Ctrl/Cmd/Alt — browser shortcuts like Ctrl-R) always pass through.
     const typing = (el: Element | null): boolean => !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || (el as HTMLElement).isContentEditable);
     const overlayUp = (): boolean => zoo.isOpen || challenges.isOpen || [...document.querySelectorAll<HTMLElement>(".md-root")].some((el) => el.style.display === "flex");
-    if (gameMode && !overlayUp() && !typing(document.activeElement) && gameInput.handleKey(e)) {
-      e.preventDefault();
-      return;
+    if (gameMode && !e.ctrlKey && !e.metaKey && !e.altKey && !overlayUp() && !typing(document.activeElement)) {
+      if (gameInput.handleKey(e)) e.preventDefault();
+      return; // desktop letter-shortcuts don't run while game mode owns the keyboard
     }
     if (e.key === "r" || e.key === "R") clearCanvas();
     else if (e.key === "t" || e.key === "T") toggleLayout();
