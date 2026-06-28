@@ -14,10 +14,12 @@
  * network, no `/tmp`. Solutions are SKI-Quest source (the same language the player
  * types): combinators by name, `->` lambdas, juxtaposition for application.
  *
- * Coverage is a partial reconstruction (the original key was lost): the two hard ones
- * were reverse-engineered, the Church-arithmetic ones authored, and the bird-combinator
- * ones auto-recovered by search. The lambda/recursion-heavy puzzles are still
- * `uncovered` (listed with --list) and can be backfilled; gcd is `PENDING` on kernels.
+ * Coverage: **all 107 supported puzzles are solved** (`--list` shows none uncovered).
+ * Solutions span bird combinators, fold/Scott-list ops, Church numerics (incl. factorial,
+ * Fibonacci, n/2, binary), restricted-basis combinatory-completeness builds, terminating
+ * fixed points, and the kernel-assisted gcd. The 4 *unsupported* puzzles are multi-input
+ * or structural-property (`caps`) goals the single-canvas engine can't check (see
+ * {@link isSupported}) — a known gap, not a missing answer.
  */
 import { SKIQ_CHAPTERS } from "../src/core/skiq/data";
 import { makeGoal, isSupported, buildEnvScope, type Puzzle } from "../src/core/skiq/engine";
@@ -105,6 +107,8 @@ const SOLUTIONS: Record<string, string> = {
   "0aFCHGH0": "D=g->C(C(C(KM) g)) I; f -> D (g -> f (D g))", // lazy fixed point Z
   RMSPwloE: "D=g->C(C(C(KM) g)) I; expr -> D (g -> expr (D g))", // f x = expr f x, terminating
   IWFhxleA: "K (K K)", // C x = x
+  JAfbcmSX: "K (K I)", // S x = x  (the constant family K(K d) is a fixed point of S)
+  iUn7wg3l: "Y K", // Y x = x  (the quine is the fixed point of the fixed-point combinator)
   // — authored Church arithmetic —
   FYutDKYw: "m -> n -> f -> x -> m f (n f x)", // add
   ZssuKELX: "m -> n -> f -> m (n f)", // mult
