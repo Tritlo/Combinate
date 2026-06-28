@@ -25,9 +25,18 @@ Work top-down. **Working rhythm for every task:**
 > unsupported are `caps` (linear/affine structural goals) + multi-input — **kept as-is**
 > (already filtered out of play; vendored data left intact for fidelity).
 >
-> **Open follow-ups:** migrate Quest/Zoo/Golf onto the Modal base; hoist QuestProgress's
-> localStorage to the shell; app.ts extraction; the redexAt spine-rewalk; an
-> interactively-profiled render pass.
+> **Deep perf + reorg push — DONE (`reorg-perf` branch, ADR 14):** redexAt spine-rewalk
+> O(D²)→O(D) (the value-read hot path); per-frame edge-draw Map lookups cached out;
+> QuestProgress made pure (persistence injected) → `core/` is 0 localStorage/DOM; app.ts
+> 1416→1089 via ReadoutLens + ReductionController + TransportBar extractions (Codex order);
+> a Rust→wasm raw reducer built + verified (213/0 vs TS, 42× isolated) but **shelved** (E2E
+> only 2-3× — codec-bound; kernels/graph already cover heavy paths). Codex review: no
+> correctness bugs.
+>
+> **Open follow-ups:** migrate Quest/Zoo/Golf onto the Modal base; the CanvasController
+> extraction (deferred — split a `TreeCanvas` owner out first, per Codex; it's the riskiest,
+> most stateful piece); wire the wasm reducer only if a visibly-slow (>100ms) raw-reduction
+> path appears.
 
 ## 8. Quest UX — log + iota preview
 
