@@ -90,3 +90,19 @@ the tree GROWING during reduction (the mid-reduction upgrade) plus a struggling-
 Cutoff: `TURBO_MIN_NODES = 600` (the view's jump-cut threshold — no animation lost above it,
 and perf is a wash there) OR `TURBO_MIN_STEPS = 1200` (a grinding reduction hands off to wasm
 rather than pausing at the 2000-step cap).
+
+## Char/string kernels — investigated, NOT needed (redundant)
+
+A "Char IS its ASCII numeral" (Char ≡ Int — `catalog.ts`; `chr`/`ord` are the identity), and a
+string is a Scott *list of char-numerals*. So:
+- char arithmetic / comparison / equality = the **number kernels** (already done);
+- string concat / map / flatten = the **list kernels** (already done);
+- rendering a char-list as text ("hello") is the **read-out display lens** (`types.ts` render,
+  Char page) — a TS-side display concern, not a reducer peephole (native.ts says so explicitly:
+  "there's no separate char peephole").
+
+There is no char/string-specific catalog op (no string-compare etc.) to accelerate, and so no
+TS oracle to mirror — a dedicated wasm char/string kernel would be pure redundancy. Verified
+end-to-end: `"Hi " <> "there"` through Turbo (number+list kernels) renders **"Hi there"** on
+the Char page. Big strings are bounded by the existing read-out probe gate + the Turbo display
+cap. Conclusion: skip it.
