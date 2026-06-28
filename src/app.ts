@@ -29,6 +29,7 @@ import { Zoo } from "./view/zoo";
 import { MhsPanel } from "./view/mhs/panel";
 import { ReadoutLens } from "./view/readoutLens";
 import { ReductionController, type Transport } from "./view/reduction";
+import { TransportBar } from "./view/transportBar";
 import { preloadCompiler } from "./view/mhs/compiler";
 import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange } from "./view/theme";
 import { MenuBar, type Menu } from "./view/menubar";
@@ -365,7 +366,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     notify: (msg) => toast.show(msg),
     onTransportChange: () => {
       paintRail();
-      paintTransport();
+      transportBar.paint();
     },
   });
 
@@ -398,69 +399,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     );
   }
 
-  const TBTN = 26; // button-cell pitch
-  type TKind = "pause" | "step" | "play" | "ff";
-  const transportBar = new Container();
-  hud.addChild(transportBar);
-  const rateText = new Text({ text: "paused", style: { fontFamily: "monospace", fontSize: 12, fill: theme.textDim } });
-  rateText.anchor.set(1, 0.5);
-  transportBar.addChild(rateText);
-
-  // Draw a transport glyph centred at the origin: ‖ / |▷ / ▷ / ▷▷.
-  const drawTGlyph = (g: Graphics, kind: TKind, color: number): void => {
-    g.clear();
-    if (kind === "pause") g.roundRect(-6, -7, 4, 14, 1).fill({ color }).roundRect(2, -7, 4, 14, 1).fill({ color });
-    else if (kind === "step") g.roundRect(-8, -7, 3, 14, 1).fill({ color }).poly([-3, -7, 6, 0, -3, 7]).fill({ color });
-    else if (kind === "play") g.poly([-5, -8, 7, 0, -5, 8]).fill({ color });
-    else g.poly([-8, -7, -1, 0, -8, 7]).fill({ color }).poly([0, -7, 7, 0, 0, 7]).fill({ color });
-  };
-  // Four buttons, laid out leftward from the corner: pause(-78) step(-52) play(-26) ff(0).
-  const tButtons = (["pause", "step", "play", "ff"] as const).map((kind, i) => {
-    const cont = new Container();
-    cont.position.set(-(3 - i) * TBTN, 0);
-    cont.eventMode = "static";
-    cont.cursor = "pointer";
-    cont.hitArea = new Rectangle(-TBTN / 2, -13, TBTN, 26);
-    const box = new Graphics();
-    const glyph = new Graphics();
-    cont.addChild(box, glyph);
-    cont.on("pointerdown", (e: FederatedPointerEvent) => {
-      e.stopPropagation();
-      if (kind === "step") reduce.stepOnce();
-      else reduce.setTransport(kind);
-    });
-    transportBar.addChild(cont);
-    return { kind, box, glyph };
-  });
-  function paintTransport(): void {
-    for (const b of tButtons) {
-      const active = b.kind !== "step" && reduce.mode === b.kind;
-      b.box.clear();
-      if (active) b.box.roundRect(-11, -11, 22, 22, 5).fill({ color: theme.iota, alpha: 0.18 }).stroke({ width: 1, color: theme.iota });
-      drawTGlyph(b.glyph, b.kind, active ? theme.iota : b.kind === "step" ? theme.text : theme.textDim);
-    }
-    rateText.style.fill = theme.textDim;
-  }
-  const placeTransport = (): void => {
-    transportBar.position.set(window.innerWidth - 18, 34);
-    rateText.position.set(-3 * TBTN - 22, 0); // just left of the Pause button
-  };
-  let rateAccum = 0;
-  let lastTotal = 0;
-  let redPerSec = 0;
-  pixi.ticker.add((tk: { deltaMS: number }) => {
-    rateAccum += tk.deltaMS;
-    if (rateAccum < 300) return;
-    const total = reduce.totalSteps();
-    // max(0, …): an explicit resume resets per-tree step counts, so the delta (and
-    // the EMA) can dip below zero — never show a negative rate.
-    redPerSec = Math.max(0, redPerSec * 0.5 + ((total - lastTotal) / (rateAccum / 1000)) * 0.5);
-    lastTotal = total;
-    rateAccum = 0;
-    rateText.text = reduce.mode === "pause" ? "paused" : `${redPerSec.toFixed(1)} red/s`;
-  });
-  paintTransport();
-  placeTransport();
+  // Transport bar (top-right): rate read-out + Pause/Step/Play/FF — a thin view over the
+  // ReductionController (extracted to view/transportBar.ts, ADR 12).
+  const transportBar = new TransportBar(hud, pixi.ticker, reduce);
 
   // FPS counter (View ▸ FPS counter), bottom-left — for diagnosing render cost on
   // big trees (factorial). Off by default; sampled ~4×/s from the Pixi ticker.
@@ -739,7 +680,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       for (const [id, p] of t.nodeWorldPositions()) fromWorld.set(id, p);
     }
     for (const old of [dragged, target]) {
-      reduce.cancel(old);
       reduce.forget(old);
       trees.splice(trees.indexOf(old), 1);
       old.destroy();
@@ -819,7 +759,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     ghostLabel.style.fill = theme.text;
     fpsText.style.fill = theme.textDim;
     paintLegend(legend);
-    paintTransport();
+    // (the transport bar self-subscribes to theme changes)
     hotbar.refresh();
     zoo.applyTheme();
     challenges.applyTheme();
@@ -831,7 +771,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     fitStage();
     hotbar.layout();
     placeLegend();
-    placeTransport();
+    transportBar.place();
     placeFps();
     toast.layout();
     placeExpr();
@@ -851,7 +791,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // Remove every tree from the canvas (discoveries and the hotbar stay).
   function clearCanvas(): void {
     for (const t of trees) {
-      reduce.cancel(t);
       reduce.forget(t);
       t.destroy();
     }

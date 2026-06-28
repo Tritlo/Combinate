@@ -61,8 +61,10 @@ export class ReductionController {
     return t.heavy() ? HEAVY_GAP : this.stepGap();
   }
 
-  /** Forget a tree entirely (it was deleted from the canvas). */
+  /** Forget a tree entirely (it was deleted from the canvas): cancel its loop first so no
+   *  pending timer fires on a destroyed tree, then drop its state. */
   forget(tree: TreeView): void {
+    this.cancel(tree);
     this.auto.delete(tree);
   }
 
