@@ -6,7 +6,7 @@ import {
   Rectangle,
   Text,
 } from "pixi.js";
-import { app as mkApp, comb, decode, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
+import { app as mkApp, comb, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
 import { firingRule, redexAt } from "./core/reduce";
 import { GraphReducer, evalShared } from "./core/graph";
 import { encodePermalink, decodePermalink, type Modes } from "./core/permalink";
@@ -16,10 +16,10 @@ import { ChallengePanel } from "./view/challenge";
 import { QuestPanel } from "./view/quest";
 import { QuestTracker } from "./view/questTracker";
 import { Sound } from "./view/sound";
-import { CATALOG, IOTA_CODE, type Law } from "./core/catalog";
+import { CATALOG, type Law } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutAuto, layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
-import { makeRefolder, behavioralRefolder, recognizeDeep, fromEgg, toEgg, type Refolder } from "./core/refold";
+import { recognizeDeep, fromEgg, toEgg } from "./core/refold";
 import { read, render, type Ty } from "./core/types";
 import { inferType } from "./core/infer";
 import { abstractLeaf, defineCombinator, findSubtree, isNameTaken, replaceSubtree, validateName } from "./core/authoring";
@@ -28,6 +28,7 @@ import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
 import { Zoo } from "./view/zoo";
 import { MhsPanel } from "./view/mhs/panel";
+import { ReadoutLens } from "./view/readoutLens";
 import { preloadCompiler } from "./view/mhs/compiler";
 import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange } from "./view/theme";
 import { MenuBar, type Menu } from "./view/menubar";
@@ -206,105 +207,17 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
   onStep("catalog"); // splash step 2/3
 
-  // S-expression of a term; an undiscovered S/K/I is shown as its full ι-tree
-  // (not its letter), matching the tree view, so the read-out never spoils a
-  // combinator before it's found.
-  const exprOf = (n: Node): string => {
-    switch (n.kind) {
-      case "iota":
-        return "ι";
-      case "comb": {
-        const code = !isDiscovered(n.sym) ? IOTA_CODE[n.sym] : undefined;
-        return code ? exprOf(decode(code)) : n.sym;
-      }
-      case "free":
-        return n.name;
-      case "app":
-        return `(${exprOf(n.fn)} ${exprOf(n.arg)})`;
-    }
-  };
-  // ---- re-folding lens (PLAN.md Phase 2): an opt-in read-out that runs the
-  // focused term through the egg-via-WASM re-sugarer and shows its most-named
-  // reading (e.g. S(KS)K → B). The wasm is a driven adapter, lazy-loaded on
-  // first use; the core stays Pixi/DOM-free behind the `Refolder` port. ----
-  let refoldOn = false;
-  let refolder: Refolder | null = null;
-  let refolderLoading = false;
-  let refoldRaw: ((sexpr: string) => string) | null = null;
-
-  // Upgrade the lens from the pure behavioural pre-pass to the full
-  // behavioural→egg pipeline once the wasm loads. If it fails to load, the
-  // behavioural-only re-folder keeps working (no need to disable the lens).
-  async function ensureRefolder(): Promise<void> {
-    if (refoldRaw || refolderLoading) return;
-    refolderLoading = true;
-    try {
-      const mod = await import("../crates/refold/pkg/refold.js");
-      await mod.default();
-      refoldRaw = mod.refold;
-      refolder = makeRefolder(mod.refold);
-      lastShownNode = null; // recompute now the egg stage is live
-    } catch {
-      toast.show("re-folder: behavioural only (wasm unavailable)");
-    } finally {
-      refolderLoading = false;
-    }
-  }
-
-  function toggleRefold(): void {
-    refoldOn = !refoldOn;
-    lastShownNode = null; // force a recompute on the next frame
-    if (refoldOn) {
-      if (!refolder) refolder = behavioralRefolder; // instant pure-TS lens
-      void ensureRefolder(); // then upgrade with the egg stage
-    }
-    paintRail();
-  }
-
-  // ---- type lens (ADR 0003): an opt-in badge appending the focused term's
-  // principal simple type to the read-out (or "no simple type" for the
-  // self-application birds — M, L, U, Y). Pure inference on the normal form. ----
-  let typeOn = false;
-  function toggleType(): void {
-    typeOn = !typeOn;
-    lastShownNode = null; // force a read-out recompute on the next frame
-    paintRail();
-  }
-
-  // The read-as mode is just the current hotbar page (ADR 0003): a typed page
-  // forces that reading and resolves the bare-A ambiguity `read` otherwise defers
-  // (A → 0 / [] / false). The Programs page has no type → auto-discovery.
-  const READ_AS: Record<string, Ty> = { Arithmetic: "Int", Booleans: "Bool", Lists: "List", Char: "Char" };
-
-  // Live read-out of the focused tree's expression, recomputed only when its
-  // node identity (or the read-as page) changes — so the probes never run every
-  // frame. A compact data value (Phase 1) is shown whenever the term is data —
-  // always on; the refold lens additionally names combinators (Phase 2) when the
-  // term isn't data.
-  let lastShownNode: Node | null = null;
-  let lastMode: Ty | undefined;
-  let lastExpr = "";
-  pixi.ticker.add(() => {
-    const node = focus && trees.includes(focus) ? focus.node : null;
-    const mode = READ_AS[hotbar.page];
-    if (node === lastShownNode && mode === lastMode) return;
-    lastShownNode = node;
-    lastMode = mode;
-    let txt = "";
-    if (node) {
-      // Type-guided data reading: the page forces a reading (mode), elements
-      // propagate a sibling's type and route non-data parts to their combinator
-      // name. Falls back to the egg lens / raw sexp when the term isn't data.
-      const v = read(node, mode ?? null); // Phase 1 (+ propagation/routing)
-      const value = v ? render(v) : null;
-      const folded = !value && refoldOn && refolder ? refolder(node) : null; // Phase 2: combinator naming, behind the lens
-      txt = value ?? (folded ? sexp(folded) : exprOf(node));
-      if (typeOn) txt += `  ::  ${inferType(node) ?? "no simple type"}`; // type lens
-    }
-    if (txt !== lastExpr) {
-      lastExpr = txt;
-      exprText.text = txt;
-    }
+  // The read-out lens (ADR 12): the focused tree's live top-centre expression + the
+  // re-fold / type lenses. Owns the lens state, `exprOf`, and the per-frame render; the
+  // shell owns the `exprText` placement/theme. Created here so `isDiscovered` exists.
+  const readout = new ReadoutLens({
+    ticker: pixi.ticker,
+    exprText,
+    focusNode: () => (focus && trees.includes(focus) ? focus.node : null),
+    readPage: () => hotbar.page,
+    isDiscovered,
+    onToggle: () => paintRail(),
+    toast,
   });
 
   // Layout: top-down by default; T toggles the radial view (§5.1).
@@ -976,7 +889,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     ghost.stroke({ width: 2.5, color: theme.argEdge, alpha: 0.7 });
     ghost.circle(ax, ay, 6).fill({ color: theme.mutedDot, alpha: 0.7 });
     // preview the resulting expression (left is the function), masked like the rest
-    ghostLabel.text = `(${exprOf(left.node)} ${exprOf(right.node)})`;
+    ghostLabel.text = `(${readout.exprOf(left.node)} ${readout.exprOf(right.node)})`;
     ghostLabel.position.set(ax, ay - 12);
     ghostLabel.visible = true;
   }
@@ -1193,8 +1106,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "radio", label: "Radial layout", accel: "T", on: () => layoutFn === layoutRadial, run: () => setLayoutMode(layoutRadial) },
       { kind: "sep" },
       { kind: "toggle", label: "Expand ι-trees", accel: "X", checked: () => expandAll, run: () => toggleExpand() },
-      { kind: "toggle", label: "Type lens", checked: () => typeOn, run: () => toggleType() },
-      { kind: "toggle", label: "Re-fold lens", accel: "F", checked: () => refoldOn, run: () => toggleRefold() },
+      { kind: "toggle", label: "Type lens", checked: () => readout.isTypeOn, run: () => readout.toggleType() },
+      { kind: "toggle", label: "Re-fold lens", accel: "F", checked: () => readout.isRefoldOn, run: () => readout.toggleRefold() },
       { kind: "sep" },
       { kind: "toggle", label: "Dark mode", checked: () => currentMode() === "dark", run: () => toggleMode() },
       { kind: "toggle", label: "Color (4096)", checked: () => colorOn(), run: () => toggleColor() },
@@ -1232,8 +1145,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const currentModes = (): Modes => ({
     optimize: fastMode || undefined,
     graph: shareMode || undefined,
-    refold: refoldOn || undefined,
-    type: typeOn || undefined,
+    refold: readout.isRefoldOn || undefined,
+    type: readout.isTypeOn || undefined,
     expand: expandAll || undefined,
     page: hotbar.page,
     transport,
@@ -1244,15 +1157,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     expandAll = !!m.expand;
     setOpt("rules", !!m.optimize, false); // permalink modes are tree-local — drive the reducer, don't persist as a preference
     setOpt("graph", !!m.graph, false);
-    typeOn = !!m.type;
-    refoldOn = !!m.refold;
-    if (refoldOn && !refolder) {
-      refolder = behavioralRefolder;
-      void ensureRefolder();
-    }
+    readout.applyModes(m);
     if (m.page) hotbar.selectPage(m.page);
     if (m.transport) setTransport(m.transport);
-    lastShownNode = null; // force a read-out recompute
+    readout.invalidate(); // force a read-out recompute
     paintRail();
     for (const t of trees) t.refresh();
   }
@@ -1309,7 +1217,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     else if (e.key === "t" || e.key === "T") toggleLayout();
     else if (e.key === "u" || e.key === "U") unlockAll();
     else if (e.key === "x" || e.key === "X") toggleExpand();
-    else if (e.key === "f" || e.key === "F") toggleRefold();
+    else if (e.key === "f" || e.key === "F") readout.toggleRefold();
     else if (e.key === "z" || e.key === "Z") zoo.toggle();
     else if (e.key === "g" || e.key === "G") challenges.toggle();
     else if (e.key === "d" || e.key === "D") setAuthorMode("define");
@@ -1340,7 +1248,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // first toggle). A real asset fetch — and it makes the lens instant when first
   // used. ensureRefolder swallows a load failure (the behavioural-only re-folder
   // still works), so this never blocks startup.
-  await ensureRefolder();
+  await readout.ensureRefolder();
   onStep("lenses"); // splash step 3/4
 
   // Warm the MicroHs live-compile blob + cache (the 3 MB compiler), so the Haskell
@@ -1366,7 +1274,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       expr: () => exprText.text,
       page: () => hotbar.page,
       setPage: (name: string) => hotbar.selectPage(name),
-      type: { on: () => typeOn, toggle: () => toggleType(), of: (s: string) => inferType(fromEgg(s)) },
+      type: { on: () => readout.isTypeOn, toggle: () => readout.toggleType(), of: (s: string) => inferType(fromEgg(s)) },
       unlockAll: () => unlockAll(),
       openZoo: () => zoo.open(),
       camera: () => ({ scale: world.scale.x, x: world.position.x, y: world.position.y }),
@@ -1396,11 +1304,11 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
         defs: () => CATALOG.filter((l) => l.userDefined).map((l) => l.sym),
       },
       refold: {
-        on: () => refoldOn,
-        ready: () => !!refolder,
-        init: () => ensureRefolder(),
-        toggle: () => toggleRefold(),
-        raw: (s: string) => refoldRaw?.(s) ?? null,
+        on: () => readout.isRefoldOn,
+        ready: () => readout.refolderReady,
+        init: () => readout.ensureRefolder(),
+        toggle: () => readout.toggleRefold(),
+        raw: (s: string) => readout.rawRefold(s),
         // behavioural pre-pass alone, on an egg s-expression term
         deep: (s: string) => sexp(recognizeDeep(fromEgg(s))),
         // Phase 1 value reader, on an egg s-expression term
