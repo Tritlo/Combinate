@@ -238,5 +238,20 @@ Decision: a **resident wasm reduction** behind a "Turbo (wasm)" optimize toggle.
 
 Measured (in-browser, Turbo on): church-mul egg(30) ~1.0 s, egg(50) ~1.3 s, vs DEFAULT
 minutes (it managed 723/4714 steps in 19 s). No freezes; the intermediate spine renders
-mid-churn. Deferred (Codex): a wasm *graph* reducer (sharing, O(1)/step) — only if resident
-persistent turbo proves insufficient.
+mid-churn.
+
+**Update — the engine is now a wasm GRAPH reducer with number kernels** (the persistent
+Session became the cross-check oracle). Call-by-need sharing (a faithful port of `graph.ts`:
+cells iota|comb|free|app|IND, `force` chases indirections, the S-rule shares its arg by
+index) tames the materialisation blow-up that bailed the persistent engine — Scott `(*) 5 5`
+reduces in 1 ms / 1910 cells vs 16.7 M nodes / bail. The **number kernels** (a port of
+`native.ts`'s `numberOp` with its exact forcing — `(+) a n` keeps n a thunk, `(*) 0 _`
+short-circuits, `(-) m 0 → m`) compute clean canonical Scott results in the wasm directly, so
+`(*) 8 8` reads "64" in ~500 ms. Turbo is eligible with native *numbers* on (kernels handle
+them); rules/graph/list/bool kernels still gate it off. Hardening (Codex review): step /
+readback / decode made ITERATIVE (deep Succ^k overflowed the stack), snapshot compacts the
+arena (drop IND chains + dead cells, preserve the def prefix), caps aligned to native.ts
+(match 9999 / `(*)` product 4096), and a normal form too large to lay out is not drawn.
+Cross-check (`npm run check:reduce-wasm`): one-shot + persistent + graph 213/0 vs
+`normalize(_,false)`/`evalShared(_,false)`, graph+kernels 253/0 vs `normalize(_,false,
+{numbers:true})`, session invariance 3/0. Deferred: list/bool kernels; a wasm value-read.
