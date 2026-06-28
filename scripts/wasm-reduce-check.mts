@@ -219,8 +219,8 @@ sessionInvariant("(*) 3 3", app(app(named("(*)"), nat(3)), nat(3)));
 // `normalize(_, false, {numbers:true})` — clean canonical Scott arithmetic, no blow-up. ----
 let kPass = 0;
 let kFail = 0;
-function graphKernelNF(t: Node, cap: number): { term: Node; done: boolean } {
-  const { data, symName, freeName } = encode(t, { numbers: true });
+function graphKernelNF(t: Node, cap: number, opts: { numbers?: boolean; lists?: boolean; booleans?: boolean } = { numbers: true }): { term: Node; done: boolean } {
+  const { data, symName, freeName } = encode(t, opts);
   const ptr = malloc(data.length * 4, 4) >>> 0;
   new Int32Array(wasm.memory.buffer, ptr, data.length).set(data);
   const h = S.graphsession_new(ptr, data.length);
@@ -252,8 +252,42 @@ kcheck("(*) ((+) 2 3) 4", app(app(named("(*)"), app(app(named("(+)"), nat(2)), n
 kcheck("(+) ((*) 2 3) ((-) 9 2)", app(app(named("(+)"), app(app(named("(*)"), nat(2)), nat(3))), app(app(named("(-)"), nat(9)), nat(2))));
 kcheck("(+) 2 x [lazy n]", app(app(named("(+)"), nat(2)), freeVar("x")));
 
+// ---- list + bool kernels (encode with opts.lists / opts.booleans) vs TS native ----
+const nil = (): Node => named("K");
+const cons = (h: Node, t: Node): Node => app(app(named("cons"), h), t);
+const list = (xs: Node[]): Node => xs.reduceRight((acc, h) => cons(h, acc), nil());
+const TRUE = (): Node => app(named("K"), named("I"));
+const FALSE = (): Node => named("K");
+const M = (): Node => app(app(named("S"), named("I")), named("I"));
+const OMEGA = (): Node => app(M(), M()); // divergent — must NOT be forced by a short-circuit
+function kcheckOpts(label: string, t: Node, opts: { lists?: boolean; booleans?: boolean }): void {
+  const expect = struct(normalize(t, 5_000_000, false, opts).term);
+  const g = graphKernelNF(t, 2_000_000, opts);
+  if (g.done && struct(g.term) === expect) kPass++;
+  else {
+    kFail++;
+    if (fails.length < 16) fails.push(`kernel ${label}: TS=${expect.slice(0, 30)} GRAPH+K(${g.done})=${struct(g.term).slice(0, 30)}`);
+  }
+}
+const L = { lists: true } as const;
+const B = { booleans: true } as const;
+kcheckOpts("[1,2] <> [3,4]", app(app(named("<>"), list([nat(1), nat(2)])), list([nat(3), nat(4)])), L);
+kcheckOpts("[] <> [1,2]", app(app(named("<>"), nil()), list([nat(1), nat(2)])), L);
+kcheckOpts("[1] <> ys [lazy tail]", app(app(named("<>"), list([nat(1)])), freeVar("ys")), L);
+kcheckOpts("map Succ [1,2,3]", app(app(named("map"), named("Succ")), list([nat(1), nat(2), nat(3)])), L);
+kcheckOpts("map f [a,b] [lazy heads]", app(app(named("map"), freeVar("f")), list([freeVar("a"), freeVar("b")])), L);
+kcheckOpts("concat [[1,2],[3],[4,5]]", app(named("concat"), list([list([nat(1), nat(2)]), list([nat(3)]), list([nat(4), nat(5)])])), L);
+for (const p of [TRUE, FALSE]) kcheckOpts(`not ${p === TRUE ? "T" : "F"}`, app(named("not"), p()), B);
+for (const p of [TRUE, FALSE])
+  for (const q of [TRUE, FALSE]) {
+    kcheckOpts(`and ${p === TRUE ? "T" : "F"} ${q === TRUE ? "T" : "F"}`, app(app(named("and"), p()), q()), B);
+    kcheckOpts(`or ${p === TRUE ? "T" : "F"} ${q === TRUE ? "T" : "F"}`, app(app(named("or"), p()), q()), B);
+  }
+kcheckOpts("and False Ω [short-circuit]", app(app(named("and"), FALSE()), OMEGA()), B);
+kcheckOpts("or True Ω [short-circuit]", app(app(named("or"), TRUE()), OMEGA()), B);
+
 console.log(`wasm-reduce cross-check: ${pass} pass, ${fail} fail, ${skip} skipped(divergent)`);
 console.log(`session invariance: ${sPass} pass, ${sFail} fail`);
-console.log(`graph number kernels: ${kPass} pass, ${kFail} fail`);
+console.log(`graph kernels (number+list+bool): ${kPass} pass, ${kFail} fail`);
 for (const f of fails) console.log(`  FAIL ${f}`);
 process.exit(fail === 0 && sFail === 0 && kFail === 0 ? 0 : 1);
