@@ -33,10 +33,12 @@ export interface ReadoutDeps {
 // The hotbar page → the data reading it forces.
 const READ_AS: Record<string, Ty> = { Arithmetic: "Int", Booleans: "Bool", Lists: "List", Char: "Char" };
 
-// Above this node count, skip the (reducing) value/type/re-fold probes in the read-out —
-// they're for recognising small data values, and running them per frame on a big term
-// freezes playback. The raw s-expression is shown instead.
-const READOUT_PROBE_MAX = 400;
+// Above this node count, skip the (reducing) value/type/re-fold probes in the read-out — the
+// raw s-expression is shown instead. The probes are internally size-bounded now (normalize's
+// maxNodes), so this can be generous enough to read a big CLEAN numeral as its value (a
+// Turbo result like (*) 20 20 = 400 is an ~800-node Succ-spine) without freezing on a term
+// that would explode under probing (that bails via the size guard).
+const READOUT_PROBE_MAX = 3000;
 
 
 export class ReadoutLens {
