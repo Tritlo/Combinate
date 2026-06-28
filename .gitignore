@@ -20,3 +20,7 @@ shots.local.mjs
 # DuckDB loads from the jsDelivr CDN at runtime — not vendored at all.
 public/vendor/
 .claude/
+
+# perf spike (throwaway) build artifacts
+crates/reduce-spike/target/
+crates/reduce-spike/pkg-node/
