@@ -28,6 +28,7 @@ const TURBO_MAX_STEPS_PER_FRAME = 400; // cap steps/frame so a fast reduction sh
 const TURBO_GAP = 36; // ms between reflows — paced so the churn is *perceptible* (vs ~8ms = looks instant) yet far faster than one tween/step
 const TURBO_RENDER_SKIP_NODES = 12_000; // past this working size, don't reflow the (huge) intermediate every frame — keep reducing it undrawn
 const TURBO_DISPLAY_MAX = 6_000; // a normal form bigger than this is too deep to lay out / read out (recursive view walks) — don't draw it
+const TURBO_MIN_NODES = 600; // engage the wasm engine only once a tree is this big (= the view's jump-cut threshold, so no per-step animation is lost); small trees keep the pretty TS playback
 const TURBO_CAP = 20_000_000; // non-termination guard (raw needs far more steps than STEP_CAP)
 const TURBO_EXPLODE_NODES = 2_000_000; // a raw term blowing up (e.g. Scott arithmetic) — pause instead of choking
 const FINISH_PROBE_MAX = 150; // skip the catalog/quest/golf probes on a normal form (or source) bigger than this — they'd reduce it (too slow), and a big result isn't a bird/puzzle solution
@@ -94,6 +95,17 @@ export class ReductionController {
     const unportedNative = !!(n && (n.lists || n.booleans));
     return this.deps.getTurbo() && !this.deps.getShare() && !this.deps.getFast() && !unportedNative;
   }
+  // Auto-switch by size: engage the wasm engine only once a tree is big (the TS reducer is
+  // plenty fast on small trees AND gives the pretty per-step animation). A small tree that
+  // grows past the threshold upgrades mid-reduction (see `stepAuto`).
+  private wantsTurbo(tree: TreeView): boolean {
+    return this.turboEligible() && exceedsNodes(tree.node, TURBO_MIN_NODES);
+  }
+  // Build (once) the resident wasm session for a tree that has become turbo-worthy.
+  private engageTurbo(tree: TreeView, a: AutoState): boolean {
+    if (!a.session) a.session = this.deps.makeSession(tree.node);
+    return !!a.session;
+  }
 
   private freeSession(a: AutoState): void {
     a.session?.free();
@@ -123,11 +135,11 @@ export class ReductionController {
     a.source = tree.node; // score the tree as built, before reduction
     this.freeSession(a); // drop any prior resident session
     a.grapher = this.deps.getShare() ? new GraphReducer(tree.node, this.deps.getFast()) : undefined;
-    // Turbo: build a resident wasm session up front; if it succeeds, the turbo loop drives
-    // this tree instead of the per-step path. Null (wasm not loaded) → normal playback.
-    a.session = this.turboEligible() ? this.deps.makeSession(tree.node) : null;
+    // Turbo: for an already-big tree, drive it with the resident wasm session; a small tree
+    // keeps the per-step TS playback and upgrades later if it grows (see `stepAuto`).
+    const turbo = this.wantsTurbo(tree) && this.engageTurbo(tree, a);
     const gen = a.gen;
-    const tick = a.session ? () => this.turboTick(tree, gen) : () => this.stepAuto(tree, gen);
+    const tick = turbo ? () => this.turboTick(tree, gen) : () => this.stepAuto(tree, gen);
     a.timer = window.setTimeout(tick, AUTO_DELAY);
   }
 
@@ -280,7 +292,12 @@ export class ReductionController {
       const a2 = this.auto.get(tree);
       if (!a2 || a2.gen !== gen) return;
       if (this.transport === "pause") return; // paused mid-tween — stop scheduling
-      a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(tree));
+      // Auto-upgrade: a small tree that has now grown big hands off to the wasm engine.
+      if (this.wantsTurbo(tree) && this.engageTurbo(tree, a2)) {
+        a2.timer = window.setTimeout(() => this.turboTick(tree, gen), TURBO_GAP);
+      } else {
+        a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(tree));
+      }
     });
   }
 

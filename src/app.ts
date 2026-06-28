@@ -532,13 +532,19 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const TY_PAGE: Record<Ty, string> = { Int: "Arithmetic", Bool: "Booleans", List: "Lists", Char: "Char" };
   const mhsPanel = new MhsPanel(
     (tree, read) => {
-      // Compiled programs are big: optimize, lay out radially, and zoom to fit.
-      setOpt("rules", true);
+      // Compiled programs get big: turn on Turbo (the wasm graph engine — sharing + number
+      // kernels) so the reduction is fast + doesn't blow up, lay out radially, zoom to fit.
+      // (rules off — it gates Turbo; native numbers on for clean fast arithmetic.) Turbo
+      // auto-engages by size, so small steps still animate; the big reduction runs in wasm.
+      setOpt("rules", false);
+      setOpt("nativeNumbers", true);
+      setOpt("wasm", true);
+      void loadWasmReducer(); // warm the wasm so the first big reduction uses it
       setLayoutMode(layoutRadial);
       const view = spawnTree(tree, window.innerWidth / 2, window.innerHeight / 2);
       if (read) hotbar.selectPage(TY_PAGE[read]);
       fitTree(view);
-      toast.show("compiled from Haskell");
+      toast.show("compiled from Haskell — Turbo on");
     },
     () => paintRail(),
   );
