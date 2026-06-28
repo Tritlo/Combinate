@@ -66,3 +66,27 @@ that do land:
 
 Deferred: TS arena/pooling; a full wasm core (needs a shared rule-spec generator to avoid
 drift).
+
+## Auto-switch cutoff (TS ↔ wasm graph) — measured
+
+The Turbo engine engages by size (small → TS per-step animation, big → wasm). Measured
+TS-`normalize` vs the full wasm pipeline (encode + GraphSession + snapshot + decode), median
+of 7, raw mode:
+
+| workload | nodes | TS | wasm | winner |
+|----------|-------|-----|------|--------|
+| `S K K x` (overhead floor) | 7 | 0.006 ms | 0.039 ms | TS (wasm fixed cost ~0.03 ms) |
+| `church(60) I x` | 607 | 0.43 | 0.22 | wasm 2.0× |
+| `church(250) I x` | 2507 | 1.12 | 0.89 | wasm 1.3× |
+| `church(500) I x` | 5007 | 1.96 | 3.16 | **TS 1.6×** (encode dominates) |
+| `(*) 2 2` (Scott, raw) | 13 init | 9.8 | 0.2 | **wasm 54×** |
+| `(*) 3 3` | 17 init | 114 (capped) | 0.2 | **wasm 700×** |
+| `(*) 4 4` | 21 init | 1234 (capped) | 0.4 | **wasm 3350×** |
+
+Takeaways: (1) cheap reductions are sub-3 ms either way — a wash — and wasm even *loses* past
+~5000 nodes (its encode is O(size)); (2) the expensive cases that wasm crushes (50-3350×)
+start TINY and balloon — so the *initial* tree size is a poor predictor. The right trigger is
+the tree GROWING during reduction (the mid-reduction upgrade) plus a struggling-step backstop.
+Cutoff: `TURBO_MIN_NODES = 600` (the view's jump-cut threshold — no animation lost above it,
+and perf is a wash there) OR `TURBO_MIN_STEPS = 1200` (a grinding reduction hands off to wasm
+rather than pausing at the 2000-step cap).
