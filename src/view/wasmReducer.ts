@@ -34,9 +34,11 @@ export async function loadWasmReducer(): Promise<WasmModule | null> {
 /** Whether the wasm reducer is loaded and ready (sync check for the eligibility gate). */
 export const wasmReady = (): boolean => mod !== null;
 
-/** A resident reduction of one term. Construct after {@link loadWasmReducer} resolves. */
+/** A resident reduction of one term — the call-by-need GRAPH engine (sharing), so Scott
+ *  arithmetic / fac-scale computations don't materialise the blown-up tree. Construct after
+ *  {@link loadWasmReducer} resolves. */
 export class WasmSession {
-  private session: InstanceType<WasmModule["Session"]> | null;
+  private session: InstanceType<WasmModule["GraphSession"]> | null;
   private readonly symName: string[];
   private readonly freeName: string[];
 
@@ -45,7 +47,7 @@ export class WasmSession {
     const { data, symName, freeName } = encode(term);
     this.symName = symName;
     this.freeName = freeName;
-    this.session = new mod.Session(data);
+    this.session = new mod.GraphSession(data);
   }
 
   /** Run up to `maxSteps` more contractions resident in wasm; returns the steps done this
