@@ -147,6 +147,7 @@ export class TreeView {
   private duration = 0;
   private onDone: (() => void) | null = null;
   private ticking = false;
+  private cancelPop: (() => void) | null = null; // the pop-in tween's canceller — stopped on destroy so it can't tick a freed container
   private readonly tick = (t: Ticker): void => this.advance(t.deltaMS);
 
   constructor(
@@ -187,6 +188,8 @@ export class TreeView {
   }
 
   destroy(): void {
+    this.cancelPop?.(); // a pop-in tween could still be mid-flight (rapid game-mode spawn→apply)
+    this.cancelPop = null;
     this.stopTicker();
     this.container.destroy({ children: true });
   }
@@ -341,7 +344,11 @@ export class TreeView {
   popIn(): void {
     const c = this.container;
     c.scale.set(0.55);
-    tween(this.ticker, 240, (e) => c.scale.set(0.55 + 0.45 * e));
+    this.cancelPop?.(); // a prior pop-in could still be running (re-spawn) — drop it first
+    this.cancelPop = tween(this.ticker, 240, (e) => {
+      if (c.destroyed) return; // destroyed mid-pop — the canceller usually beats this, but guard anyway
+      c.scale.set(0.55 + 0.45 * e);
+    });
   }
 
   /** Fluff "water drift": sway each node a few px around its layout position
