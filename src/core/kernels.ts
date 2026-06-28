@@ -12,7 +12,7 @@
  * force operands the rule wouldn't; cap materialised output. A kernel's own value-matching
  * must run the reducer **without** kernels (matchers pass no opts), so it can't re-enter.
  */
-import { type Node, app } from "./term";
+import { type Node } from "./term";
 import { type NativeOpts, NUM_OPS, LIST_OPS, BOOL_OPS, numberOp, listOp, boolOp } from "./native";
 import { normalize } from "./reduce";
 import { matchChurch, churchNum } from "./church";
@@ -25,7 +25,8 @@ export interface Kernel {
   arity: number;
   /** Gate: the kernel fires only if this returns true. Absent = always on. */
   enabled?: (opts: NativeOpts) => boolean;
-  /** Compute the contractum from the full arg spine, or `null` to fall back. */
+  /** Compute the contractum from EXACTLY `arity` args (the reducer reapplies extras),
+   *  or `null` to fall back. */
   run: (args: Node[]) => Node | null;
 }
 
@@ -70,8 +71,6 @@ registerKernel("cmod", {
     if (b === null) return null;
     const m = b === 0 ? a : a % b; // total: `a mod 0 = a` (the gcd answer never hits it; avoids a stuck term)
     if (m > MAX_CHURCH) return null;
-    let res = churchNum(m);
-    for (let i = 2; i < args.length; i++) res = app(res, args[i]);
-    return res;
+    return churchNum(m);
   },
 });

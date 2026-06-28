@@ -65,11 +65,6 @@ const CMP: Record<string, (a: number, b: number) => Node> = {
 // `kernels.ts` (ADR 11); the reducer dispatches through that one registry. The matching
 // + canonical re-encode + forcing logic lives here, unchanged.
 
-const reapply = (res: Node, args: Node[], from: number): Node => {
-  for (let i = from; i < args.length; i++) res = app(res, args[i]);
-  return res;
-};
-
 export function numberOp(sym: string, args: Node[]): Node | null {
   if (args.length < 2) return null;
   const [x, y] = args;
@@ -81,25 +76,25 @@ export function numberOp(sym: string, args: Node[]): Node | null {
       if (a === null) return null;
       let r: Node = y;
       for (let i = 0; i < a; i++) r = app(named("Succ"), r);
-      return reapply(r, args, 2);
+      return r;
     }
     case "(*)": {
       // (*) Z n = Z (the pure rule doesn't force n here); else a·n.
       const a = matchNumeral(x);
       if (a === null) return null;
-      if (a === 0) return reapply(named("K"), args, 2);
+      if (a === 0) return named("K");
       const b = matchNumeral(y);
       if (b === null || a * b > MAX_NAT) return null;
-      return reapply(natTree(a * b), args, 2);
+      return natTree(a * b);
     }
     case "(-)": {
       // (-) m Z = m (pure monus recurses on the second operand; Z stops without forcing m).
       const b = matchNumeral(y);
       if (b === null) return null;
-      if (b === 0) return reapply(x, args, 2);
+      if (b === 0) return x;
       const a = matchNumeral(x);
       if (a === null) return null;
-      return reapply(natTree(Math.max(0, a - b)), args, 2);
+      return natTree(Math.max(0, a - b));
     }
     default: {
       const op = CMP[sym];
@@ -107,7 +102,7 @@ export function numberOp(sym: string, args: Node[]): Node | null {
       if (a === null) return null;
       const b = matchNumeral(y);
       if (b === null) return null;
-      return reapply(op(a, b), args, 2);
+      return op(a, b);
     }
   }
 }
@@ -119,7 +114,7 @@ export function listOp(sym: string, args: Node[]): Node | null {
       if (args.length < 2) return null;
       const xs = matchList(args[0]);
       if (xs === null) return null;
-      return reapply(consTree(xs, args[1]), args, 2);
+      return consTree(xs, args[1]);
     }
     case "map": {
       // map f [] = []; map f (h:t) = f h : map f t. Force the list (args[1]); f stays raw.
@@ -127,7 +122,7 @@ export function listOp(sym: string, args: Node[]): Node | null {
       const xs = matchList(args[1]);
       if (xs === null) return null;
       const f = args[0];
-      return reapply(consTree(xs.map((h) => app(f, h)), named("K")), args, 2);
+      return consTree(xs.map((h) => app(f, h)), named("K"));
     }
     case "concat": {
       // concat [] = []; concat (xs:xss) = xs <> concat xss — force the outer list and each element.
@@ -139,7 +134,7 @@ export function listOp(sym: string, args: Node[]): Node | null {
         if (heads === null) return null;
         flat.push(...heads);
       }
-      return reapply(consTree(flat, named("K")), args, 1);
+      return consTree(flat, named("K"));
     }
   }
   return null;
@@ -150,27 +145,27 @@ export function boolOp(sym: string, args: Node[]): Node | null {
     case "not": {
       const b = matchBool(args[0]);
       if (b === null) return null;
-      return reapply(boolTree(!b), args, 1);
+      return boolTree(!b);
     }
     case "and": {
       // and p q = if p then q else False — force p first; if False, don't force q.
       if (args.length < 2) return null;
       const p = matchBool(args[0]);
       if (p === null) return null;
-      if (!p) return reapply(boolTree(false), args, 2);
+      if (!p) return boolTree(false);
       const q = matchBool(args[1]);
       if (q === null) return null;
-      return reapply(boolTree(q), args, 2);
+      return boolTree(q);
     }
     case "or": {
       // or p q = if p then True else q — force p first; if True, don't force q.
       if (args.length < 2) return null;
       const p = matchBool(args[0]);
       if (p === null) return null;
-      if (p) return reapply(boolTree(true), args, 2);
+      if (p) return boolTree(true);
       const q = matchBool(args[1]);
       if (q === null) return null;
-      return reapply(boolTree(q), args, 2);
+      return boolTree(q);
     }
   }
   return null;

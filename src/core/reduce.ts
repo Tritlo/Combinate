@@ -33,12 +33,16 @@ function dedupIds(n: Node, seen: Set<NodeId>): Node {
   return n;
 }
 
-/** Apply a catalog `rule` to the first `k` (its arity) of `args`, re-applying any
- *  extra args to the result. (Shared by the optimize-mode and native-fallback paths.) */
+/** Re-apply any args beyond the first `from` to `core` — the extras past a rule's or
+ *  kernel's arity (so a rule/kernel only ever sees exactly its arity). */
+function reapplyExtras(core: Node, args: Node[], from: number): Node {
+  for (let i = from; i < args.length; i++) core = app(core, args[i]);
+  return core;
+}
+
+/** Apply a catalog `rule` to the first `k` (its arity) of `args`, re-applying any extras. */
 function applyRule(rule: (args: Node[]) => Node, args: Node[], k: number): Node {
-  let res = rule(args.slice(0, k));
-  for (let i = k; i < args.length; i++) res = app(res, args[i]);
-  return res;
+  return reapplyExtras(rule(args.slice(0, k)), args, k);
 }
 
 /** The next redex in normal order: the rule it fires (`sym`) and a thunk that
@@ -78,11 +82,20 @@ interface Redex {
  * everything not in `RULES`: I/K/S/ι, undiscovered combinators) is unchanged.
  */
 export function redexAt(n: Node, argsAbove = 0, fast = false, native?: NativeOpts): Redex | null {
+  return redexAtGo(n, argsAbove, fast, native, false);
+}
+
+// `headChecked` skips the (kernel/rule) head scan when descending the *function* spine:
+// the head comb is unchanged there, so if it didn't fire with N args it can't with N-1.
+// The built-in ι/I/K/S/def handlers stay outside this scan and still run every level, so
+// a deep head still fires. This turns scanning a settled D-deep spine to normal form from
+// O(D²) (re-collecting the spine each level) into O(D) — the value-read/NF-check hotspot.
+function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts | undefined, headChecked: boolean): Redex | null {
   if (n.kind !== "app") return null;
 
   // optimize / native mode: reduce the leftmost-outermost *named* head redex — by a
   // native value op (ADR 10) when recognised, else by its catalog rule (fast mode).
-  if (fast || native) {
+  if ((fast || native) && !headChecked) {
     // Collect the applied spine head-first. `push`+`reverse` is O(spine); the old
     // `unshift` was O(spine²) (it shifts the whole array each arg), which — re-run at
     // every redexAt recursion level — made big-term fast reduction super-linear.
@@ -101,9 +114,11 @@ export function redexAt(n: Node, argsAbove = 0, fast = false, native?: NativeOpt
       // `firingRule`/existence checks never trigger a match).
       const kernel = kernelFor(head.sym, native);
       if (kernel && args.length >= kernel.arity) {
+        const ka = kernel.arity;
+        const core = args.slice(0, ka); // a kernel only ever sees exactly its arity; the reducer reapplies extras
         if (RULES[head.sym]) {
           // Has a catalog-rule fallback (native value ops): cheap discovery, match in build.
-          return { sym: head.sym, build: () => dedupIds(kernel.run(args) ?? applyRule(RULES[head.sym], args, k), new Set()) };
+          return { sym: head.sym, build: () => dedupIds(reapplyExtras(kernel.run(core) ?? RULES[head.sym](core), args, ka), new Set()) };
         }
         // Kernel-only primitive (e.g. Church `cmod`): no rule to fall back to, so the
         // match runs in *discovery* (only a redex if it fires; else reduce the operands
@@ -111,8 +126,8 @@ export function redexAt(n: Node, argsAbove = 0, fast = false, native?: NativeOpt
         // acceptable because they're not on any canvas/hotbar (only reachable via authored
         // SKIQ source), so `firingRule`/app probes never hit them. A future kernel-only
         // primitive wanting cheap discovery should ship a catalog `def` fallback.
-        const res = kernel.run(args);
-        if (res) return { sym: head.sym, build: () => dedupIds(res, new Set()) };
+        const res = kernel.run(core);
+        if (res) return { sym: head.sym, build: () => dedupIds(reapplyExtras(res, args, ka), new Set()) };
       }
       const rule = fast ? RULES[head.sym] : undefined;
       if (rule && args.length >= k) {
@@ -151,10 +166,12 @@ export function redexAt(n: Node, argsAbove = 0, fast = false, native?: NativeOpt
   }
 
   // No rule fires at the root: recurse left spine first (one more arg above),
-  // then the argument (a fresh spine). Context apps keep their id (`{ ...n }`).
-  const f = redexAt(fn, argsAbove + 1, fast, native);
+  // then the argument (a fresh spine). Context apps keep their id (`{ ...n }`). The
+  // function spine shares this head, so skip its head scan (`headChecked`); the argument
+  // is a fresh spine, so its head must be scanned.
+  const f = redexAtGo(fn, argsAbove + 1, fast, native, true);
   if (f) return { sym: f.sym, build: () => ({ ...n, fn: f.build() }) };
-  const a = redexAt(arg, 0, fast, native);
+  const a = redexAtGo(arg, 0, fast, native, false);
   if (a) return { sym: a.sym, build: () => ({ ...n, arg: a.build() }) };
   return null;
 }
