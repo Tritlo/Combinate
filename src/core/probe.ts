@@ -1,4 +1,4 @@
-import { type Node, app, freeVar } from "./term";
+import { type Node, app, freeVar, exceedsNodes } from "./term";
 import { normalize } from "./reduce";
 import { CATALOG, type Law } from "./catalog";
 
@@ -6,11 +6,6 @@ import { CATALOG, type Law } from "./catalog";
 // nodes, don't even probe (each probe REDUCES the term over the whole catalog — explosive on
 // e.g. a big Church numeral) — a large term isn't a named bird.
 const RECOGNIZE_MAX_NODES = 256;
-function exceedsNodes(n: Node, max: number): boolean {
-  let count = 0;
-  const go = (m: Node): boolean => ++count > max || (m.kind === "app" && (go(m.fn) || go(m.arg)));
-  return go(n);
-}
 
 /** The first catalog law a term behaves as, or null if it realises none. */
 export function recognize(tree: Node, cap = 10_000): Law | null {
