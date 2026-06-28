@@ -89,6 +89,22 @@ const SOLUTIONS: Record<string, string> = {
   ifb4SqXX: "V=u->v->s->s u v; add=m->n->f->x->m f(n f x); one=f->x->f x; n -> n (p -> V (p (K I)) (add (p K) (p (K I)))) (V (K I) one) K", // fibonacci
   JrSTFmW9: "V=u->v->s->s u v; n -> n (p -> p (r -> g -> g (V (S B r) (K I)) (V r K))) (V (K I) (K I)) K", // n/2
   Rpc0i8ff: "double=n->f->x->n f(n f x); Y (self -> z -> z (b -> rest -> K (b (S B (double (self rest))) (double (self rest)))) (K I))", // little-endian binary → numeral
+  // — restricted-basis combinatory-completeness builds + lazy fixed points (with Codex) —
+  "2LpsCjKe": "W (B ((B W) (C B)))", // U a b = b(a a b), from B,C,K,I,W
+  fGRC4aUm: "C (K ((B C) (W C)))", // a d a c, from B,C,K,I,W
+  SDFiIPyt: "B (B W) (B B C)", // S, from B,C,I,K,W
+  QwHhI1rZ: "M (M (M ((M B) T)))", // C, from M,T,A,B
+  IJfBd6Wj: "(B (T A)) ((M B) T)", // K, from M,T,A,B
+  ZCMoK02Q: "(M (M (M ((M B) T)))) ((B M) (M (M (M (M ((M B) T))))))", // W, from M,T,A,B
+  "9AOyLk8v": "(B triple) (V (K (B K)))", // M, from triple
+  KKFt7eS5: "((J (J I I)) ((J I) (J I I))) (J (J (J I I)))", // B, from J,I
+  "16TntDIM": "((J (J I I)) (J (J I I))) (J (J I I))", // C, from J,I
+  ZpRyf6k6:
+    "(((J (J I I)) (J (J I I))) (J (J I I))) ((((J (J I I)) ((J I) (J I I))) (J (J (J I I)))) ((((J (J I I)) ((J I) (J I I))) (J (J (J I I)))) ((J I I) (J I I))) ((((J (J I I)) ((J I) (J I I))) (J (J (J I I)))) ((J I I) I) ((((J (J I I)) ((J I) (J I I))) (J (J (J I I)))) (((J (J I I)) (J (J I I))) (J (J I I))) ((((J (J I I)) ((J I) (J I I))) (J (J (J I I)))) J (J I I)))))", // W, from J,I
+  Ci0vMhSM: "C (B Y V) (C B (T K))", // M, from a non-terminating Y
+  "0aFCHGH0": "D=g->C(C(C(KM) g)) I; f -> D (g -> f (D g))", // lazy fixed point Z
+  RMSPwloE: "D=g->C(C(C(KM) g)) I; expr -> D (g -> expr (D g))", // f x = expr f x, terminating
+  IWFhxleA: "K (K K)", // C x = x
   // — authored Church arithmetic —
   FYutDKYw: "m -> n -> f -> x -> m f (n f x)", // add
   ZssuKELX: "m -> n -> f -> m (n f)", // mult
