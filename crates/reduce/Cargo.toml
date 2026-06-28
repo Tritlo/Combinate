@@ -1,0 +1,20 @@
+[package]
+name = "reduce"
+version = "0.1.0"
+edition = "2021"
+description = "flat-arena raw combinator reducer (ι/S/K/I + def-unfold) — wasm fast-path for skip-to-NF on the default pure-ι reduction"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

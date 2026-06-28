@@ -30,16 +30,39 @@ sub-frame headroom isn't visible). Per-frame hot path is `drawEdges` (full `Grap
 clear + geometry rebuild over the edge list, dashed segments multiplying geometry on small
 trees) — **GPU/geometry-bound, not JS-math-bound**, so wasm position math wouldn't help.
 
-## Decision (consensus with Codex)
+## Built + verified, then SHELVED (consensus with Codex)
 
-1. **Narrow wasm `readValue` / `reduceToNF` adapter** — wasm reduces raw ι/S/K/I + unfolds
-   named combinators via **def trees imported from TS** (zero catalog/kernel duplication;
-   rules come from `catalog.ts`'s `def()`). TS reducer stays canonical for animated
-   single-step play; wasm is used for value-read + skip-to-NF + graph-headroom. Strongest
-   fit: value-read returns a primitive (no tree marshaling). Cross-checked against the
-   answer-key + native-grid (wasm NF must structurally equal TS NF).
-2. **Pure-TS edge-rendering** optimization (`drawEdges` geometry caching / edge LOD).
-3. Deferred: TS arena/pooling; a full wasm core / Rust-ported catalog rules (needs a
-   shared rule-spec generator to avoid drift — not worth it yet).
+The narrow wasm reducer was **built and verified**, then deliberately **not wired** — the
+end-to-end win doesn't justify the surface.
 
-`crates/reduce-spike/` is the throwaway proof (build artifacts git-ignored).
+- `crates/reduce` (Rust→wasm): flat-arena raw reducer (ι/I/K/S + def-unfold). Defs are
+  imported from TS (`catalog.ts`'s `def()`), so there is **zero** catalog-rule / kernel
+  duplication — it mirrors TS `normalize(_, cap, false)` exactly.
+- `src/core/wasmCodec.ts`: pure `Node ↔ Int32Array` codec (closes over each reachable
+  combinator's def tree).
+- `scripts/wasm-reduce-check.mts` (`npm run check:reduce-wasm`): the regression net —
+  **213 pass / 0 fail** (full catalog on free vars + 160-case arithmetic grid + church;
+  13 divergent correctly bail). wasm NF structurally == TS non-fast NF.
+
+**Why shelved, not wired:** raw reduction in isolation is 42×, but **end-to-end (encode +
+wasm + decode) is only 2–3×** on moderate terms — the JS-side codec dominates (encode walks
+the whole term; decode rebuilds JS `Node`s), and those operations are already sub-10ms
+(church(600): TS 4.5 ms → wasm+codec 1.6 ms). The 42× only survives if the term stays
+*resident* in wasm across operations (no per-call marshal) — which needs opaque handles for
+spawn/snap/delete/authoring/permalink/readout, i.e. a second runtime + a view rewrite, not a
+narrow adapter. The heavy *arithmetic/data* paths are already covered by native kernels +
+graph sharing, so the only niche left (hand-built raw SKI that takes >100 ms or OOMs) is
+rare in an educational sandbox.
+
+**Decision:** keep `crates/reduce` + the codec + the cross-check as a verified, documented
+capability (built from source, artifacts git-ignored — like `refold`); revisit only if a
+visibly-slow (>100 ms) raw-reduction product path appears. Put the effort into the two wins
+that do land:
+
+1. **Pure-TS edge-rendering** — DONE: cache edge endpoint refs so the per-frame draw skips
+   the `objs` Map lookups (the unavoidable floor is the `Graphics` geometry + GPU upload).
+2. **app.ts reorg** + the `redexAt` O(D²)→O(D) NF-scan fix (DONE) — the real maintainability
+   and hot-path wins.
+
+Deferred: TS arena/pooling; a full wasm core (needs a shared rule-spec generator to avoid
+drift).

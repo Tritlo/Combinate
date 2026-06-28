@@ -21,6 +21,6 @@ shots.local.mjs
 public/vendor/
 .claude/
 
-# perf spike (throwaway) build artifacts
-crates/reduce-spike/target/
-crates/reduce-spike/pkg-node/
+# wasm reduce capability — built from source, never committed (like refold)
+crates/reduce/target/
+crates/reduce/pkg-node/
