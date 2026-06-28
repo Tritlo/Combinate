@@ -27,6 +27,7 @@ const TURBO_CHUNK = 200; // contractions per wasm call — small enough that TUR
 const TURBO_MAX_STEPS_PER_FRAME = 400; // cap steps/frame so a fast reduction shows as a few dramatic reflows, not one jump
 const TURBO_GAP = 36; // ms between reflows — paced so the churn is *perceptible* (vs ~8ms = looks instant) yet far faster than one tween/step
 const TURBO_RENDER_SKIP_NODES = 12_000; // past this working size, don't reflow the (huge) intermediate every frame — keep reducing it undrawn
+const TURBO_DISPLAY_MAX = 6_000; // a normal form bigger than this is too deep to lay out / read out (recursive view walks) — don't draw it
 const TURBO_CAP = 20_000_000; // non-termination guard (raw needs far more steps than STEP_CAP)
 const TURBO_EXPLODE_NODES = 2_000_000; // a raw term blowing up (e.g. Scott arithmetic) — pause instead of choking
 const FINISH_PROBE_MAX = 150; // skip the catalog/quest/golf probes on a normal form (or source) bigger than this — they'd reduce it (too slow), and a big result isn't a bird/puzzle solution
@@ -174,7 +175,19 @@ export class ReductionController {
       reschedule(); // big intermediate — skip the (expensive) reflow, keep churning
       return;
     }
-    const snap = s.snapshot();
+    const snap = s.snapshot(); // iterative decode (safe on a deep result), compacts the arena
+    // A normal form too deep/large to lay out + draw (e.g. a huge Scott numeral) — the view's
+    // recursive layout/read-out would blow the stack. Don't draw it; finish (the value lens
+    // still reads bounded numerals) or, if still reducing, keep churning undrawn.
+    if (exceedsNodes(snap, TURBO_DISPLAY_MAX)) {
+      if (done) {
+        this.deps.notify(`reduced in ${s.totalSteps} steps — result too large to draw`);
+        this.freeSession(a);
+      } else {
+        reschedule();
+      }
+      return;
+    }
     this.deps.flourish(tree);
     tree.animateTo(snap, this.stepDur(), () => {
       const a2 = this.auto.get(tree);

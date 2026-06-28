@@ -455,8 +455,8 @@ impl Graph {
                 let h = self.force(n.a);
                 if self.nodes[h as usize].tag == TAG_COMB && self.nodes[h as usize].a == self.kern.succ {
                     k += 1;
-                    if k > 4_096 {
-                        return None; // cap (matches native.ts MAX_NAT) — fall back to raw
+                    if k > 9_999 {
+                        return None; // cap = native.ts MAX_NUM (matchNumeral); only (*) caps the product at MAX_NAT
                     }
                     cur = self.force(n.b);
                     continue;
@@ -501,7 +501,7 @@ impl Graph {
     /// Fire a number kernel on operands `a` (left), `b` (right). Forces only what native.ts
     /// forces; None → not a value yet (caller falls back to def-unfold / keeps reducing).
     fn fire_number_kernel(&mut self, kind: i32, a: i32, b: i32) -> Option<i32> {
-        let mut bud: u32 = 2_000_000;
+        let mut bud: u32 = 500_000; // force budget — bounds the worst per-frame kernel force
         match kind {
             1 => {
                 // (+) a n = Succ^a n — force only a; n stays a shared thunk
@@ -656,66 +656,97 @@ impl Graph {
     }
 
     /// One leftmost-outermost contraction anywhere from `root`; false → normal form.
+    /// ITERATIVE (an explicit work stack) — a recursive arg descent overflows the wasm stack
+    /// on a deep `Succ^k K` normal form. Leftmost-outermost order: try the spine head, then the
+    /// args left-to-right (push reversed so the leftmost is popped first).
     fn step(&mut self, root: i32) -> bool {
+        let mut work: Vec<i32> = Vec::with_capacity(64);
+        work.push(root);
         let mut spine: Vec<i32> = Vec::with_capacity(64);
-        let mut cur = self.force(root);
-        while self.nodes[cur as usize].tag == TAG_APP {
-            spine.push(cur);
-            cur = self.force(self.nodes[cur as usize].a);
-        }
-        if self.contract(cur, &spine) {
-            return true;
-        }
-        for i in (0..spine.len()).rev() {
-            let a = self.arg_of(spine[i]);
-            if self.step(a) {
+        while let Some(r) = work.pop() {
+            spine.clear();
+            let mut cur = self.force(r);
+            while self.nodes[cur as usize].tag == TAG_APP {
+                spine.push(cur);
+                cur = self.force(self.nodes[cur as usize].a);
+            }
+            if self.contract(cur, &spine) {
                 return true;
+            }
+            // push args so the leftmost (spine.last().arg) is popped first
+            for &s in spine.iter() {
+                work.push(self.arg_of(s));
             }
         }
         false
     }
 
-    /// Read the live graph back to a compact array, FORCING indirections + sharing cells (a
-    /// DAG: a shared cell is emitted once). Header [done, steps, root, count], then nodes×3.
-    fn snapshot(&self, root: i32, steps: i32, done: bool) -> Vec<i32> {
+    /// Read the live graph into a fresh 0-based node list, FORCING indirections + sharing
+    /// cells (a DAG — a shared cell is emitted once). ITERATIVE (a recursive readback overflows
+    /// the wasm stack on a deep `Succ^k K`): an explicit stack, memo `-1` unvisited / `-2`
+    /// in-progress / `>=0` done. Leaves (comb/iota/free) carry no prefix references, so the
+    /// list is self-contained. Returns (nodes, root).
+    fn readback_live(&self, root: i32) -> (Vec<Node>, i32) {
         let mut out: Vec<Node> = Vec::new();
         let mut memo = vec![-1i32; self.nodes.len()];
-        let new_root = self.readback(self.force(root), &mut out, &mut memo);
-        let mut res = Vec::with_capacity(4 + out.len() * 3);
+        let mut stack: Vec<(i32, bool)> = vec![(self.force(root), false)];
+        while let Some((f, done)) = stack.pop() {
+            let fi = f as usize;
+            if !done {
+                if memo[fi] != -1 {
+                    continue; // already visited / in progress / done
+                }
+                let n = self.nodes[fi];
+                if n.tag == TAG_APP {
+                    memo[fi] = -2; // in progress
+                    stack.push((f, true));
+                    stack.push((self.force(n.b), false));
+                    stack.push((self.force(n.a), false));
+                } else {
+                    out.push(n);
+                    memo[fi] = out.len() as i32 - 1;
+                }
+            } else {
+                let n = self.nodes[fi];
+                let fr = memo[self.force(n.a) as usize];
+                let ar = memo[self.force(n.b) as usize];
+                out.push(Node { tag: TAG_APP, a: fr, b: ar });
+                memo[fi] = out.len() as i32 - 1;
+            }
+        }
+        let r = memo[self.force(root) as usize];
+        (out, if r < 0 { 0 } else { r })
+    }
+
+    /// Compact the arena AND return the display snapshot: read back the live DAG (forced,
+    /// shared, no INDs), rebuild the working region from it (preserving the immutable def
+    /// prefix, so def_root stays valid), and emit the same DAG for display. This reclaims IND
+    /// chains + dead cells so a long resident reduction's arena stays bounded. Returns
+    /// (display array, the new root index into the compacted arena).
+    fn snapshot(&mut self, root: i32, steps: i32, done: bool) -> (Vec<i32>, i32) {
+        let (live, lr) = self.readback_live(root);
+        // display array: [done, steps, root(0-based), count] + nodes×3 (leaves self-contained)
+        let mut res = Vec::with_capacity(4 + live.len() * 3);
         res.push(if done { 1 } else { 0 });
         res.push(steps);
-        res.push(new_root);
-        res.push(out.len() as i32);
-        for nd in &out {
+        res.push(lr);
+        res.push(live.len() as i32);
+        for nd in &live {
             res.push(nd.tag);
             res.push(nd.a);
             res.push(nd.b);
         }
-        res
-    }
-    fn readback(&self, i: i32, out: &mut Vec<Node>, memo: &mut [i32]) -> i32 {
-        let f = self.force(i);
-        let fi = f as usize;
-        if memo[fi] >= 0 {
-            return memo[fi]; // shared cell → one output node
+        // compact the arena: working region := the live DAG, offset past the def prefix.
+        let dl = self.def_len as i32;
+        self.nodes.truncate(self.def_len);
+        for nd in &live {
+            if nd.tag == TAG_APP {
+                self.nodes.push(Node { tag: TAG_APP, a: nd.a + dl, b: nd.b + dl });
+            } else {
+                self.nodes.push(*nd);
+            }
         }
-        let n = self.nodes[fi];
-        let idx = if n.tag == TAG_APP {
-            // reserve, then fill (handles a self-referential share defensively via memo)
-            let here = out.len() as i32;
-            out.push(Node { tag: TAG_APP, a: 0, b: 0 });
-            memo[fi] = here;
-            let fr = self.readback(n.a, out, memo);
-            let ar = self.readback(n.b, out, memo);
-            out[here as usize] = Node { tag: TAG_APP, a: fr, b: ar };
-            here
-        } else {
-            let here = out.len() as i32;
-            out.push(n);
-            memo[fi] = here;
-            here
-        };
-        idx
+        (res, dl + lr)
     }
 }
 
@@ -763,8 +794,11 @@ impl GraphSession {
     pub fn node_count(&self) -> u32 {
         self.g.nodes.len() as u32
     }
-    /// The current graph as a shared DAG (forced, sharing preserved) for display.
+    /// The current graph as a shared DAG (forced, sharing preserved) for display; also
+    /// compacts the arena (reclaims IND chains + dead cells) and updates the root.
     pub fn snapshot(&mut self) -> Vec<i32> {
-        self.g.snapshot(self.root, self.steps as i32, self.done)
+        let (res, new_root) = self.g.snapshot(self.root, self.steps as i32, self.done);
+        self.root = new_root;
+        res
     }
 }

@@ -174,7 +174,10 @@ export interface Decoded {
   done: boolean;
 }
 
-/** Decode the wasm result array back into a `Node` term. */
+/** Decode the wasm result array back into a `Node` term. ITERATIVE (an explicit stack +
+ *  post-order build) — a recursive decode overflows the JS call stack on a deep result (a big
+ *  Scott numeral is thousands of nodes deep). Sharing in the wasm DAG is preserved via the memo
+ *  (a shared index → one `Node`). */
 export function decode(result: Int32Array, symName: string[], freeName: string[]): Decoded {
   const done = result[0] === 1;
   const steps = result[1];
@@ -182,20 +185,29 @@ export function decode(result: Int32Array, symName: string[], freeName: string[]
   const n = result[3];
   const base = 4;
   const memo = new Array<Node | undefined>(n);
-  const build = (i: number): Node => {
-    const cached = memo[i];
-    if (cached) return cached;
+  const leaf = (i: number): Node => {
     const o = base + i * 3;
     const tag = result[o];
-    let node: Node;
-    if (tag === TAG_APP) node = app(build(result[o + 1]), build(result[o + 2]));
-    else if (tag === TAG_IOTA) node = { id: 0, kind: "iota" } as Node;
-    else if (tag === TAG_COMB) {
+    if (tag === TAG_IOTA) return { id: 0, kind: "iota" } as Node;
+    if (tag === TAG_COMB) {
       const sym = symName[result[o + 1]];
-      node = isCatalog(sym) ? named(sym) : comb(sym);
-    } else node = freeVar(freeName[result[o + 1]]);
-    memo[i] = node;
-    return node;
+      return isCatalog(sym) ? named(sym) : comb(sym);
+    }
+    return freeVar(freeName[result[o + 1]]);
   };
-  return { term: build(root), steps, done };
+  // stack of (index, childrenReady): first visit pushes children, second builds the app.
+  const stack: Array<[number, boolean]> = [[root, false]];
+  while (stack.length) {
+    const [i, ready] = stack.pop()!;
+    if (memo[i]) continue;
+    const o = base + i * 3;
+    if (result[o] !== TAG_APP) {
+      memo[i] = leaf(i);
+    } else if (!ready) {
+      stack.push([i, true], [result[o + 1], false], [result[o + 2], false]);
+    } else {
+      memo[i] = app(memo[result[o + 1]]!, memo[result[o + 2]]!);
+    }
+  }
+  return { term: memo[root]!, steps, done };
 }
