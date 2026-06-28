@@ -11,6 +11,7 @@ import { GraphReducer } from "../core/graph";
 import { type Node } from "../core/term";
 import { type NativeOpts } from "../core/native";
 import { type TreeView } from "./tree";
+import { type WasmSession } from "./wasmReducer";
 
 const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducing (§6.4)
 const STEP_MS = 300; // duration of one reduction-step tween
@@ -19,17 +20,35 @@ const HEAVY_GAP = 8; // big trees jump-cut each step; pace them fast but still y
 const STEP_CAP = 2000; // non-termination guard: stop auto-reducing past this many steps
 const GRAPH_STEP_CAP = 100_000; // graph mode shares (cheap steps) — let fac-scale reductions finish
 
+// ---- Turbo (wasm) playback: run many resident contractions per visible frame, so a big
+// raw tree reduces fast even when the renderer can't keep up with one tween per step. ----
+const TURBO_BUDGET_MS = 12; // wall-clock spent stepping in wasm before each reflow (yields the rest of the frame to render)
+const TURBO_CHUNK = 4000; // contractions per wasm call (we can't read the clock mid-call)
+const TURBO_CAP = 20_000_000; // non-termination guard (raw needs far more steps than STEP_CAP)
+const TURBO_EXPLODE_NODES = 2_000_000; // a raw term blowing up (e.g. Scott arithmetic) — pause instead of choking
+const FINISH_PROBE_MAX = 150; // skip the catalog/quest/golf probes on a normal form (or source) bigger than this — they'd reduce it (too slow), and a big result isn't a bird/puzzle solution
+
+/** True if `n` has more than `max` nodes (early-exit DFS — O(max), not O(size)). */
+function exceedsNodes(n: Node, max: number): boolean {
+  let count = 0;
+  const go = (m: Node): boolean => ++count > max || (m.kind === "app" && (go(m.fn) || go(m.arg)));
+  return go(n);
+}
+
 export type Transport = "play" | "pause" | "ff";
 
 // `source` is the tree as the player built/edited it (captured on release), before
 // reduction mutates it — the golf metric + challenge target score the source, not its NF.
-type AutoState = { gen: number; timer: number; steps: number; source?: Node; grapher?: GraphReducer };
+type AutoState = { gen: number; timer: number; steps: number; source?: Node; grapher?: GraphReducer; session?: WasmSession | null };
 
 /** What the reduction loop needs from the shell. */
 export interface ReductionDeps {
   getFast: () => boolean; // optimize mode (reduce by rule, not raw SKI)
   getShare: () => boolean; // graph (call-by-need) mode
   getNative: () => NativeOpts | undefined; // native value ops
+  getTurbo: () => boolean; // Turbo (wasm) toggle
+  /** Build a resident wasm session for a term, or null if wasm isn't loaded yet. */
+  makeSession: (term: Node) => WasmSession | null;
   /** The focused tree if it is still live on the canvas, else null. */
   focusedLive: () => TreeView | null;
   settle: (tree: TreeView) => void; // recognise + collapse a normal form
@@ -68,12 +87,25 @@ export class ReductionController {
     this.auto.delete(tree);
   }
 
+  // Turbo is raw-only: it doesn't know rules / native ops / graph sharing, so it's eligible
+  // only when those are all off (else fall back to the TS reducer). `makeSession` returns
+  // null until the wasm has loaded, so we transparently fall back then too.
+  private turboEligible(): boolean {
+    return this.deps.getTurbo() && !this.deps.getShare() && !this.deps.getFast() && !this.deps.getNative();
+  }
+
+  private freeSession(a: AutoState): void {
+    a.session?.free();
+    a.session = null;
+  }
+
   /** Stop a tree's reduction loop + animation (called on touch / delete). */
   cancel(tree: TreeView): void {
     const a = this.auto.get(tree);
     if (a) {
       a.gen++;
       clearTimeout(a.timer);
+      this.freeSession(a); // release the wasm arena
     }
     tree.stopAnimation();
   }
@@ -88,9 +120,57 @@ export class ReductionController {
     a.gen++;
     a.steps = 0;
     a.source = tree.node; // score the tree as built, before reduction
+    this.freeSession(a); // drop any prior resident session
     a.grapher = this.deps.getShare() ? new GraphReducer(tree.node, this.deps.getFast()) : undefined;
+    // Turbo: build a resident wasm session up front; if it succeeds, the turbo loop drives
+    // this tree instead of the per-step path. Null (wasm not loaded) → normal playback.
+    a.session = this.turboEligible() ? this.deps.makeSession(tree.node) : null;
     const gen = a.gen;
-    a.timer = window.setTimeout(() => this.stepAuto(tree, gen), AUTO_DELAY);
+    const tick = a.session ? () => this.turboTick(tree, gen) : () => this.stepAuto(tree, gen);
+    a.timer = window.setTimeout(tick, AUTO_DELAY);
+  }
+
+  // Turbo loop: spend a wall-clock budget running resident wasm contractions, then reflow
+  // the tree once to the snapshot (jump-cut for big trees). Coalesces many reductions per
+  // visible frame, so a big raw program churns fast instead of one slow tween per step.
+  private turboTick(tree: TreeView, gen: number): void {
+    const a = this.auto.get(tree);
+    if (!a || a.gen !== gen) return;
+    if (this.transport === "pause") return;
+    const s = a.session;
+    if (!s) {
+      this.stepAuto(tree, gen); // session gone — fall back to the TS path
+      return;
+    }
+    // Run contractions resident until the frame budget is spent (or NF / explosion).
+    const start = performance.now();
+    while (performance.now() - start < TURBO_BUDGET_MS) {
+      const n = s.stepBudget(TURBO_CHUNK);
+      if (s.isDone || n === 0) break;
+      if (s.nodeCount > TURBO_EXPLODE_NODES) {
+        this.autoPause("term is exploding — try the Native/Optimize options for arithmetic");
+        return;
+      }
+    }
+    a.steps = s.totalSteps;
+    if (a.steps >= TURBO_CAP) {
+      this.autoPause(`won't settle after ${a.steps} steps`);
+      return;
+    }
+    const snap = s.snapshot();
+    const done = s.isDone;
+    this.deps.flourish(tree);
+    tree.animateTo(snap, this.stepDur(), () => {
+      const a2 = this.auto.get(tree);
+      if (!a2 || a2.gen !== gen) return;
+      if (this.transport === "pause") return;
+      if (done) {
+        this.finishNormalForm(tree, a2);
+        this.freeSession(a2);
+        return;
+      }
+      a2.timer = window.setTimeout(() => this.turboTick(tree, gen), HEAVY_GAP);
+    });
   }
 
   // Auto-pause (with a toast) when a tree won't settle within its step budget.
@@ -102,6 +182,11 @@ export class ReductionController {
   // A tree reached normal form: recognise + collapse it, then score it (golf + quest).
   // Shared by the auto loop and the manual Step button so both record solves.
   private finishNormalForm(tree: TreeView, a: AutoState): void {
+    // settle() recognises the NF against the catalog and the quest/golf checks probe it —
+    // all of which REDUCE the term, unbounded over a big result. A large normal form (a
+    // compiled program's output) is neither a catalog bird nor a puzzle solution, so skip
+    // the probes past a size budget (they'd return nothing anyway, and would freeze).
+    if (exceedsNodes(tree.node, FINISH_PROBE_MAX) || exceedsNodes(a.source ?? tree.node, FINISH_PROBE_MAX)) return;
     this.deps.settle(tree);
     this.deps.onNormalForm(a.source ?? tree.node);
   }
@@ -214,7 +299,12 @@ export class ReductionController {
       }
     } else if (wasPaused) {
       for (const [tree, a] of this.auto) {
-        if (redexAt(tree.node, 0, this.deps.getFast(), this.deps.getNative())) {
+        if (a.session && !a.session.isDone) {
+          // a resident turbo reduction in flight — continue it (the session holds the state)
+          a.gen++;
+          const gen = a.gen;
+          a.timer = window.setTimeout(() => this.turboTick(tree, gen), 0);
+        } else if (redexAt(tree.node, 0, this.deps.getFast(), this.deps.getNative())) {
           a.steps = 0; // explicit resume = "keep going" → a fresh budget before auto-pause re-trips
           a.gen++;
           const gen = a.gen;
@@ -244,5 +334,11 @@ export class ReductionController {
   /** Drop every live grapher (they bake `fast` at construction; the optimize toggle changed). */
   invalidateGraphers(): void {
     for (const a of this.auto.values()) a.grapher = undefined;
+  }
+
+  /** Drop every resident wasm session (the Turbo toggle / a raw-mode option changed, so the
+   *  next schedule re-decides turbo vs TS). */
+  invalidateSessions(): void {
+    for (const a of this.auto.values()) this.freeSession(a);
   }
 }

@@ -195,10 +195,21 @@ export interface NormalizeResult {
  * non-terminating terms (e.g. Ω); on hitting it, returns the partial term with
  * `done: false`.
  */
-export function normalize(n: Node, cap = 10_000, fast = false, native?: NativeOpts): NormalizeResult {
+/** True if `n` has more than `max` nodes (early-exit DFS, so it costs O(max), not O(size)). */
+function exceedsNodes(n: Node, max: number): boolean {
+  let count = 0;
+  const go = (m: Node): boolean => ++count > max || (m.kind === "app" && (go(m.fn) || go(m.arg)));
+  return go(n);
+}
+
+export function normalize(n: Node, cap = 10_000, fast = false, native?: NativeOpts, maxNodes = 0): NormalizeResult {
   let cur = n;
   let steps = 0;
   for (; steps < cap; steps++) {
+    // Size guard (opt-in): a step-capped reduction can still build a stack/heap-blowing tree
+    // in few steps (the S rule clones). Checked every 32 steps so the cost is amortised; the
+    // caller (e.g. the value matchers) bails to "not a value" instead of freezing/OOMing.
+    if (maxNodes && (steps & 31) === 0 && exceedsNodes(cur, maxNodes)) return { term: cur, steps, done: false };
     const next = step(cur, 0, fast, native);
     if (!next) return { term: cur, steps, done: true };
     cur = next;

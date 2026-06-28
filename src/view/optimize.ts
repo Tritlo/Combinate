@@ -9,7 +9,7 @@
 import { SettingsModal } from "./modal";
 
 /** A toggleable reduction optimization. */
-export type OptKey = "rules" | "graph" | "nativeNumbers" | "nativeLists" | "nativeBooleans";
+export type OptKey = "rules" | "graph" | "nativeNumbers" | "nativeLists" | "nativeBooleans" | "wasm";
 
 const SETTINGS: { key: OptKey; label: string; desc: string }[] = [
   { key: "rules", label: "Optimize (rule steps)", desc: "Reduce a named combinator by its law in one step, not its raw ι/SKI tree." },
@@ -17,6 +17,7 @@ const SETTINGS: { key: OptKey; label: string; desc: string }[] = [
   { key: "nativeNumbers", label: "Native numbers", desc: "Compute catalog arithmetic (+, ×, =, <, …) on whole numbers directly." },
   { key: "nativeLists", label: "Native lists", desc: "Evaluate list ops (<>, map, concat) on recognised lists directly." },
   { key: "nativeBooleans", label: "Native booleans", desc: "Evaluate not, and, or on recognised booleans directly." },
+  { key: "wasm", label: "Turbo (wasm)", desc: "Reduce big raw ι/SKI trees in WebAssembly, many steps per reflow — fast playback of large programs. (Raw mode: ignored while the rule/native/graph options are on.)" },
 ];
 
 const STORE_KEY = "combinate:optimize:v1";

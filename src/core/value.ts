@@ -31,6 +31,10 @@ import { normalize } from "./reduce";
 export const NORM_BUDGET = 50_000; // total reduction budget per match (fast mode)
 const MAX_LIST = 64; // longest list we spell out
 const MAX_NUM = 9999; // largest numeral we count to
+// Size guard: a probe reduction that builds a tree past this many nodes isn't a small data
+// value we can read — bail (it would otherwise freeze/OOM the per-frame read-out). See
+// `normalize`'s `maxNodes`.
+const MAX_PROBE_NODES = 20_000;
 
 const isVar = (n: Node, name: string): boolean => n.kind === "free" && n.name === name;
 // Probe variable names unlikely to collide with anything in a closed term.
@@ -43,7 +47,7 @@ export function matchNumeral(n: Node, budget = NORM_BUDGET): number | null {
   let cur = n;
   for (let k = 0; k <= MAX_NUM; k++) {
     if (budget <= 0) return null;
-    const r = normalize(app(app(cur, V("z")), V("s")), budget, true);
+    const r = normalize(app(app(cur, V("z")), V("s")), budget, true, undefined, MAX_PROBE_NODES);
     budget -= r.steps;
     if (!r.done) return null;
     const t = r.term;
@@ -65,7 +69,7 @@ export function matchList(n: Node, budget = NORM_BUDGET): Node[] | null {
   let cur = n;
   for (let i = 0; i <= MAX_LIST; i++) {
     if (budget <= 0) return null;
-    const r = normalize(app(app(cur, V("n")), V("c")), budget, true);
+    const r = normalize(app(app(cur, V("n")), V("c")), budget, true, undefined, MAX_PROBE_NODES);
     budget -= r.steps;
     if (!r.done) return null;
     const t = r.term;
@@ -83,7 +87,7 @@ export function matchList(n: Node, budget = NORM_BUDGET): Node[] | null {
 
 /** Pair (Vireo) `(x, y) = λf. f x y`: the two components, or null. */
 export function matchPair(n: Node, budget = NORM_BUDGET): [Node, Node] | null {
-  const r = normalize(app(n, V("f")), budget, true);
+  const r = normalize(app(n, V("f")), budget, true, undefined, MAX_PROBE_NODES);
   if (!r.done) return null;
   const t = r.term;
   if (t.kind === "app" && t.fn.kind === "app" && isVar(t.fn.fn, "§f")) return [t.fn.arg, t.arg];
@@ -93,7 +97,7 @@ export function matchPair(n: Node, budget = NORM_BUDGET): [Node, Node] | null {
 /** Scott boolean `False = K` (→ first arm), `True = A` (→ second arm): the value,
  *  or null. */
 export function matchBool(n: Node, budget = NORM_BUDGET): boolean | null {
-  const r = normalize(app(app(n, V("f")), V("t")), budget, true);
+  const r = normalize(app(app(n, V("f")), V("t")), budget, true, undefined, MAX_PROBE_NODES);
   if (!r.done) return null;
   if (isVar(r.term, "§f")) return false; // False = K selects the first arm
   if (isVar(r.term, "§t")) return true; // True  = A selects the second arm
