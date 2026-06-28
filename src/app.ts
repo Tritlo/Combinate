@@ -28,6 +28,7 @@ import { Toast } from "./view/toast";
 import { Zoo } from "./view/zoo";
 import { MhsPanel } from "./view/mhs/panel";
 import { ReadoutLens } from "./view/readoutLens";
+import { loadWasmReducer, wasmReady, WasmSession } from "./view/wasmReducer";
 import { ReductionController, type Transport } from "./view/reduction";
 import { TransportBar } from "./view/transportBar";
 import { preloadCompiler } from "./view/mhs/compiler";
@@ -1083,6 +1084,19 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
         },
         // spawn a term from an egg s-expression and focus it (drives the read-out)
         spawn: (s: string) => sexp(spawnTree(fromEgg(s), window.innerWidth / 2, window.innerHeight / 2).node),
+      },
+      // wasm turbo reducer (ADR 15): load + drive a resident session to NF, for tests.
+      wasm: {
+        load: async () => !!(await loadWasmReducer()),
+        ready: () => wasmReady(),
+        nf: async (s: string, batch = 5000): Promise<string | null> => {
+          if (!(await loadWasmReducer())) return null;
+          const sess = new WasmSession(fromEgg(s));
+          while (!sess.isDone) if (sess.stepBudget(batch) === 0) break;
+          const out = sexp(sess.snapshot());
+          sess.free();
+          return out;
+        },
       },
     };
   }
