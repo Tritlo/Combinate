@@ -17,7 +17,7 @@ const SETTINGS: { key: OptKey; label: string; desc: string }[] = [
   { key: "nativeNumbers", label: "Native numbers", desc: "Compute catalog arithmetic (+, ×, =, <, …) on whole numbers directly." },
   { key: "nativeLists", label: "Native lists", desc: "Evaluate list ops (<>, map, concat) on recognised lists directly." },
   { key: "nativeBooleans", label: "Native booleans", desc: "Evaluate not, and, or on recognised booleans directly." },
-  { key: "wasm", label: "Turbo (wasm)", desc: "Reduce big raw ι/SKI trees in WebAssembly, many steps per reflow — fast playback of large programs. (Raw mode: ignored while the rule/native/graph options are on.)" },
+  { key: "wasm", label: "Turbo (wasm)", desc: "Reduce big trees in WebAssembly with call-by-need sharing + number kernels — fast, no blow-up. Auto-engages once a tree is big (small trees keep the step-by-step animation); auto-on when you compile a Haskell program. Off while the rule / list / bool options are on." },
 ];
 
 const STORE_KEY = "combinate:optimize:v1";
