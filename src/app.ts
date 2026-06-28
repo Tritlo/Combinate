@@ -39,6 +39,9 @@ import { FluffPanel, isFluff, prefersReducedMotion, onFluffChange } from "./view
 import { OptimizePanel, isOpt, setOpt, onOptChange } from "./view/optimize";
 import { type NativeOpts } from "./core/native";
 import { tween } from "./view/anim";
+import { BucketTray } from "./view/bucketTray";
+import { GameInputController } from "./view/gameInput";
+import { KeybindsModal } from "./view/keybinds";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
 const COLLAPSE_MS = 340; // morph from a recognised normal form into its named node
@@ -563,6 +566,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
     focus = tree;
     reduce.cancel(tree); // touching a tree freezes it (§6.4)
+    gameInput?.detach(tree); // grabbing a bucket tree with the mouse releases its slot (ADR 17)
     const w = screenToWorld(e.global.x, e.global.y);
     world.addChild(tree.container); // bring to front
     drag = {
@@ -581,11 +585,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     reduce.cancel(tree);
     const next = removeSubtree(tree.node, id);
     if (next === null) {
-      // deleted the root → the whole tree goes
-      reduce.forget(tree);
-      trees.splice(trees.indexOf(tree), 1);
-      tree.destroy();
-      if (focus === tree) focus = null;
+      removeTree(tree); // deleted the root → the whole tree goes (releases its bucket too)
     } else {
       focus = tree;
       tree.animateTo(next, DELETE_MS, () => {});
@@ -676,11 +676,44 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     snapTarget = null;
   }
 
+  // Forget + remove + destroy a tree (and release any bucket it filled, so game-mode slot
+  // state stays in sync — the one mouse/controller desync rule, ADR 17).
+  function removeTree(tree: TreeView): void {
+    reduce.forget(tree);
+    const i = trees.indexOf(tree);
+    if (i >= 0) trees.splice(i, 1);
+    tree.destroy();
+    gameInput?.detach(tree);
+    if (focus === tree) focus = null;
+  }
+
+  /** Build `app(fn, arg)` at a world anchor and start it reducing — the non-spatial apply
+   *  shared by mouse-snap and the game controller (X/Y choose direction, ADR 17). `fromWorld`
+   *  (the consumed trees' node positions) glides the merge; without it the result pops in. */
+  function applyTerms(fnNode: Node, argNode: Node, anchor: { x: number; y: number }, fromWorld?: Map<NodeId, { x: number; y: number }>): TreeView {
+    const merged = new TreeView(mkApp(fnNode, argNode), anchor.x, anchor.y, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
+    addTree(merged);
+    focus = merged;
+    if (fromWorld) merged.animateAttachFrom(fromWorld, ATTACH_MS); // smooth merge into the app tree
+    else if (!prefersReducedMotion()) merged.popIn();
+    reduce.schedule(merged); // then it reduces on its own
+    return merged;
+  }
+
+  /** Spawn a reducing tree at a world anchor (the game controller places buckets here). */
+  function spawnTreeWorld(node: Node, wx: number, wy: number): TreeView {
+    const tree = new TreeView(node, wx, wy, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
+    addTree(tree);
+    focus = tree;
+    if (!prefersReducedMotion()) tree.popIn();
+    reduce.schedule(tree);
+    return tree;
+  }
+
   // Snap = application. Horizontal order of the two roots decides fn (left) vs arg (§6.2).
   function commitSnap(dragged: TreeView, target: TreeView): void {
     const fn = dragged.rootWorld.x <= target.rootWorld.x ? dragged : target;
     const arg = fn === dragged ? target : dragged;
-    const root = mkApp(fn.node, arg.node);
     const ax = (dragged.rootWorld.x + target.rootWorld.x) / 2;
     const ay = Math.min(dragged.rootWorld.y, target.rootWorld.y) - 32;
     // capture where every subtree node currently sits, to glide them in (§6.2)
@@ -688,16 +721,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     for (const t of [dragged, target]) {
       for (const [id, p] of t.nodeWorldPositions()) fromWorld.set(id, p);
     }
-    for (const old of [dragged, target]) {
-      reduce.forget(old);
-      trees.splice(trees.indexOf(old), 1);
-      old.destroy();
-    }
-    const merged = new TreeView(root, ax, ay, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
-    addTree(merged);
-    focus = merged;
-    merged.animateAttachFrom(fromWorld, ATTACH_MS); // smooth merge into the app tree
-    reduce.schedule(merged); // then it reduces on its own
+    const fnNode = fn.node;
+    const argNode = arg.node;
+    for (const old of [dragged, target]) removeTree(old);
+    applyTerms(fnNode, argNode, { x: ax, y: ay }, fromWorld);
   }
 
   // ---- camera zoom: mouse wheel (desktop) + two-finger pinch (touch) ----
@@ -846,6 +873,39 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const about = new About();
   const fluff = new FluffPanel();
   const optimize = new OptimizePanel();
+  const keybinds = new KeybindsModal();
+
+  // ---- game mode (ADR 17): keyboard/controller play via a bucket tray + hand ----
+  const tray = new BucketTray();
+  hud.addChild(tray.container);
+  const labelFor = (node: Node): string => {
+    const s = readout.exprOf(node);
+    return s.length > 14 ? s.slice(0, 13) + "…" : s;
+  };
+  const gameInput = new GameInputController({
+    hotbar,
+    tray,
+    freshNode: spawnFor,
+    labelOf: labelFor,
+    bucketAnchor: (i) => ({ x: (i - 2) * 720, y: 0 }), // a centred row of 5 world anchors
+    spawnAt: (node, w) => spawnTreeWorld(node, w.x, w.y),
+    applyTerms: (fn, arg, w, from) => applyTerms(fn, arg, w, from),
+    captureWorld: (tree) => tree.nodeWorldPositions(),
+    removeTree,
+    fit: (tree) => fitTree(tree),
+    pan: (dx, dy) => world.position.set(world.position.x + dx, world.position.y + dy),
+    zoom: (factor) => zoomTo(world.scale.x * factor, window.innerWidth / 2, window.innerHeight / 2),
+    setSpeed: (lvl) => reduce.setSpeedLevel(lvl),
+    openMenu: () => menuBar?.openMenuBar(),
+    toast: (m) => toast.show(m),
+  });
+  let gameMode = false;
+  function setGameMode(on: boolean): void {
+    gameMode = on;
+    gameInput.setEnabled(on);
+    if (on) toast.show("game mode — arrows move · Space holds · Q/E apply · Esc menu");
+    paintRail();
+  }
   // The optimize store is the source of truth; mirror it into the reducer flags and do
   // the per-mode invalidation (carry the changed key so we invalidate only what changed).
   onOptChange((key) => {
@@ -917,6 +977,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "toggle", label: "Sound", checked: () => sound.enabled, run: () => sound.toggle() },
     ] },
     { title: "Special", items: [
+      { kind: "toggle", label: "Game mode", checked: () => gameMode, run: () => setGameMode(!gameMode) },
+      { kind: "action", label: "Controls…", run: () => keybinds.open() },
+      { kind: "sep" },
       { kind: "toggle", label: "Quest", checked: () => quest.isOpen, run: () => quest.toggle() },
       { kind: "toggle", label: "Track Quest", checked: () => !quest.done && !questTracker.isHidden, run: () => { questTracker.setHidden(!questTracker.isHidden); paintRail(); } },
       { kind: "toggle", label: "Zoo", accel: "Z", checked: () => zoo.isOpen, run: () => zoo.toggle() },
@@ -1003,6 +1066,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (e.key === "ArrowLeft") return e.preventDefault(), zoo.cyclePage(-1);
       if (e.key === "Escape") return zoo.close();
     }
+    // Game mode owns the keymap (ADR 17) — but never while an overlay or a text field is up.
+    const typing = (el: Element | null): boolean => !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || (el as HTMLElement).isContentEditable);
+    const overlayUp = (): boolean => zoo.isOpen || challenges.isOpen || [...document.querySelectorAll<HTMLElement>(".md-root")].some((el) => el.style.display === "flex");
+    if (gameMode && !overlayUp() && !typing(document.activeElement) && gameInput.handleKey(e)) {
+      e.preventDefault();
+      return;
+    }
     if (e.key === "r" || e.key === "R") clearCanvas();
     else if (e.key === "t" || e.key === "T") toggleLayout();
     else if (e.key === "u" || e.key === "U") unlockAll();
@@ -1060,6 +1130,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       transport: { mode: () => reduce.mode, set: (m: string) => reduce.setTransport(m as Transport), cycle: () => reduce.cycleTransport(), step: () => reduce.stepOnce() },
       autoSteps: () => reduce.totalSteps(),
       run: () => { if (focus) reduce.schedule(focus); },
+      game: { on: () => gameMode, set: (b: boolean) => setGameMode(b), state: () => gameInput.debugState },
       fast: { on: () => isOpt("rules"), set: (b: boolean) => setOpt("rules", b) },
       graph: { on: () => isOpt("graph"), set: (b: boolean) => setOpt("graph", b), eval: (s: string) => sexp(evalShared(fromEgg(s), 500000, fastMode).term) },
       expr: () => exprText.text,

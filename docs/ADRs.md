@@ -255,3 +255,47 @@ arena (drop IND chains + dead cells, preserve the def prefix), caps aligned to n
 Cross-check (`npm run check:reduce-wasm`): one-shot + persistent + graph 213/0 vs
 `normalize(_,false)`/`evalShared(_,false)`, graph+kernels 253/0 vs `normalize(_,false,
 {numbers:true})`, session invariance 3/0. Deferred: list/bool kernels; a wasm value-read.
+
+## 17: Game controls — keyboard/controller input (`game-controls`)
+
+Combinate becomes playable with a controller, not just mouse drag-and-drop. Designed with
+Codex (consensus).
+
+**Problem.** Drag-and-drop construction is spatial (two roots within a radius merge into
+`app(fn,arg)`, fn = whichever is left by x); a d-pad/controller has no analog precision and no
+spatial fn/arg cue. We need a DISCRETE, navigable scheme that reuses the one construction op
+(application) and keeps the reduction spectacle (watching big trees reduce).
+
+**Decision — Register Tray + Hand.** A small fixed set of *buckets* (registers), each holding
+one term. A *hand* holds a term you've picked up. You navigate a HUD strip of bucket
+slot-chips with the d-pad; each bucket's actual term is a real world-space `TreeView` at a
+fixed anchor (so the reduction still plays out on the canvas — a HYBRID of HUD-chip navigation
+and world-space spectacle). The selected bucket is the `focus` (read-out + reduction work
+unchanged), and selecting auto-fits the camera to it.
+
+- **Hand lifecycle.** `A`/Space with an empty hand picks up: the hotbar cursor's symbol (a
+  *fresh* term — infinite supply) or the selected bucket's term (a *move* — empties the
+  bucket). With a hand: into an empty bucket, place it; over an occupied bucket, `X` applies
+  the held term as the **function** (`bucket := app(hand, bucket)`), `Y` as the **argument**
+  (`bucket := app(bucket, hand)`). `Esc`/`B` cancels (restores a bucket-origin term).
+- **Apply is explicit, not spatial.** `commitSnap`'s build/merge logic is factored into a
+  non-spatial `applyTerms(fn, arg, anchor, fromWorld?)` (preserving `reduce.forget`, destroy,
+  merged `TreeView`, `addTree`, `focus`, `animateAttachFrom`, `reduce.schedule`); the X/Y
+  buttons choose direction, so the x-position rule is dropped on this path.
+- **Coexists with mouse.** A `GameInputController` runs parallel to pointer input; mouse
+  drag/drop/delete stay fully live. Mouse-dragging a bucket-owned tree *detaches* it from its
+  slot (the one desync rule). Game mode is a toggle (View menu + a key), **OFF by default**;
+  when ON it OWNS the keymap (so `z`/`x` mean zoom, not Zoo/expand) and shows the tray + a
+  button-hint bar.
+- **Speeds.** Transport gains numeric speed levels 0-4 (0=pause … 4=8×), wired into the
+  normal, heavy-jump-cut, AND turbo pacing (so level 4 actually speeds the big trees the mode
+  is for); `pause|play|ff` stay as compat aliases.
+- **Keymap** is single-sourced in `keymap.ts` (intent → keyboard keys + gamepad button names),
+  rendered by a keybinds reference page in settings, and consumed by the controller — so the
+  gamepad layer (later) maps the same intents. Keyboard now: arrows = d-pad (move cursor /
+  switch hotbar↔buckets), Space = pick/place, `Q`/`E` = apply fn/arg, `[`/`]` = page,
+  WASD = pan, `z`/`x` + `-`/`=` = zoom, `0`-`4` = speed, `Esc` = cancel / menu.
+
+Rejected: a root-cursor on the free canvas (d-pad nav across zoomed/overlapping roots is the
+exact ergonomics trap), an RPN stack (feels like a calculator, loses the buckets-on-screen
+fantasy), a modal builder panel (hides the canvas, breaks the watch-it-reduce loop).
