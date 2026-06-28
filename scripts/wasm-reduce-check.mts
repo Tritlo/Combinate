@@ -69,7 +69,31 @@ const S = wasm as unknown as {
   session_total_steps: (h: number) => number;
   session_snapshot: (h: number) => number[];
   __wbg_session_free: (h: number, x: number) => void;
+  graphsession_new: (p: number, l: number) => number;
+  graphsession_step_budget: (h: number, n: number) => number;
+  graphsession_is_done: (h: number) => number;
+  graphsession_snapshot: (h: number) => number[];
+  __wbg_graphsession_free: (h: number, x: number) => void;
 };
+// The call-by-need GRAPH session (sharing) — driven the same way; its snapshot is a DAG.
+function graphNF(t: Node, cap: number): { term: Node; done: boolean } {
+  const { data, symName, freeName } = encode(t);
+  const ptr = malloc(data.length * 4, 4) >>> 0;
+  new Int32Array(wasm.memory.buffer, ptr, data.length).set(data);
+  const h = S.graphsession_new(ptr, data.length);
+  let total = 0;
+  while (total < cap) {
+    const did = S.graphsession_step_budget(h, 500);
+    total += did;
+    if (S.graphsession_is_done(h) || did === 0) break;
+  }
+  const ret = S.graphsession_snapshot(h);
+  const out = new Int32Array(wasm.memory.buffer, ret[0] >>> 0, ret[1] >>> 0).slice();
+  free(ret[0] >>> 0, (ret[1] >>> 0) * 4, 4);
+  const done = !!S.graphsession_is_done(h);
+  S.__wbg_graphsession_free(h, 0);
+  return { term: decode(out, symName, freeName).term, done };
+}
 function sessionNF(t: Node, batch: number, cap: number): { term: Node; done: boolean } {
   const { data, symName, freeName } = encode(t);
   const ptr = malloc(data.length * 4, 4) >>> 0;
@@ -102,14 +126,17 @@ function check(label: string, t: Node, cap = 5_000): void {
   const expect = struct(ts.term);
   // one-shot reduce_to_nf
   const w = wasmNF(t, cap);
-  // resident session (small batch → exercises compaction + snapshot between batches)
+  // resident persistent session (small batch → exercises compaction + snapshot between batches)
   const s = sessionNF(t, 7, cap);
+  // resident GRAPH session (call-by-need sharing); its DAG snapshot expands to the same tree
+  const g = graphNF(t, cap);
   const okW = w.done && struct(w.term) === expect;
   const okS = s.done && struct(s.term) === expect;
-  if (okW && okS) pass++;
+  const okG = g.done && struct(g.term) === expect;
+  if (okW && okS && okG) pass++;
   else {
     fail++;
-    if (fails.length < 16) fails.push(`${label}: TS=${expect.slice(0, 30)} | one-shot ok=${okW} | session ok=${okS}`);
+    if (fails.length < 16) fails.push(`${label}: TS=${expect.slice(0, 30)} | one-shot=${okW} | session=${okS} | graph=${okG}`);
   }
 }
 

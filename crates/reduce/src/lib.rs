@@ -346,3 +346,255 @@ impl Session {
         self.r.encode(self.root, self.steps as i32, self.done)
     }
 }
+
+// ============================================================================================
+// Graph reduction (ADR 16 follow-up) — call-by-need with SHARING, a faithful port of the TS
+// `graph.ts` model: cells `iota | comb | free | app | ind`, `force` chases indirections, a
+// contracted redex overwrites itself with `ind → result` so every sharer sees it, and the
+// S-rule SHARES its duplicated arg by index (no clone). The def prefix [0,def_len) stays
+// immutable (def-unfold clones a fresh copy into the working region). This kills both the
+// persistent reducer's O(size)/step path-rebuild AND the materialisation blow-up.
+// ============================================================================================
+
+const TAG_IND: i32 = 4; // indirection: a forced cell becomes IND→result (chased by `force`)
+
+struct Graph {
+    nodes: Vec<Node>,
+    syms: Vec<Sym>,
+    sym_s: i32,
+    sym_k: i32,
+    sym_i: i32,
+    def_len: usize,
+}
+
+impl Graph {
+    fn from_wire(data: &[i32]) -> (Graph, i32) {
+        let (r, root) = Reducer::from_wire(data, 1 << 16);
+        (Graph { nodes: r.nodes, syms: r.syms, sym_s: r.sym_s, sym_k: r.sym_k, sym_i: r.sym_i, def_len: r.def_len }, root)
+    }
+
+    #[inline]
+    fn push(&mut self, tag: i32, a: i32, b: i32) -> i32 {
+        let i = self.nodes.len() as i32;
+        self.nodes.push(Node { tag, a, b });
+        i
+    }
+    #[inline]
+    fn app(&mut self, f: i32, x: i32) -> i32 {
+        self.push(TAG_APP, f, x)
+    }
+    /// Chase indirections to the representative cell.
+    #[inline]
+    fn force(&self, mut i: i32) -> i32 {
+        while self.nodes[i as usize].tag == TAG_IND {
+            i = self.nodes[i as usize].a;
+        }
+        i
+    }
+    #[inline]
+    fn set_ind(&mut self, cell: i32, to: i32) {
+        self.nodes[cell as usize] = Node { tag: TAG_IND, a: to, b: 0 };
+    }
+    #[inline]
+    fn arg_of(&self, app_cell: i32) -> i32 {
+        self.nodes[app_cell as usize].b
+    }
+
+    /// A FRESH graph copy of a def subtree (from the immutable prefix), like graph.ts `toGraph`.
+    fn clone_def(&mut self, root: i32) -> i32 {
+        let n = self.nodes[root as usize];
+        if n.tag == TAG_APP {
+            let f = self.clone_def(n.a);
+            let x = self.clone_def(n.b);
+            self.app(f, x)
+        } else {
+            self.push(n.tag, n.a, n.b)
+        }
+    }
+
+    /// Contract the leftmost-outermost redex at `head` + its unwound `spine` (app-cell indices,
+    /// outermost first). Mutates in place; false if `head` is WHNF for these args. Dispatch
+    /// order mirrors `reduce.ts`/`graph.ts` so the normal form matches.
+    fn contract(&mut self, head: i32, spine: &[i32]) -> bool {
+        let m = spine.len();
+        // arg(k): the k-th argument from the head (k=0 is the leftmost / innermost app's arg).
+        let arg = |g: &Graph, k: usize| g.arg_of(spine[m - 1 - k]);
+        let hc = self.nodes[head as usize];
+        if hc.tag == TAG_IOTA {
+            if m < 1 {
+                return false;
+            } // ι x → x S K
+            let x = arg(self, 0);
+            let s = self.push(TAG_COMB, self.sym_s, 0);
+            let k = self.push(TAG_COMB, self.sym_k, 0);
+            let xs = self.app(x, s);
+            let r = self.app(xs, k);
+            self.set_ind(spine[m - 1], r);
+            return true;
+        }
+        if hc.tag == TAG_COMB {
+            let sym = hc.a;
+            if sym == self.sym_i {
+                if m < 1 {
+                    return false;
+                } // I x → x
+                let x = arg(self, 0);
+                self.set_ind(spine[m - 1], x);
+                return true;
+            }
+            if sym == self.sym_k {
+                if m < 2 {
+                    return false;
+                } // K x y → x  (y never forced — laziness)
+                let x = arg(self, 0);
+                self.set_ind(spine[m - 2], x);
+                return true;
+            }
+            if sym == self.sym_s {
+                if m < 3 {
+                    return false;
+                } // S x y z → x z (y z), z SHARED by index
+                let x = arg(self, 0);
+                let y = arg(self, 1);
+                let z = arg(self, 2);
+                let xz = self.app(x, z);
+                let yz = self.app(y, z);
+                let r = self.app(xz, yz);
+                self.set_ind(spine[m - 3], r);
+                return true;
+            }
+            let arity = {
+                let a = self.syms[sym as usize].arity;
+                if a == 0 {
+                    1
+                } else {
+                    a as usize
+                }
+            };
+            if m < arity {
+                return false;
+            } // partial named combinator → WHNF
+            let def_root = self.syms[sym as usize].def_root;
+            if def_root >= 0 {
+                let g = self.clone_def(def_root); // unfold its SKI def (fresh copy)
+                self.set_ind(head, g);
+                return true;
+            }
+            return false; // inert combinator → WHNF
+        }
+        false // free variable → WHNF
+    }
+
+    /// One leftmost-outermost contraction anywhere from `root`; false → normal form.
+    fn step(&mut self, root: i32) -> bool {
+        let mut spine: Vec<i32> = Vec::with_capacity(64);
+        let mut cur = self.force(root);
+        while self.nodes[cur as usize].tag == TAG_APP {
+            spine.push(cur);
+            cur = self.force(self.nodes[cur as usize].a);
+        }
+        if self.contract(cur, &spine) {
+            return true;
+        }
+        for i in (0..spine.len()).rev() {
+            let a = self.arg_of(spine[i]);
+            if self.step(a) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Read the live graph back to a compact array, FORCING indirections + sharing cells (a
+    /// DAG: a shared cell is emitted once). Header [done, steps, root, count], then nodes×3.
+    fn snapshot(&self, root: i32, steps: i32, done: bool) -> Vec<i32> {
+        let mut out: Vec<Node> = Vec::new();
+        let mut memo = vec![-1i32; self.nodes.len()];
+        let new_root = self.readback(self.force(root), &mut out, &mut memo);
+        let mut res = Vec::with_capacity(4 + out.len() * 3);
+        res.push(if done { 1 } else { 0 });
+        res.push(steps);
+        res.push(new_root);
+        res.push(out.len() as i32);
+        for nd in &out {
+            res.push(nd.tag);
+            res.push(nd.a);
+            res.push(nd.b);
+        }
+        res
+    }
+    fn readback(&self, i: i32, out: &mut Vec<Node>, memo: &mut [i32]) -> i32 {
+        let f = self.force(i);
+        let fi = f as usize;
+        if memo[fi] >= 0 {
+            return memo[fi]; // shared cell → one output node
+        }
+        let n = self.nodes[fi];
+        let idx = if n.tag == TAG_APP {
+            // reserve, then fill (handles a self-referential share defensively via memo)
+            let here = out.len() as i32;
+            out.push(Node { tag: TAG_APP, a: 0, b: 0 });
+            memo[fi] = here;
+            let fr = self.readback(n.a, out, memo);
+            let ar = self.readback(n.b, out, memo);
+            out[here as usize] = Node { tag: TAG_APP, a: fr, b: ar };
+            here
+        } else {
+            let here = out.len() as i32;
+            out.push(n);
+            memo[fi] = here;
+            here
+        };
+        idx
+    }
+}
+
+/// A resident call-by-need (sharing) reduction — the Turbo graph engine.
+#[wasm_bindgen]
+pub struct GraphSession {
+    g: Graph,
+    root: i32,
+    steps: u32,
+    done: bool,
+}
+
+#[wasm_bindgen]
+impl GraphSession {
+    #[wasm_bindgen(constructor)]
+    pub fn new(data: &[i32]) -> GraphSession {
+        let (g, root) = Graph::from_wire(data);
+        GraphSession { g, root, steps: 0, done: false }
+    }
+    pub fn step_budget(&mut self, max_steps: u32) -> u32 {
+        if self.done {
+            return 0;
+        }
+        let mut did = 0u32;
+        while did < max_steps {
+            if self.g.nodes.len() >= MAX_NODES {
+                break;
+            }
+            if self.g.step(self.root) {
+                self.steps += 1;
+                did += 1;
+            } else {
+                self.done = true;
+                break;
+            }
+        }
+        did
+    }
+    pub fn is_done(&self) -> bool {
+        self.done
+    }
+    pub fn total_steps(&self) -> u32 {
+        self.steps
+    }
+    pub fn node_count(&self) -> u32 {
+        self.g.nodes.len() as u32
+    }
+    /// The current graph as a shared DAG (forced, sharing preserved) for display.
+    pub fn snapshot(&mut self) -> Vec<i32> {
+        self.g.snapshot(self.root, self.steps as i32, self.done)
+    }
+}
