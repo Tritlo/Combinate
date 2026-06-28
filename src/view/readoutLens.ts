@@ -7,7 +7,7 @@
  * composition wiring.
  */
 import { Text, type Ticker } from "pixi.js";
-import { decode, sexp, type Node } from "../core/term";
+import { decode, sexp, exceedsNodes, type Node } from "../core/term";
 import { IOTA_CODE } from "../core/catalog";
 import { makeRefolder, behavioralRefolder, type Refolder } from "../core/refold";
 import { read, render, type Ty } from "../core/types";
@@ -37,12 +37,7 @@ const READ_AS: Record<string, Ty> = { Arithmetic: "Int", Booleans: "Bool", Lists
 // they're for recognising small data values, and running them per frame on a big term
 // freezes playback. The raw s-expression is shown instead.
 const READOUT_PROBE_MAX = 400;
-/** True if `n` has more than `max` nodes (early-exit DFS — cheap, no allocation). */
-function exceeds(n: Node, max: number): boolean {
-  let count = 0;
-  const go = (m: Node): boolean => ++count > max || (m.kind === "app" && (go(m.fn) || go(m.arg)));
-  return go(n);
-}
+
 
 export class ReadoutLens {
   // re-folding lens (lazy WASM adapter; behavioural pre-pass works without it)
@@ -90,7 +85,7 @@ export class ReadoutLens {
       // The value probe (`read`) and the re-fold lens reduce the term — too slow on a big
       // term, and run on EVERY identity change (so they'd freeze playback of a big tree,
       // turbo or not). Past a node budget, skip them and show the raw s-expression.
-      const big = exceeds(node, READOUT_PROBE_MAX);
+      const big = exceedsNodes(node, READOUT_PROBE_MAX);
       const v = big ? null : read(node, mode ?? null);
       const value = v ? render(v) : null;
       const folded = !value && !big && this.refoldOn && this.refolder ? this.refolder(node) : null;

@@ -1,4 +1,4 @@
-import { type Node, type NodeId, app, comb, iota, freeVar } from "./term";
+import { type Node, type NodeId, app, comb, iota, freeVar, exceedsNodes } from "./term";
 import { RULES } from "./catalog";
 import { kernelFor, type NativeOpts } from "./kernels";
 
@@ -195,13 +195,6 @@ export interface NormalizeResult {
  * non-terminating terms (e.g. Ω); on hitting it, returns the partial term with
  * `done: false`.
  */
-/** True if `n` has more than `max` nodes (early-exit DFS, so it costs O(max), not O(size)). */
-function exceedsNodes(n: Node, max: number): boolean {
-  let count = 0;
-  const go = (m: Node): boolean => ++count > max || (m.kind === "app" && (go(m.fn) || go(m.arg)));
-  return go(n);
-}
-
 export function normalize(n: Node, cap = 10_000, fast = false, native?: NativeOpts, maxNodes = 0): NormalizeResult {
   let cur = n;
   let steps = 0;

@@ -8,7 +8,7 @@
  */
 import { firingRule, redexAt } from "../core/reduce";
 import { GraphReducer } from "../core/graph";
-import { type Node } from "../core/term";
+import { type Node, exceedsNodes } from "../core/term";
 import { type NativeOpts } from "../core/native";
 import { type TreeView } from "./tree";
 import { type WasmSession } from "./wasmReducer";
@@ -31,12 +31,6 @@ const TURBO_CAP = 20_000_000; // non-termination guard (raw needs far more steps
 const TURBO_EXPLODE_NODES = 2_000_000; // a raw term blowing up (e.g. Scott arithmetic) — pause instead of choking
 const FINISH_PROBE_MAX = 150; // skip the catalog/quest/golf probes on a normal form (or source) bigger than this — they'd reduce it (too slow), and a big result isn't a bird/puzzle solution
 
-/** True if `n` has more than `max` nodes (early-exit DFS — O(max), not O(size)). */
-function exceedsNodes(n: Node, max: number): boolean {
-  let count = 0;
-  const go = (m: Node): boolean => ++count > max || (m.kind === "app" && (go(m.fn) || go(m.arg)));
-  return go(n);
-}
 
 export type Transport = "play" | "pause" | "ff";
 
@@ -153,12 +147,14 @@ export class ReductionController {
       const n = s.stepBudget(TURBO_CHUNK);
       if (s.isDone || n === 0) break;
       if (s.nodeCount > TURBO_EXPLODE_NODES) {
+        this.freeSession(a); // abandon the doomed reduction — don't resume it
         this.autoPause("term is exploding — try the Native/Optimize options for arithmetic");
         return;
       }
     }
     a.steps = s.totalSteps;
     if (a.steps >= TURBO_CAP) {
+      this.freeSession(a); // gave up — drop the session so resume doesn't grind on
       this.autoPause(`won't settle after ${a.steps} steps`);
       return;
     }
@@ -199,13 +195,14 @@ export class ReductionController {
   // A tree reached normal form: recognise + collapse it, then score it (golf + quest).
   // Shared by the auto loop and the manual Step button so both record solves.
   private finishNormalForm(tree: TreeView, a: AutoState): void {
-    // settle() recognises the NF against the catalog and the quest/golf checks probe it —
-    // all of which REDUCE the term, unbounded over a big result. A large normal form (a
-    // compiled program's output) is neither a catalog bird nor a puzzle solution, so skip
-    // the probes past a size budget (they'd return nothing anyway, and would freeze).
-    if (exceedsNodes(tree.node, FINISH_PROBE_MAX) || exceedsNodes(a.source ?? tree.node, FINISH_PROBE_MAX)) return;
-    this.deps.settle(tree);
-    this.deps.onNormalForm(a.source ?? tree.node);
+    // settle() recognises the NF against the catalog; onNormalForm() runs the quest/golf
+    // checks on the source. Both REDUCE the term, unbounded over a big one, so each is gated
+    // by its OWN operand's size (a big result isn't a bird; a big source isn't a puzzle
+    // solution) — independently, so a small NF from a big source still settles, and vice
+    // versa. `recognize`/the quest engine are also internally size-guarded as a backstop.
+    if (!exceedsNodes(tree.node, FINISH_PROBE_MAX)) this.deps.settle(tree);
+    const source = a.source ?? tree.node;
+    if (!exceedsNodes(source, FINISH_PROBE_MAX)) this.deps.onNormalForm(source);
   }
 
   // The auto-state for a tree, created (without a running timer) if missing — some focused

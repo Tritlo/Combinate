@@ -852,7 +852,12 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     } else if (key === "wasm") {
       // Turbo toggled: preload the wasm (so the next reduction can use it), drop any stale
       // sessions, and re-decide turbo-vs-TS for the focused tree.
-      if (isOpt("wasm")) void loadWasmReducer().then(() => focus && reduce.schedule(focus));
+      if (isOpt("wasm")) {
+        const armed = focus; // re-check on resolve: Turbo still on AND the same tree still focused
+        void loadWasmReducer().then(() => {
+          if (isOpt("wasm") && armed && focus === armed && trees.includes(armed)) reduce.schedule(armed);
+        });
+      }
       reduce.invalidateSessions();
       if (focus) reduce.schedule(focus);
     }
