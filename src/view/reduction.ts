@@ -28,7 +28,17 @@ const TURBO_MAX_STEPS_PER_FRAME = 400; // cap steps/frame so a fast reduction sh
 const TURBO_GAP = 36; // ms between reflows — paced so the churn is *perceptible* (vs ~8ms = looks instant) yet far faster than one tween/step
 const TURBO_RENDER_SKIP_NODES = 12_000; // past this working size, don't reflow the (huge) intermediate every frame — keep reducing it undrawn
 const TURBO_DISPLAY_MAX = 6_000; // a normal form bigger than this is too deep to lay out / read out (recursive view walks) — don't draw it
-const TURBO_MIN_NODES = 600; // engage the wasm engine only once a tree is this big (= the view's jump-cut threshold, so no per-step animation is lost); small trees keep the pretty TS playback
+// Auto-switch thresholds (measured: see docs/perf-spike-findings.md). The wasm fixed overhead
+// is ~0.03 ms; for cheap reductions it wins from ~300 nodes but only ~1.5-2× (sub-ms either
+// way → a wash), and LOSES past ~5000 nodes (encode cost). For EXPENSIVE reductions it wins
+// 50-3000×, but those start tiny and BALLOON — so tree size is a poor predictor and the real
+// trigger is the tree growing (the mid-reduction upgrade). 600 = the view's jump-cut threshold
+// (no per-step animation is lost above it), which the data shows is a fine size cutoff.
+const TURBO_MIN_NODES = 600;
+// A TS reduction that has ground through this many steps without finishing is "struggling"
+// (heading for the STEP_CAP=2000 pause); hand it to the wasm engine instead — catches the
+// many-steps / bounded-small-tree case the size gate misses, and lets it finish vs pausing.
+const TURBO_MIN_STEPS = 1200;
 const TURBO_CAP = 20_000_000; // non-termination guard (raw needs far more steps than STEP_CAP)
 const TURBO_EXPLODE_NODES = 2_000_000; // a raw term blowing up (e.g. Scott arithmetic) — pause instead of choking
 const FINISH_PROBE_MAX = 150; // skip the catalog/quest/golf probes on a normal form (or source) bigger than this — they'd reduce it (too slow), and a big result isn't a bird/puzzle solution
@@ -95,11 +105,12 @@ export class ReductionController {
     const unportedNative = !!(n && (n.lists || n.booleans));
     return this.deps.getTurbo() && !this.deps.getShare() && !this.deps.getFast() && !unportedNative;
   }
-  // Auto-switch by size: engage the wasm engine only once a tree is big (the TS reducer is
-  // plenty fast on small trees AND gives the pretty per-step animation). A small tree that
-  // grows past the threshold upgrades mid-reduction (see `stepAuto`).
-  private wantsTurbo(tree: TreeView): boolean {
-    return this.turboEligible() && exceedsNodes(tree.node, TURBO_MIN_NODES);
+  // Auto-switch: engage the wasm engine once a tree is BIG (the TS reducer is plenty fast on
+  // small trees AND gives the pretty per-step animation) OR a reduction is STRUGGLING (many
+  // steps, not done — a small tree that balloons, or a many-step bounded reduction). A small
+  // tree that crosses either threshold upgrades mid-reduction (see `stepAuto`).
+  private wantsTurbo(tree: TreeView, steps = 0): boolean {
+    return this.turboEligible() && (steps >= TURBO_MIN_STEPS || exceedsNodes(tree.node, TURBO_MIN_NODES));
   }
   // Build (once) the resident wasm session for a tree that has become turbo-worthy.
   private engageTurbo(tree: TreeView, a: AutoState): boolean {
@@ -292,8 +303,9 @@ export class ReductionController {
       const a2 = this.auto.get(tree);
       if (!a2 || a2.gen !== gen) return;
       if (this.transport === "pause") return; // paused mid-tween — stop scheduling
-      // Auto-upgrade: a small tree that has now grown big hands off to the wasm engine.
-      if (this.wantsTurbo(tree) && this.engageTurbo(tree, a2)) {
+      // Auto-upgrade: a tree that has grown big (or a reduction grinding many steps) hands off
+      // to the wasm engine instead of continuing the per-step TS path.
+      if (this.wantsTurbo(tree, a2.steps) && this.engageTurbo(tree, a2)) {
         a2.timer = window.setTimeout(() => this.turboTick(tree, gen), TURBO_GAP);
       } else {
         a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(tree));
