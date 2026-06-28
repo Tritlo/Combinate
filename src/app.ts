@@ -7,8 +7,7 @@ import {
   Text,
 } from "pixi.js";
 import { app as mkApp, comb, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
-import { firingRule, redexAt } from "./core/reduce";
-import { GraphReducer, evalShared } from "./core/graph";
+import { evalShared } from "./core/graph";
 import { encodePermalink, decodePermalink, type Modes } from "./core/permalink";
 import { LocalStore } from "./store/local";
 import { DuckdbStore } from "./store/duckdb";
@@ -29,6 +28,7 @@ import { Toast } from "./view/toast";
 import { Zoo } from "./view/zoo";
 import { MhsPanel } from "./view/mhs/panel";
 import { ReadoutLens } from "./view/readoutLens";
+import { ReductionController, type Transport } from "./view/reduction";
 import { preloadCompiler } from "./view/mhs/compiler";
 import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange } from "./view/theme";
 import { MenuBar, type Menu } from "./view/menubar";
@@ -39,12 +39,6 @@ import { type NativeOpts } from "./core/native";
 import { tween } from "./view/anim";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
-const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducing (§6.4)
-const STEP_MS = 300; // duration of one reduction-step tween
-const STEP_GAP = 130; // pause between reduction steps
-const HEAVY_GAP = 8; // big trees jump-cut each step; pace them fast but still yield to the renderer (≠ 0, which starves rAF)
-const STEP_CAP = 2000; // non-termination guard: stop auto-reducing past this many steps
-const GRAPH_STEP_CAP = 100_000; // graph mode shares (cheap steps) — let fac-scale reductions finish
 const COLLAPSE_MS = 340; // morph from a recognised normal form into its named node
 const ATTACH_MS = 280; // glide two trees together when snapped
 const DELETE_MS = 240; // fade out a right-clicked subtree
@@ -331,7 +325,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const name = promptName();
     if (!name) return;
     const law = register(name, sub);
-    cancelAuto(tree);
+    reduce.cancel(tree);
     tree.animateTo(replaceSubtree(tree.node, id, collapsedNode(law)), COLLAPSE_MS, () => {});
     focus = tree;
     toast.show(`defined ${name}`);
@@ -348,89 +342,39 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const name = promptName();
     if (!name) return;
     const law = register(name, body);
-    cancelAuto(tree);
+    reduce.cancel(tree);
     tree.animateTo(collapsedNode(law), COLLAPSE_MS, () => {});
     focus = tree;
     toast.show(`abstracted → ${name}`);
   }
 
-  // ---- auto-reduce on idle (§6.4): each tree, left untouched for a beat,
-  // plays itself to normal form one tween at a time; touching it cancels. A
-  // per-tree generation token invalidates pending callbacks on cancel. On
-  // reaching normal form, probe it for a discovery (§7.1). ----
-  // `source` is the tree as the player built/edited it (captured on release),
-  // before reduction mutates it — the golf metric + challenge target score the
-  // source, not its normal form.
-  type AutoState = { gen: number; timer: number; steps: number; source?: Node; grapher?: GraphReducer };
-  const auto = new Map<TreeView, AutoState>();
-
-  // Playback transport (§6.4): auto-reduce can be paused/played, or fast-forwarded
-  // at 3× (shorter step tween + gap). Speed is read live, so play↔ff is seamless;
-  // only resuming from pause re-kicks the loop.
-  type Transport = "play" | "pause" | "ff";
-  let transport: Transport = "play"; // trees reduce on their own; auto-pauses (with a toast) if a term won't terminate or blows up
-  const speed = (): number => (transport === "ff" ? 3 : 1);
-  const stepDur = (): number => STEP_MS / speed();
-  const stepGap = (): number => STEP_GAP / speed();
-  // Delay before the next reduction step: big trees jump-cut, so pace them at a
-  // short fixed gap (still yields to the renderer); small trees use the speed gap.
-  const nextGap = (t: TreeView): number => (t.heavy() ? HEAVY_GAP : stepGap());
-
-  function cancelAuto(tree: TreeView): void {
-    const a = auto.get(tree);
-    if (a) {
-      a.gen++;
-      clearTimeout(a.timer);
-    }
-    tree.stopAnimation();
-  }
-
-  function scheduleAuto(tree: TreeView): void {
-    let a = auto.get(tree);
-    if (!a) {
-      a = { gen: 0, timer: 0, steps: 0 };
-      auto.set(tree, a);
-    }
-    a.gen++;
-    a.steps = 0;
-    a.source = tree.node; // score the tree as built, before reduction
-    a.grapher = shareMode ? new GraphReducer(tree.node, fastMode) : undefined; // graph mode: a fresh shared graph
-    const gen = a.gen;
-    a.timer = window.setTimeout(() => stepAuto(tree, gen), AUTO_DELAY);
-  }
-
-  // Auto-pause (with a toast) when a tree won't settle within its step budget,
-  // instead of grinding the reducer (and the frame rate) forever.
-  function autoPause(reason: string): void {
-    setTransport("pause");
-    toast.show(`auto-paused — ${reason}`);
-  }
-
-  // A tree reached normal form: recognise + collapse it, then score it for golf.
-  // Shared by the auto loop and the manual Step button so both record solves.
-  function finishNormalForm(tree: TreeView, a: AutoState): void {
-    settle(tree);
-    void challenges.onNormalForm(a.source ?? tree.node);
-    quest.onNormalForm(a.source ?? tree.node); // guided progression
-  }
-
-  // The auto-state for a tree, created (without a running timer) if missing —
-  // some focused trees (e.g. spawned by the Haskell panel) were never scheduled.
-  function ensureAuto(tree: TreeView): AutoState {
-    let a = auto.get(tree);
-    if (!a) {
-      a = { gen: 0, timer: 0, steps: 0, source: tree.node };
-      auto.set(tree, a);
-    }
-    return a;
-  }
+  // ---- auto-reduce + transport (extracted to view/reduction.ts, ADR 12). The Pixi
+  // side effects (the redex flourish, the transport bar) stay here and are injected. ----
+  const reduce = new ReductionController({
+    getFast: () => fastMode,
+    getShare: () => shareMode,
+    getNative: () => nativeOpts(),
+    focusedLive: () => (focus && trees.includes(focus) ? focus : null),
+    settle: (tree) => settle(tree),
+    onNormalForm: (source) => {
+      void challenges.onNormalForm(source);
+      quest.onNormalForm(source); // guided progression
+    },
+    tickSound: (sym) => sound.tick(sym),
+    flourish: (tree) => reduceFlourish(tree),
+    notify: (msg) => toast.show(msg),
+    onTransportChange: () => {
+      paintRail();
+      paintTransport();
+    },
+  });
 
   // Fluff "marching ants": a gold dashed ring crawls + fades at a tree's root when
   // a reduction fires — skipped on fast-forward (would strobe), big trees, reduced
   // motion. One ring at a time; rapid steps restart it.
   let flourishCancel: (() => void) | null = null;
   function reduceFlourish(tree: TreeView): void {
-    if (!isFluff("redexAnts") || transport === "ff" || prefersReducedMotion() || tree.heavy()) return;
+    if (!isFluff("redexAnts") || reduce.mode === "ff" || prefersReducedMotion() || tree.heavy()) return;
     flourishCancel?.();
     world.addChild(flourish); // bring to front (above the trees added after it)
     const { x, y } = tree.rootWorld;
@@ -454,124 +398,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     );
   }
 
-  function stepAuto(tree: TreeView, gen: number): void {
-    const a = auto.get(tree);
-    if (!a || a.gen !== gen) return;
-    if (transport === "pause") return; // frozen — resume re-kicks from setTransport
-    // Non-termination guard. Graph mode shares, so it does far fewer, far cheaper
-    // steps and can finish reductions the tree reducer can't (fac-scale) — give it
-    // a much higher ceiling so the feasibility win actually lands.
-    if (a.steps >= (shareMode ? GRAPH_STEP_CAP : STEP_CAP)) {
-      // Tree mode gives up early; graph mode shares (it can finish fac-scale work
-      // the tree reducer can't), so point the player there before declaring defeat.
-      autoPause(shareMode ? `no normal form after ${a.steps} steps` : `won't settle after ${a.steps} steps — try Graph reduction (Reduce menu)`);
-      return;
-    }
-
-    // Graph mode: step the shared graph and animate each snapshot. A shared subterm
-    // is one node with several incoming edges, and reducing it once updates it
-    // everywhere — sharing made visible (and `fac`-scale becomes feasible). Toggled
-    // mid-flight → make/clear the grapher to match.
-    if (shareMode) {
-      if (!a.grapher) a.grapher = new GraphReducer(tree.node, fastMode);
-      const g = a.grapher;
-      if (!g.step()) {
-        finishNormalForm(tree, a); // normal form
-        return;
-      }
-      sound.tick(firingRule(tree.node, fastMode)); // a tone per contraction (approx)
-      a.steps = g.steps;
-      reduceFlourish(tree);
-      tree.animateTo(g.snapshot(), stepDur(), () => {
-        const a2 = auto.get(tree);
-        if (!a2 || a2.gen !== gen) return;
-        if (transport === "pause") return;
-        a2.timer = window.setTimeout(() => stepAuto(tree, gen), nextGap(tree));
-      });
-      return;
-    }
-    a.grapher = undefined; // optimize/raw path: no live graph
-
-    // One traversal yields both the rule to sonify and the contractum to animate.
-    const redex = redexAt(tree.node, 0, fastMode, nativeOpts());
-    if (!redex) {
-      finishNormalForm(tree, a); // normal form reached — recognise, collapse, score
-      return;
-    }
-    const next = redex.build(); // build before the side effects (sound/step count)
-    sound.tick(redex.sym); // sonify the rule about to fire
-    a.steps++;
-    reduceFlourish(tree);
-    tree.animateTo(next, stepDur(), () => {
-      const a2 = auto.get(tree);
-      if (!a2 || a2.gen !== gen) return;
-      if (transport === "pause") return; // paused mid-tween — stop scheduling
-      a2.timer = window.setTimeout(() => stepAuto(tree, gen), nextGap(tree));
-    });
-  }
-
-  // Step: pause, then advance the *focused* tree by exactly one reduction (no
-  // reschedule). An action, not a transport mode. No-op if nothing is focused.
-  function stepOnce(): void {
-    setTransport("pause"); // single-stepping implies the auto-run is stopped
-    const tree = focus && trees.includes(focus) ? focus : null;
-    if (!tree) return;
-    const a = ensureAuto(tree);
-    if (shareMode) {
-      if (!a.grapher) a.grapher = new GraphReducer(tree.node, fastMode);
-      if (!a.grapher.step()) {
-        finishNormalForm(tree, a);
-        return;
-      }
-      sound.tick(firingRule(tree.node, fastMode));
-      a.steps = a.grapher.steps;
-      reduceFlourish(tree);
-      tree.animateTo(a.grapher.snapshot(), stepDur(), () => {});
-    } else {
-      a.grapher = undefined;
-      const redex = redexAt(tree.node, 0, fastMode, nativeOpts());
-      if (!redex) {
-        finishNormalForm(tree, a);
-        return;
-      }
-      sound.tick(redex.sym);
-      a.steps++;
-      reduceFlourish(tree);
-      tree.animateTo(redex.build(), stepDur(), () => {});
-    }
-  }
-
-  // Switch playback mode. Pause freezes every tree; resuming re-kicks the ones
-  // that still have a reduction left (settled trees stay put). play↔ff needs no
-  // re-kick — stepDur/stepGap read `transport` live.
-  function setTransport(mode: Transport): void {
-    const wasPaused = transport === "pause";
-    transport = mode;
-    paintRail();
-    paintTransport();
-    if (mode === "pause") {
-      for (const [tree, a] of auto) {
-        clearTimeout(a.timer);
-        tree.stopAnimation();
-      }
-    } else if (wasPaused) {
-      for (const [tree, a] of auto) {
-        if (redexAt(tree.node, 0, fastMode, nativeOpts())) {
-          a.steps = 0; // explicit resume = "keep going" → a fresh budget before auto-pause re-trips
-          a.gen++;
-          const gen = a.gen;
-          a.timer = window.setTimeout(() => stepAuto(tree, gen), 0);
-        }
-      }
-    }
-  }
-  // Cycle Pause → Play → Fast-forward → Pause.
-  const cycleTransport = (): void => setTransport(transport === "pause" ? "play" : transport === "play" ? "ff" : "pause");
-
-  // ---- transport bar (top-right): the live reduction rate + Pause / Step / Play /
-  // Fast-forward as side-by-side glyph buttons. The active mode is boxed in gold;
-  // Step (an action, never "active") advances the focused tree one reduction. ----
-  const totalSteps = (): number => [...auto.values()].reduce((s, a) => s + a.steps, 0);
   const TBTN = 26; // button-cell pitch
   type TKind = "pause" | "step" | "play" | "ff";
   const transportBar = new Container();
@@ -600,15 +426,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     cont.addChild(box, glyph);
     cont.on("pointerdown", (e: FederatedPointerEvent) => {
       e.stopPropagation();
-      if (kind === "step") stepOnce();
-      else setTransport(kind);
+      if (kind === "step") reduce.stepOnce();
+      else reduce.setTransport(kind);
     });
     transportBar.addChild(cont);
     return { kind, box, glyph };
   });
   function paintTransport(): void {
     for (const b of tButtons) {
-      const active = b.kind !== "step" && transport === b.kind;
+      const active = b.kind !== "step" && reduce.mode === b.kind;
       b.box.clear();
       if (active) b.box.roundRect(-11, -11, 22, 22, 5).fill({ color: theme.iota, alpha: 0.18 }).stroke({ width: 1, color: theme.iota });
       drawTGlyph(b.glyph, b.kind, active ? theme.iota : b.kind === "step" ? theme.text : theme.textDim);
@@ -625,13 +451,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   pixi.ticker.add((tk: { deltaMS: number }) => {
     rateAccum += tk.deltaMS;
     if (rateAccum < 300) return;
-    const total = totalSteps();
+    const total = reduce.totalSteps();
     // max(0, …): an explicit resume resets per-tree step counts, so the delta (and
     // the EMA) can dip below zero — never show a negative rate.
     redPerSec = Math.max(0, redPerSec * 0.5 + ((total - lastTotal) / (rateAccum / 1000)) * 0.5);
     lastTotal = total;
     rateAccum = 0;
-    rateText.text = transport === "pause" ? "paused" : `${redPerSec.toFixed(1)} red/s`;
+    rateText.text = reduce.mode === "pause" ? "paused" : `${redPerSec.toFixed(1)} red/s`;
   });
   paintTransport();
   placeTransport();
@@ -786,7 +612,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       return;
     }
     focus = tree;
-    cancelAuto(tree); // touching a tree freezes it (§6.4)
+    reduce.cancel(tree); // touching a tree freezes it (§6.4)
     const w = screenToWorld(e.global.x, e.global.y);
     world.addChild(tree.container); // bring to front
     drag = {
@@ -802,18 +628,18 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     e.stopPropagation();
     const id = tree.pickNode(e.global);
     if (id === null) return;
-    cancelAuto(tree);
+    reduce.cancel(tree);
     const next = removeSubtree(tree.node, id);
     if (next === null) {
       // deleted the root → the whole tree goes
-      auto.delete(tree);
+      reduce.forget(tree);
       trees.splice(trees.indexOf(tree), 1);
       tree.destroy();
       if (focus === tree) focus = null;
     } else {
       focus = tree;
       tree.animateTo(next, DELETE_MS, () => {});
-      scheduleAuto(tree); // re-reduce the edited tree once it's left alone
+      reduce.schedule(tree); // re-reduce the edited tree once it's left alone
     }
   }
 
@@ -851,7 +677,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (snapTarget) {
         commitSnap(tree, snapTarget);
       } else {
-        scheduleAuto(tree); // released untouched → it begins reducing
+        reduce.schedule(tree); // released untouched → it begins reducing
       }
     }
     clearGhost();
@@ -913,8 +739,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       for (const [id, p] of t.nodeWorldPositions()) fromWorld.set(id, p);
     }
     for (const old of [dragged, target]) {
-      cancelAuto(old);
-      auto.delete(old);
+      reduce.cancel(old);
+      reduce.forget(old);
       trees.splice(trees.indexOf(old), 1);
       old.destroy();
     }
@@ -922,7 +748,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     addTree(merged);
     focus = merged;
     merged.animateAttachFrom(fromWorld, ATTACH_MS); // smooth merge into the app tree
-    scheduleAuto(merged); // then it reduces on its own
+    reduce.schedule(merged); // then it reduces on its own
   }
 
   // ---- camera zoom: mouse wheel (desktop) + two-finger pinch (touch) ----
@@ -1025,8 +851,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // Remove every tree from the canvas (discoveries and the hotbar stay).
   function clearCanvas(): void {
     for (const t of trees) {
-      cancelAuto(t);
-      auto.delete(t);
+      reduce.cancel(t);
+      reduce.forget(t);
       t.destroy();
     }
     trees.length = 0;
@@ -1077,10 +903,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   onOptChange((key) => {
     if (key === "rules") {
       fastMode = isOpt("rules");
-      for (const a of auto.values()) a.grapher = undefined; // graphers bake `fast` at construction
+      reduce.invalidateGraphers(); // graphers bake `fast` at construction
     } else if (key === "graph") {
       shareMode = isOpt("graph");
-      if (focus) scheduleAuto(focus);
+      if (focus) reduce.schedule(focus);
     }
     paintRail();
   });
@@ -1117,10 +943,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "action", label: "Fluff…", run: () => fluff.open() },
     ] },
     { title: "Reduce", items: [
-      { kind: "radio", label: "Pause", on: () => transport === "pause", run: () => setTransport("pause") },
-      { kind: "radio", label: "Play", on: () => transport === "play", run: () => setTransport("play") },
-      { kind: "radio", label: "Fast-forward", on: () => transport === "ff", run: () => setTransport("ff") },
-      { kind: "action", label: "Step", run: () => stepOnce() },
+      { kind: "radio", label: "Pause", on: () => reduce.mode === "pause", run: () => reduce.setTransport("pause") },
+      { kind: "radio", label: "Play", on: () => reduce.mode === "play", run: () => reduce.setTransport("play") },
+      { kind: "radio", label: "Fast-forward", on: () => reduce.mode === "ff", run: () => reduce.setTransport("ff") },
+      { kind: "action", label: "Step", run: () => reduce.stepOnce() },
       { kind: "sep" },
       { kind: "action", label: "Optimizations…", run: () => optimize.open() },
       { kind: "sep" },
@@ -1149,7 +975,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     type: readout.isTypeOn || undefined,
     expand: expandAll || undefined,
     page: hotbar.page,
-    transport,
+    transport: reduce.mode,
   });
 
   /** Restore a tree's accompanying display modes (the inverse of currentModes). */
@@ -1159,7 +985,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     setOpt("graph", !!m.graph, false);
     readout.applyModes(m);
     if (m.page) hotbar.selectPage(m.page);
-    if (m.transport) setTransport(m.transport);
+    if (m.transport) reduce.setTransport(m.transport);
     readout.invalidate(); // force a read-out recompute
     paintRail();
     for (const t of trees) t.refresh();
@@ -1199,7 +1025,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (decoded) {
       applyModes(decoded.modes);
       const t = spawnTree(decoded.tree, window.innerWidth / 2, window.innerHeight / 2);
-      scheduleAuto(t);
+      reduce.schedule(t);
       hint.visible = false;
       toast.show("restored from link");
     }
@@ -1266,9 +1092,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       discovered: () => [...discovered],
       mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : "topdown"),
       toggleLayout: () => toggleLayout(),
-      transport: { mode: () => transport, set: (m: string) => setTransport(m as Transport), cycle: () => cycleTransport(), step: () => stepOnce() },
-      autoSteps: () => [...auto.values()].reduce((s, a) => s + a.steps, 0),
-      run: () => { if (focus) scheduleAuto(focus); },
+      transport: { mode: () => reduce.mode, set: (m: string) => reduce.setTransport(m as Transport), cycle: () => reduce.cycleTransport(), step: () => reduce.stepOnce() },
+      autoSteps: () => reduce.totalSteps(),
+      run: () => { if (focus) reduce.schedule(focus); },
       fast: { on: () => isOpt("rules"), set: (b: boolean) => setOpt("rules", b) },
       graph: { on: () => isOpt("graph"), set: (b: boolean) => setOpt("graph", b), eval: (s: string) => sexp(evalShared(fromEgg(s), 500000, fastMode).term) },
       expr: () => exprText.text,
