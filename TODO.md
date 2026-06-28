@@ -33,10 +33,18 @@ Work top-down. **Working rhythm for every task:**
 > only 2-3× — codec-bound; kernels/graph already cover heavy paths). Codex review: no
 > correctness bugs.
 >
+> **Turbo (wasm) — DONE (`wasm-turbo` branch, ADR 16):** the wasm reducer is now WIRED as a
+> "Turbo (wasm)" optimize toggle — a resident `Session` (term lives in linear memory, thousands
+> of contractions/frame, snapshot for display; compaction-safe def prefix) + frame-budget
+> playback (capped steps/frame, paced reflows, render-skip for ballooning intermediates).
+> Raw-only, gated to rules/native/graph off. Fixed a pre-existing freeze (the value/recognize/
+> quest probes explode on big Church terms) with a `normalize` `maxNodes` guard + probe gates.
+> Big church-mul programs reduce in ~1s vs DEFAULT minutes. Cross-check 213/0 + invariance 3/0;
+> answer-key 107/107, native grid 250/250. Deferred: a wasm *graph* reducer.
+>
 > **Open follow-ups:** migrate Quest/Zoo/Golf onto the Modal base; the CanvasController
 > extraction (deferred — split a `TreeCanvas` owner out first, per Codex; it's the riskiest,
-> most stateful piece); wire the wasm reducer only if a visibly-slow (>100ms) raw-reduction
-> path appears.
+> most stateful piece); a wasm graph reducer if persistent turbo proves insufficient.
 
 ## 8. Quest UX — log + iota preview
 
