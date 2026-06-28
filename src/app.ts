@@ -356,6 +356,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     getFast: () => fastMode,
     getShare: () => shareMode,
     getNative: () => nativeOpts(),
+    getTurbo: () => isOpt("wasm"),
+    makeSession: (term) => (wasmReady() ? new WasmSession(term) : null),
     focusedLive: () => (focus && trees.includes(focus) ? focus : null),
     settle: (tree) => settle(tree),
     onNormalForm: (source) => {
@@ -847,6 +849,12 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     } else if (key === "graph") {
       shareMode = isOpt("graph");
       if (focus) reduce.schedule(focus);
+    } else if (key === "wasm") {
+      // Turbo toggled: preload the wasm (so the next reduction can use it), drop any stale
+      // sessions, and re-decide turbo-vs-TS for the focused tree.
+      if (isOpt("wasm")) void loadWasmReducer().then(() => focus && reduce.schedule(focus));
+      reduce.invalidateSessions();
+      if (focus) reduce.schedule(focus);
     }
     paintRail();
   });
@@ -1015,6 +1023,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // used. ensureRefolder swallows a load failure (the behavioural-only re-folder
   // still works), so this never blocks startup.
   await readout.ensureRefolder();
+  if (isOpt("wasm")) void loadWasmReducer(); // persisted Turbo → warm the wasm so the first reduction uses it
   onStep("lenses"); // splash step 3/4
 
   // Warm the MicroHs live-compile blob + cache (the 3 MB compiler), so the Haskell

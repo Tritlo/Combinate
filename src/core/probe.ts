@@ -2,8 +2,19 @@ import { type Node, app, freeVar } from "./term";
 import { normalize } from "./reduce";
 import { CATALOG, type Law } from "./catalog";
 
+// Catalog combinators are tiny; a term you build to realise one is small. Past this many
+// nodes, don't even probe (each probe REDUCES the term over the whole catalog — explosive on
+// e.g. a big Church numeral) — a large term isn't a named bird.
+const RECOGNIZE_MAX_NODES = 256;
+function exceedsNodes(n: Node, max: number): boolean {
+  let count = 0;
+  const go = (m: Node): boolean => ++count > max || (m.kind === "app" && (go(m.fn) || go(m.arg)));
+  return go(n);
+}
+
 /** The first catalog law a term behaves as, or null if it realises none. */
 export function recognize(tree: Node, cap = 10_000): Law | null {
+  if (exceedsNodes(tree, RECOGNIZE_MAX_NODES)) return null; // too big to be a named combinator
   for (const law of CATALOG) {
     if (law.userDefined) continue; // authored, not discovered — never auto-matched
     if (probe(tree, law, cap)) return law;
@@ -55,7 +66,8 @@ export function probe(tree: Node, law: Law, cap = 2000): boolean {
   // diverges — Y has no normal form).
   const args = law.args ? law.args(vars) : vars;
   const applied = args.reduce((acc, v) => app(acc, v), tree);
-  const nf = normalize(applied, cap, true); // fast mode: a named combinator fires its rule instead of grinding its SKI tree (same NF, but reading `((<) K)` is instant, not ~400ms)
+  const nf = normalize(applied, cap, true, undefined, 20_000); // fast mode + a size guard so a probe that explodes (not a value) bails instead of freezing
+  // fast mode: a named combinator fires its rule instead of grinding its SKI tree (same NF, but reading `((<) K)` is instant, not ~400ms)
   if (!nf.done) return false;
   return structKey(nf.term) === structKey(law.reference(vars));
 }

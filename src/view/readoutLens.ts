@@ -33,6 +33,17 @@ export interface ReadoutDeps {
 // The hotbar page → the data reading it forces.
 const READ_AS: Record<string, Ty> = { Arithmetic: "Int", Booleans: "Bool", Lists: "List", Char: "Char" };
 
+// Above this node count, skip the (reducing) value/type/re-fold probes in the read-out —
+// they're for recognising small data values, and running them per frame on a big term
+// freezes playback. The raw s-expression is shown instead.
+const READOUT_PROBE_MAX = 400;
+/** True if `n` has more than `max` nodes (early-exit DFS — cheap, no allocation). */
+function exceeds(n: Node, max: number): boolean {
+  let count = 0;
+  const go = (m: Node): boolean => ++count > max || (m.kind === "app" && (go(m.fn) || go(m.arg)));
+  return go(n);
+}
+
 export class ReadoutLens {
   // re-folding lens (lazy WASM adapter; behavioural pre-pass works without it)
   private refoldOn = false;
@@ -76,11 +87,15 @@ export class ReadoutLens {
     this.lastMode = mode;
     let txt = "";
     if (node) {
-      const v = read(node, mode ?? null);
+      // The value probe (`read`) and the re-fold lens reduce the term — too slow on a big
+      // term, and run on EVERY identity change (so they'd freeze playback of a big tree,
+      // turbo or not). Past a node budget, skip them and show the raw s-expression.
+      const big = exceeds(node, READOUT_PROBE_MAX);
+      const v = big ? null : read(node, mode ?? null);
       const value = v ? render(v) : null;
-      const folded = !value && this.refoldOn && this.refolder ? this.refolder(node) : null;
+      const folded = !value && !big && this.refoldOn && this.refolder ? this.refolder(node) : null;
       txt = value ?? (folded ? sexp(folded) : this.exprOf(node));
-      if (this.typeOn) txt += `  ::  ${inferType(node) ?? "no simple type"}`;
+      if (this.typeOn) txt += `  ::  ${big ? "(tree too large to type)" : (inferType(node) ?? "no simple type")}`;
     }
     if (txt !== this.lastExpr) {
       this.lastExpr = txt;
