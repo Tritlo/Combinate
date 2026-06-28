@@ -215,7 +215,45 @@ sessionInvariant("(((I B) x) y) z [def-after-compact]", app(app(app(app(named("I
 sessionInvariant("church(60) I x", app(app(church(60), named("I")), freeVar("x")));
 sessionInvariant("(*) 3 3", app(app(named("(*)"), nat(3)), nat(3)));
 
+// ---- the GRAPH session's NUMBER KERNELS (encode with opts.numbers) must match TS
+// `normalize(_, false, {numbers:true})` — clean canonical Scott arithmetic, no blow-up. ----
+let kPass = 0;
+let kFail = 0;
+function graphKernelNF(t: Node, cap: number): { term: Node; done: boolean } {
+  const { data, symName, freeName } = encode(t, { numbers: true });
+  const ptr = malloc(data.length * 4, 4) >>> 0;
+  new Int32Array(wasm.memory.buffer, ptr, data.length).set(data);
+  const h = S.graphsession_new(ptr, data.length);
+  let total = 0;
+  while (total < cap) {
+    const did = S.graphsession_step_budget(h, 2000);
+    total += did;
+    if (S.graphsession_is_done(h) || did === 0) break;
+  }
+  const ret = S.graphsession_snapshot(h);
+  const out = new Int32Array(wasm.memory.buffer, ret[0] >>> 0, ret[1] >>> 0).slice();
+  free(ret[0] >>> 0, (ret[1] >>> 0) * 4, 4);
+  const done = !!S.graphsession_is_done(h);
+  S.__wbg_graphsession_free(h, 0);
+  return { term: decode(out, symName, freeName).term, done };
+}
+function kcheck(label: string, t: Node): void {
+  const expect = struct(normalize(t, 5_000_000, false, { numbers: true }).term);
+  const g = graphKernelNF(t, 2_000_000);
+  if (g.done && struct(g.term) === expect) kPass++;
+  else {
+    kFail++;
+    if (fails.length < 16) fails.push(`kernel ${label}: TS=${expect.slice(0, 30)} GRAPH+K(${g.done})=${struct(g.term).slice(0, 30)}`);
+  }
+}
+for (const op of ["(+)", "(-)", "(*)", "(==)", "(/=)", "(<)", "(<=)", "(>)", "(>=)", "compare"])
+  for (let a = 0; a <= 4; a++) for (let b = 0; b <= 4; b++) kcheck(`${op} ${a} ${b}`, app(app(named(op), nat(a)), nat(b)));
+kcheck("(*) ((+) 2 3) 4", app(app(named("(*)"), app(app(named("(+)"), nat(2)), nat(3))), nat(4)));
+kcheck("(+) ((*) 2 3) ((-) 9 2)", app(app(named("(+)"), app(app(named("(*)"), nat(2)), nat(3))), app(app(named("(-)"), nat(9)), nat(2))));
+kcheck("(+) 2 x [lazy n]", app(app(named("(+)"), nat(2)), freeVar("x")));
+
 console.log(`wasm-reduce cross-check: ${pass} pass, ${fail} fail, ${skip} skipped(divergent)`);
 console.log(`session invariance: ${sPass} pass, ${sFail} fail`);
+console.log(`graph number kernels: ${kPass} pass, ${kFail} fail`);
 for (const f of fails) console.log(`  FAIL ${f}`);
-process.exit(fail === 0 && sFail === 0 ? 0 : 1);
+process.exit(fail === 0 && sFail === 0 && kFail === 0 ? 0 : 1);

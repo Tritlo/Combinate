@@ -36,6 +36,18 @@ struct Node {
 struct Sym {
     arity: i32,
     def_root: i32,
+    kernel: i32, // number-kernel kind (1=(+) … 10=compare), or 0 if not a kernel op
+}
+
+// Constructor symIds + the native-kernel gate, parsed from the wire header. Lets the graph
+// reducer fire native.ts's number kernels (clean Scott arithmetic) directly in wasm.
+#[derive(Clone, Copy)]
+struct Kernels {
+    succ: i32,
+    lt: i32,
+    eq: i32,
+    gt: i32,
+    numbers: bool,
 }
 
 // Persistent reduction bump-allocates and never frees, so a divergent / explosively growing
@@ -48,6 +60,7 @@ struct Reducer {
     sym_s: i32,
     sym_k: i32,
     sym_i: i32,
+    kern: Kernels,
     /// Length of the immutable def-tree prefix `nodes[0..def_len)` — `compact` preserves it
     /// so every `Sym::def_root` stays valid for the life of the reduction.
     def_len: usize,
@@ -63,8 +76,9 @@ impl Reducer {
         let n = data[4] as usize;
         let m = data[5] as usize;
         let def_len = data[6] as usize;
+        let kern = Kernels { succ: data[7], lt: data[8], eq: data[9], gt: data[10], numbers: data[11] != 0 };
         let mut nodes = Vec::with_capacity(n + extra_capacity);
-        let base = 7;
+        let base = 12;
         for j in 0..n {
             let o = base + j * 3;
             nodes.push(Node { tag: data[o], a: data[o + 1], b: data[o + 2] });
@@ -72,10 +86,10 @@ impl Reducer {
         let mut syms = Vec::with_capacity(m);
         let sbase = base + n * 3;
         for j in 0..m {
-            let o = sbase + j * 2;
-            syms.push(Sym { arity: data[o], def_root: data[o + 1] });
+            let o = sbase + j * 3;
+            syms.push(Sym { arity: data[o], def_root: data[o + 1], kernel: data[o + 2] });
         }
-        (Reducer { nodes, syms, sym_s, sym_k, sym_i, def_len }, root)
+        (Reducer { nodes, syms, sym_s, sym_k, sym_i, kern, def_len }, root)
     }
 
     /// Reclaim garbage: rebuild the working region `nodes[def_len..)` from the live term,
@@ -364,13 +378,14 @@ struct Graph {
     sym_s: i32,
     sym_k: i32,
     sym_i: i32,
+    kern: Kernels,
     def_len: usize,
 }
 
 impl Graph {
     fn from_wire(data: &[i32]) -> (Graph, i32) {
         let (r, root) = Reducer::from_wire(data, 1 << 16);
-        (Graph { nodes: r.nodes, syms: r.syms, sym_s: r.sym_s, sym_k: r.sym_k, sym_i: r.sym_i, def_len: r.def_len }, root)
+        (Graph { nodes: r.nodes, syms: r.syms, sym_s: r.sym_s, sym_k: r.sym_k, sym_i: r.sym_i, kern: r.kern, def_len: r.def_len }, root)
     }
 
     #[inline]
@@ -409,6 +424,149 @@ impl Graph {
             self.app(f, x)
         } else {
             self.push(n.tag, n.a, n.b)
+        }
+    }
+
+    // ---- number kernels (port of native.ts's numberOp, with its exact forcing) ----
+
+    /// Reduce a cell to normal form in place (bounded) — forces a kernel operand to a value.
+    fn force_nf(&mut self, idx: i32, budget: &mut u32) -> bool {
+        loop {
+            if *budget == 0 {
+                return false;
+            }
+            if !self.step(idx) {
+                return true;
+            }
+            *budget -= 1;
+        }
+    }
+
+    /// Read a (forced) cell as a Scott numeral `Succ^k K`; None if it isn't one.
+    fn match_numeral(&self, idx: i32) -> Option<i64> {
+        let mut cur = self.force(idx);
+        let mut k: i64 = 0;
+        loop {
+            let n = self.nodes[cur as usize];
+            if n.tag == TAG_COMB && n.a == self.sym_k {
+                return Some(k); // Z = K — end of the count
+            }
+            if n.tag == TAG_APP {
+                let h = self.force(n.a);
+                if self.nodes[h as usize].tag == TAG_COMB && self.nodes[h as usize].a == self.kern.succ {
+                    k += 1;
+                    if k > 4_096 {
+                        return None; // cap (matches native.ts MAX_NAT) — fall back to raw
+                    }
+                    cur = self.force(n.b);
+                    continue;
+                }
+            }
+            return None;
+        }
+    }
+
+    fn k_cell(&mut self) -> i32 {
+        self.push(TAG_COMB, self.sym_k, 0)
+    }
+    /// `Succ^k` applied to `tail` (shared) — `(+)` keeps its right operand a thunk.
+    fn nat_chain(&mut self, k: i64, tail: i32) -> i32 {
+        let mut r = tail;
+        for _ in 0..k {
+            let s = self.push(TAG_COMB, self.kern.succ, 0);
+            r = self.app(s, r);
+        }
+        r
+    }
+    fn bool_cell(&mut self, b: bool) -> i32 {
+        if b {
+            let k = self.push(TAG_COMB, self.sym_k, 0); // True = K I
+            let i = self.push(TAG_COMB, self.sym_i, 0);
+            self.app(k, i)
+        } else {
+            self.push(TAG_COMB, self.sym_k, 0) // False = K
+        }
+    }
+    fn ord_cell(&mut self, c: i32) -> i32 {
+        let sym = if c < 0 {
+            self.kern.lt
+        } else if c > 0 {
+            self.kern.gt
+        } else {
+            self.kern.eq
+        };
+        self.push(TAG_COMB, sym, 0)
+    }
+
+    /// Fire a number kernel on operands `a` (left), `b` (right). Forces only what native.ts
+    /// forces; None → not a value yet (caller falls back to def-unfold / keeps reducing).
+    fn fire_number_kernel(&mut self, kind: i32, a: i32, b: i32) -> Option<i32> {
+        let mut bud: u32 = 2_000_000;
+        match kind {
+            1 => {
+                // (+) a n = Succ^a n — force only a; n stays a shared thunk
+                if !self.force_nf(a, &mut bud) {
+                    return None;
+                }
+                let av = self.match_numeral(a)?;
+                Some(self.nat_chain(av, b))
+            }
+            3 => {
+                // (*) a n: a=0 → Z (n unforced); else a·n
+                if !self.force_nf(a, &mut bud) {
+                    return None;
+                }
+                let av = self.match_numeral(a)?;
+                if av == 0 {
+                    return Some(self.k_cell());
+                }
+                if !self.force_nf(b, &mut bud) {
+                    return None;
+                }
+                let bv = self.match_numeral(b)?;
+                if av * bv > 4_096 {
+                    return None; // cap → fall back to raw graph reduction
+                }
+                let k = self.k_cell();
+                Some(self.nat_chain(av * bv, k))
+            }
+            2 => {
+                // (-) m n: n=0 → m (unforced); else max(0, m−n)
+                if !self.force_nf(b, &mut bud) {
+                    return None;
+                }
+                let bv = self.match_numeral(b)?;
+                if bv == 0 {
+                    return Some(a);
+                }
+                if !self.force_nf(a, &mut bud) {
+                    return None;
+                }
+                let av = self.match_numeral(a)?;
+                let k = self.k_cell();
+                Some(self.nat_chain((av - bv).max(0), k))
+            }
+            4..=10 => {
+                // comparisons: force both
+                if !self.force_nf(a, &mut bud) {
+                    return None;
+                }
+                let av = self.match_numeral(a)?;
+                if !self.force_nf(b, &mut bud) {
+                    return None;
+                }
+                let bv = self.match_numeral(b)?;
+                Some(match kind {
+                    4 => self.bool_cell(av == bv),
+                    5 => self.bool_cell(av != bv),
+                    6 => self.bool_cell(av < bv),
+                    7 => self.bool_cell(av <= bv),
+                    8 => self.bool_cell(av > bv),
+                    9 => self.bool_cell(av >= bv),
+                    _ => self.ord_cell(if av == bv { 0 } else if av < bv { -1 } else { 1 }),
+                })
+            }
+            _ => None,
         }
     }
 
@@ -474,6 +632,18 @@ impl Graph {
             if m < arity {
                 return false;
             } // partial named combinator → WHNF
+            // Number kernel: a saturated native op, when its operands are values, computes
+            // the canonical Scott result directly (clean Succ^k K — no raw blow-up). On a
+            // miss (operand not yet a value) fall through to def-unfold / keep reducing.
+            let kind = self.syms[sym as usize].kernel;
+            if kind > 0 && self.kern.numbers && m >= 2 {
+                let a = self.arg_of(spine[m - 1]); // left operand
+                let b = self.arg_of(spine[m - 2]); // right operand
+                if let Some(r) = self.fire_number_kernel(kind, a, b) {
+                    self.set_ind(spine[m - 2], r); // the saturated (op a b) redex
+                    return true;
+                }
+            }
             let def_root = self.syms[sym as usize].def_root;
             if def_root >= 0 {
                 let g = self.clone_def(def_root); // unfold its SKI def (fresh copy)
