@@ -137,7 +137,10 @@ export class TreeView {
   private readonly objs = new Map<NodeId, NodeVis>();
   // Parent→(left, right) child ids, cached from the display topology so drawEdges
   // (run every tween frame) reads live positions without re-walking the tree.
-  private edgeList: Array<{ p: NodeId; l: NodeId; r: NodeId }> = [];
+  // Parent→child edges with the child id (vine bow seed) and the resolved NodeVis of
+  // each endpoint cached at index time, so the per-frame edge draw is pure array
+  // iteration — no `objs` Map lookups (4 per edge per frame on the animation hot path).
+  private edgeList: Array<{ l: NodeId; r: NodeId; pv: NodeVis; lv: NodeVis; rv: NodeVis }> = [];
 
   private anims: Anim[] = [];
   private elapsed = 0;
@@ -510,7 +513,12 @@ export class TreeView {
     const walk = (n: Node): void => {
       if (n.kind !== "app" || seen.has(n.id)) return;
       seen.add(n.id);
-      this.edgeList.push({ p: n.id, l: n.fn.id, r: n.arg.id });
+      // All endpoints are in `objs` by now (rebuild/animateTo populate it before
+      // indexing); skip the rare edge whose vis is somehow missing.
+      const pv = this.objs.get(n.id);
+      const lv = this.objs.get(n.fn.id);
+      const rv = this.objs.get(n.arg.id);
+      if (pv && lv && rv) this.edgeList.push({ l: n.fn.id, r: n.arg.id, pv, lv, rv });
       walk(n.fn);
       walk(n.arg);
     };
@@ -531,18 +539,18 @@ export class TreeView {
     const v = this.viewRect();
     const dash = this.objs.size <= HEAVY; // big trees draw solid — dashing multiplies geometry every frame (same threshold as heavy())
     for (const e of this.edgeList) {
-      const p = this.objs.get(e.p)?.particle;
-      const rp = this.objs.get(e.r)?.particle;
-      if (p && rp && (!v || overlaps(p, rp, v))) {
+      const p = e.pv.particle;
+      const rp = e.rv.particle;
+      if (!v || overlaps(p, rp, v)) {
         if (dash) dashedSegment(this.edges, p.x, p.y, rp.x, rp.y); // argument edge: dashed
         else this.edges.moveTo(p.x, p.y).lineTo(rp.x, rp.y);
       }
     }
     this.edges.stroke({ width: 2.5, color: theme.argEdge });
     for (const e of this.edgeList) {
-      const p = this.objs.get(e.p)?.particle;
-      const lp = this.objs.get(e.l)?.particle;
-      if (p && lp && (!v || overlaps(p, lp, v))) this.edges.moveTo(p.x, p.y).lineTo(lp.x, lp.y);
+      const p = e.pv.particle;
+      const lp = e.lv.particle;
+      if (!v || overlaps(p, lp, v)) this.edges.moveTo(p.x, p.y).lineTo(lp.x, lp.y);
     }
     this.edges.stroke({ width: 3, color: theme.fnEdge });
     this.placeRootMark();
@@ -560,15 +568,13 @@ export class TreeView {
       if (vis.kind === "app" && id !== rootId) vis.particle.alpha = 0; // hide joints
     }
     for (const e of this.edgeList) {
-      const p = this.objs.get(e.p)?.particle;
-      const rp = this.objs.get(e.r);
-      if (p && rp && (!v || overlaps(p, rp.particle, v))) this.vineSeg(p, rp, e.r);
+      const p = e.pv.particle;
+      if (!v || overlaps(p, e.rv.particle, v)) this.vineSeg(p, e.rv, e.r);
     }
     this.edges.stroke({ width: 1.8, color: brown }); // argument branch: thinner
     for (const e of this.edgeList) {
-      const p = this.objs.get(e.p)?.particle;
-      const lp = this.objs.get(e.l);
-      if (p && lp && (!v || overlaps(p, lp.particle, v))) this.vineSeg(p, lp, e.l);
+      const p = e.pv.particle;
+      if (!v || overlaps(p, e.lv.particle, v)) this.vineSeg(p, e.lv, e.l);
     }
     this.edges.stroke({ width: 3.4, color: brown }); // function branch: thicker
     this.placeRootMark();
