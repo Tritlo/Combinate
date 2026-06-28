@@ -23,7 +23,10 @@ const GRAPH_STEP_CAP = 100_000; // graph mode shares (cheap steps) — let fac-s
 // ---- Turbo (wasm) playback: run many resident contractions per visible frame, so a big
 // raw tree reduces fast even when the renderer can't keep up with one tween per step. ----
 const TURBO_BUDGET_MS = 12; // wall-clock spent stepping in wasm before each reflow (yields the rest of the frame to render)
-const TURBO_CHUNK = 4000; // contractions per wasm call (we can't read the clock mid-call)
+const TURBO_CHUNK = 200; // contractions per wasm call — small enough that TURBO_MAX_STEPS_PER_FRAME actually paces the reflows
+const TURBO_MAX_STEPS_PER_FRAME = 400; // cap steps/frame so a fast reduction shows as a few dramatic reflows, not one jump
+const TURBO_GAP = 36; // ms between reflows — paced so the churn is *perceptible* (vs ~8ms = looks instant) yet far faster than one tween/step
+const TURBO_RENDER_SKIP_NODES = 12_000; // past this working size, don't reflow the (huge) intermediate every frame — keep reducing it undrawn
 const TURBO_CAP = 20_000_000; // non-termination guard (raw needs far more steps than STEP_CAP)
 const TURBO_EXPLODE_NODES = 2_000_000; // a raw term blowing up (e.g. Scott arithmetic) — pause instead of choking
 const FINISH_PROBE_MAX = 150; // skip the catalog/quest/golf probes on a normal form (or source) bigger than this — they'd reduce it (too slow), and a big result isn't a bird/puzzle solution
@@ -142,9 +145,11 @@ export class ReductionController {
       this.stepAuto(tree, gen); // session gone — fall back to the TS path
       return;
     }
-    // Run contractions resident until the frame budget is spent (or NF / explosion).
+    // Run contractions resident until the frame budget is spent — but cap the steps per
+    // frame so a fast reduction is shown as a few dramatic reflows, not one instant jump.
     const start = performance.now();
-    while (performance.now() - start < TURBO_BUDGET_MS) {
+    const startSteps = s.totalSteps;
+    while (performance.now() - start < TURBO_BUDGET_MS && s.totalSteps - startSteps < TURBO_MAX_STEPS_PER_FRAME) {
       const n = s.stepBudget(TURBO_CHUNK);
       if (s.isDone || n === 0) break;
       if (s.nodeCount > TURBO_EXPLODE_NODES) {
@@ -157,8 +162,20 @@ export class ReductionController {
       this.autoPause(`won't settle after ${a.steps} steps`);
       return;
     }
-    const snap = s.snapshot();
     const done = s.isDone;
+    // Reflow only when the current term is renderable (or finished). A ballooning
+    // intermediate (e.g. Scott arithmetic) is too big to draw every frame — keep reducing
+    // it resident, undrawn, and reflow once it resolves or reaches its normal form.
+    const reschedule = (): void => {
+      const a2 = this.auto.get(tree);
+      if (!a2 || a2.gen !== gen || this.transport === "pause") return;
+      a2.timer = window.setTimeout(() => this.turboTick(tree, gen), TURBO_GAP);
+    };
+    if (!done && s.nodeCount > TURBO_RENDER_SKIP_NODES) {
+      reschedule(); // big intermediate — skip the (expensive) reflow, keep churning
+      return;
+    }
+    const snap = s.snapshot();
     this.deps.flourish(tree);
     tree.animateTo(snap, this.stepDur(), () => {
       const a2 = this.auto.get(tree);
@@ -169,7 +186,7 @@ export class ReductionController {
         this.freeSession(a2);
         return;
       }
-      a2.timer = window.setTimeout(() => this.turboTick(tree, gen), HEAVY_GAP);
+      a2.timer = window.setTimeout(() => this.turboTick(tree, gen), TURBO_GAP);
     });
   }
 
