@@ -107,25 +107,30 @@ export function encode(term: Node): Encoded {
   };
 
   const defRoot = new Array<number>(symName.length).fill(-1);
-  // emit def trees in symId order so symTable can reference their roots
+  // emit def trees FIRST (in symId order, so the sym table can reference their roots) —
+  // they form an immutable prefix [0, defLen) that a resident session never compacts, so
+  // def_root indices stay valid for the life of the reduction. The term follows.
   for (let id = 0; id < symName.length; id++) {
     const def = defTree.get(symName[id]) ?? null;
     if (def) defRoot[id] = emit(def);
   }
+  const defLen = nodes.length / 3; // boundary: nodes [0, defLen) are the def prefix
   const root = emit(term);
 
   // ---- assemble: header + nodes + sym table ----
+  const HEADER = 7;
   const nodeCount = nodes.length / 3;
   const symCount = symName.length;
-  const out = new Int32Array(6 + nodes.length + symCount * 2);
+  const out = new Int32Array(HEADER + nodes.length + symCount * 2);
   out[0] = root;
   out[1] = symId.get("S")!;
   out[2] = symId.get("K")!;
   out[3] = symId.get("I")!;
   out[4] = nodeCount;
   out[5] = symCount;
-  out.set(nodes, 6);
-  const sbase = 6 + nodes.length;
+  out[6] = defLen;
+  out.set(nodes, HEADER);
+  const sbase = HEADER + nodes.length;
   for (let id = 0; id < symCount; id++) {
     const law = LAW.get(symName[id]);
     out[sbase + id * 2] = law?.arity ?? 1;
