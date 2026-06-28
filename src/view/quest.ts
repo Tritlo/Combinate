@@ -7,7 +7,7 @@
  */
 import { currentMode, onThemeChange, type Mode } from "./theme";
 import { vendorUrl } from "../vendorUrl";
-import { CHAPTERS, QuestProgress, type QuestStage, type QuestLocation } from "../core/quest";
+import { CHAPTERS, QUEST, locate, QuestProgress, type QuestStage, type QuestLocation } from "../core/quest";
 import { type Node } from "../core/term";
 
 const PALETTE: Record<Mode, Record<string, string>> = {
@@ -46,10 +46,19 @@ function injectStyles(): void {
   border: 1px solid var(--qs-ink); padding: 3px 12px; cursor: pointer; }
 .qs-hinttext { margin-top: 8px; padding: 8px 10px; border-left: 2px solid var(--qs-gold);
   background: color-mix(in srgb, var(--qs-gold) 10%, transparent); font-size: 13px; }
-.qs-foot { display: flex; justify-content: flex-end; align-items: center; padding: 0 20px 16px; }
+.qs-foot { display: flex; justify-content: space-between; align-items: center; padding: 0 20px 16px; }
+.qs-reset { font-family: ${MONO}; font-size: 12px; color: var(--qs-ink); background: none; border: 1px solid color-mix(in srgb, var(--qs-ink) 45%, transparent);
+  padding: 4px 12px; cursor: pointer; opacity: 0.7; }
+.qs-reset:hover { opacity: 1; }
 .qs-done { font-family: ${MONO}; font-size: 13px; font-weight: 600; color: var(--qs-paper); background: var(--qs-ink);
   border: 1px solid var(--qs-ink); padding: 4px 16px; cursor: pointer; }
 .qs-finale { font-size: 16px; }
+.qs-log { margin-top: 16px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--qs-ink) 25%, transparent); }
+.qs-logh { font-size: 11px; letter-spacing: 0.06em; opacity: 0.5; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
+.qs-logch { font-size: 11px; opacity: 0.45; margin: 8px 0 2px; }
+.qs-logrow { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; font-size: 12.5px; }
+.qs-logname { flex: 1; opacity: 0.8; }
+.qs-logunlock { font-size: 11px; color: var(--qs-gold); white-space: nowrap; }
 `;
   const style = document.createElement("style");
   style.textContent = css;
@@ -96,11 +105,28 @@ export class QuestPanel {
 
     const foot = document.createElement("div");
     foot.className = "qs-foot";
+    const reset = document.createElement("button");
+    reset.className = "qs-reset";
+    reset.textContent = "Reset progress";
+    let confirming = false;
+    reset.addEventListener("pointerdown", () => {
+      if (!confirming) {
+        confirming = true;
+        reset.textContent = "Reset — sure?";
+        return;
+      }
+      this.progress.reset();
+      this.hintShown = false;
+      for (const cb of this.advanceListeners) cb(); // refresh the tracker + the in-HUD hint
+      this.render();
+      confirming = false;
+      reset.textContent = "Reset progress";
+    });
     const done = document.createElement("button");
     done.className = "qs-done";
     done.textContent = "Done";
     done.addEventListener("pointerdown", () => this.close());
-    foot.append(done);
+    foot.append(reset, done);
 
     card.append(title, this.body, foot);
     this.root.append(card);
@@ -137,6 +163,7 @@ export class QuestPanel {
   open(): void {
     this.render();
     this.root.style.display = "flex";
+    this.body.scrollTop = 0; // show the current (pinned) quest at the top, not the log below
   }
   close(): void {
     this.root.style.display = "none";
@@ -222,6 +249,43 @@ export class QuestPanel {
       this.body.append(blurb);
     }
     this.body.append(intro, task, hintWrap);
+    this.appendLog();
+  }
+
+  /** The quest log: the stages already solved, most-recent first, grouped by chapter. */
+  private appendLog(): void {
+    const solved = this.progress.stage;
+    if (solved <= 0) return;
+    const log = document.createElement("div");
+    log.className = "qs-log";
+    log.append(Object.assign(document.createElement("div"), { className: "qs-logh", textContent: `Quest log — ${solved} solved` }));
+    let lastChapter = "";
+    for (let i = solved - 1; i >= 0; i--) {
+      const stage = QUEST[i];
+      const loc = locate(i);
+      const chapter = loc?.chapter.name ?? "";
+      if (chapter !== lastChapter) {
+        lastChapter = chapter;
+        const ch = document.createElement("div");
+        ch.className = "qs-logch";
+        ch.innerHTML = chapter;
+        log.append(ch);
+      }
+      const row = document.createElement("div");
+      row.className = "qs-logrow";
+      const name = document.createElement("span");
+      name.className = "qs-logname";
+      name.innerHTML = stage.name;
+      row.append(name);
+      if (stage.unlock) {
+        const u = document.createElement("span");
+        u.className = "qs-logunlock";
+        u.textContent = `✓ ${stage.unlock}`;
+        row.append(u);
+      }
+      log.append(row);
+    }
+    this.body.append(log);
   }
 
   private applyPalette(): void {
