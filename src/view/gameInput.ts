@@ -245,7 +245,7 @@ export class GameInputController {
       return this.hand ? "✋ holding · ↓ to a bucket to place · Esc cancel" : "← → choose · Space hold · ↓ buckets · [ ] page";
     }
     const occupied = !!this.buckets[this.selected];
-    if (this.hand) return occupied ? "Q apply as function · E apply as argument · Esc cancel" : "Space place here · ← → move · Esc cancel";
+    if (this.hand) return occupied ? "Q apply as fn (left) · E apply as arg (right) · Esc cancel" : "Space place here · ← → move · Esc cancel";
     return occupied ? "Space pick up · ← → move · ↑ toolbar · 0-4 speed" : "← → move · ↑ toolbar to grab a combinator";
   }
 }

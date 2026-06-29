@@ -903,7 +903,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   function setGameMode(on: boolean): void {
     gameMode = on;
     gameInput.setEnabled(on);
-    if (on) toast.show("game mode — arrows move · Space holds · Q/E apply · Esc menu");
+    if (on) toast.show("game mode — arrows/WASD move · Space hold · Q/E apply (fn/arg) · IJKL pan · Esc menu");
     paintRail();
   }
   // The optimize store is the source of truth; mirror it into the reducer flags and do

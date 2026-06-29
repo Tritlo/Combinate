@@ -41,24 +41,24 @@ export interface KeyBind {
 
 /** The control scheme. Order is the display order on the keybinds page. */
 export const KEYBINDS: KeyBind[] = [
-  { intent: "moveLeft", label: "Cursor left · previous bucket", keys: ["arrowleft"], pad: "D-pad ◄", group: "Navigate" },
-  { intent: "moveRight", label: "Cursor right · next bucket", keys: ["arrowright"], pad: "D-pad ►", group: "Navigate" },
-  { intent: "moveUp", label: "Up to the toolbar", keys: ["arrowup"], pad: "D-pad ▲", group: "Navigate" },
-  { intent: "moveDown", label: "Down to the buckets", keys: ["arrowdown"], pad: "D-pad ▼", group: "Navigate" },
-  { intent: "pagePrev", label: "Previous toolbar page", keys: ["["], pad: "LB", group: "Navigate" },
-  { intent: "pageNext", label: "Next toolbar page", keys: ["]"], pad: "RB", group: "Navigate" },
+  { intent: "moveLeft", label: "Cursor left · previous bucket", keys: ["arrowleft", "a"], pad: "D-pad ◄", group: "Navigate" },
+  { intent: "moveRight", label: "Cursor right · next bucket", keys: ["arrowright", "d"], pad: "D-pad ►", group: "Navigate" },
+  { intent: "moveUp", label: "Up to the toolbar", keys: ["arrowup", "w"], pad: "D-pad ▲", group: "Navigate" },
+  { intent: "moveDown", label: "Down to the buckets", keys: ["arrowdown", "s"], pad: "D-pad ▼", group: "Navigate" },
+  { intent: "pagePrev", label: "Previous toolbar page", keys: ["["], pad: "D-pad ◄ at edge", group: "Navigate" },
+  { intent: "pageNext", label: "Next toolbar page", keys: ["]"], pad: "D-pad ► at edge", group: "Navigate" },
 
   { intent: "pickPlace", label: "Pick up · place · drop", keys: [" ", "enter"], pad: "A", group: "Build" },
-  { intent: "applyFn", label: "Apply held as function — (held bucket)", keys: ["q"], pad: "X", group: "Build" },
-  { intent: "applyArg", label: "Apply held as argument — (bucket held)", keys: ["e"], pad: "Y", group: "Build" },
+  { intent: "applyFn", label: "Apply held as function — left child", keys: ["q"], pad: "LB", group: "Build" },
+  { intent: "applyArg", label: "Apply held as argument — right child", keys: ["e"], pad: "RB", group: "Build" },
   { intent: "cancel", label: "Cancel held · open the menu", keys: ["escape"], pad: "B", group: "Build" },
 
-  { intent: "panUp", label: "Pan up", keys: ["w"], pad: "R-stick ▲", group: "Camera" },
-  { intent: "panLeft", label: "Pan left", keys: ["a"], pad: "R-stick ◄", group: "Camera" },
-  { intent: "panDown", label: "Pan down", keys: ["s"], pad: "R-stick ▼", group: "Camera" },
-  { intent: "panRight", label: "Pan right", keys: ["d"], pad: "R-stick ►", group: "Camera" },
-  { intent: "zoomIn", label: "Zoom in", keys: ["z", "=", "+"], pad: "RT", group: "Camera" },
-  { intent: "zoomOut", label: "Zoom out", keys: ["x", "-", "_"], pad: "LT", group: "Camera" },
+  { intent: "panUp", label: "Pan up", keys: ["i"], pad: "R-stick ▲", group: "Camera" },
+  { intent: "panLeft", label: "Pan left", keys: ["j"], pad: "R-stick ◄", group: "Camera" },
+  { intent: "panDown", label: "Pan down", keys: ["k"], pad: "R-stick ▼", group: "Camera" },
+  { intent: "panRight", label: "Pan right", keys: ["l"], pad: "R-stick ►", group: "Camera" },
+  { intent: "zoomIn", label: "Zoom in", keys: ["=", "+", "z"], pad: "RT", group: "Camera" },
+  { intent: "zoomOut", label: "Zoom out", keys: ["-", "_", "x"], pad: "LT", group: "Camera" },
 
   { intent: "speed", label: "Reduction speed — 0 pause · 1× · 2× · 4× · 8×", keys: ["0", "1", "2", "3", "4"], pad: "Select cycles", group: "Playback" },
 ];
