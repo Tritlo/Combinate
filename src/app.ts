@@ -1088,7 +1088,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       discovered: () => [...discovered],
       mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : "topdown"),
       toggleLayout: () => toggleLayout(),
-      view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped }) },
+      view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs }) },
       transport: { mode: () => reduce.mode, set: (m: string) => reduce.setTransport(m as Transport), cycle: () => reduce.cycleTransport(), step: () => reduce.stepOnce() },
       autoSteps: () => reduce.totalSteps(),
       run: () => { if (focus) reduce.schedule(focus); },

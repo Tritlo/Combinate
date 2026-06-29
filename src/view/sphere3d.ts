@@ -62,6 +62,7 @@ export class Sphere3D {
   /** The last render's node count, and whether it was too big to draw (the app toasts on it). */
   lastCount = 0;
   lastCapped = false;
+  lastBuildMs = 0; // wall-clock to lay out + build the scene + first draw (perf read-out)
 
   constructor() {
     this.canvas.style.cssText = "position:fixed; inset:0; width:100%; height:100%; display:none; z-index:1; touch-action:none;";
@@ -136,6 +137,7 @@ export class Sphere3D {
       this.draw();
       return;
     }
+    const t0 = performance.now();
     const { pos, radius } = layoutSphere(node);
     this.lastCount = pos.size;
     this.lastCapped = pos.size > NODE_CAP;
@@ -151,6 +153,7 @@ export class Sphere3D {
     this.content = group;
     this.frame(radius);
     this.draw();
+    this.lastBuildMs = performance.now() - t0;
   }
 
   // One instanced sphere per node, positioned + scaled by kind, tinted per kind.
