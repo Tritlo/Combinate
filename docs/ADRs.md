@@ -294,10 +294,17 @@ unchanged), and selecting auto-fits the camera to it.
   is for); `pause|play|ff` stay as compat aliases.
 - **Keymap** is single-sourced in `keymap.ts` (intent → keyboard keys + gamepad button names),
   rendered by a keybinds reference page in settings, and consumed by the controller — so the
-  gamepad layer (later) maps the same intents. Keyboard now: arrows = d-pad (move cursor /
-  switch hotbar↔buckets), Space = pick/place, `Q`/`E` = apply fn/arg, `[`/`]` = page,
-  WASD = pan, `z`/`x` + `-`/`=` = zoom, `0`-`4` = speed, `Esc` = cancel / menu.
+  gamepad layer (later) maps the same intents. The scheme was tuned with the Magi council
+  (Codex + Grok, consensus) for naturalness — **apply lands on the bumpers, spatially**:
+  fn = the LEFT child, so `LB` / `Q` applies the held term as the function and `RB` / `E` as
+  the argument (a physical left/right pair beats arbitrary X/Y; `Q` is also left of `E`).
+  Keyboard: **arrows + WASD** = move cursor / switch hotbar↔buckets (nav is the primary action,
+  so it owns the home keys), Space = pick/place, `Q`/`E` = apply fn/arg, `[`/`]` = page,
+  **IJKL = pan** (mirrors the right stick), `=`/`-` (then `z`/`x`) = zoom, `0`-`4` = speed,
+  `Esc` = cancel / menu. Gamepad: D-pad nav (paging by pushing past the toolbar edge), A pick,
+  LB/RB apply, B cancel, right-stick pan, RT/LT zoom, Select cycles speed.
 
 Rejected: a root-cursor on the free canvas (d-pad nav across zoomed/overlapping roots is the
 exact ergonomics trap), an RPN stack (feels like a calculator, loses the buckets-on-screen
-fantasy), a modal builder panel (hides the canvas, breaks the watch-it-reduce loop).
+fantasy), a modal builder panel (hides the canvas, breaks the watch-it-reduce loop); X/Y for
+apply (named buttons don't encode the fn=left/arg=right spatial split the bumpers do).
