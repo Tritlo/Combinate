@@ -103,6 +103,10 @@ export class Hotbar {
   gameCursorSym(): string | null {
     return this.gameCursor !== null ? (this.visible(this.tab)[this.gameCursor] ?? null) : null;
   }
+  /** The game cursor's index into the current page's symbols (-1 if none) — for edge paging. */
+  gameCursorIndex(): number {
+    return this.gameCursor ?? -1;
+  }
   /** Switch to the prev/next non-empty page, resetting the cursor to its first cell. */
   cycleTab(d: number): void {
     const shown = PAGES.map((_p, i) => i).filter((i) => this.visible(i).length > 0);

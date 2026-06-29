@@ -41,6 +41,8 @@ export interface GameScene {
   pan: (dx: number, dy: number) => void;
   zoom: (factor: number) => void;
   setSpeed: (level: number) => void;
+  /** The current reduction speed level 0-4 (for the gamepad's Select-cycles). */
+  getSpeedLevel: () => number;
   /** Esc with an empty hand opens the menu bar. */
   openMenu: () => void;
   toast: (msg: string) => void;
@@ -98,6 +100,25 @@ export class GameInputController {
     return true;
   }
 
+  // ---- the gamepad's input sink (ADR 17): the same intents, plus analog pan/zoom + a speed
+  // cycle. The GamepadController owns polling/edge/repeat/deadzone; this is just the actions. ----
+  /** Fire a discrete intent (move/page/pick/apply/cancel) from the gamepad. */
+  trigger(intent: Intent): void {
+    if (this.on) this.dispatch(intent, "");
+  }
+  /** Pan the camera by a (world-space) delta — the right stick, magnitude-scaled. */
+  panBy(dx: number, dy: number): void {
+    if (this.on) this.scene.pan(dx, dy);
+  }
+  /** Zoom the camera by a factor — the triggers, time-scaled. */
+  zoomBy(factor: number): void {
+    if (this.on) this.scene.zoom(factor);
+  }
+  /** Cycle the reduction speed 0→1→2→3→4→0 (the Select button). */
+  cycleSpeed(): void {
+    if (this.on) this.scene.setSpeed((this.scene.getSpeedLevel() + 1) % 5);
+  }
+
   private dispatch(intent: Intent, key: string): void {
     switch (intent) {
       case "moveLeft":
@@ -140,7 +161,13 @@ export class GameInputController {
   // ---- navigation ----
   private move(d: number): void {
     if (this.zone === "hotbar") {
-      this.scene.hotbar.moveGameCursor(d);
+      // d-pad/arrows page the toolbar by pushing past its edge (the gamepad has no spare
+      // button for paging, ADR 17); otherwise step the cursor within the page.
+      const i = this.scene.hotbar.gameCursorIndex();
+      const n = this.scene.hotbar.visibleSyms().length;
+      if (d < 0 && i <= 0) this.scene.hotbar.cycleTab(-1);
+      else if (d > 0 && n > 0 && i >= n - 1) this.scene.hotbar.cycleTab(1);
+      else this.scene.hotbar.moveGameCursor(d);
     } else {
       this.selected = Math.max(0, Math.min(N_BUCKETS - 1, this.selected + d));
       this.frameSelected();

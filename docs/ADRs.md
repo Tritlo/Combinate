@@ -293,16 +293,25 @@ unchanged), and selecting auto-fits the camera to it.
   normal, heavy-jump-cut, AND turbo pacing (so level 4 actually speeds the big trees the mode
   is for); `pause|play|ff` stay as compat aliases.
 - **Keymap** is single-sourced in `keymap.ts` (intent → keyboard keys + gamepad button names),
-  rendered by a keybinds reference page in settings, and consumed by the controller — so the
-  gamepad layer (later) maps the same intents. The scheme was tuned with the Magi council
-  (Codex + Grok, consensus) for naturalness — **apply lands on the bumpers, spatially**:
-  fn = the LEFT child, so `LB` / `Q` applies the held term as the function and `RB` / `E` as
-  the argument (a physical left/right pair beats arbitrary X/Y; `Q` is also left of `E`).
-  Keyboard: **arrows + WASD** = move cursor / switch hotbar↔buckets (nav is the primary action,
-  so it owns the home keys), Space = pick/place, `Q`/`E` = apply fn/arg, `[`/`]` = page,
-  **IJKL = pan** (mirrors the right stick), `=`/`-` (then `z`/`x`) = zoom, `0`-`4` = speed,
-  `Esc` = cancel / menu. Gamepad: D-pad nav (paging by pushing past the toolbar edge), A pick,
-  LB/RB apply, B cancel, right-stick pan, RT/LT zoom, Select cycles speed.
+  rendered by a keybinds reference page in settings, and consumed by both input layers. The
+  scheme was tuned with the Magi council (Codex + Grok, consensus) for naturalness — **apply
+  lands on the bumpers, spatially**: fn = the LEFT child, so `LB` / `Q` applies the held term as
+  the function and `RB` / `E` as the argument (a physical left/right pair beats arbitrary X/Y;
+  `Q` is also left of `E`). Keyboard: **arrows + WASD** = move cursor / switch hotbar↔buckets
+  (nav is the primary action, so it owns the home keys), Space = pick/place, `Q`/`E` = apply
+  fn/arg, `[`/`]` = page, **IJKL = pan** (mirrors the right stick), `=`/`-` (then `z`/`x`) =
+  zoom, `0`-`4` = speed, `Esc` = cancel / menu.
+- **Gamepad** (`gamepad.ts`, also Magi-consensus): a third input producer polled from the Pixi
+  ticker only while game mode is on. It samples `navigator.getGamepads()` fresh each frame
+  (never caching the snapshot), edge-detects the discrete buttons (the d-pad gets time-based
+  auto-repeat), and reads the right stick / triggers as dt-scaled analog — then drives the SAME
+  intents through a thin sink on the controller (`trigger`/`panBy`/`zoomBy`/`cycleSpeed`). The
+  W3C *standard* indices live here (not in `keymap.ts`, which has no edge/repeat/analog notion).
+  D-pad nav (paging by pushing past the toolbar edge — emergent in the shared `move()`), A pick,
+  LB/RB apply, B cancel, right-stick pan, RT/LT zoom, Select cycles speed. Connection events are
+  toast/discovery hints only; the poll loop is the source of truth (Chrome withholds pads until
+  first input). Traps handled: non-standard mappings (toast + ignore), `getGamepads` throwing,
+  index reuse on replug, and a clamped frame-delta so a hidden-tab resume can't fly the camera.
 
 Rejected: a root-cursor on the free canvas (d-pad nav across zoomed/overlapping roots is the
 exact ergonomics trap), an RPN stack (feels like a calculator, loses the buckets-on-screen

@@ -41,6 +41,7 @@ import { type NativeOpts } from "./core/native";
 import { tween } from "./view/anim";
 import { BucketTray } from "./view/bucketTray";
 import { GameInputController } from "./view/gameInput";
+import { GamepadController } from "./view/gamepad";
 import { KeybindsModal } from "./view/keybinds";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
@@ -876,6 +877,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const keybinds = new KeybindsModal();
 
   // ---- game mode (ADR 17): keyboard/controller play via a bucket tray + hand ----
+  let gameMode = false;
   const tray = new BucketTray();
   hud.addChild(tray.container);
   const labelFor = (node: Node): string => {
@@ -896,10 +898,19 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     pan: (dx, dy) => world.position.set(world.position.x + dx, world.position.y + dy),
     zoom: (factor) => zoomTo(world.scale.x * factor, window.innerWidth / 2, window.innerHeight / 2),
     setSpeed: (lvl) => reduce.setSpeedLevel(lvl),
+    getSpeedLevel: () => reduce.speedLevel,
     openMenu: () => menuBar?.openMenuBar(),
     toast: (m) => toast.show(m),
   });
-  let gameMode = false;
+  // Gamepad: a third input producer (polled from the ticker) feeding the same controller.
+  new GamepadController(pixi.ticker, {
+    enabled: () => gameMode,
+    trigger: (i) => gameInput.trigger(i),
+    panBy: (dx, dy) => gameInput.panBy(dx, dy),
+    zoomBy: (f) => gameInput.zoomBy(f),
+    cycleSpeed: () => gameInput.cycleSpeed(),
+    toast: (m) => toast.show(m),
+  });
   function setGameMode(on: boolean): void {
     gameMode = on;
     gameInput.setEnabled(on);
