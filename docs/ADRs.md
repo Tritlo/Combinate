@@ -347,3 +347,21 @@ SwiftShader (the upload itself folds into Pixi's existing per-frame render of th
 negligible on a real GPU. So the shared context's complexity/risk buys nothing here — kept
 compositing "A". Reduction animation in 3D remains deferred (the user scoped this to camera
 rotation only).
+
+**Update — WebGPU dropped; texture compositing is the default, stacking is opt-in.** Pursuing
+zero-copy compositing for continuous rotation, the council (2 rounds, consensus) confirmed: (a)
+**drop WebGPU entirely** — pure WebGL is simpler + portable, and a static instanced scene gets
+no win from it (it was unused maintenance + a second code path); (b) eliminate the per-frame
+texture upload via **two stacked canvases** (Three's own canvas under a transparent Pixi HUD
+canvas), NOT a shared GL context (which inverts the Pixi-first app + reintroduces resetState /
+ExternalSource fragility). BUT the transparent-Pixi path hit the exact wrinkle the review
+warned about: Pixi v8 renders the HUD through an **MSAA back-buffer** whose resolve blit writes
+the canvas assuming an opaque target, so a runtime `background.alpha = 0` (a clear-colour
+change) never propagates — the canvas stays opaque and hides the Three canvas behind it. It's a
+creation-time limitation (not a one-knob fix) and Safari/mobile share the quirk; SwiftShader
+just makes it obvious. Since the upload it would save is measured-negligible (~0.6 ms, render-
+on-demand), the decision: **texture compositing ("A") is the robust DEFAULT** (Three → off-DOM
+canvas → Pixi texture sprite under the HUD — works everywhere incl. headless), and the
+**stacked transparent canvas is an OPT-IN fast path** (`?stack3d` / `localStorage`, gated on the
+context actually having an alpha channel). This also satisfies "fall back to textures on
+issues" — the fallback *is* the default. WebGPU + shared GL stay out of this view.

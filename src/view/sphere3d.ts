@@ -24,19 +24,16 @@ const POLAR_MIN = 0.08;
 const POLAR_MAX = Math.PI - 0.08;
 const DPR_CAP = 1.5; // cap the 3D canvas DPR — the texture re-upload per orbit step is the cost, not the draw
 
-// Lazily-loaded Three module — re-imported if the WebGPU choice flips (the two builds are
-// self-contained, so each is used whole; no mixing core objects across them).
+// Lazily-loaded Three module (WebGL — see ADR 18; WebGPU was dropped as not worth the
+// maintenance/portability cost for this static scene).
 let THREE: typeof T | null = null;
-let loadedWebGPU = false;
-async function loadThree(webgpu: boolean): Promise<void> {
-  if (THREE && loadedWebGPU === webgpu) return;
-  THREE = (webgpu ? await import("three/webgpu") : await import("three")) as unknown as typeof T;
-  loadedWebGPU = webgpu;
+async function loadThree(): Promise<void> {
+  if (THREE) return;
+  THREE = await import("three");
 }
-/** Warm the Three build the 3D view will use (WebGL by default, the WebGPU build if that
- *  optimization is on) in the background at boot, so the first entry is instant. Best-effort. */
-export function preloadSphere3D(webgpu: boolean): Promise<void> {
-  return loadThree(webgpu).catch(() => {});
+/** Warm the Three chunk in the background at boot, so the first 3D entry is instant. Best-effort. */
+export function preloadSphere3D(): Promise<void> {
+  return loadThree().catch(() => {});
 }
 
 // Per-kind node radius + colour (a 3D echo of tree.ts's visSpec, reusing the theme).
@@ -60,8 +57,7 @@ export class Sphere3D {
   readonly canvas = document.createElement("canvas");
   /** Fired after every render so the owner can re-upload the canvas into its Pixi texture. */
   onFrame: (() => void) | null = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- WebGL/WebGPU renderer union; only the common subset (render/setSize/setPixelRatio/dispose) is used
-  private renderer: any = null;
+  private renderer: T.WebGLRenderer | null = null;
   private scene: T.Scene | null = null;
   private camera: T.PerspectiveCamera | null = null;
   private content: T.Group | null = null;
@@ -82,8 +78,6 @@ export class Sphere3D {
     return this.az;
   }
 
-  constructor(private readonly useWebGPU: () => boolean) {}
-
   get active(): boolean {
     return this.on;
   }
@@ -95,8 +89,8 @@ export class Sphere3D {
     this.w = w;
     this.h = h;
     try {
-      await loadThree(this.useWebGPU());
-      await this.ensureScene();
+      await loadThree();
+      this.ensureScene();
     } catch (e) {
       this.on = false;
       throw e;
@@ -108,28 +102,10 @@ export class Sphere3D {
     this.on = false;
   }
 
-  /** The WebGPU optimization flipped — drop the renderer/scene so the next show rebuilds it. */
-  invalidateRenderer(): void {
-    this.renderer?.dispose?.();
-    this.renderer = null;
-    this.scene = null;
-    this.camera = null;
-    this.content = null;
-  }
-
-  private async ensureScene(): Promise<void> {
+  private ensureScene(): void {
     if (this.scene || !THREE) return;
     const three = THREE;
-    const webgpu = this.useWebGPU();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- WebGPURenderer lives on the three/webgpu build only
-    const WebGPURenderer = (three as any).WebGPURenderer;
-    if (webgpu && WebGPURenderer) {
-      const r = new WebGPURenderer({ canvas: this.canvas, antialias: true });
-      await r.init(); // WebGPU device acquisition is async (falls back to WebGL2 if unsupported)
-      this.renderer = r;
-    } else {
-      this.renderer = new three.WebGLRenderer({ canvas: this.canvas, antialias: true });
-    }
+    this.renderer = new three.WebGLRenderer({ canvas: this.canvas, antialias: true }); // `new` can throw if WebGL is unavailable — caught by show()
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     this.scene = new three.Scene();
     this.camera = new three.PerspectiveCamera(50, 1, 0.1, 500_000);

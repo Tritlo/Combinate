@@ -62,10 +62,19 @@ type Drag =
 export async function mountApp(onStep: (label: string) => void = () => {}): Promise<void> {
   initTheme(); // pick light/dark from the OS before anything paints
   const pixi = new Application();
+  // The 3D view composites two ways (ADR 18): the proven DEFAULT draws Three's canvas as a Pixi
+  // texture sprite under the HUD; an OPT-IN "stack" fast path (no per-frame upload) layers a
+  // transparent Pixi HUD over the Three canvas. Stacking needs an alpha-capable context, which
+  // Pixi only requests when backgroundAlpha < 1 at init — so we ask for it ONLY when stacking is
+  // opted in (?stack3d / localStorage), then restore an opaque 2D clear. (Stacking is gated +
+  // experimental: Pixi v8's MSAA back-buffer resolve doesn't reliably emit transparent pixels on
+  // some platforms — Safari/SwiftShader — so the texture path stays the robust default.)
+  const wantStack = new URLSearchParams(location.search).has("stack3d") || localStorage.getItem("combinate:stack3d") === "1";
   // resolution + autoDensity render at device pixel density so text/edges are
   // crisp on retina / iOS instead of grainy. Cap at 2× — past that the extra
   // pixels (e.g. 3× on iPhones, ~2.25× the work) aren't perceptible but cost fps.
-  await pixi.init({ background: theme.bg, resizeTo: window, antialias: true, resolution: Math.min(window.devicePixelRatio || 1, 2), autoDensity: true });
+  await pixi.init({ preference: "webgl", background: theme.bg, backgroundAlpha: wantStack ? 0 : 1, resizeTo: window, antialias: true, resolution: Math.min(window.devicePixelRatio || 1, 2), autoDensity: true });
+  if (wantStack) pixi.renderer.background.alpha = 1; // opaque for 2D (the context keeps its alpha channel for the 3D flip)
   document.body.appendChild(pixi.canvas);
   onStep("renderer"); // splash step 1/3
 
@@ -815,7 +824,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     challenges.layout();
     if (view3D) {
       sphere3d.resize(window.innerWidth, window.innerHeight);
-      fitSphereSprite();
+      if (!stack3D) fitSphereSprite();
     }
   });
 
@@ -840,27 +849,69 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     focus = null;
   }
 
-  // ---- 3D "packed sphere" view (ADR 18): a lazy Three.js render of the focused term,
-  // composited INTO the Pixi scene as a texture sprite in its own layer between `world` and
-  // `hud`, so the Pixi HUD draws on top (compositing "A", Magi-consensus). ----
-  const sphere3d = new Sphere3D(() => isOpt("webgpu"));
+  // ---- 3D "packed sphere" view (ADR 18): a lazy Three.js render of the focused term ----
+  // Two compositing paths (Magi-consensus). DEFAULT "texture" (compositing "A"): Three's off-DOM
+  // canvas is drawn as a Pixi sprite under the HUD (one texture re-upload per render — measured
+  // ~0.6ms, render-on-demand) — proven to work everywhere incl. headless. OPT-IN "stack": Three
+  // renders natively to its own canvas layered *under* a transparent Pixi HUD canvas (no per-
+  // frame upload), enabled via ?stack3d / localStorage — experimental, since Pixi v8's MSAA
+  // back-buffer resolve doesn't reliably emit transparent pixels on every platform.
+  const sphere3d = new Sphere3D();
+  // Stacking also needs the context to actually have an alpha channel (requested above iff
+  // wantStack) — fall back to texture if not.
+  const pixiGl = (pixi.renderer as unknown as { gl?: WebGL2RenderingContext }).gl;
+  const ctxAlpha = pixiGl?.getContextAttributes?.()?.alpha === true;
+  const stack3D = wantStack && ctxAlpha;
+
+  // Texture-fallback layer (built + used only when !stack3D).
   const sphereLayer = new Container();
   sphereLayer.visible = false;
-  sphereLayer.eventMode = "none"; // orbit input is read off the stage; the sprite never intercepts
-  pixi.stage.addChildAt(sphereLayer, pixi.stage.getChildIndex(hud)); // just below the HUD
-  let sphereTex = Texture.from(sphere3d.canvas);
-  const sphereSprite = new Sprite(sphereTex);
-  sphereLayer.addChild(sphereSprite);
-  sphere3d.onFrame = () => sphereTex.source.update(); // re-upload the canvas after each 3D render
-  // Match the sprite to the (resized) off-DOM canvas; re-bind the texture if the canvas grew.
+  sphereLayer.eventMode = "none";
+  let sphereTex: Texture | null = null;
+  let sphereSprite: Sprite | null = null;
   function fitSphereSprite(): void {
+    if (!sphereTex || !sphereSprite) return;
     if (sphereTex.source.resource !== sphere3d.canvas || sphereTex.source.pixelWidth !== sphere3d.canvas.width) {
       sphereTex.destroy();
       sphereTex = Texture.from(sphere3d.canvas);
       sphereSprite.texture = sphereTex;
+      sphere3d.onFrame = () => sphereTex?.source.update();
     }
     sphereSprite.setSize(window.innerWidth, window.innerHeight);
     sphereTex.source.update();
+  }
+  if (stack3D) {
+    // Three's canvas sits *under* the (transparent-in-3D) Pixi canvas; the HUD composites over it.
+    sphere3d.canvas.style.cssText = "position:fixed; inset:0; width:100%; height:100%; display:none; z-index:0; pointer-events:none;";
+    document.body.appendChild(sphere3d.canvas);
+    pixi.canvas.style.position = "fixed";
+    pixi.canvas.style.inset = "0";
+    pixi.canvas.style.zIndex = "1"; // above the Three canvas, below the DOM chrome (z 40+)
+  } else {
+    pixi.stage.addChildAt(sphereLayer, pixi.stage.getChildIndex(hud)); // just below the HUD
+    sphereTex = Texture.from(sphere3d.canvas);
+    sphereSprite = new Sprite(sphereTex);
+    sphereLayer.addChild(sphereSprite);
+    sphere3d.onFrame = () => sphereTex?.source.update(); // re-upload the canvas after each 3D render
+  }
+  // Show / hide the 3D compositing layer (mode-specific).
+  function show3DLayer(): void {
+    world.visible = false;
+    if (stack3D) {
+      pixi.renderer.background.alpha = 0; // transparent HUD → the Three canvas shows through
+      sphere3d.canvas.style.display = "block";
+    } else {
+      sphereLayer.visible = true;
+    }
+  }
+  function hide3DLayer(): void {
+    world.visible = true;
+    if (stack3D) {
+      pixi.renderer.background.alpha = 1;
+      sphere3d.canvas.style.display = "none";
+    } else {
+      sphereLayer.visible = false;
+    }
   }
   let orbitDrag: { x: number; y: number } | null = null;
   // 3D rotation: held rotate-keys + drag-release momentum, applied each frame by the ticker so
@@ -888,8 +939,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   function toggleView3D(): void {
     if (view3D) {
       view3D = false;
-      sphereLayer.visible = false;
-      world.visible = true;
+      hide3DLayer();
       sphere3d.hide();
       paintRail();
       return;
@@ -899,16 +949,16 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (!focus) return toast.show("focus a tree to view it in 3D");
     if (exceedsNodes(focus.node, NODE_CAP)) return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
     view3D = true;
-    world.visible = false;
-    sphereLayer.visible = true;
+    show3DLayer();
     paintRail();
     void sphere3d
       .show(focus.node, window.innerWidth, window.innerHeight)
-      .then(() => fitSphereSprite())
+      .then(() => {
+        if (!stack3D) fitSphereSprite();
+      })
       .catch((e: unknown) => {
         view3D = false; // Three failed to load / no WebGL — back out visibly
-        sphereLayer.visible = false;
-        world.visible = true;
+        hide3DLayer();
         sphere3d.hide();
         paintRail();
         toast.show("3D view unavailable — WebGL not supported here");
@@ -979,13 +1029,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       // so a native-toggle change needs a fresh session.
       reduce.invalidateSessions();
       if (focus) reduce.schedule(focus);
-    } else if (key === "webgpu") {
-      // The 3D renderer changed (WebGL ↔ WebGPU) — drop it so the next show rebuilds, and if the
-      // view is open, re-enter to switch live.
-      sphere3d.invalidateRenderer();
-      if (view3D && focus) {
-        void sphere3d.show(focus.node, window.innerWidth, window.innerHeight).then(() => fitSphereSprite());
-      }
     }
     paintRail();
   });
@@ -1166,7 +1209,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // still works), so this never blocks startup.
   await readout.ensureRefolder();
   if (isOpt("wasm")) void loadWasmReducer(); // persisted Turbo → warm the wasm so the first reduction uses it
-  void preloadSphere3D(isOpt("webgpu")); // warm the Three.js chunk (WebGL or WebGPU build) so the first 3D view is instant
+  void preloadSphere3D(); // warm the Three.js chunk so the first 3D view is instant
   onStep("lenses"); // splash step 3/4
 
   // Warm the MicroHs live-compile blob + cache (the 3 MB compiler), so the Haskell
