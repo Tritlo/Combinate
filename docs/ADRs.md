@@ -365,3 +365,28 @@ canvas → Pixi texture sprite under the HUD — works everywhere incl. headless
 **stacked transparent canvas is an OPT-IN fast path** (`?stack3d` / `localStorage`, gated on the
 context actually having an alpha channel). This also satisfies "fall back to textures on
 issues" — the fallback *is* the default. WebGPU + shared GL stay out of this view.
+
+**Shared GL context — on-the-record rejection (council, 2 rounds, consensus).** Revisited after
+the transparent-canvas path died, since the alpha/back-buffer failure was specific to *stacking*,
+not the shared context itself. Two shared-context shapes:
+- **Framebuffer interleave** (the official Pixi guide): Three owns the context, Pixi composites
+  on top, `resetState()` between. Rejected — inverts this Pixi-first app (Pixi would re-init onto
+  Three's context) and couples both renderers through one GL state machine + render order.
+- **ExternalSource** (Pixi keeps the context; Three borrows `renderer.gl`, renders the scene to a
+  `WebGLRenderTarget`, Pixi wraps that texture via `ExternalSource` — zero-copy, and the 3D stays
+  an *opaque* sprite, so the alpha failure does NOT apply): the legitimate "other way", and the
+  only one worth considering. **Deferred, not adopted**, because it trades a *measured ~0.6 ms
+  render-on-demand* upload for: (a) Three's render-target raw `WebGLTexture` only being reachable
+  via the private `renderer.properties.get(rt.texture).__webglTexture` (no public API; version-
+  fragile); (b) `resetState()` choreography with Pixi's ticker-driven HUD render, which has no
+  stable "before my sprite is sampled" hook (GL-state-corruption bugs are miserable to debug);
+  (c) render-target re-grab + `updateGPUTexture` on every resize/DPR change, plus cross-renderer
+  context-loss/antialias interactions; (d) a permanent Pixi-WebGL + Three-WebGL lock-in; and
+  there's ~zero production precedent for Pixi v8 + Three ExternalSource.
+
+**Decision:** the isolated **Pixi-texture compositing path is the sole shipping path** (Three →
+own off-DOM canvas → `Texture.from` sprite → `source.update()` per render). ExternalSource is the
+**known zero-copy upgrade, gated on a trigger**: real-device profiling showing `source.update()`
+dominates continuous-rotation frame time. If/when that happens, build it behind a sealed
+`ZeroCopySphereLayer` with SwiftShader smoke tests + pinned Three/Pixi versions — a targeted
+change, not a speculative one.
