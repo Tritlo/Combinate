@@ -43,6 +43,8 @@ import { type NativeOpts } from "./core/native";
 import { tween } from "./view/anim";
 import { Sphere3D, NODE_CAP, preloadSphere3D } from "./view/sphere3d";
 
+const KEY_ROT = 6; // 3D orbit: px-equivalent per frame for a held rotate-key
+const MOM_DECAY = 0.92; // 3D orbit: drag-release momentum decay per frame
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
 const COLLAPSE_MS = 340; // morph from a recognised normal form into its named node
 const ATTACH_MS = 280; // glide two trees together when snapped
@@ -614,7 +616,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   pixi.stage.on("globalpointermove", (e: FederatedPointerEvent) => {
     if (view3D) {
       if (orbitDrag) {
-        sphere3d.orbit(e.global.x - orbitDrag.x, e.global.y - orbitDrag.y);
+        const dx = e.global.x - orbitDrag.x;
+        const dy = e.global.y - orbitDrag.y;
+        sphere3d.orbit(dx, dy);
+        lastDragD = { x: dx, y: dy }; // remember the flick for release momentum
         orbitDrag = { x: e.global.x, y: e.global.y };
       }
       return;
@@ -635,6 +640,11 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   });
 
   const onUp = () => {
+    if (orbitDrag) {
+      momVx = lastDragD.x; // a flick imparts spin momentum (decays on the ticker)
+      momVy = lastDragD.y;
+      lastDragD = { x: 0, y: 0 };
+    }
     orbitDrag = null; // end a 3D orbit drag
     if (!drag) return;
     if (drag.kind === "tree" || drag.kind === "spawn") {
@@ -853,6 +863,27 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     sphereTex.source.update();
   }
   let orbitDrag: { x: number; y: number } | null = null;
+  // 3D rotation: held rotate-keys + drag-release momentum, applied each frame by the ticker so
+  // the orbit is smooth/continuous (not one step per pointer event).
+  const heldRot = new Set<string>();
+  const ROT_KEYS = new Set(["arrowleft", "arrowright", "arrowup", "arrowdown", "w", "a", "s", "d"]);
+  let momVx = 0;
+  let momVy = 0;
+  let lastDragD = { x: 0, y: 0 };
+  pixi.ticker.add(() => {
+    if (!view3D) return;
+    let vx = 0;
+    let vy = 0;
+    if (heldRot.has("arrowleft") || heldRot.has("a")) vx -= KEY_ROT;
+    if (heldRot.has("arrowright") || heldRot.has("d")) vx += KEY_ROT;
+    if (heldRot.has("arrowup") || heldRot.has("w")) vy -= KEY_ROT;
+    if (heldRot.has("arrowdown") || heldRot.has("s")) vy += KEY_ROT;
+    vx += momVx;
+    vy += momVy;
+    if (Math.abs(vx) > 0.05 || Math.abs(vy) > 0.05) sphere3d.orbit(vx, vy);
+    momVx = Math.abs(momVx) < 0.05 ? 0 : momVx * MOM_DECAY;
+    momVy = Math.abs(momVy) < 0.05 ? 0 : momVy * MOM_DECAY;
+  });
   let view3D = false;
   function toggleView3D(): void {
     if (view3D) {
@@ -1088,6 +1119,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (e.key === "ArrowLeft") return e.preventDefault(), zoo.cyclePage(-1);
       if (e.key === "Escape") return zoo.close();
     }
+    // In 3D: arrows / WASD orbit (held = continuous), Esc exits. Other keys fall through.
+    if (view3D) {
+      const k = e.key.toLowerCase();
+      if (k === "escape") return toggleView3D();
+      if (ROT_KEYS.has(k)) {
+        heldRot.add(k);
+        return e.preventDefault();
+      }
+    }
     if (e.key === "r" || e.key === "R") clearCanvas();
     else if (e.key === "t" || e.key === "T") toggleLayout();
     else if (e.key === "u" || e.key === "U") unlockAll();
@@ -1098,6 +1138,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     else if (e.key === "d" || e.key === "D") setAuthorMode("define");
     else if (e.key === "a" || e.key === "A") setAuthorMode("abstract");
   });
+  window.addEventListener("keyup", (e) => heldRot.delete(e.key.toLowerCase())); // release a 3D rotate-key
 
   // Suppress the browser context menu so right-click can delete a node.
   pixi.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -1143,7 +1184,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       discovered: () => [...discovered],
       mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : "topdown"),
       toggleLayout: () => toggleLayout(),
-      view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs }) },
+      view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs, drawMs: sphere3d.lastDrawMs, az: sphere3d.azimuth }) },
       transport: { mode: () => reduce.mode, set: (m: string) => reduce.setTransport(m as Transport), cycle: () => reduce.cycleTransport(), step: () => reduce.stepOnce() },
       autoSteps: () => reduce.totalSteps(),
       run: () => { if (focus) reduce.schedule(focus); },
