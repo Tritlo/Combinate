@@ -255,3 +255,138 @@ arena (drop IND chains + dead cells, preserve the def prefix), caps aligned to n
 Cross-check (`npm run check:reduce-wasm`): one-shot + persistent + graph 213/0 vs
 `normalize(_,false)`/`evalShared(_,false)`, graph+kernels 253/0 vs `normalize(_,false,
 {numbers:true})`, session invariance 3/0. Deferred: list/bool kernels; a wasm value-read.
+
+## 18: 3D "packed sphere" view — static Three.js visualization (`viz-3d`)
+
+(Number 17 is reserved by the game-controls branch.) Designed with the Magi council (Codex +
+Grok, consensus).
+
+**Problem.** We want an ambitious 3D way to *look at* a term — a "packed sphere", the 3D
+generalization of the 2D radial view (root at centre, depth → radius, leaves spread around the
+disk). For now: a STATIC render of the focused tree, re-rendered on change. No reduction
+animation (deferred), no editing in 3D, no labels/picking.
+
+**Decision.**
+- **Tech — Three.js, `WebGLRenderer` by default, behind a renderer factory** so a
+  `WebGPURenderer` backend can be slotted in later (the user's WebGPU interest is the future
+  path, not the MVP). Three gives mature `InstancedMesh` + `LineSegments` + `OrbitControls`;
+  raw WebGPU is too much boilerplate for a static instanced scene, and WebGPU is not yet
+  Baseline (mobile/Firefox still partial in 2026), so a WebGL default sidesteps the second-
+  renderer portability risk while still being "the wow." Three is **dynamic-imported on first
+  3D entry** (the established lazy-heavy pattern — DuckDB-WASM, the MicroHs blob), so the main
+  bundle stays lean.
+- **Layout — a new PURE `src/core/layout3d.ts`** (functional core, ADR 0001): a deterministic
+  **weighted spherical cone-tree** (Robertson et al. 1991), the direct 3D port of
+  `layoutRadial`. Depth → radius (concentric shells); each subtree gets a solid-angle wedge
+  proportional to its leaf count; an `app`'s `fn`/`arg` children become left/right lobes inside
+  a cone around the parent's outward direction (preserving the fn=left/arg=right mnemonic);
+  leaves fill the shell so the whole tree packs a ball. Returns `{ pos: Map<NodeId,{x,y,z}>,
+  bounds3D }`. DAG sharing mirrors the 2D layouts (place a shared node once on first visit;
+  extra shared edges drawn translucent). Rejected: Fibonacci/icosahedral shells (uniform
+  *surface* points, lose the hierarchy), true recursive 3D sphere-packing (hides parent-child
+  paths, costly), force-directed-on-sphere (iterative, unstable, bad for a static diffable
+  re-render).
+- **Integration — a second canvas, toggled like a layout mode.** A new "Sphere (3D)" radio in
+  the View menu beside Auto/Top-down/Radial. On select: hide the Pixi canvas, show a sibling
+  `<canvas>` positioned *under* the existing DOM HUD (menus/read-out stay), `src/view/sphere3d.ts`
+  lazy-loads Three, builds one instanced-sphere mesh (per-kind colour, reusing `radiusOf` /
+  `combinatorColor` / the theme) + one `LineSegments` edge buffer for the focused term, attaches
+  `OrbitControls` (drag-rotate, wheel/pinch-zoom), and auto-fits. **Read-only + static**: it
+  re-renders on focus / reduction / resize change, with no per-step tween. A node-count cap
+  mirrors the 2D `HEAVY` LOD.
+
+**Deferred:** the `WebGPURenderer` backend, reduction animation in 3D, text labels, node
+picking / drag-to-edit, true DAG sphere-packing. **Risks:** bundle size (→ lazy import), mobile
+WebGPU (→ WebGL default), big-tree edge count (→ batched `LineSegments` + the cap), a hidden-tab
+resume delta, and keeping the "focused tree" coherent across the two renderers.
+
+**Implemented** (`src/core/layout3d.ts` pure layout + `src/view/sphere3d.ts` lazy renderer +
+the View ▸ "Sphere (3D)" toggle). Magi-council review (Codex + Grok) caught and fixed three
+real blockers before commit: (1) WebGL context creation can throw (headless / blocklisted /
+mobile) — `show()` now try/catches and the toggle `.catch`es, backing out visibly with a
+toast rather than a silent blank overlay; (2) the leaf-weighted tilt could exceed 90° on a
+lopsided split, folding a child backward and collapsing the split-axis frame onto the growth
+axis (ray-flattening whole subtrees) — capped at `MAX_TILT` ≈69° with a degeneracy guard in
+`twist`; (3) the node-cap + "no focus" feedback was a Pixi toast hidden *under* the opaque 3D
+canvas — now preflighted with the iterative `exceedsNodes` (deep-tree-safe) while the 2D HUD is
+still up, so the message is seen and a too-big / unfocused tree never enters 3D. **Deferred
+(noted by the review):** the 3D view is a minimal-chrome static *snapshot* of the focused term
+(the Pixi read-out/hotbar are covered; only the DOM menu bar overlays) and does NOT live-update
+as the tree reduces — that's the "no animation yet" line; plus renderer dispose / WebGL-context-
+loss recovery and a DOM read-out overlay are follow-ups.
+
+**Update — composited into Pixi + WebGPU as an optimization** (Magi-consensus). The 3D is no
+longer a separate canvas covering the Pixi HUD (the deferred coherence gap): `Sphere3D` now
+renders into its OWN off-DOM canvas, and `app.ts` draws that canvas as a Pixi **texture sprite**
+in a `sphereLayer` *between* `world` and `hud` — so the entire Pixi HUD (read-out, hotbar,
+legend, transport, quest) composites on top (compositing "A"; "B"'s shared GL context was
+rejected as fragile + impossible across a WebGPU/WebGL mix). The camera is a small orbit driven
+by the existing Pixi pointer/wheel handlers (no OrbitControls, since the canvas isn't in the
+DOM); each render fires `onFrame` so the owner re-uploads the canvas into the texture (render-on-
+demand, so the per-orbit upload — the real cost the council flagged — only happens on an actual
+change; DPR capped at 1.5 to bound it). **WebGPU is now an opt-in optimization** ("3D: WebGPU
+renderer"), default OFF: WebGLRenderer is the default (and the testing path), WebGPURenderer
+(the self-contained `three/webgpu` build, ~190 KB-gz lazy chunk, auto-falls-back to WebGL2)
+loads only when toggled. Verified headless (SwiftShader/WebGL2): the fac program (699 nodes)
+renders composited under the live HUD, orbits, ~20 ms build; toggling WebGPU loads `three/webgpu`
+and still renders. The renderer choice now matters little for this static scene (the council's
+point) — the value was the unified canvas, not the GPU backend.
+
+**Update — interactive rotation (shared-GL-context investigated, NOT needed).** Smooth
+continuous orbit driven by the Pixi ticker: mouse-drag rotates (with flick → decaying
+momentum), arrows / WASD held spin continuously, wheel zooms, Esc exits. The question was
+whether the per-frame texture re-upload of compositing "A" would be too janky for continuous
+rotation, needing a SHARED GL context (Three + Pixi on one context — option "B"). Investigated:
+Pixi v8 *does* officially support it now (the "Mixing Three + Pixi" guide:
+`pixiRenderer.init({ context: threeRenderer.getContext(), clearBeforeRender: false })` +
+`resetState()` between passes), but the supported shape is **Three owns the context, Pixi
+composites on top** — which inverts this app's Pixi-first architecture (Pixi would re-init onto
+Three's context, affecting the whole app, not just the sometimes-used 3D view). Then MEASURED
+the actual cost: the per-frame Three render + texture re-upload is ~0.6 ms even in *software*
+SwiftShader (the upload itself folds into Pixi's existing per-frame render of the HUD), i.e.
+negligible on a real GPU. So the shared context's complexity/risk buys nothing here — kept
+compositing "A". Reduction animation in 3D remains deferred (the user scoped this to camera
+rotation only).
+
+**Update — WebGPU dropped; texture compositing is the default, stacking is opt-in.** Pursuing
+zero-copy compositing for continuous rotation, the council (2 rounds, consensus) confirmed: (a)
+**drop WebGPU entirely** — pure WebGL is simpler + portable, and a static instanced scene gets
+no win from it (it was unused maintenance + a second code path); (b) eliminate the per-frame
+texture upload via **two stacked canvases** (Three's own canvas under a transparent Pixi HUD
+canvas), NOT a shared GL context (which inverts the Pixi-first app + reintroduces resetState /
+ExternalSource fragility). BUT the transparent-Pixi path hit the exact wrinkle the review
+warned about: Pixi v8 renders the HUD through an **MSAA back-buffer** whose resolve blit writes
+the canvas assuming an opaque target, so a runtime `background.alpha = 0` (a clear-colour
+change) never propagates — the canvas stays opaque and hides the Three canvas behind it. It's a
+creation-time limitation (not a one-knob fix) and Safari/mobile share the quirk; SwiftShader
+just makes it obvious. Since the upload it would save is measured-negligible (~0.6 ms, render-
+on-demand), the decision: **texture compositing ("A") is the robust DEFAULT** (Three → off-DOM
+canvas → Pixi texture sprite under the HUD — works everywhere incl. headless), and the
+**stacked transparent canvas is an OPT-IN fast path** (`?stack3d` / `localStorage`, gated on the
+context actually having an alpha channel). This also satisfies "fall back to textures on
+issues" — the fallback *is* the default. WebGPU + shared GL stay out of this view.
+
+**Shared GL context — on-the-record rejection (council, 2 rounds, consensus).** Revisited after
+the transparent-canvas path died, since the alpha/back-buffer failure was specific to *stacking*,
+not the shared context itself. Two shared-context shapes:
+- **Framebuffer interleave** (the official Pixi guide): Three owns the context, Pixi composites
+  on top, `resetState()` between. Rejected — inverts this Pixi-first app (Pixi would re-init onto
+  Three's context) and couples both renderers through one GL state machine + render order.
+- **ExternalSource** (Pixi keeps the context; Three borrows `renderer.gl`, renders the scene to a
+  `WebGLRenderTarget`, Pixi wraps that texture via `ExternalSource` — zero-copy, and the 3D stays
+  an *opaque* sprite, so the alpha failure does NOT apply): the legitimate "other way", and the
+  only one worth considering. **Deferred, not adopted**, because it trades a *measured ~0.6 ms
+  render-on-demand* upload for: (a) Three's render-target raw `WebGLTexture` only being reachable
+  via the private `renderer.properties.get(rt.texture).__webglTexture` (no public API; version-
+  fragile); (b) `resetState()` choreography with Pixi's ticker-driven HUD render, which has no
+  stable "before my sprite is sampled" hook (GL-state-corruption bugs are miserable to debug);
+  (c) render-target re-grab + `updateGPUTexture` on every resize/DPR change, plus cross-renderer
+  context-loss/antialias interactions; (d) a permanent Pixi-WebGL + Three-WebGL lock-in; and
+  there's ~zero production precedent for Pixi v8 + Three ExternalSource.
+
+**Decision:** the isolated **Pixi-texture compositing path is the sole shipping path** (Three →
+own off-DOM canvas → `Texture.from` sprite → `source.update()` per render). ExternalSource is the
+**known zero-copy upgrade, gated on a trigger**: real-device profiling showing `source.update()`
+dominates continuous-rotation frame time. If/when that happens, build it behind a sealed
+`ZeroCopySphereLayer` with SwiftShader smoke tests + pinned Three/Pixi versions — a targeted
+change, not a speculative one.

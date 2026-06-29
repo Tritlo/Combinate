@@ -2,7 +2,7 @@
   "name": "combinate",
   "private": true,
   "version": "10.0.0",
-  "description": "An interactive \u03b9 (iota) / SKI combinator-calculus sandbox.",
+  "description": "An interactive ι (iota) / SKI combinator-calculus sandbox.",
   "author": "Matthias Pall Gissurarson <mpg@mpg.is>",
   "license": "MIT",
   "type": "module",
@@ -18,7 +18,9 @@
   },
   "dependencies": {
     "@duckdb/duckdb-wasm": "^1.33.1-dev57.0",
-    "pixi.js": "^8.6.0"
+    "@types/three": "^0.185.0",
+    "pixi.js": "^8.6.0",
+    "three": "^0.185.0"
   },
   "devDependencies": {
     "playwright-core": "^1.61.1",
