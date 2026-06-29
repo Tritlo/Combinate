@@ -4,9 +4,11 @@ import {
   type FederatedPointerEvent,
   Graphics,
   Rectangle,
+  Sprite,
   Text,
+  Texture,
 } from "pixi.js";
-import { app as mkApp, comb, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
+import { app as mkApp, comb, exceedsNodes, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
 import { evalShared } from "./core/graph";
 import { encodePermalink, decodePermalink, type Modes } from "./core/permalink";
 import { LocalStore } from "./store/local";
@@ -43,7 +45,10 @@ import { BucketTray } from "./view/bucketTray";
 import { GameInputController } from "./view/gameInput";
 import { GamepadController } from "./view/gamepad";
 import { KeybindsModal } from "./view/keybinds";
+import { Sphere3D, NODE_CAP, preloadSphere3D } from "./view/sphere3d";
 
+const KEY_ROT = 6; // 3D orbit: px-equivalent per frame for a held rotate-key
+const MOM_DECAY = 0.92; // 3D orbit: drag-release momentum decay per frame
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
 const COLLAPSE_MS = 340; // morph from a recognised normal form into its named node
 const ATTACH_MS = 280; // glide two trees together when snapped
@@ -595,6 +600,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
 
   pixi.stage.on("pointerdown", (e: FederatedPointerEvent) => {
+    if (view3D) {
+      if (e.button === 0) orbitDrag = { x: e.global.x, y: e.global.y }; // 3D: drag-to-orbit
+      return;
+    }
     if (drag || pinch || e.button !== 0) return; // a tree/slot claimed it, pinching, or a right-click
     drag = {
       kind: "pan",
@@ -606,6 +615,16 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   });
 
   pixi.stage.on("globalpointermove", (e: FederatedPointerEvent) => {
+    if (view3D) {
+      if (orbitDrag) {
+        const dx = e.global.x - orbitDrag.x;
+        const dy = e.global.y - orbitDrag.y;
+        sphere3d.orbit(dx, dy);
+        lastDragD = { x: dx, y: dy }; // remember the flick for release momentum
+        orbitDrag = { x: e.global.x, y: e.global.y };
+      }
+      return;
+    }
     if (!drag) return;
     if (drag.kind === "pan") {
       world.position.set(drag.worldX + (e.global.x - drag.startX), drag.worldY + (e.global.y - drag.startY));
@@ -622,6 +641,12 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   });
 
   const onUp = () => {
+    if (orbitDrag) {
+      momVx = lastDragD.x; // a flick imparts spin momentum (decays on the ticker)
+      momVy = lastDragD.y;
+      lastDragD = { x: 0, y: 0 };
+    }
+    orbitDrag = null; // end a 3D orbit drag
     if (!drag) return;
     if (drag.kind === "tree" || drag.kind === "spawn") {
       const tree = drag.tree;
@@ -742,6 +767,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     (ev) => {
       ev.preventDefault();
       if (zoo.isOpen || challenges.isOpen) return; // an open overlay owns the wheel (its list scrolls instead of zooming the canvas behind it)
+      if (view3D) return sphere3d.zoomBy(ev.deltaY < 0 ? 0.9 : 1 / 0.9); // 3D: wheel orbits-zoom
       zoomTo(world.scale.x * (ev.deltaY < 0 ? 1.1 : 1 / 1.1), ev.clientX, ev.clientY);
     },
     { passive: false },
@@ -801,6 +827,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     zoo.applyTheme();
     challenges.applyTheme();
     for (const t of trees) t.refresh();
+    sphere3d.retheme(); // no-op when the 3D view is closed
   }
   onThemeChange(applyTheme);
 
@@ -814,6 +841,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     placeExpr();
     zoo.layout();
     challenges.layout();
+    if (view3D) {
+      sphere3d.resize(window.innerWidth, window.innerHeight);
+      fitSphereSprite();
+    }
   });
 
   // Render efficiency: stop the render/animation loop while the tab is hidden —
@@ -837,8 +868,90 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     focus = null;
   }
 
-  // Set the layout for every tree (and trees spawned afterward).
+  // ---- 3D "packed sphere" view (ADR 18): a lazy Three.js render of the focused term ----
+  // Compositing "A": Three renders to its own off-DOM canvas, which we draw as a Pixi texture
+  // sprite in `sphereLayer` between `world` and `hud`, so the Pixi HUD composites on top. The
+  // per-render canvas→texture re-upload is measured-negligible (~0.6ms, render-on-demand). (A
+  // zero-copy stacked-transparent-canvas path was investigated + rejected — Pixi v8's MSAA back-
+  // buffer resolve won't emit transparent pixels reliably; and a shared GL context inverts the
+  // Pixi-first app. See ADR 18.)
+  const sphere3d = new Sphere3D();
+  const sphereLayer = new Container();
+  sphereLayer.visible = false;
+  sphereLayer.eventMode = "none"; // orbit input is read off the stage; the sprite never intercepts
+  pixi.stage.addChildAt(sphereLayer, pixi.stage.getChildIndex(hud)); // just below the HUD
+  let sphereTex = Texture.from(sphere3d.canvas);
+  const sphereSprite = new Sprite(sphereTex);
+  sphereLayer.addChild(sphereSprite);
+  sphere3d.onFrame = () => sphereTex.source.update(); // re-upload the canvas after each 3D render
+  // Match the sprite to the (resized) off-DOM canvas; re-bind the texture if the canvas grew.
+  function fitSphereSprite(): void {
+    if (sphereTex.source.resource !== sphere3d.canvas || sphereTex.source.pixelWidth !== sphere3d.canvas.width) {
+      sphereTex.destroy();
+      sphereTex = Texture.from(sphere3d.canvas);
+      sphereSprite.texture = sphereTex;
+      sphere3d.onFrame = () => sphereTex.source.update();
+    }
+    sphereSprite.setSize(window.innerWidth, window.innerHeight);
+    sphereTex.source.update();
+  }
+  let orbitDrag: { x: number; y: number } | null = null;
+  // 3D rotation: held rotate-keys + drag-release momentum, applied each frame by the ticker so
+  // the orbit is smooth/continuous (not one step per pointer event).
+  const heldRot = new Set<string>();
+  const ROT_KEYS = new Set(["arrowleft", "arrowright", "arrowup", "arrowdown", "w", "a", "s", "d"]);
+  let momVx = 0;
+  let momVy = 0;
+  let lastDragD = { x: 0, y: 0 };
+  pixi.ticker.add(() => {
+    if (!view3D) return;
+    let vx = 0;
+    let vy = 0;
+    if (heldRot.has("arrowleft") || heldRot.has("a")) vx -= KEY_ROT;
+    if (heldRot.has("arrowright") || heldRot.has("d")) vx += KEY_ROT;
+    if (heldRot.has("arrowup") || heldRot.has("w")) vy -= KEY_ROT;
+    if (heldRot.has("arrowdown") || heldRot.has("s")) vy += KEY_ROT;
+    vx += momVx;
+    vy += momVy;
+    if (Math.abs(vx) > 0.05 || Math.abs(vy) > 0.05) sphere3d.orbit(vx, vy);
+    momVx = Math.abs(momVx) < 0.05 ? 0 : momVx * MOM_DECAY;
+    momVy = Math.abs(momVy) < 0.05 ? 0 : momVy * MOM_DECAY;
+  });
+  let view3D = false;
+  function toggleView3D(): void {
+    if (view3D) {
+      view3D = false;
+      sphereLayer.visible = false;
+      world.visible = true;
+      sphere3d.hide();
+      paintRail();
+      return;
+    }
+    // Entering: preflight (iterative exceedsNodes — deep-tree-safe) so a too-big / unfocused tree
+    // never enters 3D, and the message shows on the visible 2D HUD.
+    if (!focus) return toast.show("focus a tree to view it in 3D");
+    if (exceedsNodes(focus.node, NODE_CAP)) return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
+    view3D = true;
+    world.visible = false;
+    sphereLayer.visible = true;
+    paintRail();
+    void sphere3d
+      .show(focus.node, window.innerWidth, window.innerHeight)
+      .then(() => fitSphereSprite())
+      .catch((e: unknown) => {
+        view3D = false; // Three failed to load / no WebGL — back out visibly
+        sphereLayer.visible = false;
+        world.visible = true;
+        sphere3d.hide();
+        paintRail();
+        toast.show("3D view unavailable — WebGL not supported here");
+        console.warn("sphere3d:", e);
+      });
+  }
+
+  // Set the layout for every tree (and trees spawned afterward). Picking a 2D layout leaves 3D.
   const setLayoutMode = (fn: LayoutFn): void => {
+    if (view3D) toggleView3D(); // a 2D layout choice exits the 3D view
     if (layoutFn === fn) return;
     layoutFn = fn;
     for (const t of trees) t.setLayout(fn);
@@ -965,6 +1078,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "radio", label: "Auto layout", on: () => layoutFn === layoutAuto, run: () => setLayoutMode(layoutAuto) },
       { kind: "radio", label: "Top-down layout", on: () => layoutFn === layoutTopDown, run: () => setLayoutMode(layoutTopDown) },
       { kind: "radio", label: "Radial layout", accel: "T", on: () => layoutFn === layoutRadial, run: () => setLayoutMode(layoutRadial) },
+      { kind: "toggle", label: "Sphere (3D) ✦", checked: () => view3D, run: () => toggleView3D() },
       { kind: "sep" },
       { kind: "toggle", label: "Expand ι-trees", accel: "X", checked: () => expandAll, run: () => toggleExpand() },
       { kind: "toggle", label: "Type lens", checked: () => readout.isTypeOn, run: () => readout.toggleType() },
@@ -1087,6 +1201,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (gameInput.handleKey(e)) e.preventDefault();
       return; // desktop letter-shortcuts don't run while game mode owns the keyboard
     }
+    // In 3D: arrows / WASD orbit (held = continuous), Esc exits. Other keys fall through.
+    if (view3D) {
+      const k = e.key.toLowerCase();
+      if (k === "escape") return toggleView3D();
+      if (ROT_KEYS.has(k)) {
+        heldRot.add(k);
+        return e.preventDefault();
+      }
+    }
     if (e.key === "r" || e.key === "R") clearCanvas();
     else if (e.key === "t" || e.key === "T") toggleLayout();
     else if (e.key === "u" || e.key === "U") unlockAll();
@@ -1097,6 +1220,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     else if (e.key === "d" || e.key === "D") setAuthorMode("define");
     else if (e.key === "a" || e.key === "A") setAuthorMode("abstract");
   });
+  window.addEventListener("keyup", (e) => heldRot.delete(e.key.toLowerCase())); // release a 3D rotate-key
 
   // Suppress the browser context menu so right-click can delete a node.
   pixi.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -1124,6 +1248,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // still works), so this never blocks startup.
   await readout.ensureRefolder();
   if (isOpt("wasm")) void loadWasmReducer(); // persisted Turbo → warm the wasm so the first reduction uses it
+  void preloadSphere3D(); // warm the Three.js chunk so the first 3D view is instant
   onStep("lenses"); // splash step 3/4
 
   // Warm the MicroHs live-compile blob + cache (the 3 MB compiler), so the Haskell
@@ -1141,6 +1266,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       discovered: () => [...discovered],
       mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : "topdown"),
       toggleLayout: () => toggleLayout(),
+      view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs, drawMs: sphere3d.lastDrawMs, az: sphere3d.azimuth }) },
       transport: { mode: () => reduce.mode, set: (m: string) => reduce.setTransport(m as Transport), cycle: () => reduce.cycleTransport(), step: () => reduce.stepOnce() },
       autoSteps: () => reduce.totalSteps(),
       run: () => { if (focus) reduce.schedule(focus); },
