@@ -331,3 +331,19 @@ loads only when toggled. Verified headless (SwiftShader/WebGL2): the fac program
 renders composited under the live HUD, orbits, ~20 ms build; toggling WebGPU loads `three/webgpu`
 and still renders. The renderer choice now matters little for this static scene (the council's
 point) — the value was the unified canvas, not the GPU backend.
+
+**Update — interactive rotation (shared-GL-context investigated, NOT needed).** Smooth
+continuous orbit driven by the Pixi ticker: mouse-drag rotates (with flick → decaying
+momentum), arrows / WASD held spin continuously, wheel zooms, Esc exits. The question was
+whether the per-frame texture re-upload of compositing "A" would be too janky for continuous
+rotation, needing a SHARED GL context (Three + Pixi on one context — option "B"). Investigated:
+Pixi v8 *does* officially support it now (the "Mixing Three + Pixi" guide:
+`pixiRenderer.init({ context: threeRenderer.getContext(), clearBeforeRender: false })` +
+`resetState()` between passes), but the supported shape is **Three owns the context, Pixi
+composites on top** — which inverts this app's Pixi-first architecture (Pixi would re-init onto
+Three's context, affecting the whole app, not just the sometimes-used 3D view). Then MEASURED
+the actual cost: the per-frame Three render + texture re-upload is ~0.6 ms even in *software*
+SwiftShader (the upload itself folds into Pixi's existing per-frame render of the HUD), i.e.
+negligible on a real GPU. So the shared context's complexity/risk buys nothing here — kept
+compositing "A". Reduction animation in 3D remains deferred (the user scoped this to camera
+rotation only).

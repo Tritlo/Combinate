@@ -75,6 +75,12 @@ export class Sphere3D {
   lastCount = 0;
   lastCapped = false;
   lastBuildMs = 0;
+  lastDrawMs = 0; // wall-clock of the last orbit render + texture re-upload (the per-frame cost)
+
+  /** Current orbit azimuth (for the dev seam / E2E — confirms rotation). */
+  get azimuth(): number {
+    return this.az;
+  }
 
   constructor(private readonly useWebGPU: () => boolean) {}
 
@@ -265,8 +271,10 @@ export class Sphere3D {
 
   private draw(): void {
     if (!this.renderer || !this.scene || !this.camera) return;
+    const t0 = performance.now();
     this.renderer.render(this.scene, this.camera);
     this.onFrame?.(); // owner re-uploads the canvas into its Pixi texture
+    this.lastDrawMs = performance.now() - t0;
   }
 
   /** Resize the off-DOM render target (the owner sizes its sprite to match). */
