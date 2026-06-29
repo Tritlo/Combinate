@@ -29,6 +29,13 @@ async function loadThree(): Promise<void> {
   OrbitCtor = orbit.OrbitControls as unknown as new (camera: T.Camera, dom: HTMLElement) => OrbitControls;
 }
 
+/** Warm the Three.js chunk in the background at boot (the lazy-heavy pattern — DuckDB-WASM, the
+ *  MicroHs blob, the Turbo wasm), so the first entry into the 3D view is instant. Best-effort:
+ *  a failure just means the lazy import retries on first real use. */
+export function preloadSphere3D(): Promise<void> {
+  return loadThree().catch(() => {});
+}
+
 // Per-kind node radius + colour (a 3D echo of tree.ts's visSpec, reusing the theme).
 function nodeStyle(n: Node): { radius: number; color: number } {
   switch (n.kind) {

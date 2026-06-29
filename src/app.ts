@@ -39,7 +39,7 @@ import { FluffPanel, isFluff, prefersReducedMotion, onFluffChange } from "./view
 import { OptimizePanel, isOpt, setOpt, onOptChange } from "./view/optimize";
 import { type NativeOpts } from "./core/native";
 import { tween } from "./view/anim";
-import { Sphere3D, NODE_CAP } from "./view/sphere3d";
+import { Sphere3D, NODE_CAP, preloadSphere3D } from "./view/sphere3d";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
 const COLLAPSE_MS = 340; // morph from a recognised normal form into its named node
@@ -1070,6 +1070,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // still works), so this never blocks startup.
   await readout.ensureRefolder();
   if (isOpt("wasm")) void loadWasmReducer(); // persisted Turbo → warm the wasm so the first reduction uses it
+  void preloadSphere3D(); // warm the Three.js chunk so the first 3D view is instant
   onStep("lenses"); // splash step 3/4
 
   // Warm the MicroHs live-compile blob + cache (the 3 MB compiler), so the Haskell
