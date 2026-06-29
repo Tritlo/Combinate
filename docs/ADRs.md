@@ -299,3 +299,18 @@ animation (deferred), no editing in 3D, no labels/picking.
 picking / drag-to-edit, true DAG sphere-packing. **Risks:** bundle size (→ lazy import), mobile
 WebGPU (→ WebGL default), big-tree edge count (→ batched `LineSegments` + the cap), a hidden-tab
 resume delta, and keeping the "focused tree" coherent across the two renderers.
+
+**Implemented** (`src/core/layout3d.ts` pure layout + `src/view/sphere3d.ts` lazy renderer +
+the View ▸ "Sphere (3D)" toggle). Magi-council review (Codex + Grok) caught and fixed three
+real blockers before commit: (1) WebGL context creation can throw (headless / blocklisted /
+mobile) — `show()` now try/catches and the toggle `.catch`es, backing out visibly with a
+toast rather than a silent blank overlay; (2) the leaf-weighted tilt could exceed 90° on a
+lopsided split, folding a child backward and collapsing the split-axis frame onto the growth
+axis (ray-flattening whole subtrees) — capped at `MAX_TILT` ≈69° with a degeneracy guard in
+`twist`; (3) the node-cap + "no focus" feedback was a Pixi toast hidden *under* the opaque 3D
+canvas — now preflighted with the iterative `exceedsNodes` (deep-tree-safe) while the 2D HUD is
+still up, so the message is seen and a too-big / unfocused tree never enters 3D. **Deferred
+(noted by the review):** the 3D view is a minimal-chrome static *snapshot* of the focused term
+(the Pixi read-out/hotbar are covered; only the DOM menu bar overlays) and does NOT live-update
+as the tree reduces — that's the "no animation yet" line; plus renderer dispose / WebGL-context-
+loss recovery and a DOM read-out overlay are follow-ups.

@@ -6,7 +6,7 @@ import {
   Rectangle,
   Text,
 } from "pixi.js";
-import { app as mkApp, comb, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
+import { app as mkApp, comb, exceedsNodes, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
 import { evalShared } from "./core/graph";
 import { encodePermalink, decodePermalink, type Modes } from "./core/permalink";
 import { LocalStore } from "./store/local";
@@ -39,6 +39,7 @@ import { FluffPanel, isFluff, prefersReducedMotion, onFluffChange } from "./view
 import { OptimizePanel, isOpt, setOpt, onOptChange } from "./view/optimize";
 import { type NativeOpts } from "./core/native";
 import { tween } from "./view/anim";
+import { Sphere3D, NODE_CAP } from "./view/sphere3d";
 
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
 const COLLAPSE_MS = 340; // morph from a recognised normal form into its named node
@@ -773,6 +774,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     zoo.applyTheme();
     challenges.applyTheme();
     for (const t of trees) t.refresh();
+    sphere3d.retheme(); // no-op when the 3D view is closed
   }
   onThemeChange(applyTheme);
 
@@ -786,6 +788,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     placeExpr();
     zoo.layout();
     challenges.layout();
+    if (view3D) sphere3d.resize();
   });
 
   // Render efficiency: stop the render/animation loop while the tab is hidden —
@@ -809,8 +812,34 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     focus = null;
   }
 
-  // Set the layout for every tree (and trees spawned afterward).
+  // ---- 3D "packed sphere" view (ADR 18): a lazy Three.js render of the focused term ----
+  const sphere3d = new Sphere3D();
+  let view3D = false;
+  function toggleView3D(): void {
+    if (view3D) {
+      view3D = false;
+      sphere3d.hide();
+      paintRail();
+      return;
+    }
+    // Entering: preflight WHILE the 2D HUD (toasts) is still visible — the 3D canvas covers it.
+    // exceedsNodes is iterative (deep-tree-safe) and cheap, and shows the message where it's seen.
+    if (!focus) return toast.show("focus a tree to view it in 3D");
+    if (exceedsNodes(focus.node, NODE_CAP)) return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
+    view3D = true;
+    paintRail();
+    void sphere3d.show(focus.node).catch((e: unknown) => {
+      view3D = false; // Three failed to load / no WebGL — back out visibly
+      sphere3d.hide();
+      paintRail();
+      toast.show("3D view unavailable — WebGL not supported here");
+      console.warn("sphere3d:", e);
+    });
+  }
+
+  // Set the layout for every tree (and trees spawned afterward). Picking a 2D layout leaves 3D.
   const setLayoutMode = (fn: LayoutFn): void => {
+    if (view3D) toggleView3D(); // a 2D layout choice exits the 3D view
     if (layoutFn === fn) return;
     layoutFn = fn;
     for (const t of trees) t.setLayout(fn);
@@ -894,6 +923,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "radio", label: "Auto layout", on: () => layoutFn === layoutAuto, run: () => setLayoutMode(layoutAuto) },
       { kind: "radio", label: "Top-down layout", on: () => layoutFn === layoutTopDown, run: () => setLayoutMode(layoutTopDown) },
       { kind: "radio", label: "Radial layout", accel: "T", on: () => layoutFn === layoutRadial, run: () => setLayoutMode(layoutRadial) },
+      { kind: "toggle", label: "Sphere (3D) ✦", checked: () => view3D, run: () => toggleView3D() },
       { kind: "sep" },
       { kind: "toggle", label: "Expand ι-trees", accel: "X", checked: () => expandAll, run: () => toggleExpand() },
       { kind: "toggle", label: "Type lens", checked: () => readout.isTypeOn, run: () => readout.toggleType() },
@@ -1057,6 +1087,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       discovered: () => [...discovered],
       mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : "topdown"),
       toggleLayout: () => toggleLayout(),
+      view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped }) },
       transport: { mode: () => reduce.mode, set: (m: string) => reduce.setTransport(m as Transport), cycle: () => reduce.cycleTransport(), step: () => reduce.stepOnce() },
       autoSteps: () => reduce.totalSteps(),
       run: () => { if (focus) reduce.schedule(focus); },
