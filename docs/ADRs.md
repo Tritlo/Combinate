@@ -255,3 +255,47 @@ arena (drop IND chains + dead cells, preserve the def prefix), caps aligned to n
 Cross-check (`npm run check:reduce-wasm`): one-shot + persistent + graph 213/0 vs
 `normalize(_,false)`/`evalShared(_,false)`, graph+kernels 253/0 vs `normalize(_,false,
 {numbers:true})`, session invariance 3/0. Deferred: list/bool kernels; a wasm value-read.
+
+## 18: 3D "packed sphere" view — static Three.js visualization (`viz-3d`)
+
+(Number 17 is reserved by the game-controls branch.) Designed with the Magi council (Codex +
+Grok, consensus).
+
+**Problem.** We want an ambitious 3D way to *look at* a term — a "packed sphere", the 3D
+generalization of the 2D radial view (root at centre, depth → radius, leaves spread around the
+disk). For now: a STATIC render of the focused tree, re-rendered on change. No reduction
+animation (deferred), no editing in 3D, no labels/picking.
+
+**Decision.**
+- **Tech — Three.js, `WebGLRenderer` by default, behind a renderer factory** so a
+  `WebGPURenderer` backend can be slotted in later (the user's WebGPU interest is the future
+  path, not the MVP). Three gives mature `InstancedMesh` + `LineSegments` + `OrbitControls`;
+  raw WebGPU is too much boilerplate for a static instanced scene, and WebGPU is not yet
+  Baseline (mobile/Firefox still partial in 2026), so a WebGL default sidesteps the second-
+  renderer portability risk while still being "the wow." Three is **dynamic-imported on first
+  3D entry** (the established lazy-heavy pattern — DuckDB-WASM, the MicroHs blob), so the main
+  bundle stays lean.
+- **Layout — a new PURE `src/core/layout3d.ts`** (functional core, ADR 0001): a deterministic
+  **weighted spherical cone-tree** (Robertson et al. 1991), the direct 3D port of
+  `layoutRadial`. Depth → radius (concentric shells); each subtree gets a solid-angle wedge
+  proportional to its leaf count; an `app`'s `fn`/`arg` children become left/right lobes inside
+  a cone around the parent's outward direction (preserving the fn=left/arg=right mnemonic);
+  leaves fill the shell so the whole tree packs a ball. Returns `{ pos: Map<NodeId,{x,y,z}>,
+  bounds3D }`. DAG sharing mirrors the 2D layouts (place a shared node once on first visit;
+  extra shared edges drawn translucent). Rejected: Fibonacci/icosahedral shells (uniform
+  *surface* points, lose the hierarchy), true recursive 3D sphere-packing (hides parent-child
+  paths, costly), force-directed-on-sphere (iterative, unstable, bad for a static diffable
+  re-render).
+- **Integration — a second canvas, toggled like a layout mode.** A new "Sphere (3D)" radio in
+  the View menu beside Auto/Top-down/Radial. On select: hide the Pixi canvas, show a sibling
+  `<canvas>` positioned *under* the existing DOM HUD (menus/read-out stay), `src/view/sphere3d.ts`
+  lazy-loads Three, builds one instanced-sphere mesh (per-kind colour, reusing `radiusOf` /
+  `combinatorColor` / the theme) + one `LineSegments` edge buffer for the focused term, attaches
+  `OrbitControls` (drag-rotate, wheel/pinch-zoom), and auto-fits. **Read-only + static**: it
+  re-renders on focus / reduction / resize change, with no per-step tween. A node-count cap
+  mirrors the 2D `HEAVY` LOD.
+
+**Deferred:** the `WebGPURenderer` backend, reduction animation in 3D, text labels, node
+picking / drag-to-edit, true DAG sphere-packing. **Risks:** bundle size (→ lazy import), mobile
+WebGPU (→ WebGL default), big-tree edge count (→ batched `LineSegments` + the cap), a hidden-tab
+resume delta, and keeping the "focused tree" coherent across the two renderers.
