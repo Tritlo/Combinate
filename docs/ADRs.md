@@ -314,3 +314,20 @@ still up, so the message is seen and a too-big / unfocused tree never enters 3D.
 (the Pixi read-out/hotbar are covered; only the DOM menu bar overlays) and does NOT live-update
 as the tree reduces — that's the "no animation yet" line; plus renderer dispose / WebGL-context-
 loss recovery and a DOM read-out overlay are follow-ups.
+
+**Update — composited into Pixi + WebGPU as an optimization** (Magi-consensus). The 3D is no
+longer a separate canvas covering the Pixi HUD (the deferred coherence gap): `Sphere3D` now
+renders into its OWN off-DOM canvas, and `app.ts` draws that canvas as a Pixi **texture sprite**
+in a `sphereLayer` *between* `world` and `hud` — so the entire Pixi HUD (read-out, hotbar,
+legend, transport, quest) composites on top (compositing "A"; "B"'s shared GL context was
+rejected as fragile + impossible across a WebGPU/WebGL mix). The camera is a small orbit driven
+by the existing Pixi pointer/wheel handlers (no OrbitControls, since the canvas isn't in the
+DOM); each render fires `onFrame` so the owner re-uploads the canvas into the texture (render-on-
+demand, so the per-orbit upload — the real cost the council flagged — only happens on an actual
+change; DPR capped at 1.5 to bound it). **WebGPU is now an opt-in optimization** ("3D: WebGPU
+renderer"), default OFF: WebGLRenderer is the default (and the testing path), WebGPURenderer
+(the self-contained `three/webgpu` build, ~190 KB-gz lazy chunk, auto-falls-back to WebGL2)
+loads only when toggled. Verified headless (SwiftShader/WebGL2): the fac program (699 nodes)
+renders composited under the live HUD, orbits, ~20 ms build; toggling WebGPU loads `three/webgpu`
+and still renders. The renderer choice now matters little for this static scene (the council's
+point) — the value was the unified canvas, not the GPU backend.

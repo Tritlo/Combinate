@@ -8,8 +8,8 @@
  */
 import { SettingsModal } from "./modal";
 
-/** A toggleable reduction optimization. */
-export type OptKey = "rules" | "graph" | "nativeNumbers" | "nativeLists" | "nativeBooleans" | "wasm";
+/** A toggleable reduction (or render) optimization. */
+export type OptKey = "rules" | "graph" | "nativeNumbers" | "nativeLists" | "nativeBooleans" | "wasm" | "webgpu";
 
 const SETTINGS: { key: OptKey; label: string; desc: string }[] = [
   { key: "rules", label: "Optimize (rule steps)", desc: "Reduce a named combinator by its law in one step, not its raw ι/SKI tree." },
@@ -18,6 +18,7 @@ const SETTINGS: { key: OptKey; label: string; desc: string }[] = [
   { key: "nativeLists", label: "Native lists", desc: "Evaluate list ops (<>, map, concat) on recognised lists directly." },
   { key: "nativeBooleans", label: "Native booleans", desc: "Evaluate not, and, or on recognised booleans directly." },
   { key: "wasm", label: "Turbo (wasm)", desc: "Reduce big trees in WebAssembly with call-by-need sharing + native number/list/bool kernels — fast, no blow-up. Auto-engages once a tree is big (small trees keep the step-by-step animation); auto-on when you compile a Haskell program. Off while the rule-steps or graph option is on." },
+  { key: "webgpu", label: "3D: WebGPU renderer", desc: "Render the Sphere (3D) view with WebGPU instead of WebGL (auto-falls-back to WebGL2 if unsupported). A bigger lazy download for little gain on the current static scene — off by default; WebGL is used for tests." },
 ];
 
 const STORE_KEY = "combinate:optimize:v1";

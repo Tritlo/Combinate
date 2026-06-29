@@ -1,39 +1,42 @@
 /**
- * The 3D "packed sphere" view (ADR 18) — a lazy Three.js renderer for the focused term. A
- * static, read-only visualization (no reduction animation yet): it renders the {@link
- * layoutSphere} of one term as instanced spheres + coloured edges, with orbit controls, and
- * re-renders on demand (on a term/theme/resize change or a camera move). Three is dynamic-
- * imported on first entry (the lazy-heavy pattern — DuckDB-WASM, the MicroHs blob), so it never
- * touches the main bundle. WebGL today; a WebGPU backend can slot into {@link makeRenderer}
- * later (ADR 18). The 2D Pixi scene is untouched — this is a parallel canvas the toggle covers
- * it with.
+ * The 3D "packed sphere" view (ADR 18) — a lazy Three.js renderer for the focused term. It
+ * renders {@link layoutSphere} as instanced spheres + coloured edges into its OWN off-DOM
+ * canvas; the owner draws that canvas as a Pixi texture sprite so the Pixi HUD composites on
+ * top (compositing "A", Magi-consensus — no separate overlay covering the HUD). Static + read-
+ * only (no reduction animation yet): re-renders on demand (term / theme / resize / orbit), each
+ * render firing {@link onFrame} so the owner can re-upload the texture. The camera is a small
+ * orbit driven by the host's Pixi pointer events ({@link orbit} / {@link zoomBy}) — no
+ * OrbitControls, since the canvas isn't in the DOM. Three is dynamic-imported on first entry
+ * (the lazy-heavy pattern); WebGL by default, WebGPU when the optimization is on (it auto-falls-
+ * back to WebGL2), so headless/CI stays on WebGL.
  */
 import type * as T from "three";
-import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { type Node } from "../core/term";
 import { layoutSphere } from "../core/layout3d";
 import { theme, combinatorColor } from "./theme";
 
 /** Beyond this node count the static scene gets heavy to build/draw — the app preflights this
- *  (iteratively, deep-safe) before entering 3D, so the toast shows while the 2D HUD is up. */
+ *  (iteratively, deep-safe) before entering 3D. */
 export const NODE_CAP = 20_000;
 const SPHERE_SEGMENTS = 12; // low-poly node sphere (instanced thousands of times)
+const ROT = 0.008; // orbit radians per pixel of drag
+const POLAR_MIN = 0.08;
+const POLAR_MAX = Math.PI - 0.08;
+const DPR_CAP = 1.5; // cap the 3D canvas DPR — the texture re-upload per orbit step is the cost, not the draw
 
-// Lazily-loaded Three module + OrbitControls constructor (shared across instances).
+// Lazily-loaded Three module — re-imported if the WebGPU choice flips (the two builds are
+// self-contained, so each is used whole; no mixing core objects across them).
 let THREE: typeof T | null = null;
-let OrbitCtor: (new (camera: T.Camera, dom: HTMLElement) => OrbitControls) | null = null;
-async function loadThree(): Promise<void> {
-  if (THREE) return;
-  const [three, orbit] = await Promise.all([import("three"), import("three/examples/jsm/controls/OrbitControls.js")]);
-  THREE = three;
-  OrbitCtor = orbit.OrbitControls as unknown as new (camera: T.Camera, dom: HTMLElement) => OrbitControls;
+let loadedWebGPU = false;
+async function loadThree(webgpu: boolean): Promise<void> {
+  if (THREE && loadedWebGPU === webgpu) return;
+  THREE = (webgpu ? await import("three/webgpu") : await import("three")) as unknown as typeof T;
+  loadedWebGPU = webgpu;
 }
-
-/** Warm the Three.js chunk in the background at boot (the lazy-heavy pattern — DuckDB-WASM, the
- *  MicroHs blob, the Turbo wasm), so the first entry into the 3D view is instant. Best-effort:
- *  a failure just means the lazy import retries on first real use. */
-export function preloadSphere3D(): Promise<void> {
-  return loadThree().catch(() => {});
+/** Warm the Three build the 3D view will use (WebGL by default, the WebGPU build if that
+ *  optimization is on) in the background at boot, so the first entry is instant. Best-effort. */
+export function preloadSphere3D(webgpu: boolean): Promise<void> {
+  return loadThree(webgpu).catch(() => {});
 }
 
 // Per-kind node radius + colour (a 3D echo of tree.ts's visSpec, reusing the theme).
@@ -50,62 +53,78 @@ function nodeStyle(n: Node): { radius: number; color: number } {
   }
 }
 
+const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
+
 export class Sphere3D {
+  /** The off-DOM render target — the owner wraps this in a Pixi texture. */
   readonly canvas = document.createElement("canvas");
-  private renderer: T.WebGLRenderer | null = null;
+  /** Fired after every render so the owner can re-upload the canvas into its Pixi texture. */
+  onFrame: (() => void) | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- WebGL/WebGPU renderer union; only the common subset (render/setSize/setPixelRatio/dispose) is used
+  private renderer: any = null;
   private scene: T.Scene | null = null;
   private camera: T.PerspectiveCamera | null = null;
-  private controls: OrbitControls | null = null;
-  private content: T.Group | null = null; // the current term's meshes (replaced each render)
+  private content: T.Group | null = null;
   private current: Node | null = null;
   private on = false;
-  /** The last render's node count, and whether it was too big to draw (the app toasts on it). */
+  private az = 0.6; // orbit azimuth
+  private pol = 1.05; // orbit polar (from +Y)
+  private rad = 800; // orbit radius
+  private w = 1;
+  private h = 1;
   lastCount = 0;
   lastCapped = false;
-  lastBuildMs = 0; // wall-clock to lay out + build the scene + first draw (perf read-out)
+  lastBuildMs = 0;
 
-  constructor() {
-    this.canvas.style.cssText = "position:fixed; inset:0; width:100%; height:100%; display:none; z-index:1; touch-action:none;";
-    document.body.appendChild(this.canvas);
-  }
+  constructor(private readonly useWebGPU: () => boolean) {}
 
   get active(): boolean {
     return this.on;
   }
 
-  /** Enter 3D and render `node` (lazy-loads Three on first call). Rejects if Three fails to load
-   *  or WebGL is unavailable — the caller resets the toggle + toasts (a visible failure). */
-  async show(node: Node | null): Promise<void> {
+  /** Enter 3D and render `node` at canvas size `w×h` (lazy-loads Three on first call). Rejects
+   *  if Three fails to load / WebGL unavailable — the caller backs out + toasts. */
+  async show(node: Node | null, w: number, h: number): Promise<void> {
     this.on = true;
-    this.canvas.style.display = "block";
+    this.w = w;
+    this.h = h;
     try {
-      await loadThree();
-      this.ensureScene(); // `new WebGLRenderer` can throw (no WebGL / blocklisted / lost context)
+      await loadThree(this.useWebGPU());
+      await this.ensureScene();
     } catch (e) {
       this.on = false;
-      this.canvas.style.display = "none";
       throw e;
     }
     this.update(node);
   }
 
-  /** Leave 3D — hide the canvas (keeps the GL context warm for a quick re-entry). */
   hide(): void {
     this.on = false;
-    this.canvas.style.display = "none";
   }
 
-  private makeRenderer(three: typeof T): T.WebGLRenderer {
-    // WebGL today (ADR 18 — WebGPU is a later renderer-factory branch). Antialiased, DPR-capped.
-    const r = new three.WebGLRenderer({ canvas: this.canvas, antialias: true });
-    r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    return r;
+  /** The WebGPU optimization flipped — drop the renderer/scene so the next show rebuilds it. */
+  invalidateRenderer(): void {
+    this.renderer?.dispose?.();
+    this.renderer = null;
+    this.scene = null;
+    this.camera = null;
+    this.content = null;
   }
 
-  private ensureScene(): void {
+  private async ensureScene(): Promise<void> {
     if (this.scene || !THREE) return;
     const three = THREE;
-    this.renderer = this.makeRenderer(three);
+    const webgpu = this.useWebGPU();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- WebGPURenderer lives on the three/webgpu build only
+    const WebGPURenderer = (three as any).WebGPURenderer;
+    if (webgpu && WebGPURenderer) {
+      const r = new WebGPURenderer({ canvas: this.canvas, antialias: true });
+      await r.init(); // WebGPU device acquisition is async (falls back to WebGL2 if unsupported)
+      this.renderer = r;
+    } else {
+      this.renderer = new three.WebGLRenderer({ canvas: this.canvas, antialias: true });
+    }
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     this.scene = new three.Scene();
     this.camera = new three.PerspectiveCamera(50, 1, 0.1, 500_000);
     // form-giving light so the spheres read as 3D (cheap: one directional + ambient).
@@ -113,11 +132,7 @@ export class Sphere3D {
     const key = new three.DirectionalLight(0xffffff, 0.9);
     key.position.set(1, 1.4, 1.2);
     this.scene.add(key);
-    const controls = new OrbitCtor!(this.camera, this.canvas);
-    controls.enableDamping = false; // static: render on demand, no rAF loop
-    controls.addEventListener("change", () => this.draw());
-    this.controls = controls;
-    this.resize();
+    this.resize(this.w, this.h);
   }
 
   /** Render `node` (rebuilds the scene content + frames the camera). Cheap to call again. */
@@ -143,7 +158,7 @@ export class Sphere3D {
     this.lastCapped = pos.size > NODE_CAP;
     if (this.lastCapped) {
       this.draw();
-      return; // too big to build a static scene — leave it blank (the toast lives in app.ts)
+      return; // too big to build a static scene — blank (the toast lives in app.ts)
     }
     const group = new three.Group();
     group.add(this.buildNodes(three, node, pos));
@@ -215,34 +230,57 @@ export class Sphere3D {
     return new three.LineSegments(geo, new three.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55 }));
   }
 
+  // ---- orbit camera (driven by the host's Pixi pointer events; no OrbitControls) ----
+  /** Rotate the camera by a pointer drag (pixels). */
+  orbit(dx: number, dy: number): void {
+    this.az -= dx * ROT;
+    this.pol = clamp(this.pol - dy * ROT, POLAR_MIN, POLAR_MAX);
+    this.place();
+    this.draw();
+  }
+  /** Zoom by a factor (<1 in, >1 out) — the wheel / pinch. */
+  zoomBy(factor: number): void {
+    this.rad = clamp(this.rad * factor, 1, 5_000_000);
+    this.place();
+    this.draw();
+  }
+  private place(): void {
+    if (!this.camera) return;
+    const sp = Math.sin(this.pol);
+    this.camera.position.set(this.rad * sp * Math.cos(this.az), this.rad * Math.cos(this.pol), this.rad * sp * Math.sin(this.az));
+    this.camera.lookAt(0, 0, 0);
+  }
   // Frame the whole ball: pull the camera back so a sphere of `radius` fills the view.
   private frame(radius: number): void {
-    if (!this.camera || !this.controls) return;
+    if (!this.camera) return;
     const r = Math.max(radius, 120);
-    const dist = (r * 1.5) / Math.tan((this.camera.fov * Math.PI) / 360);
-    this.camera.position.set(dist * 0.5, dist * 0.35, dist * 0.9);
-    this.camera.near = Math.max(0.1, dist / 1000);
-    this.camera.far = dist * 10;
+    this.rad = (r * 1.6) / Math.tan((this.camera.fov * Math.PI) / 360);
+    this.az = 0.6;
+    this.pol = 1.05;
+    this.camera.near = Math.max(0.1, this.rad / 1000);
+    this.camera.far = this.rad * 10;
     this.camera.updateProjectionMatrix();
-    this.controls.target.set(0, 0, 0);
-    this.controls.update();
+    this.place();
   }
 
   private draw(): void {
-    if (this.renderer && this.scene && this.camera) this.renderer.render(this.scene, this.camera);
+    if (!this.renderer || !this.scene || !this.camera) return;
+    this.renderer.render(this.scene, this.camera);
+    this.onFrame?.(); // owner re-uploads the canvas into its Pixi texture
   }
 
-  resize(): void {
+  /** Resize the off-DOM render target (the owner sizes its sprite to match). */
+  resize(w: number, h: number): void {
+    this.w = w;
+    this.h = h;
     if (!this.renderer || !this.camera) return;
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    this.renderer.setSize(w, h, false);
+    this.renderer.setSize(w, h, false); // false: off-DOM, don't touch canvas CSS
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.draw();
   }
 
-  /** Re-read the theme (background + edge/node colours) and repaint. */
+  /** Re-read the theme (background + node/edge colours) and repaint. */
   retheme(): void {
     if (this.on) this.update(this.current);
   }
