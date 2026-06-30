@@ -1,4 +1,4 @@
-import { type Node, app, comb, decode, freeVar } from "./term";
+import { type Node, type NodeId, app, comb, decode, freeVar, iotaTreeFrom } from "./term";
 
 /**
  * Canonical ι-tree bit-codes (§4) for the combinators that can appear transient
@@ -558,3 +558,31 @@ const encodeIota = (n: Node): string => (n.kind === "app" ? "0" + encodeIota(n.f
 /** Each combinator's full ι-tree as a bit-code, for the "expand everything to ι"
  *  view — keyed by symbol (includes the transient I/K/S). */
 export const IOTA_BITCODE: Record<string, string> = Object.fromEntries(CATALOG.map((l) => [l.sym, encodeIota(iotaTreeOf(l))]));
+
+/** Expand a term into its DISPLAY form: undiscovered S/K/I become their ι-trees (the discovery
+ *  mask), and — when `expandAll` — every combinator becomes its full ι-tree. Memoised by id so a
+ *  shared subterm (graph mode) expands once (the display stays a DAG). Pure: the predicates are
+ *  injected. Shared by the 2D tree and the 3D sphere so they render the same thing. */
+export function expandDisplay(root: Node, opts: { expandAll: boolean; isDiscovered: (sym: string) => boolean }): Node {
+  const memo = new Map<NodeId, Node>();
+  const go = (n: Node): Node => {
+    const hit = memo.get(n.id);
+    if (hit) return hit;
+    let out: Node;
+    switch (n.kind) {
+      case "comb": {
+        const code = opts.expandAll ? IOTA_BITCODE[n.sym] : !opts.isDiscovered(n.sym) ? IOTA_CODE[n.sym] : undefined;
+        out = code ? iotaTreeFrom(code, n.id) : n;
+        break;
+      }
+      case "app":
+        out = { ...n, fn: go(n.fn), arg: go(n.arg) };
+        break;
+      default:
+        out = n;
+    }
+    memo.set(n.id, out);
+    return out;
+  };
+  return go(root);
+}

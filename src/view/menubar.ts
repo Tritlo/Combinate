@@ -146,6 +146,11 @@ export class MenuBar {
     else this.renderDropdown(this.open);
   }
 
+  /** Open the menu bar programmatically (Esc in game mode → "access the menu bar"). */
+  openMenuBar(): void {
+    this.openAt(0);
+  }
+
   private applyPalette(): void {
     // The dropdown is a body child (not under the bar), so set the vars on both.
     // Don't touch other inline styles — the dropdown's display/left/top may be live.

@@ -124,8 +124,6 @@ export interface SettingsSpec extends Omit<ModalOpts, "title"> {
   rows: SettingRow[];
   checked: (key: string) => boolean;
   toggle: (key: string) => void;
-  /** Optional master switch (Fluff): toggles the whole layer; children dim when off. */
-  master?: { label: string; desc: string; on: () => boolean; toggle: () => void };
 }
 
 let settingsInjected = false;
@@ -138,11 +136,8 @@ function injectSettings(): void {
 .ms-row:hover { background: color-mix(in srgb, var(--md-ink) 8%, transparent); }
 .ms-box { width: 15px; height: 15px; flex: 0 0 auto; margin-top: 1px; border: 1.5px solid var(--md-ink);
   display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; line-height: 1; }
-.ms-master { border-bottom: 1px solid color-mix(in srgb, var(--md-ink) 35%, transparent); margin-bottom: 4px; padding-bottom: 9px; }
-.ms-master .ms-label { font-size: 15px; font-weight: 600; }
 .ms-label { font-weight: 600; }
 .ms-desc { opacity: 0.6; font-size: 12.5px; margin-top: 1px; }
-.ms-fx.ms-off { opacity: 0.4; }
 .ms-foot { display: flex; justify-content: flex-end; padding: 0 18px 16px; }
 .ms-done { font-family: ${MONO}; font-size: 13px; font-weight: 600; color: var(--md-paper); background: var(--md-ink);
   border: 1px solid var(--md-ink); padding: 4px 16px; cursor: pointer; }
@@ -152,19 +147,12 @@ function injectSettings(): void {
   document.head.appendChild(style);
 }
 
-const MASTER_KEY = "§master";
-
 export class SettingsModal extends Modal {
-  private readonly fxWrap = document.createElement("div");
-
   constructor(private readonly spec: SettingsSpec) {
     super({ title: spec.title, width: spec.width, extraVars: spec.extraVars });
     injectSettings();
     this.body.classList.add("ms-body");
-    if (spec.master) this.body.append(this.row(MASTER_KEY, spec.master.label, spec.master.desc, true));
-    this.fxWrap.className = "ms-fx";
-    for (const r of spec.rows) this.fxWrap.append(this.row(r.key, r.label, r.desc, false));
-    this.body.append(this.fxWrap);
+    for (const r of spec.rows) this.body.append(this.row(r.key, r.label, r.desc));
 
     const foot = document.createElement("div");
     foot.className = "ms-foot";
@@ -177,22 +165,19 @@ export class SettingsModal extends Modal {
     this.sync();
   }
 
-  /** Reflect the store into the checkboxes + dim the children when the master is off.
-   *  The owner subscribes its store's change event to this. */
+  /** Reflect the store into the checkboxes. The owner subscribes its store's change event to this. */
   sync(): void {
     const mark = (on: boolean): string => (on ? "✓" : "");
-    if (this.spec.master) (this.body.querySelector(`.ms-box[data-key="${MASTER_KEY}"]`) as HTMLElement).textContent = mark(this.spec.master.on());
     for (const r of this.spec.rows) (this.body.querySelector(`.ms-box[data-key="${r.key}"]`) as HTMLElement).textContent = mark(this.spec.checked(r.key));
-    if (this.spec.master) this.fxWrap.classList.toggle("ms-off", !this.spec.master.on());
   }
 
   protected override onOpen(): void {
     this.sync();
   }
 
-  private row(key: string, labelText: string, descText: string, master: boolean): HTMLElement {
+  private row(key: string, labelText: string, descText: string): HTMLElement {
     const row = document.createElement("div");
-    row.className = master ? "ms-row ms-master" : "ms-row";
+    row.className = "ms-row";
     const box = document.createElement("div");
     box.className = "ms-box";
     box.dataset.key = key;
@@ -207,8 +192,7 @@ export class SettingsModal extends Modal {
     row.append(box, text);
     row.addEventListener("pointerdown", (e) => {
       e.preventDefault();
-      if (master) this.spec.master?.toggle();
-      else this.spec.toggle(key);
+      this.spec.toggle(key);
       this.sync(); // immediate (the owner's change event also syncs; idempotent)
     });
     return row;
