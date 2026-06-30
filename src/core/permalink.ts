@@ -15,7 +15,8 @@ import { toEgg, fromEgg } from "./refold";
 export interface Modes {
   optimize?: boolean; // named-combinator reduction (v5 optimize toggle)
   graph?: boolean; // graph-reduction sharing (the "graph" toggle — NOT the permalink "share")
-  refold?: boolean; // the egg refold lens
+  refold?: boolean; // legacy (≤c1): the egg refold lens — decoded as view "named"
+  view?: "ski" | "named" | "barker"; // read-out view (default "ski"); see ReadoutBox
   type?: boolean; // the HM type lens
   expand?: boolean; // draw every combinator as its full ι-tree
   page?: string; // the active hotbar page (Programs/Booleans/…)
