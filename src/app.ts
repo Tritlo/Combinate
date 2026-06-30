@@ -1450,8 +1450,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   });
   window.addEventListener("keyup", (e) => heldRot.delete(e.key.toLowerCase())); // release a 3D rotate-key
 
-  // Suppress the browser context menu so right-click can delete a node.
-  pixi.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  // Kill the browser's native context menu everywhere — right-click opens our Delete/Copy popup, never
+  // the OS one — except inside real text fields (the Haskell editor / name prompts), where it's useful.
+  document.addEventListener("contextmenu", (e) => {
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    e.preventDefault();
+  });
 
   // A small key for the edge encoding: STYLE = which child (solid function / dashed argument),
   // COLOUR = depth tier (red/black alternating, so a parent-edge differs from its child-edges).
