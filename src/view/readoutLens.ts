@@ -6,18 +6,21 @@
  *    undiscovered S/K/I. No reduction, so it never runs ahead of the on-screen reducer (this is what
  *    "show the current state" means — e.g. `map (+1) [1,2,3]` stays itself until the tree visibly
  *    reduces, instead of jumping to `[2,3,4]`).
- *  - **named** — the only evaluating view: the value probe (`read`/`render` → native ints / lists /
- *    bools / chars) with the combinator residual named by the re-folder (egg, behavioural fallback).
- *    An explicit "what does this evaluate to" lens. The HM type badge (opt-in) appends here.
+ *  - **named** — the current term as DATA: named combinators + Scott literals (numerals / lists / bools)
+ *    recognised STRUCTURALLY by `catalog.sugar` (no reduction), so it tracks the reduction — `(+) 1 1`
+ *    stays `((+) 1 1)` until it actually reduces. ONLY at a true normal form (no possible reduction)
+ *    does it read the value back (`read`/`render`, which is extensional → recovers `2` even from a
+ *    non-optimised NF). The HM type badge (opt-in) appends on that value branch.
  *  - **barker** — the raw Barker ι bit-code (`1` = ι, `0 <fn> <arg>` = app), bounded.
  *
  * The shell injects how to find the focused node + the active read page and owns the box placement.
  */
 import { type Ticker } from "pixi.js";
-import { sexp, decode, exceedsNodes, type Node } from "../core/term";
-import { IOTA_CODE, barkerCode } from "../core/catalog";
+import { decode, exceedsNodes, type Node } from "../core/term";
+import { IOTA_CODE, barkerCode, sugar } from "../core/catalog";
 import { makeRefolder, behavioralRefolder, type Refolder } from "../core/refold";
 import { read, render, type Ty } from "../core/types";
+import { redexAt } from "../core/reduce";
 import { inferType } from "../core/infer";
 import { type ReadoutBox } from "./readoutBox";
 import { type Toast } from "./toast";
@@ -55,8 +58,10 @@ const READOUT_PROBE_MAX = 3000;
 const NAMED_MIN_INTERVAL = 120; // ms (~8 Hz)
 
 export class ReadoutLens {
-  // re-folding (used by the named view; behavioural pre-pass works without wasm)
-  private refolder: Refolder | null = null;
+  // Re-folder for naming combinator residuals (S(KS)K → B …). Used ONLY on the normal-form branch of
+  // the named view (one-shot, never per-frame), plus the dev seam. Starts as the instant pure-TS
+  // behavioural pass; upgraded to the full behavioural→egg pipeline once the wasm loads at boot.
+  private refolder: Refolder = behavioralRefolder;
   private refolderLoading = false;
   private refoldRaw: ((sexpr: string) => string) | null = null;
   private typeOn = false;
@@ -120,21 +125,30 @@ export class ReadoutLens {
     }
   }
 
-  // The named + native view: native value if the term reads as data, else the re-folded
-  // (bird-named) term, else the raw combinator s-expression; with the optional type badge. Past the
-  // node budget the reducing probes would freeze playback, so fall back to the raw expression.
+  // The named + native view shows the term's DATA, not its evaluation. While the term can still
+  // reduce, it renders the CURRENT shape sugared (named combinators + native literals via `sugar`, no
+  // normalize) so it tracks the reduction instead of spoiling the answer — `add (S 0)(S 0)` reads as
+  // `((+) 1 1)`. Only once there is NO possible reduction do we read it back to a value: `read` is
+  // extensional, so it recovers e.g. `2` even from the non-optimised normal form `K (S I (K (Succ K)))`
+  // that isn't a literal Succ-spine. A combinator / stuck-partial NF (read → null) or a term too big to
+  // probe falls back to the same structural sugar (the type badge, opt-in, lives on the value branch).
   private named(node: Node, mode: Ty | undefined): string {
-    if (!this.refolder) {
-      this.refolder = behavioralRefolder; // instant pure-TS lens…
-      void this.ensureRefolder(); // …upgraded with the egg stage when it loads
+    const id = { isDiscovered: this.deps.isDiscovered, mode };
+    // Big-tree guard BEFORE the redex probe: redexAt walks the whole tree when there's no root redex,
+    // so on a huge term skip straight to bounded structural sugar (no probe / no read).
+    if (exceedsNodes(node, READOUT_PROBE_MAX)) {
+      const txt = sugar(node, id);
+      return this.typeOn ? `${txt}  ::  (tree too large to type)` : txt;
     }
-    const big = exceedsNodes(node, READOUT_PROBE_MAX);
-    const v = big ? null : read(node, mode ?? null);
-    const value = v ? render(v) : null;
-    const folded = !value && !big && this.refolder ? this.refolder(node) : null;
-    let txt = value ?? (folded ? sexp(folded) : this.exprOf(node));
-    if (this.typeOn) txt += `  ::  ${big ? "(tree too large to type)" : (inferType(node) ?? "no simple type")}`;
-    return txt;
+    if (redexAt(node) === null) {
+      // Normal form. Read the value (extensional → recovers e.g. 2 from a non-optimised NF); a
+      // combinator / stuck-partial NF (read → null) is re-folded once here (name its birds) then
+      // sugared. The HM type badge (opt-in) shows only at NF — never mid-reduction.
+      const v = read(node, mode ?? null);
+      const txt = v ? render(v) : sugar(this.refolder(node) ?? node, id);
+      return this.typeOn ? `${txt}  ::  ${inferType(node) ?? "no simple type"}` : txt;
+    }
+    return sugar(node, id); // still reducing → sugared current term, no eval (no spoiler, no lag)
   }
 
   /** Force a read-out recompute on the next frame (after a view / mode / discovery change). */
@@ -143,8 +157,8 @@ export class ReadoutLens {
     this.lastView = null;
   }
 
-  // Upgrade the named view's re-folder from the pure behavioural pre-pass to the full
-  // behavioural→egg pipeline once the wasm loads; a load failure keeps the behavioural-only folder.
+  // Load the egg re-folder wasm and upgrade the behavioural pass to the full behavioural→egg pipeline.
+  // Called eagerly at boot (no lazy load) so a normal-form re-fold + the dev seam are ready up front.
   async ensureRefolder(): Promise<void> {
     if (this.refoldRaw || this.refolderLoading) return;
     this.refolderLoading = true;
@@ -153,7 +167,7 @@ export class ReadoutLens {
       await mod.default();
       this.refoldRaw = mod.refold;
       this.refolder = makeRefolder(mod.refold);
-      this.invalidate(); // recompute now the egg stage is live
+      this.invalidate(); // re-render now the egg stage is live
     } catch {
       this.deps.toast.show("re-folder: behavioural only (wasm unavailable)");
     } finally {
