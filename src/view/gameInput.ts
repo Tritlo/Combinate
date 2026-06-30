@@ -33,6 +33,11 @@ export interface GameScene {
   bucketAnchor: (k: number) => { x: number; y: number };
   /** Create a reducing `TreeView` for `node` at a world anchor; focus it. */
   spawnAt: (node: Node, world: { x: number; y: number }) => TreeView;
+  /** A dimmed, NON-reducing render of `node` at a world anchor — the held-term preview shown on
+   *  the focused bucket while building. Not scheduled/focused/tracked; tear down with {@link unpreview}. */
+  preview: (node: Node, world: { x: number; y: number }) => TreeView;
+  /** Remove + destroy a preview tree (see {@link preview}). */
+  unpreview: (tree: TreeView) => void;
   /** Build `app(fn, arg)` at a world anchor (the factored, non-spatial apply); focus it. */
   applyTerms: (fn: Node, arg: Node, world: { x: number; y: number }, fromWorld?: Map<number, { x: number; y: number }>) => TreeView;
   /** Capture a tree's node world-positions (to glide the merge). */
@@ -58,6 +63,8 @@ export class GameInputController {
   private zone: "hotbar" | "buckets" = "hotbar";
   private selected = 0; // the focused bucket's stable key k (world x = k · spacing); unbounded, can be negative
   private hand: Hand | null = null;
+  private applySide: "left" | "right" = "left"; // when walking onto an occupied bucket: attach the held as fn (left) or arg (right)
+  private preview: TreeView | null = null; // the dimmed, non-reducing ghost of the held term on the focused bucket
   private readonly buckets = new Map<number, TreeView>(); // occupied buckets only, keyed by k
 
   constructor(private readonly scene: GameScene) {}
@@ -85,10 +92,12 @@ export class GameInputController {
   setEnabled(on: boolean): void {
     this.on = on;
     if (on) {
-      this.scene.hotbar.setGameCursor(0);
+      this.scene.hotbar.setGameCursor(this.zone === "hotbar" ? 0 : null);
+      this.renderPreview(); // re-show the held ghost if we re-enter mid-build (no-op when empty-handed)
     } else {
       this.scene.hotbar.setGameCursor(null);
       this.applyFade(true); // restore full opacity when the keyboard/pad cursor leaves
+      this.clearPreview(); // a device switch / 3D entry must never strand a preview ghost
     }
     this.render(); // the held badge follows the hand (device-agnostic); 3D entry hides it explicitly
   }
@@ -126,6 +135,24 @@ export class GameInputController {
   }
 
   private dispatch(intent: Intent, key: string): void {
+    // While holding, the inputs change meaning (ADR 17 redesign): ←/→ WALK the held term along the
+    // strip (and flip the apply side on an occupied bucket), Space COMMITS it, Esc DROPS it, and ↑/↓
+    // are ignored (no escaping back to the hotbar mid-carry). Empty-handed, they navigate as before.
+    if (this.hand) {
+      switch (intent) {
+        case "moveLeft":
+          return this.walk(-1);
+        case "moveRight":
+          return this.walk(1);
+        case "moveUp":
+        case "moveDown":
+          return; // holding: no returning to the hotbar
+        case "pickPlace":
+          return this.commit();
+        case "cancel":
+          return this.drop();
+      }
+    }
     switch (intent) {
       case "moveLeft":
         return this.move(-1);
@@ -185,30 +212,53 @@ export class GameInputController {
     this.applyFade();
   }
 
-  // ---- pick / place / drop (the A button) ----
+  /** Walk the held term one step along the strip (←/→ WHILE HOLDING). On an occupied bucket we first
+   *  flip the apply side (so → reads as "attach to the right" before advancing past it, and ← as
+   *  "attach to the left"); otherwise we step to the neighbouring bucket and re-frame. The preview
+   *  ghost follows. `d` is +1 (right) or -1 (left). */
+  private walk(d: number): void {
+    const occupied = this.buckets.has(this.selected);
+    if (d > 0) {
+      if (occupied && this.applySide === "left") this.applySide = "right";
+      else {
+        this.selected += 1;
+        this.applySide = "left";
+        this.frameSelected();
+      }
+    } else {
+      if (occupied && this.applySide === "right") this.applySide = "left";
+      else {
+        this.selected -= 1;
+        this.applySide = this.buckets.has(this.selected) ? "right" : "left"; // entering from the right of an occupied bucket
+        this.frameSelected();
+      }
+    }
+    this.renderPreview();
+  }
+
+  // ---- pick up (empty-handed Space): from the toolbar or from a bucket. Picking up enters the
+  // bucket strip and raises the held ghost; from there ←/→ walk it and Space commits it. ----
   private pickPlace(): void {
     if (this.zone === "hotbar") return this.pickFromHotbar();
-    const t = this.buckets.get(this.selected);
-    if (this.hand) {
-      if (!t) this.placeHand(this.selected); // into the (empty) focused bucket
-      else this.scene.toast("bucket full — Q/E to apply, or move to an empty one");
-    } else if (t) {
-      this.pickFromBucket(this.selected); // pick up the term (a move)
-    }
+    if (this.buckets.has(this.selected)) this.pickFromBucket(this.selected); // pick up the bucket's term (a move)
   }
   private pickFromHotbar(): void {
-    if (this.hand) return this.scene.toast("already holding — place it (↓) or cancel (Esc)");
     const sym = this.scene.hotbar.gameCursorSym();
     if (!sym) return;
     const node = this.scene.freshNode(sym);
     this.hand = { node, label: this.scene.labelOf(node), origin: null };
+    this.applySide = "left";
+    this.toZone("buckets"); // leave the hotbar to carry it over the strip
+    this.renderPreview();
     this.render();
   }
   private pickFromBucket(k: number): void {
     const t = this.buckets.get(k)!;
     this.hand = { node: t.node, label: this.scene.labelOf(t.node), origin: k };
+    this.applySide = "left";
     this.scene.removeTree(t);
     this.buckets.delete(k);
+    this.renderPreview();
     this.render();
   }
   private placeHand(k: number): void {
@@ -219,7 +269,25 @@ export class GameInputController {
     this.render();
   }
 
-  // ---- apply held term into the focused bucket (X = fn, Y = arg) ----
+  // ---- commit / drop the held term (Space / Esc WHILE HOLDING) ----
+  /** Space while holding: place the held term into the focused bucket if it's empty, else APPLY it
+   *  to the bucket's tree on the current side (left = held is the function, right = the argument).
+   *  placeHand/apply both null the hand and re-frame; we then reset the side and tear down the ghost. */
+  private commit(): void {
+    if (this.buckets.has(this.selected)) this.apply(this.applySide === "left");
+    else this.placeHand(this.selected);
+    this.applySide = "left";
+    this.clearPreview();
+  }
+  /** Esc while holding: drop the held term — restore a bucket-origin term to its bucket (the cancel
+   *  hand-restore), then tear down the ghost and reset the side. (Empty-handed, Esc opens the menu.) */
+  private drop(): void {
+    this.cancel(); // restores a bucket-origin term + nulls the hand + renders
+    this.applySide = "left";
+    this.clearPreview();
+  }
+
+  // ---- apply the held term to the focused bucket's tree (commit, left = fn / right = arg) ----
   private apply(asFn: boolean): void {
     if (this.zone !== "buckets" || !this.hand) return;
     const k = this.selected;
@@ -238,7 +306,8 @@ export class GameInputController {
     this.render();
   }
 
-  // ---- cancel (the B button / Esc) ----
+  // ---- cancel (Esc / the B button): empty-handed it opens the menu; the held-hand restore is
+  // reused by drop() to put a bucket-origin term back. ----
   private cancel(): void {
     if (!this.hand) return this.scene.openMenu();
     const h = this.hand;
@@ -262,5 +331,26 @@ export class GameInputController {
    *  {@link frameSelected}); `restore` = all bright (the keyboard/pad cursor left, or 3D entry). */
   private applyFade(restore = false): void {
     for (const [k, t] of this.buckets) t.container.alpha = restore || k === this.selected ? 1 : DIM;
+  }
+
+  // ---- the held-term preview: a dimmed, non-reducing ghost of the held node ON the focused bucket,
+  // so "what you're about to build" reads directly in place. Exists only while holding (keyboard/pad
+  // only), so it's already device-gated; setEnabled/3D-entry tear it down so it can't linger. ----
+  /** (Re)draw the preview ghost on the focused bucket: at the anchor when empty, else offset to the
+   *  apply side so it reads as attaching left (fn) / right (arg) of the bucket's existing tree. */
+  private renderPreview(): void {
+    this.clearPreview();
+    if (!this.hand) return;
+    const a = this.scene.bucketAnchor(this.selected);
+    const pos = this.buckets.has(this.selected) ? { x: a.x + (this.applySide === "left" ? -140 : 140), y: a.y - 90 } : a;
+    this.preview = this.scene.preview(this.hand.node, pos);
+    this.preview.container.alpha = 0.5; // dimmed — it's a ghost, not a placed tree
+  }
+  /** Tear down the preview ghost (no-op if none). */
+  private clearPreview(): void {
+    if (this.preview) {
+      this.scene.unpreview(this.preview);
+      this.preview = null;
+    }
   }
 }

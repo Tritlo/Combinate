@@ -53,8 +53,6 @@ const KEY_BINDS: KeyBind[] = [
   { context: "build", intent: "pagePrev", keys: ["["] },
   { context: "build", intent: "pageNext", keys: ["]"] },
   { context: "build", intent: "pickPlace", keys: [" ", "enter"] },
-  { context: "build", intent: "applyFn", keys: ["q"] },
-  { context: "build", intent: "applyArg", keys: ["e"] },
   { context: "build", intent: "cancel", keys: ["escape"] },
   { context: "build", intent: "speed", keys: ["0", "1", "2", "3", "4"] },
   { context: "build", intent: "enterInspect", keys: ["v"] },
@@ -89,8 +87,6 @@ const PAD_BINDS: Record<Context | "global", Partial<Record<number, Intent>>> = {
     [PAD_BUTTON.DDOWN]: "moveDown",
     [PAD_BUTTON.A]: "pickPlace",
     [PAD_BUTTON.B]: "cancel",
-    [PAD_BUTTON.LB]: "applyFn",
-    [PAD_BUTTON.RB]: "applyArg",
     [PAD_BUTTON.Y]: "enterInspect",
     [PAD_BUTTON.SELECT]: "speed",
   },
@@ -117,11 +113,9 @@ export interface Hint {
 }
 export const HINTS: Record<Context, Hint[]> = {
   build: [
-    { label: "Move", kbd: "↑↓←→", pad: "✚" },
-    { label: "Pick / place", kbd: "Space", pad: "Ⓐ" },
-    { label: "Apply fn", kbd: "Q", pad: "LB" },
-    { label: "Apply arg", kbd: "E", pad: "RB" },
-    { label: "Cancel", kbd: "Esc", pad: "Ⓑ" },
+    { label: "Move", kbd: "←→", pad: "✚" },
+    { label: "Pick up / Place", kbd: "Space", pad: "Ⓐ" },
+    { label: "Drop", kbd: "Esc", pad: "Ⓑ" },
     { label: "3D", kbd: "V", pad: "Ⓨ" },
   ],
   inspect: [

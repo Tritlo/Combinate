@@ -689,6 +689,22 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     return tree;
   }
 
+  /** A dimmed, NON-reducing render of the held term on the focused bucket (game controller): a bare
+   *  `TreeView` added straight to `world` — NOT scheduled, focused, or tracked in `trees`, so the
+   *  reducer never touches it. Non-interactive (it's just a ghost). Tear down with {@link unpreview}. */
+  function preview(node: Node, wx: number, wy: number): TreeView {
+    const tree = new TreeView(node, wx, wy, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
+    tree.container.eventMode = "none"; // a passive ghost — never steals pointer events
+    world.addChild(tree.container);
+    return tree;
+  }
+
+  /** Remove + destroy a preview tree (see {@link preview}). */
+  function unpreview(tree: TreeView): void {
+    world.removeChild(tree.container);
+    tree.destroy();
+  }
+
   // Snap = application. Horizontal order of the two roots decides fn (left) vs arg (§6.2).
   function commitSnap(dragged: TreeView, target: TreeView): void {
     const fn = dragged.rootWorld.x <= target.rootWorld.x ? dragged : target;
@@ -994,7 +1010,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   function frameBucketAt(x: number): void {
     const z = Math.min(1.3, window.innerWidth / (BUCKET_SPACING * 2.3));
     world.scale.set(z);
-    world.position.set(window.innerWidth / 2 - x * z, window.innerHeight * 0.44);
+    world.position.set(window.innerWidth / 2 - x * z, window.innerHeight * 0.5);
   }
 
   // Toggle the "expand everything to ι" view (read by TreeView.expand).
@@ -1055,6 +1071,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     labelOf: labelFor,
     bucketAnchor: (k) => ({ x: k * BUCKET_SPACING, y: 0 }), // an unbounded strip of world anchors
     spawnAt: (node, w) => spawnTreeWorld(node, w.x, w.y),
+    preview: (node, w) => preview(node, w.x, w.y),
+    unpreview: (tree) => unpreview(tree),
     applyTerms: (fn, arg, w, from) => applyTerms(fn, arg, w, from),
     captureWorld: (tree) => tree.nodeWorldPositions(),
     removeTree,
