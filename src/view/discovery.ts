@@ -8,7 +8,7 @@
  */
 import { type Law, iotaTreeOf, countIotas, META } from "../core/catalog";
 import { spherePreview, FAST_SPIN, CARD_PRIO } from "./spherePreview";
-import { currentMode, type Mode } from "./theme";
+import { currentMode, theme, type Mode } from "./theme";
 import { vendorUrl } from "../vendorUrl";
 import { withMotion } from "./motion";
 
@@ -37,7 +37,7 @@ function inject(): void {
 .disco-head span { flex: 1; font-weight: 600; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
 .disco-x { width: 16px; height: 15px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--dc-paper); font-size: 12px; line-height: 1; cursor: pointer; }
 .disco-body { display: flex; gap: 11px; padding: 11px; }
-.disco-3d { position: relative; width: ${PREVIEW_PX}px; height: ${PREVIEW_PX}px; flex: 0 0 auto; border: 1px solid color-mix(in srgb, var(--dc-ink) 18%, transparent); overflow: hidden; }
+.disco-3d { position: relative; width: ${PREVIEW_PX}px; height: ${PREVIEW_PX}px; flex: 0 0 auto; background: var(--dc-inset); border: 1px solid color-mix(in srgb, var(--dc-ink) 18%, transparent); overflow: hidden; }
 .disco-glyph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 40px; color: var(--dc-gold); }
 .disco-canvas { position: absolute; inset: 0; display: block; }
 .disco-info { flex: 1; min-width: 0; }
@@ -70,6 +70,9 @@ export class DiscoveryCard {
     root.style.setProperty("--dc-ink", p.ink);
     root.style.setProperty("--dc-shadow", p.shadow);
     root.style.setProperty("--dc-gold", p.gold);
+    root.style.setProperty("--dc-inset", `#${theme.inset.toString(16).padStart(6, "0")}`); // match the 3D scene bg
+
+
 
     const bird = META[law.sym]?.bird;
     root.innerHTML = `

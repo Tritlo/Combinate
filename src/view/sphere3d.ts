@@ -75,6 +75,7 @@ export class Sphere3D {
   lastCapped = false;
   lastBuildMs = 0;
   lastDrawMs = 0; // wall-clock of the last orbit render + texture re-upload (the per-frame cost)
+  bg: number | null = null; // scene background override (the preview matches its box); null = theme.bg
 
   /** Current orbit azimuth (for the dev seam / E2E — confirms rotation). */
   get azimuth(): number {
@@ -127,7 +128,7 @@ export class Sphere3D {
     this.current = node;
     if (!this.on || !THREE || !this.scene) return;
     const three = THREE;
-    this.scene.background = new three.Color(theme.bg);
+    this.scene.background = new three.Color(this.bg ?? theme.bg);
     if (this.content) {
       this.disposeGroup(this.content);
       this.scene.remove(this.content);
