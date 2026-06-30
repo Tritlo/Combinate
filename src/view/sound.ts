@@ -27,13 +27,19 @@ function pitchFor(sym: string): number {
 /** A toggleable one-oscillator-per-tick sonifier for the reduction stream. */
 export class Sound {
   private ctx: AudioContext | null = null;
-  enabled = false;
+  enabled = true; // on by default — the browser still gates the AudioContext until the first gesture (see unlock)
 
   /** Flip on/off; resumes the (gesture-gated) AudioContext when enabled. */
   toggle(): boolean {
     this.enabled = !this.enabled;
     if (this.enabled) this.ensure();
     return this.enabled;
+  }
+
+  /** Resume the (autoplay-gated) AudioContext on the first user gesture, so sound-on-by-default
+   *  actually plays without a manual toggle. No-op when sound is off. */
+  unlock(): void {
+    if (this.enabled) this.ensure();
   }
 
   private ensure(): void {
@@ -48,9 +54,11 @@ export class Sound {
     if (this.ctx?.state === "running") this.play(sym);
   }
 
-  /** Play a short tone for the rule about to fire (no-op when off or at NF). */
+  /** Play a short tone for the rule about to fire (no-op when off or at NF). Auto-reduction is not a
+   *  user gesture, so this only sounds once the context is already running — it must never START one
+   *  (that would trip the browser's autoplay policy). A gesture (unlock / toggle / pickup) opens it. */
   tick(sym: string | null): void {
-    if (!this.enabled || !sym) return;
+    if (!this.enabled || !sym || this.ctx?.state !== "running") return;
     this.play(sym);
   }
 
@@ -58,18 +66,29 @@ export class Sound {
    *  for explicit plays (the Zoo "play tone" button, discovery chirp). The call
    *  must originate from a user gesture so the AudioContext can start. */
   play(sym: string): void {
+    this.tone(pitchFor(sym), "triangle", 0.14, 0.18);
+  }
+
+  /** A soft, low, round cue for dropping a tree — distinct from the (triangle) bird tones. The call
+   *  must originate from a user gesture (the drop pointer-up) so the AudioContext can start. */
+  drop(): void {
+    this.tone(165, "sine", 0.12, 0.12); // ~E3
+  }
+
+  // One short-lived oscillator: ramp up, exponential decay, stop. Shared by play() and drop().
+  private tone(freq: number, type: OscillatorType, peak: number, decay: number): void {
     this.ensure();
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
-    osc.type = "triangle";
-    osc.frequency.value = pitchFor(sym);
+    osc.type = type;
+    osc.frequency.value = freq;
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.14, t + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    gain.gain.exponentialRampToValueAtTime(peak, t + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + decay);
     osc.connect(gain).connect(this.ctx.destination);
     osc.start(t);
-    osc.stop(t + 0.2);
+    osc.stop(t + decay + 0.02);
   }
 }
