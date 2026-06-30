@@ -447,7 +447,8 @@ export class TreeView {
       walk(n.arg, depth + 1);
     };
     walk(this.display, 0);
-    if (this.display.kind === "app") this.objs.get(this.display.id)!.particle.tint = theme.text; // root: no incoming edge → ink
+    const rootVis = this.display.kind === "app" ? this.objs.get(this.display.id) : null;
+    if (rootVis) rootVis.particle.tint = theme.text; // root: no incoming edge → ink
   }
 
   // Edges are drawn from the live particle positions (so they follow tweens),
