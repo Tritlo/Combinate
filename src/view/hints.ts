@@ -6,7 +6,7 @@
  * toggle is on. Repaint on context change and on device change (the host wires {@link onDeviceChange}).
  */
 import { Container, Graphics, Text } from "pixi.js";
-import { theme } from "./theme";
+import { currentMode } from "./theme";
 import { type Context, HINTS } from "./keymap";
 import { activeDevice } from "./inputDevice";
 
@@ -14,6 +14,11 @@ const H = 26; // chip height
 const PADX = 10; // chip horizontal padding
 const GAP = 8; // gap between chips
 const ABOVE = 12; // gap between the hint row and the toolbar's top edge
+
+/** Mono black-and-white chrome, matching the menu bar + hotbar tooltip (System-1 box). */
+function mono(): { paper: number; ink: number } {
+  return currentMode() === "dark" ? { paper: 0x07090d, ink: 0xf0f3f6 } : { paper: 0xffffff, ink: 0x000000 };
+}
 
 export class HintBar {
   readonly container = new Container();
@@ -50,28 +55,36 @@ export class HintBar {
     const visible = this.showControls && activeDevice() !== "mouse" && ctx != null;
     this.container.visible = visible;
     if (!visible || ctx == null) return;
+    const { paper, ink } = mono();
     const pad = activeDevice() === "pad";
-    const chips: Container[] = [];
+    const chips: { c: Container; w: number }[] = [];
     let total = 0;
     for (const hint of HINTS[ctx]) {
-      const glyph = new Text({ text: pad ? hint.pad : hint.kbd, style: { fontFamily: "monospace", fontSize: 13, fontWeight: "700", fill: theme.text } });
-      const label = new Text({ text: hint.label, style: { fontFamily: "monospace", fontSize: 13, fill: theme.textDim } });
+      const glyph = new Text({ text: pad ? hint.pad : hint.kbd, style: { fontFamily: "monospace", fontSize: 13, fontWeight: "700", fill: ink } });
+      const label = new Text({ text: hint.label, style: { fontFamily: "monospace", fontSize: 13, fill: ink } });
+      label.alpha = 0.75; // glyph/label hierarchy without leaving the ink-on-paper palette
       glyph.position.set(PADX, (H - glyph.height) / 2);
       label.position.set(glyph.x + glyph.width + 6, (H - label.height) / 2);
       const w = label.x + label.width + PADX;
-      const bg = new Graphics().roundRect(0, 0, w, H, 6).fill({ color: theme.inset, alpha: 0.92 }).stroke({ width: 1, color: theme.border });
+      // System-1 box: a hard 1px ink frame on paper with a hard-edged drop shadow (matches the hotbar tooltip).
+      const bg = new Graphics()
+        .rect(3, 4, w, H)
+        .fill({ color: ink, alpha: 0.16 })
+        .rect(0, 0, w, H)
+        .fill({ color: paper })
+        .stroke({ width: 1, color: ink });
       const chip = new Container();
       chip.addChild(bg, glyph, label);
-      chips.push(chip);
+      chips.push({ c: chip, w });
       total += w + GAP;
     }
     total -= GAP;
     // lay the row out centred around the container origin (placed at screen-bottom-centre)
     let x = -total / 2;
-    for (const chip of chips) {
-      chip.position.set(x, -H);
-      this.container.addChild(chip);
-      x += chip.width + GAP;
+    for (const { c, w } of chips) {
+      c.position.set(x, -H);
+      this.container.addChild(c);
+      x += w + GAP;
     }
   }
 }

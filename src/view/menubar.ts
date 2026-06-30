@@ -38,7 +38,7 @@ const PALETTE: Record<Mode, Record<string, string>> = {
 };
 
 const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
-const NARROW = 560; // below this width, collapse the six menus into one ι menu
+const NARROW = 560; // below this width, collapse the menus into one ι menu
 
 let stylesInjected = false;
 function injectStyles(): void {
@@ -73,7 +73,7 @@ export class MenuBar {
   private readonly dropdown = document.createElement("div");
   private readonly titleEls: HTMLElement[] = [];
   private open: number | null = null;
-  private narrow = false; // collapsed (phone) layout: one ι menu instead of six titles
+  private narrow = false; // collapsed (phone) layout: one ι menu instead of the menu titles
   // Keyboard/gamepad nav: the navigable rows of the open dropdown (separators excluded) and the
   // highlighted one. Rebuilt on every render; the mouse shares this cursor (pointerenter updates it).
   private navItems: { run: () => void; el: HTMLElement }[] = [];
@@ -90,7 +90,7 @@ export class MenuBar {
     document.body.appendChild(this.bar);
     document.body.appendChild(this.dropdown);
     // Rebuild the bar when crossing the narrow/wide breakpoint (collapse the menus
-    // into one ι menu on phones, where six titles won't fit).
+    // into one ι menu on phones, where the titles won't fit).
     window.addEventListener("resize", () => {
       if (this.narrow !== window.innerWidth < NARROW) {
         this.close();
@@ -107,7 +107,7 @@ export class MenuBar {
     onThemeChange(() => this.applyPalette());
   }
 
-  /** Build the bar titles for the current width: six menu titles when wide, a
+  /** Build the bar titles for the current width: the menu titles when wide, a
    *  single ι (that opens every command, grouped) when narrow. */
   private buildTitles(): void {
     for (const t of this.titleEls) t.remove();

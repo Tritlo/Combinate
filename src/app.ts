@@ -36,11 +36,11 @@ import { ReductionController, type Transport } from "./view/reduction";
 import { TransportBar } from "./view/transportBar";
 import { preloadCompiler } from "./view/mhs/compiler";
 import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange, edgeTierColor } from "./view/theme";
-import { MenuBar, type Menu } from "./view/menubar";
+import { MenuBar, type Menu, type MenuItem } from "./view/menubar";
 import { About } from "./view/about";
 import { Help } from "./view/help";
 import { withMotion } from "./view/motion";
-import { OPT_SETTINGS, isOpt, setOpt, onOptChange } from "./view/optimize";
+import { OPT_SETTINGS, isOpt, setOpt, onOptChange, type OptKey } from "./view/optimize";
 import { type NativeOpts } from "./core/native";
 import { BucketTray } from "./view/bucketTray";
 import { GameInputController } from "./view/gameInput";
@@ -371,7 +371,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   // Transport bar (top-right): rate read-out + Pause/Step/Play/FF — a thin view over the
   // ReductionController (extracted to view/transportBar.ts, ADR 12).
-  const transportBar = new TransportBar(hud, pixi.ticker, reduce);
+  const transportBar = new TransportBar(hud, pixi.ticker, reduce, sound);
 
   // Reduction progress bar (plan 02): a thin fill along the top edge of the hotbar box, showing how
   // far the focused tree's reduction has played vs the background same-mode total. Shown only when
@@ -507,7 +507,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const mhsPanel = new MhsPanel(
     (tree, read) => {
       // Reduce under the user's current settings (no auto-enabling optimizations — Turbo / native
-      // numbers stay opt-in via the Reduce menu). Compiled programs get big, so lay out radially +
+      // numbers stay opt-in via the Optimizations menu). Compiled programs get big, so lay out radially +
       // zoom to fit; the progress bar shows how the reduction is going.
       setLayoutMode(layoutRadial);
       const view = spawnTree(tree, window.innerWidth / 2, window.innerHeight / 2);
@@ -899,6 +899,18 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     focus = null;
   }
 
+  /** Wipe all persisted player progress — quest stage + tracker, discovered combinators, and
+   *  user-defined combinators (the `Store`'s `definitions`) — behind a confirm, then reload for a
+   *  clean slate (the simplest correct reset). Prefix-matched so a future store-key version bump
+   *  still clears. */
+  function resetProgression(): void {
+    if (!confirm("Reset all progress? This permanently clears your quest, discovered combinators, and custom combinators.")) return;
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith("combinate:quest") || k.startsWith("combinate:discovered") || k === "combinate:v1:definitions") localStorage.removeItem(k);
+    }
+    location.reload();
+  }
+
   // ---- 3D "packed sphere" view (ADR 18): a lazy Three.js render of the focused term ----
   // Compositing "A": Three renders to its own off-DOM canvas, which we draw as a Pixi texture
   // sprite in `sphereLayer` between `world` and `hud`, so the Pixi HUD composites on top. The
@@ -1214,6 +1226,14 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
     paintRail();
   });
+  // One Optimizations row for a single opt key (label + description from OPT_SETTINGS).
+  const optItem = (key: OptKey): MenuItem => {
+    const s = OPT_SETTINGS.find((o) => o.key === key)!;
+    return { kind: "toggle", label: s.label, title: s.desc, checked: () => isOpt(key), run: () => setOpt(key, !isOpt(key)) };
+  };
+  // The three native-value opts presented as one toggle: on iff all three are on; flips all three.
+  const NATIVE_KEYS = ["nativeNumbers", "nativeLists", "nativeBooleans"] as const;
+  const nativeAllOn = (): boolean => NATIVE_KEYS.every((k) => isOpt(k));
   const menus: Menu[] = [
     { title: "ι", apple: true, items: [
       { kind: "action", label: "How to play…", run: () => help.open() },
@@ -1223,13 +1243,22 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "action", label: "Compile Haskell…", run: () => mhsPanel.open() },
       { kind: "action", label: "Share link", run: () => shareFocused() },
       { kind: "sep" },
+      { kind: "toggle", label: "Quest", checked: () => quest.isOpen, run: () => quest.toggle() },
+      { kind: "toggle", label: "Zoo", checked: () => zoo.isOpen, run: () => zoo.toggle() },
+      { kind: "toggle", label: "Golf challenges", checked: () => challenges.isOpen, run: () => challenges.toggle() },
+    ] },
+    { title: "Edit", items: [
       { kind: "action", label: "Clear canvas", run: () => clearCanvas() },
+      { kind: "action", label: "Unlock all combinators", run: () => unlockAll() },
+      // TODO: "Add Rule" item wired separately
+      { kind: "sep" },
+      { kind: "action", label: "Reset Progression", run: () => resetProgression() },
     ] },
     { title: "View", items: [
       { kind: "radio", label: "Auto layout", on: () => layoutFn === layoutAuto, run: () => setLayoutMode(layoutAuto) },
       { kind: "radio", label: "Top-down layout", on: () => layoutFn === layoutTopDown, run: () => setLayoutMode(layoutTopDown) },
       { kind: "radio", label: "Radial layout", on: () => layoutFn === layoutRadial, run: () => setLayoutMode(layoutRadial) },
-      { kind: "toggle", label: "Sphere (3D) ✦", checked: () => view3D, run: () => toggleView3D() },
+      { kind: "toggle", label: "3D", checked: () => view3D, run: () => toggleView3D() },
       { kind: "sep" },
       { kind: "toggle", label: "Expand ι-trees", checked: () => expandAll, run: () => toggleExpand() },
       { kind: "toggle", label: "Type lens", checked: () => readout.isTypeOn, run: () => readout.toggleType() },
@@ -1240,25 +1269,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "toggle", label: "Dark mode", checked: () => currentMode() === "dark", run: () => toggleMode() },
       { kind: "toggle", label: "Color (4096)", checked: () => colorOn(), run: () => toggleColor() },
       { kind: "sep" },
+      { kind: "toggle", label: "Track Quest", checked: () => !quest.done && !questTracker.isHidden, run: () => { questTracker.setHidden(!questTracker.isHidden); paintRail(); } },
       { kind: "toggle", label: "Show controls", checked: () => showControls, run: () => setShowControls(!showControls) },
       { kind: "toggle", label: "FPS counter", checked: () => fpsOn, run: () => toggleFps() },
     ] },
-    { title: "Reduce", items: [
-      { kind: "radio", label: "Pause", on: () => reduce.mode === "pause", run: () => reduce.setTransport("pause") },
-      { kind: "radio", label: "Play", on: () => reduce.mode === "play", run: () => reduce.setTransport("play") },
-      { kind: "radio", label: "Fast-forward", on: () => reduce.mode === "ff", run: () => reduce.setTransport("ff") },
-      { kind: "action", label: "Step", run: () => reduce.stepOnce() },
-      { kind: "sep" },
-      { kind: "toggle", label: "Sound", checked: () => sound.enabled, run: () => sound.toggle() },
-    ] },
-    { title: "Optimizations", items: OPT_SETTINGS.map((s) => ({ kind: "toggle" as const, label: s.label, title: s.desc, checked: () => isOpt(s.key), run: () => setOpt(s.key, !isOpt(s.key)) })) },
-    { title: "Special", items: [
-      { kind: "toggle", label: "Quest", checked: () => quest.isOpen, run: () => quest.toggle() },
-      { kind: "toggle", label: "Track Quest", checked: () => !quest.done && !questTracker.isHidden, run: () => { questTracker.setHidden(!questTracker.isHidden); paintRail(); } },
-      { kind: "toggle", label: "Zoo", checked: () => zoo.isOpen, run: () => zoo.toggle() },
-      { kind: "toggle", label: "Golf challenges", checked: () => challenges.isOpen, run: () => challenges.toggle() },
-      { kind: "sep" },
-      { kind: "action", label: "Unlock all combinators", run: () => unlockAll() },
+    { title: "Optimizations", items: [
+      optItem("rules"),
+      optItem("graph"),
+      { kind: "toggle", label: "Native data", title: "Compute catalog numbers, lists, and booleans on recognised native values directly.", checked: () => nativeAllOn(), run: () => { const next = !nativeAllOn(); for (const k of NATIVE_KEYS) setOpt(k, next); } },
+      optItem("wasm"),
     ] },
   ];
   menuBar = new MenuBar(menus);
