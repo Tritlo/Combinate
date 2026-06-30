@@ -192,6 +192,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     onToggle: () => paintRail(),
     toast,
   });
+  void readout.ensureRefolder(); // load the re-folder wasm at boot (no lazy load) so normal-form re-folds are ready
 
   // Layout: top-down by default; T toggles the radial view (§5.1).
   let layoutFn: LayoutFn = layoutAuto;
