@@ -8,7 +8,7 @@ import {
   Text,
   Texture,
 } from "pixi.js";
-import { app as mkApp, comb, exceedsNodes, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
+import { app as mkApp, cloneTerm, comb, exceedsNodes, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
 import { evalShared } from "./core/graph";
 import { encodePermalink, decodePermalink, type Modes } from "./core/permalink";
 import { LocalStore } from "./store/local";
@@ -44,6 +44,7 @@ import { OPT_SETTINGS, isOpt, setOpt, onOptChange } from "./view/optimize";
 import { type NativeOpts } from "./core/native";
 import { BucketTray } from "./view/bucketTray";
 import { GameInputController } from "./view/gameInput";
+import { ContextMenu } from "./view/contextMenu";
 import { GamepadController } from "./view/gamepad";
 import { Sphere3D, NODE_CAP, preloadSphere3D } from "./view/sphere3d";
 import { spherePreview } from "./view/spherePreview";
@@ -420,6 +421,33 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   fitStage();
 
   const screenToWorld = (x: number, y: number) => world.toLocal({ x, y });
+  const worldToScreen = (x: number, y: number) => world.toGlobal({ x, y });
+
+  // Controls focus indicator (the "region card"): a thin rounded-rect outline centred on the focused
+  // bucket's world anchor, so it pans with the strip. Lives in `world` (behind the trees), shown only
+  // while the keyboard/gamepad controls are active and we're in the buckets zone (see markBucket).
+  const bucketMark = new Graphics();
+  bucketMark.visible = false;
+  bucketMark.eventMode = "none";
+  world.addChildAt(bucketMark, 1); // just above ghostLayer, below every spawned tree
+  function paintBucketMark(): void {
+    bucketMark.clear();
+    // Anchor y=0 sits at the root; the card reaches ~70px above it and ~190px below (where a tree grows).
+    bucketMark.roundRect(-180, -70, 360, 260, 16).stroke({ width: 2, color: theme.iota, alpha: 0.5 });
+  }
+  paintBucketMark();
+  /** Position + show the focus indicator at a bucket's world x, or hide it when `x` is null. */
+  function markBucket(x: number | null): void {
+    if (x === null) {
+      bucketMark.visible = false;
+      return;
+    }
+    bucketMark.position.set(x, 0);
+    bucketMark.visible = true;
+  }
+
+  // The Delete/Copy context popup (mouse right-click + the keyboard "c" / pad-X build bind).
+  const ctxMenu = new ContextMenu();
 
   function addTree(tree: TreeView): void {
     trees.push(tree);
@@ -528,11 +556,21 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     };
   }
 
-  // Right-click a node to delete its subtree (the sibling is promoted, §6.2).
+  // Right-click a node to open a Delete/Copy menu on its subtree (the deepest node under the cursor).
   function onTreeRightDown(tree: TreeView, e: FederatedPointerEvent): void {
     e.stopPropagation();
     const id = tree.pickNode(e.global);
     if (id === null) return;
+    const sx = e.global.x;
+    const sy = e.global.y;
+    ctxMenu.show(sx, sy, [
+      { label: "Delete", run: () => deleteNode(tree, id) },
+      { label: "Copy", run: () => copyNodeToCanvas(tree, id, sx, sy) },
+    ]);
+  }
+
+  /** Delete a node's subtree, promoting its sibling (§6.2); deleting the root removes the whole tree. */
+  function deleteNode(tree: TreeView, id: NodeId): void {
     reduce.cancel(tree);
     const next = removeSubtree(tree.node, id);
     if (next === null) {
@@ -542,6 +580,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       tree.animateTo(next, DELETE_MS, () => {});
       reduce.schedule(tree); // re-reduce the edited tree once it's left alone
     }
+  }
+
+  /** Deep-clone a node's subtree (fresh ids) and spawn it as a new reducing tree, offset from the
+   *  click so the copy doesn't land under the original and stays grabbable. */
+  function copyNodeToCanvas(tree: TreeView, id: NodeId, sx: number, sy: number): void {
+    const sub = findSubtree(tree.node, id);
+    if (!sub) return;
+    const w = screenToWorld(sx, sy);
+    spawnTreeWorld(cloneTerm(sub), w.x + 60, w.y + 60);
   }
 
   pixi.stage.on("pointerdown", (e: FederatedPointerEvent) => {
@@ -808,6 +855,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     pixi.renderer.background.color = theme.bg;
     ghostLabel.style.fill = theme.text;
     fpsText.style.fill = theme.textDim;
+    paintBucketMark(); // the controls' focus indicator follows theme.iota
     paintLegend(legend);
     // (the transport bar self-subscribes to theme changes)
     hotbar.refresh();
@@ -1077,6 +1125,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     captureWorld: (tree) => tree.nodeWorldPositions(),
     removeTree,
     frameBucketAt: (x) => frameBucketAt(x),
+    markBucket: (x) => markBucket(x),
     pan: (dx, dy) => world.position.set(world.position.x + dx, world.position.y + dy),
     zoom: (factor) => zoomTo(world.scale.x * factor, window.innerWidth / 2, window.innerHeight / 2),
     setSpeed: (lvl) => reduce.setSpeedLevel(lvl),
@@ -1112,7 +1161,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // A pad's discrete intent, routed by the active context (Build → the tray controller; Inspect →
   // the 3D camera). The keyboard routes the same intents below.
   function dispatchPadIntent(intent: Intent): void {
+    if (ctxMenu.isOpen) return routeCtxNav(intent); // an open popup owns the pad (↑/↓/A/B/X)
     switch (intent) {
+      case "context":
+        return openBucketContext();
       case "enterInspect":
       case "exitInspect":
         return void toggleView3D();
@@ -1305,10 +1357,42 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   function dispatchBuildKey(intent: Intent, key: string): void {
     if (intent === "enterInspect") return void toggleView3D();
     if (intent === "speed") return reduce.setSpeedLevel(parseInt(key, 10));
+    if (intent === "context") return openBucketContext();
     gameInput.trigger(intent);
   }
 
+  /** Open the Delete/Copy menu on the controls' focused bucket (keyboard "c" / pad X). Empty bucket
+   *  or holding → nothing to act on. Delete removes the bucket's tree; Copy carries a fresh clone. */
+  function openBucketContext(): void {
+    if (gameInput.hasHand) return; // a carry is in progress — don't act on the bucket underneath
+    const tree = gameInput.focusedTree;
+    if (!tree) return;
+    const s = worldToScreen(gameInput.focusedKey * BUCKET_SPACING, 0);
+    ctxMenu.show(s.x, s.y, [
+      { label: "Delete", run: () => removeTree(tree) },
+      { label: "Copy", run: () => gameInput.takeToHand(cloneTerm(tree.node)) },
+    ]);
+  }
+
+  /** Route a discrete intent to the open context popup (keyboard/gamepad nav): ↑/↓ walk, A choose,
+   *  B/X cancel. Keeps the popup operable when a pad bind (not the mouse) opened it. */
+  function routeCtxNav(intent: Intent): void {
+    if (intent === "moveDown") ctxMenu.move(1);
+    else if (intent === "moveUp") ctxMenu.move(-1);
+    else if (intent === "pickPlace") ctxMenu.choose();
+    else if (intent === "cancel" || intent === "context") ctxMenu.cancel();
+  }
+
   window.addEventListener("keydown", (e) => {
+    // An open Delete/Copy popup owns the keyboard: ↑/↓ walk, Space/Enter choose, Esc cancel.
+    if (ctxMenu.isOpen) {
+      if (e.key === "ArrowDown") ctxMenu.move(1);
+      else if (e.key === "ArrowUp") ctxMenu.move(-1);
+      else if (e.key === " " || e.key === "Enter") ctxMenu.choose();
+      else if (e.key === "Escape") ctxMenu.cancel();
+      e.preventDefault();
+      return;
+    }
     if (zoo.isOpen) {
       if (e.key === "ArrowDown") return e.preventDefault(), zoo.move(1);
       if (e.key === "ArrowUp") return e.preventDefault(), zoo.move(-1);
@@ -1422,7 +1506,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       run: () => { if (focus) reduce.schedule(focus); },
       spawn: (s: string) => { spawnTreeWorld(fromEgg(s), 0, 0); }, // dev seam: drop a reducing tree from an s-expr
 
-      game: { active: () => gameInput.enabled, force: (b: boolean) => gameInput.setEnabled(b), state: () => gameInput.debugState },
+      game: { active: () => gameInput.enabled, force: (b: boolean) => gameInput.setEnabled(b), state: () => gameInput.debugState, mark: () => bucketMark.visible, ctxOpen: () => ctxMenu.isOpen },
       fast: { on: () => isOpt("rules"), set: (b: boolean) => setOpt("rules", b) },
       graph: { on: () => isOpt("graph"), set: (b: boolean) => setOpt("graph", b), eval: (s: string) => sexp(evalShared(fromEgg(s), 500000, fastMode).term) },
       expr: () => readout.text,
