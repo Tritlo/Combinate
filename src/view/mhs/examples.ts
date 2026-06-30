@@ -81,8 +81,8 @@ export const EXAMPLES: Example[] = [
   },
   {
     name: "lt",
-    title: "less-than",
-    blurb: "2 < 3 — a comparison on Scott naturals, reading back the Scott Boolean True.",
+    title: "2 < 3",
+    blurb: "a comparison on Scott naturals, reading back the Scott Boolean True.",
     source: mod("out :: Bool\nout = (2 :: Int) < 3"),
     root: "Ex.out",
     read: "Bool",
