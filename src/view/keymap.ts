@@ -28,6 +28,12 @@ export type Intent =
   | "cancel"
   | "context"
   | "speed"
+  | "transportPause"
+  | "transportStep"
+  | "transportPlay"
+  | "transportFf"
+  | "transportPrev"
+  | "transportNext"
   | "enterInspect"
   // inspect (3D orbit)
   | "rotLeft"
@@ -56,7 +62,11 @@ const KEY_BINDS: KeyBind[] = [
   { context: "build", intent: "pickPlace", keys: [" ", "enter"] },
   { context: "build", intent: "cancel", keys: ["escape"] },
   { context: "build", intent: "context", keys: ["m"] }, // M = open the Delete/Copy menu on the focused bucket
-  { context: "build", intent: "speed", keys: ["0", "1", "2", "3", "4"] },
+  // 1-4 = the transport (Pause / Step / Play / Fast-forward); the gamepad Select still cycles speed.
+  { context: "build", intent: "transportPause", keys: ["1"] },
+  { context: "build", intent: "transportStep", keys: ["2"] },
+  { context: "build", intent: "transportPlay", keys: ["3"] },
+  { context: "build", intent: "transportFf", keys: ["4"] },
   { context: "build", intent: "enterInspect", keys: ["v"] },
   // Inspect
   { context: "inspect", intent: "rotLeft", keys: ["arrowleft"] },
@@ -91,6 +101,8 @@ const PAD_BINDS: Record<Context | "global", Partial<Record<number, Intent>>> = {
     [PAD_BUTTON.B]: "cancel",
     [PAD_BUTTON.X]: "context", // open the Delete/Copy menu on the focused bucket
     [PAD_BUTTON.Y]: "enterInspect",
+    [PAD_BUTTON.LB]: "transportPrev", // step the transport toward Pause
+    [PAD_BUTTON.RB]: "transportNext", // step the transport toward Fast-forward
     [PAD_BUTTON.SELECT]: "speed",
   },
   inspect: {

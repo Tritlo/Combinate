@@ -11,7 +11,7 @@ export type OptKey = "rules" | "graph" | "nativeNumbers" | "nativeLists" | "nati
 
 /** The optimizations, in menu order — label + a one-line description (the menu shows the label). */
 export const OPT_SETTINGS: { key: OptKey; label: string; desc: string }[] = [
-  { key: "rules", label: "Optimize (rule steps)", desc: "Reduce a named combinator by its law in one step, not its raw ι/SKI tree." },
+  { key: "rules", label: "Rule-based reduction", desc: "Reduce a named combinator by its law in one step, not its raw ι/SKI tree." },
   { key: "graph", label: "Graph reduction (DAG)", desc: "Call-by-need sharing — a shared subterm is drawn and reduced once." },
   { key: "nativeNumbers", label: "Native numbers", desc: "Compute catalog arithmetic (+, ×, =, <, …) on whole numbers directly." },
   { key: "nativeLists", label: "Native lists", desc: "Evaluate list ops (<>, map, concat) on recognised lists directly." },
