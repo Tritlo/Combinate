@@ -132,41 +132,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   // Live read-out of the focused tree's current expression — a small clickable System-1 box,
   // top-centre. Its title bar cycles the view (combinators / named + native / Barker 0/1); the
-  // per-frame string is driven by the ReadoutLens below, which owns the compute. The box is DOM
+  // ReadoutLens below polls the box's view each frame and owns the compute. The box is DOM
   // (matches the quest tracker / discovery card chrome) and themes itself.
-  const readoutBox = new ReadoutBox({ onChange: () => readout.invalidate() });
-
-  // A lighter sub-line hinting at the next combinator worth chasing (the smallest
-  // ι-tree you haven't found yet — easiest to build). Sits just below the read-out box.
-  const nextHint = new Text({ text: "", style: { fontFamily: "monospace", fontSize: 13, fill: theme.textDim, wordWrap: true, wordWrapWidth: 900, align: "center", lineHeight: 18 } });
-  nextHint.anchor.set(0.5, 0);
-  hud.addChild(nextHint);
-  const placeExpr = () => {
-    // On phones the centred sub-line collides with the top-left legend; drop it
-    // there (the Zoo still shows discovery progress).
-    nextHint.visible = window.innerWidth >= 560;
-    nextHint.style.wordWrapWidth = Math.min(940, window.innerWidth - 120);
-    nextHint.position.set(window.innerWidth / 2, 86); // below the read-out box
-  };
-  placeExpr();
-
-  // The in-HUD hint reuses the Quest as the single hint source: the current stage's
-  // spoiler hint when it has one, else its objective (the last intro line). Refreshed
-  // whenever the quest advances (see `quest.onAdvance`).
-  function updateHint(): void {
-    const stage = quest.current;
-    if (!stage) {
-      nextHint.text = "✦ every combinator discovered ✦";
-      return;
-    }
-    const strip = (s: string): string =>
-      s
-        .replace(/<[^>]+>/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-    const hint = stage.hint ? strip(stage.hint) : "";
-    nextHint.text = hint ? `hint →  ${hint}` : strip(stage.intro[stage.intro.length - 1] ?? "");
-  }
+  const readoutBox = new ReadoutBox();
+  // (Quest hints live in the Quest tracker + the Quest window — not on the main canvas.)
 
   // ---- discovery (§7): the set of combinators found so far. Drives the
   // behavioural probe (what to still look for) and the masking of transient
@@ -243,7 +212,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     for (const t of trees) t.refresh();
     rerender3D(); // the 3D view follows the discovery mask too
     zoo.refresh();
-    updateHint();
     readout.invalidate(); // the read-out's combinator-masking depends on the discovery set
     paintRail();
     toast.show("all combinators unlocked");
@@ -261,7 +229,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     for (const t of trees) t.refresh();
     rerender3D(); // the 3D view follows the discovery mask too
     zoo.refresh();
-    updateHint();
     paintRail();
   }
 
@@ -287,7 +254,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     readout.invalidate(); // a newly-known combinator unmasks in the read-out too
     rerender3D(); // a newly-known combinator changes the 3D discovery mask too
     zoo.refresh();
-    updateHint();
     paintRail();
   }
 
@@ -329,7 +295,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     hotbar.refresh();
     hotbar.reveal(name);
     zoo.rebuild();
-    updateHint();
     readout.invalidate(); // a newly-authored combinator can appear named in the read-out
     paintRail();
     return law;
@@ -498,8 +463,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     openQuest: () => quest.open(),
   });
   quest.onAdvance(() => {
-    questTracker.refresh();
-    updateHint(); // the in-HUD hint tracks the current quest stage
+    questTracker.refresh(); // quest hints live in the tracker + the Quest window
   });
   hud.addChild(challenges.container); // overlays the hotbar, like the Zoo
 
@@ -522,7 +486,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     },
     () => paintRail(),
   );
-  updateHint();
 
   function onTreeDown(tree: TreeView, e: FederatedPointerEvent): void {
     if (e.button !== 0) return; // left-drag only; right-click is handled separately
@@ -809,7 +772,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // menu bar restyles itself via its own onThemeChange listener.
   function applyTheme(): void {
     pixi.renderer.background.color = theme.bg;
-    nextHint.style.fill = theme.textDim; // the read-out box themes itself (onThemeChange)
     ghostLabel.style.fill = theme.text;
     fpsText.style.fill = theme.textDim;
     paintLegend(legend);
@@ -829,7 +791,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     transportBar.place();
     placeFps();
     toast.layout();
-    placeExpr();
     zoo.layout();
     challenges.layout();
     tray.layout();
@@ -1427,7 +1388,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       fast: { on: () => isOpt("rules"), set: (b: boolean) => setOpt("rules", b) },
       graph: { on: () => isOpt("graph"), set: (b: boolean) => setOpt("graph", b), eval: (s: string) => sexp(evalShared(fromEgg(s), 500000, fastMode).term) },
       expr: () => readout.text,
-      view: { get: () => readout.view, cycle: () => readout.cycleView(), set: (v: string) => readoutBox.setView(v as "ski" | "named" | "barker") },
+      view: { get: () => readout.view, cycle: () => readout.cycleView(), set: (v: string) => readoutBox.setView(v as "ski" | "named" | "barker"), expand: () => readoutBox.toggleExpand() },
       page: () => hotbar.page,
       setPage: (name: string) => hotbar.selectPage(name),
       type: { on: () => readout.isTypeOn, toggle: () => readout.toggleType(), of: (s: string) => inferType(fromEgg(s)) },
