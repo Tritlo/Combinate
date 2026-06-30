@@ -29,6 +29,11 @@ function mono(): { paper: number; ink: number } {
  */
 export class Hotbar {
   readonly container = new Container();
+  private box = { x: 0, y: 0, w: 0, h: 0 }; // the palette window's screen rect (set each layout)
+  /** The palette window's screen rect — the progress bar (plan 02) sits along its top edge. */
+  get boxRect(): { x: number; y: number; w: number; h: number } {
+    return this.box;
+  }
   private readonly frame = new Graphics(); // the palette-window box (behind everything)
   private readonly tabBar = new Container();
   private readonly slotRow = new Container();
@@ -39,6 +44,8 @@ export class Hotbar {
   private tab = 0;
   private sub = 0;
   private popSym: string | null = null;
+  private gameCursor: number | null = null; // game-mode keyboard/controller selection (ADR 17); null = mouse mode
+  private cursorSymCache: string | null = null; // the cursor's sym, resolved each layout so slots can self-highlight
 
   constructor(
     private readonly onSpawnStart: (node: Node, e: FederatedPointerEvent) => void,
@@ -78,6 +85,45 @@ export class Hotbar {
   selectPage(name: string): void {
     const i = PAGES.findIndex((p) => p.name === name);
     if (i >= 0) this.setTab(i);
+  }
+
+  // ---- game-mode cursor (ADR 17): a keyboard/controller selection over the toolbar ----
+  /** Discovered symbols on the current page — what the game cursor navigates. */
+  visibleSyms(): string[] {
+    return this.visible(this.tab);
+  }
+  /** Move the game cursor to absolute index `i` (clamped), paging so it stays on-screen.
+   *  `null` clears it (back to mouse mode / focus left the toolbar). */
+  setGameCursor(i: number | null): void {
+    const syms = this.visible(this.tab);
+    this.gameCursor = i === null || syms.length === 0 ? null : Math.max(0, Math.min(i, syms.length - 1));
+    if (this.gameCursor !== null) this.sub = Math.floor(this.gameCursor / this.perPage());
+    this.layout();
+  }
+  /** Step the game cursor by `d` within the current page (clamped). */
+  moveGameCursor(d: number): void {
+    this.setGameCursor((this.gameCursor ?? 0) + d);
+  }
+  /** The symbol under the game cursor, or null. */
+  gameCursorSym(): string | null {
+    return this.gameCursor !== null ? (this.visible(this.tab)[this.gameCursor] ?? null) : null;
+  }
+  /** The game cursor's index into the current page's symbols (-1 if none) — for edge paging. */
+  gameCursorIndex(): number {
+    return this.gameCursor ?? -1;
+  }
+  /** Switch to the prev/next non-empty page, resetting the cursor to its first cell. */
+  cycleTab(d: number): void {
+    const shown = PAGES.map((_p, i) => i).filter((i) => this.visible(i).length > 0);
+    if (shown.length === 0) return;
+    const pos = Math.max(0, shown.indexOf(this.tab));
+    this.tab = shown[(pos + d + shown.length) % shown.length];
+    this.sub = 0;
+    if (this.gameCursor !== null) this.gameCursor = 0;
+    this.layout();
+  }
+  private perPage(): number {
+    return this.pageSize() * 2;
   }
 
   /** Discovered combinators on a tab (ι is always available). */
@@ -141,6 +187,7 @@ export class Hotbar {
 
     // ---- tool cells for the current tab (two rows, paginated) ----
     const syms = this.visible(this.tab);
+    this.cursorSymCache = this.gameCursor !== null ? (syms[this.gameCursor] ?? null) : null; // slots self-highlight in game mode
     const perRow = this.pageSize();
     const per = perRow * 2;
     const pageCount = Math.max(1, Math.ceil(syms.length / per));
@@ -176,6 +223,7 @@ export class Hotbar {
     const boxL = Math.max(6, window.innerWidth / 2 - boxW / 2);
     const boxT = tabY - PAD;
     const boxH = yB + SLOT / 2 + PAD - boxT;
+    this.box = { x: boxL, y: boxT, w: boxW, h: boxH }; // for the reduction progress bar (plan 02)
     this.frame
       .rect(boxL + 3, boxT + 4, boxW, boxH).fill({ color: ink, alpha: 0.16 }) // soft hard-edged drop shadow
       .rect(boxL, boxT, boxW, boxH).fill({ color: paper }).stroke({ width: 1, color: ink })
@@ -209,6 +257,10 @@ export class Hotbar {
     const v = new Container() as Container & { sym: string };
     v.sym = sym;
     v.addChild(new Graphics().rect(-SLOT / 2, -SLOT / 2, SLOT, SLOT).fill({ color: paper }).stroke({ width: 1, color: ink }));
+    if (sym === this.cursorSymCache) {
+      // game-mode cursor: a gold selection ring around the cell (ADR 17)
+      v.addChild(new Graphics().rect(-SLOT / 2 - 3, -SLOT / 2 - 3, SLOT + 6, SLOT + 6).stroke({ width: 2.5, color: theme.iota }));
+    }
     const glyph = new Text({ text: this.aliasOf(sym), style: { fontFamily: "monospace", fontSize: 22, fill: glyphColor } });
     glyph.anchor.set(0.5);
     const maxW = SLOT - 10; // shrink long glyphs (e.g. "Succ", "Mult") to fit

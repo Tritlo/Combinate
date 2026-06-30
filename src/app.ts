@@ -17,7 +17,7 @@ import { ChallengePanel } from "./view/challenge";
 import { QuestPanel } from "./view/quest";
 import { QuestTracker } from "./view/questTracker";
 import { Sound } from "./view/sound";
-import { CATALOG, type Law } from "./core/catalog";
+import { CATALOG, type Law, expandDisplay } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutAuto, layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
 import { recognizeDeep, fromEgg, toEgg } from "./core/refold";
@@ -37,14 +37,24 @@ import { preloadCompiler } from "./view/mhs/compiler";
 import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange } from "./view/theme";
 import { MenuBar, type Menu } from "./view/menubar";
 import { About } from "./view/about";
-import { FluffPanel, isFluff, prefersReducedMotion, onFluffChange } from "./view/fluff";
+import { withMotion } from "./view/motion";
 import { OptimizePanel, isOpt, setOpt, onOptChange } from "./view/optimize";
 import { type NativeOpts } from "./core/native";
-import { tween } from "./view/anim";
+import { BucketTray } from "./view/bucketTray";
+import { GameInputController } from "./view/gameInput";
+import { GamepadController } from "./view/gamepad";
 import { Sphere3D, NODE_CAP, preloadSphere3D } from "./view/sphere3d";
+import { HintBar } from "./view/hints";
+import { DiscoveryCard } from "./view/discovery";
+import { type Context, type Intent, intentForKey } from "./view/keymap";
+import { noteKbm, notePad, onDeviceChange } from "./view/inputDevice";
 
 const KEY_ROT = 6; // 3D orbit: px-equivalent per frame for a held rotate-key
 const MOM_DECAY = 0.92; // 3D orbit: drag-release momentum decay per frame
+const PAD_ORBIT = 320; // 3D orbit: px-equivalent/sec at full left-stick deflection
+const PAD_PAN = 1100; // build camera pan: world-px/sec at full right-stick deflection
+const PAD_PAN3D = 600; // 3D pan: px-equivalent/sec at full right-stick deflection
+const PAD_ROT_STEP = 22; // 3D orbit: px-equivalent per gamepad d-pad step
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
 const COLLAPSE_MS = 340; // morph from a recognised normal form into its named node
 const ATTACH_MS = 280; // glide two trees together when snapped
@@ -85,9 +95,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   ghostLabel.anchor.set(0.5, 1);
   ghostLabel.visible = false;
   ghostLayer.addChild(ghost, ghostLabel);
-  const flourish = new Graphics(); // fluff: a marching-ants ring at each reduction
-  flourish.eventMode = "none";
-  world.addChild(flourish); // brought to front in reduceFlourish so it's not hidden under trees
 
   const trees: TreeView[] = [];
   let drag: Drag = null;
@@ -123,6 +130,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   const toast = new Toast(pixi.ticker);
   hud.addChild(toast.container);
+  const discoveryCard = new DiscoveryCard(); // DOM card on discovery (a rotating 3D mini-view) — replaces the discovery toast
 
   // Live read-out of the current (last-touched) tree's expression, top-centre.
   const exprText = new Text({
@@ -238,6 +246,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     saveDiscovered();
     hotbar.refresh();
     for (const t of trees) t.refresh();
+    rerender3D(); // the 3D view follows the discovery mask too
     zoo.refresh();
     updateHint();
     paintRail();
@@ -253,6 +262,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     saveDiscovered();
     hotbar.refresh();
     for (const t of trees) t.refresh();
+    rerender3D(); // the 3D view follows the discovery mask too
     zoo.refresh();
     updateHint();
     paintRail();
@@ -273,10 +283,11 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   function discover(law: Law): void {
     discovered.add(law.sym);
     saveDiscovered();
-    toast.show(`${law.lawText}  —  discovered!`);
-    if (isFluff("discovery")) sound.playIfReady(law.sym); // fluff: chirp the new bird (only if audio's already unlocked — discovery isn't a gesture)
+    discoveryCard.show(law); // a card under the tracked quest: catalog entry + a rotating 3D mini-view
+    sound.playIfReady(law.sym); // chirp the new bird (only if audio's already unlocked — discovery isn't a gesture)
     hotbar.reveal(law.sym);
     for (const t of trees) t.refresh(); // reveal newly-known combinators everywhere
+    rerender3D(); // a newly-known combinator changes the 3D discovery mask too
     zoo.refresh();
     updateHint();
     paintRail();
@@ -356,7 +367,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
 
   // ---- auto-reduce + transport (extracted to view/reduction.ts, ADR 12). The Pixi
-  // side effects (the redex flourish, the transport bar) stay here and are injected. ----
+  // side effects (the transport bar) stay here and are injected. ----
   const reduce = new ReductionController({
     getFast: () => fastMode,
     getShare: () => shareMode,
@@ -370,7 +381,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       quest.onNormalForm(source); // guided progression
     },
     tickSound: (sym) => sound.tick(sym),
-    flourish: (tree) => reduceFlourish(tree),
     notify: (msg) => toast.show(msg),
     onTransportChange: () => {
       paintRail();
@@ -378,38 +388,30 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     },
   });
 
-  // Fluff "marching ants": a gold dashed ring crawls + fades at a tree's root when
-  // a reduction fires — skipped on fast-forward (would strobe), big trees, reduced
-  // motion. One ring at a time; rapid steps restart it.
-  let flourishCancel: (() => void) | null = null;
-  function reduceFlourish(tree: TreeView): void {
-    if (!isFluff("redexAnts") || reduce.mode === "ff" || prefersReducedMotion() || tree.heavy()) return;
-    flourishCancel?.();
-    world.addChild(flourish); // bring to front (above the trees added after it)
-    const { x, y } = tree.rootWorld;
-    flourishCancel = tween(
-      pixi.ticker,
-      340,
-      (e) => {
-        const r = 26 + 22 * e; // start outside the root-mark ring, then expand
-        const N = 12;
-        const arc = (Math.PI * 2) / N;
-        const span = arc * 0.5;
-        const off = e * arc * 1.5; // crawling dashes
-        flourish.clear();
-        for (let i = 0; i < N; i++) flourish.arc(x, y, r, i * arc + off, i * arc + off + span);
-        flourish.stroke({ width: 2.5, color: theme.iota, alpha: 0.9 * (1 - e) });
-      },
-      () => {
-        flourish.clear();
-        flourishCancel = null;
-      },
-    );
-  }
-
   // Transport bar (top-right): rate read-out + Pause/Step/Play/FF — a thin view over the
   // ReductionController (extracted to view/transportBar.ts, ADR 12).
   const transportBar = new TransportBar(hud, pixi.ticker, reduce);
+
+  // Reduction progress bar (plan 02): a thin fill along the top edge of the hotbar box, showing how
+  // far the focused tree's reduction has played vs the background same-mode total. Shown only when
+  // there's an honest exact total worth a bar — hidden for instant / huge / non-terminating runs.
+  const PROGRESS_MIN = 12; // skip near-instant reductions
+  const progressBar = new Graphics();
+  progressBar.eventMode = "none";
+  hud.addChild(progressBar);
+  pixi.ticker.add(() => {
+    progressBar.clear();
+    const est = reduce.estimate;
+    if (est.kind !== "exact" || est.total < PROGRESS_MIN) return;
+    const steps = reduce.focusedSteps();
+    if (steps >= est.total) return; // finished → no bar
+    const b = hotbar.boxRect;
+    if (b.w <= 0) return;
+    const frac = Math.max(0, Math.min(1, steps / est.total));
+    const h = 3;
+    progressBar.rect(b.x, b.y - h - 1, b.w, h).fill({ color: theme.textDim, alpha: 0.3 }); // track
+    progressBar.rect(b.x, b.y - h - 1, b.w * frac, h).fill({ color: theme.iota }); // fill
+  });
 
   // FPS counter (View ▸ FPS counter), bottom-left — for diagnosing render cost on
   // big trees (factorial). Off by default; sampled ~4×/s from the Pixi ticker.
@@ -435,35 +437,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     fpsText.text = `${pixi.ticker.FPS.toFixed(0)} fps`;
   });
 
-  // Fluff: water drift — sway settled trees' leaves around their layout positions
-  // (the edges/spine stay put). One ticker over all trees; each tree skips itself
-  // while tweening or if it's big (heavy). Toggling drift off snaps everyone back.
-  let driftT = 0;
-  pixi.ticker.add((tk: { deltaMS: number }) => {
-    if (prefersReducedMotion()) return;
-    driftT += tk.deltaMS;
-    const t = driftT / 1000;
-    if (isFluff("drift")) for (const tree of trees) tree.applyDrift(t);
-    if (isFluff("livingZoo")) zoo.tickFluff(t); // float the open creature's picture
-  });
-  // Snap everything back to rest whenever ambient motion stops (a toggle changed,
-  // or the OS reduced-motion preference flipped). The ticker re-applies next frame
-  // if the effect is still on.
-  const resetAmbient = (): void => {
-    for (const tree of trees) tree.clearDrift();
-    zoo.clearFluff();
-  };
-  onFluffChange(resetAmbient);
-  window.matchMedia?.("(prefers-reduced-motion: reduce)").addEventListener("change", resetAmbient);
-  // Leaf-nodes toggle changes the particle texture, baked in at creation — rebuild
-  // each tree's display so it applies immediately (only when that toggle flips).
-  let prevLeaves = isFluff("leaves");
-  onFluffChange(() => {
-    if (isFluff("leaves") !== prevLeaves) {
-      prevLeaves = isFluff("leaves");
-      for (const tree of trees) tree.refresh();
-    }
-  });
 
   // Stage receives pointer events over empty space (so panning works there).
   pixi.stage.eventMode = "static";
@@ -486,7 +459,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const tree = new TreeView(node, w.x, w.y, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
     addTree(tree);
     focus = tree;
-    if (!prefersReducedMotion()) tree.popIn(); // grab/spawn pop is always on (only reduced-motion suppresses it)
+    if (withMotion()) tree.popIn(); // grab/spawn pop is always on (only reduced-motion suppresses it)
     return tree;
   }
 
@@ -537,19 +510,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const TY_PAGE: Record<Ty, string> = { Int: "Arithmetic", Bool: "Booleans", List: "Lists", Char: "Char" };
   const mhsPanel = new MhsPanel(
     (tree, read) => {
-      // Compiled programs get big: turn on Turbo (the wasm graph engine — sharing + number
-      // kernels) so the reduction is fast + doesn't blow up, lay out radially, zoom to fit.
-      // (rules off — it gates Turbo; native numbers on for clean fast arithmetic.) Turbo
-      // auto-engages by size, so small steps still animate; the big reduction runs in wasm.
-      setOpt("rules", false);
-      setOpt("nativeNumbers", true);
-      setOpt("wasm", true);
-      void loadWasmReducer(); // warm the wasm so the first big reduction uses it
+      // Reduce under the user's current settings (no auto-enabling optimizations — Turbo / native
+      // numbers stay opt-in via the Reduce menu). Compiled programs get big, so lay out radially +
+      // zoom to fit; the progress bar shows how the reduction is going.
       setLayoutMode(layoutRadial);
       const view = spawnTree(tree, window.innerWidth / 2, window.innerHeight / 2);
       if (read) hotbar.selectPage(TY_PAGE[read]);
       fitTree(view);
-      toast.show("compiled from Haskell — Turbo on");
+      reduce.schedule(view); // start it reducing under the current settings (was a side effect of the old auto-Turbo)
+      toast.show("compiled from Haskell");
     },
     () => paintRail(),
   );
@@ -568,6 +537,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
     focus = tree;
     reduce.cancel(tree); // touching a tree freezes it (§6.4)
+    gameInput?.detach(tree); // grabbing a bucket tree with the mouse releases its slot (ADR 17)
     const w = screenToWorld(e.global.x, e.global.y);
     world.addChild(tree.container); // bring to front
     drag = {
@@ -586,11 +556,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     reduce.cancel(tree);
     const next = removeSubtree(tree.node, id);
     if (next === null) {
-      // deleted the root → the whole tree goes
-      reduce.forget(tree);
-      trees.splice(trees.indexOf(tree), 1);
-      tree.destroy();
-      if (focus === tree) focus = null;
+      removeTree(tree); // deleted the root → the whole tree goes (releases its bucket too)
     } else {
       focus = tree;
       tree.animateTo(next, DELETE_MS, () => {});
@@ -600,7 +566,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   pixi.stage.on("pointerdown", (e: FederatedPointerEvent) => {
     if (view3D) {
-      if (e.button === 0) orbitDrag = { x: e.global.x, y: e.global.y }; // 3D: drag-to-orbit
+      if (e.pointerType === "touch") return; // touch is handled at the canvas level (1-finger pan / 2-finger orbit)
+      if (e.button === 0) panDrag = { x: e.global.x, y: e.global.y }; // 3D: left-drag pans
+      else if (e.button === 2) orbitDrag = { x: e.global.x, y: e.global.y }; // 3D: right-drag orbits
       return;
     }
     if (drag || pinch || e.button !== 0) return; // a tree/slot claimed it, pinching, or a right-click
@@ -615,7 +583,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   pixi.stage.on("globalpointermove", (e: FederatedPointerEvent) => {
     if (view3D) {
-      if (orbitDrag) {
+      if (panDrag) {
+        sphere3d.pan(e.global.x - panDrag.x, e.global.y - panDrag.y);
+        panDrag = { x: e.global.x, y: e.global.y };
+      } else if (orbitDrag) {
         const dx = e.global.x - orbitDrag.x;
         const dy = e.global.y - orbitDrag.y;
         sphere3d.orbit(dx, dy);
@@ -646,6 +617,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       lastDragD = { x: 0, y: 0 };
     }
     orbitDrag = null; // end a 3D orbit drag
+    panDrag = null; // end a 3D pan drag
     if (!drag) return;
     if (drag.kind === "tree" || drag.kind === "spawn") {
       const tree = drag.tree;
@@ -701,11 +673,44 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     snapTarget = null;
   }
 
+  // Forget + remove + destroy a tree (and release any bucket it filled, so game-mode slot
+  // state stays in sync — the one mouse/controller desync rule, ADR 17).
+  function removeTree(tree: TreeView): void {
+    reduce.forget(tree);
+    const i = trees.indexOf(tree);
+    if (i >= 0) trees.splice(i, 1);
+    tree.destroy();
+    gameInput?.detach(tree);
+    if (focus === tree) focus = null;
+  }
+
+  /** Build `app(fn, arg)` at a world anchor and start it reducing — the non-spatial apply
+   *  shared by mouse-snap and the game controller (X/Y choose direction, ADR 17). `fromWorld`
+   *  (the consumed trees' node positions) glides the merge; without it the result pops in. */
+  function applyTerms(fnNode: Node, argNode: Node, anchor: { x: number; y: number }, fromWorld?: Map<NodeId, { x: number; y: number }>): TreeView {
+    const merged = new TreeView(mkApp(fnNode, argNode), anchor.x, anchor.y, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
+    addTree(merged);
+    focus = merged;
+    if (fromWorld) merged.animateAttachFrom(fromWorld, ATTACH_MS); // smooth merge into the app tree
+    else if (withMotion()) merged.popIn();
+    reduce.schedule(merged); // then it reduces on its own
+    return merged;
+  }
+
+  /** Spawn a reducing tree at a world anchor (the game controller places buckets here). */
+  function spawnTreeWorld(node: Node, wx: number, wy: number): TreeView {
+    const tree = new TreeView(node, wx, wy, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
+    addTree(tree);
+    focus = tree;
+    if (withMotion()) tree.popIn();
+    reduce.schedule(tree);
+    return tree;
+  }
+
   // Snap = application. Horizontal order of the two roots decides fn (left) vs arg (§6.2).
   function commitSnap(dragged: TreeView, target: TreeView): void {
     const fn = dragged.rootWorld.x <= target.rootWorld.x ? dragged : target;
     const arg = fn === dragged ? target : dragged;
-    const root = mkApp(fn.node, arg.node);
     const ax = (dragged.rootWorld.x + target.rootWorld.x) / 2;
     const ay = Math.min(dragged.rootWorld.y, target.rootWorld.y) - 32;
     // capture where every subtree node currently sits, to glide them in (§6.2)
@@ -713,16 +718,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     for (const t of [dragged, target]) {
       for (const [id, p] of t.nodeWorldPositions()) fromWorld.set(id, p);
     }
-    for (const old of [dragged, target]) {
-      reduce.forget(old);
-      trees.splice(trees.indexOf(old), 1);
-      old.destroy();
-    }
-    const merged = new TreeView(root, ax, ay, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
-    addTree(merged);
-    focus = merged;
-    merged.animateAttachFrom(fromWorld, ATTACH_MS); // smooth merge into the app tree
-    reduce.schedule(merged); // then it reduces on its own
+    const fnNode = fn.node;
+    const argNode = arg.node;
+    for (const old of [dragged, target]) removeTree(old);
+    applyTerms(fnNode, argNode, { x: ax, y: ay }, fromWorld);
   }
 
   // ---- camera zoom: mouse wheel (desktop) + two-finger pinch (touch) ----
@@ -738,6 +737,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     "wheel",
     (ev) => {
       ev.preventDefault();
+      noteKbm(); // wheel is a mouse action → keyboard hint glyphs
       if (zoo.isOpen || challenges.isOpen) return; // an open overlay owns the wheel (its list scrolls instead of zooming the canvas behind it)
       if (view3D) return sphere3d.zoomBy(ev.deltaY < 0 ? 0.9 : 1 / 0.9); // 3D: wheel orbits-zoom
       zoomTo(world.scale.x * (ev.deltaY < 0 ? 1.1 : 1 / 1.1), ev.clientX, ev.clientY);
@@ -753,7 +753,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
   };
   pixi.canvas.addEventListener("pointerdown", (ev) => {
+    noteKbm(); // mouse/touch on the canvas → keyboard hint glyphs (last-input-wins)
+    if (view3D && ev.pointerType !== "touch") return; // 3D MOUSE is handled on the stage (left-pan / right-orbit) — don't double-handle
     pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (view3D) {
+      if (pointers.size === 2) pinch = pinchMetrics(); // 3D: two fingers orbit + pinch-zoom
+      return; // 3D: one finger pans (handled in move)
+    }
     if (pointers.size === 2) {
       clearGhost();
       drag = null; // hand control to the pinch
@@ -761,10 +767,24 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
   });
   pixi.canvas.addEventListener("pointermove", (ev) => {
+    if (view3D && ev.pointerType !== "touch") return; // 3D MOUSE handled on the stage
     const p = pointers.get(ev.pointerId);
     if (!p) return;
+    const px = p.x; // previous position, before this move
+    const py = p.y;
     p.x = ev.clientX;
     p.y = ev.clientY;
+    if (view3D) {
+      if (pointers.size === 1) {
+        sphere3d.pan(ev.clientX - px, ev.clientY - py); // one finger pans the look-at
+      } else if (pointers.size >= 2 && pinch) {
+        const cur = pinchMetrics();
+        sphere3d.orbit(cur.cx - pinch.cx, cur.cy - pinch.cy); // two-finger centroid drag → orbit
+        if (cur.d !== pinch.d) sphere3d.zoomBy(pinch.d / cur.d); // spread/pinch → zoom
+        pinch = cur;
+      }
+      return;
+    }
     if (pointers.size >= 2 && pinch) {
       const cur = pinchMetrics();
       world.position.set(world.position.x + (cur.cx - pinch.cx), world.position.y + (cur.cy - pinch.cy));
@@ -813,6 +833,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     placeExpr();
     zoo.layout();
     challenges.layout();
+    hintBar.place(window.innerWidth, window.innerHeight);
     if (view3D) {
       sphere3d.resize(window.innerWidth, window.innerHeight);
       fitSphereSprite();
@@ -820,8 +841,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   });
 
   // Render efficiency: stop the render/animation loop while the tab is hidden —
-  // no point drawing the drift to an invisible canvas. (Browsers throttle rAF in
-  // the background; this also idles the drift/rate samplers.) setTimeout-driven
+  // no point rendering to an invisible canvas. (Browsers throttle rAF in the
+  // background; this also idles the rate samplers.) setTimeout-driven
   // reduction keeps crawling and catches up on return.
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) pixi.ticker.stop();
@@ -867,11 +888,11 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     sphereSprite.setSize(window.innerWidth, window.innerHeight);
     sphereTex.source.update();
   }
-  let orbitDrag: { x: number; y: number } | null = null;
+  let orbitDrag: { x: number; y: number } | null = null; // right-drag (mouse) — 3D orbit
+  let panDrag: { x: number; y: number } | null = null; // left-drag (mouse) — 3D pan
   // 3D rotation: held rotate-keys + drag-release momentum, applied each frame by the ticker so
   // the orbit is smooth/continuous (not one step per pointer event).
   const heldRot = new Set<string>();
-  const ROT_KEYS = new Set(["arrowleft", "arrowright", "arrowup", "arrowdown", "w", "a", "s", "d"]);
   let momVx = 0;
   let momVy = 0;
   let lastDragD = { x: 0, y: 0 };
@@ -890,31 +911,53 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     momVy = Math.abs(momVy) < 0.05 ? 0 : momVy * MOM_DECAY;
   });
   let view3D = false;
+  // The term the 3D view renders: the same EXPANDED display the 2D tree shows (undiscovered S/K/I
+  // as ι-trees, and every combinator when "Expand ι-trees" is on), so 3D follows that setting.
+  const display3D = (): Node | null => (focus ? expandDisplay(focus.node, { expandAll, isDiscovered }) : null);
+  // Re-render the open 3D view after a setting changes the displayed term (Expand toggle, a
+  // discovery). Keeps the camera; the term may have grown/shrunk but re-framing here is jarring.
+  // If the new display blows past the node cap (e.g. Expand on a big tree), back out to 2D.
+  function rerender3D(): void {
+    if (!view3D) return;
+    const disp = display3D();
+    if (disp && exceedsNodes(disp, NODE_CAP)) {
+      toggleView3D(); // exits 3D
+      return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
+    }
+    sphere3d.update(disp, true);
+  }
   function toggleView3D(): void {
     if (view3D) {
       view3D = false;
       sphereLayer.visible = false;
       world.visible = true;
       sphere3d.hide();
+      heldRot.clear(); // drop any still-held rotate-keys so they don't resume on re-entry
+      pinch = null; // a 2-finger 3D gesture exited mid-flight mustn't bleed into the 2D pinch
+      updateHints();
       paintRail();
       return;
     }
     // Entering: preflight (iterative exceedsNodes — deep-tree-safe) so a too-big / unfocused tree
-    // never enters 3D, and the message shows on the visible 2D HUD.
-    if (!focus) return toast.show("focus a tree to view it in 3D");
-    if (exceedsNodes(focus.node, NODE_CAP)) return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
+    // never enters 3D, and the message shows on the visible 2D HUD. Checks the EXPANDED display.
+    const disp = display3D();
+    if (!disp) return toast.show("focus a tree to view it in 3D");
+    if (exceedsNodes(disp, NODE_CAP)) return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
+    if (gameMode) setGameMode(false); // contexts are mutually exclusive
     view3D = true;
     world.visible = false;
     sphereLayer.visible = true;
+    updateHints();
     paintRail();
     void sphere3d
-      .show(focus.node, window.innerWidth, window.innerHeight)
+      .show(disp, window.innerWidth, window.innerHeight)
       .then(() => fitSphereSprite())
       .catch((e: unknown) => {
         view3D = false; // Three failed to load / no WebGL — back out visibly
         sphereLayer.visible = false;
         world.visible = true;
         sphere3d.hide();
+        updateHints();
         paintRail();
         toast.show("3D view unavailable — WebGL not supported here");
         console.warn("sphere3d:", e);
@@ -949,6 +992,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   function toggleExpand(): void {
     expandAll = !expandAll;
     for (const t of trees) t.refresh();
+    rerender3D(); // the 3D view follows the Expand setting too
     paintRail();
   }
 
@@ -957,14 +1001,108 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // a • the selected option in a group. paintRail() (kept for its many callers)
   // now just refreshes the open pull-down's checkmarks. ----
   const about = new About();
-  const fluff = new FluffPanel();
   const optimize = new OptimizePanel();
+
+  // ---- game mode (ADR 17): keyboard/controller play via a bucket tray + hand ----
+  let gameMode = false;
+  const tray = new BucketTray();
+  hud.addChild(tray.container);
+  const hintBar = new HintBar();
+  hud.addChild(hintBar.container);
+  hintBar.place(window.innerWidth, window.innerHeight);
+  // The active interaction context: Inspect (3D) and Build (the tray) own the discrete input; the
+  // free canvas is mouse/touch + the desktop shortcuts. The two are mutually exclusive.
+  function currentContext(): "free" | Context {
+    return view3D ? "inspect" : gameMode ? "build" : "free";
+  }
+  function updateHints(): void {
+    const c = currentContext();
+    hintBar.setContext(c === "free" ? null : c);
+  }
+  onDeviceChange(() => hintBar.refresh()); // last-input-wins → swap keyboard/pad glyphs
+  const labelFor = (node: Node): string => {
+    const s = readout.exprOf(node);
+    return s.length > 14 ? s.slice(0, 13) + "…" : s;
+  };
+  const gameInput = new GameInputController({
+    hotbar,
+    tray,
+    freshNode: spawnFor,
+    labelOf: labelFor,
+    bucketAnchor: (i) => ({ x: (i - 2) * 720, y: 0 }), // a centred row of 5 world anchors
+    spawnAt: (node, w) => spawnTreeWorld(node, w.x, w.y),
+    applyTerms: (fn, arg, w, from) => applyTerms(fn, arg, w, from),
+    captureWorld: (tree) => tree.nodeWorldPositions(),
+    removeTree,
+    fit: (tree) => fitTree(tree),
+    pan: (dx, dy) => world.position.set(world.position.x + dx, world.position.y + dy),
+    zoom: (factor) => zoomTo(world.scale.x * factor, window.innerWidth / 2, window.innerHeight / 2),
+    setSpeed: (lvl) => reduce.setSpeedLevel(lvl),
+    getSpeedLevel: () => reduce.speedLevel,
+    openMenu: () => menuBar?.openMenuBar(),
+    toast: (m) => toast.show(m),
+  });
+  // Gamepad: a third input producer (polled from the ticker), routed by the active context.
+  new GamepadController(pixi.ticker, {
+    // Always poll: a pad must be detectable in the free canvas too, so Start can enter Build and
+    // Y can enter 3D (the free context maps to the Build button-map, which carries the globals).
+    enabled: () => true,
+    context: () => (view3D ? "inspect" : "build"),
+    dispatch: (i) => dispatchPadIntent(i),
+    leftStick: (sx, sy, dt) => {
+      if (view3D) sphere3d.orbit(sx * PAD_ORBIT * dt, sy * PAD_ORBIT * dt); // inspect: orbit
+    },
+    rightStick: (sx, sy, dt) => {
+      if (gameMode) gameInput.panBy(-sx * PAD_PAN * dt, -sy * PAD_PAN * dt); // build: pan the camera
+      else if (view3D) sphere3d.pan(sx * PAD_PAN3D * dt, sy * PAD_PAN3D * dt); // inspect: pan the look-at
+    },
+    zoomBy: (f) => (view3D ? sphere3d.zoomBy(f) : gameInput.zoomBy(f)),
+    note: () => notePad(),
+    toast: (m) => toast.show(m),
+  });
+  // A pad unplugging must drop the pad hint glyphs immediately (don't strand them on screen) —
+  // fall back to keyboard until the next real input. The hint bar refreshes via onDeviceChange.
+  window.addEventListener("gamepaddisconnected", () => noteKbm());
+  // A pad's discrete intent, routed by the active context (Build → the tray controller; Inspect →
+  // the 3D camera; the global toggles either way). The keyboard routes the same intents below.
+  function dispatchPadIntent(intent: Intent): void {
+    switch (intent) {
+      case "toggleBuild":
+        return setGameMode(!gameMode);
+      case "enterInspect":
+      case "exitInspect":
+        return void toggleView3D();
+      case "recenter":
+        return sphere3d.recenter();
+      case "rotLeft":
+        return sphere3d.orbit(-PAD_ROT_STEP, 0);
+      case "rotRight":
+        return sphere3d.orbit(PAD_ROT_STEP, 0);
+      case "rotUp":
+        return sphere3d.orbit(0, -PAD_ROT_STEP);
+      case "rotDown":
+        return sphere3d.orbit(0, PAD_ROT_STEP);
+      case "speed":
+        return gameInput.cycleSpeed();
+      default:
+        return gameInput.trigger(intent); // build discrete intents (move/page/pick/apply/cancel)
+    }
+  }
+  function setGameMode(on: boolean): void {
+    if (on && view3D) toggleView3D(); // contexts are mutually exclusive
+    gameMode = on;
+    gameInput.setEnabled(on);
+    if (on) toast.show("game mode — arrows/WASD move · Space hold · Q/E apply (fn/arg) · V for 3D · Tab exits");
+    updateHints();
+    paintRail();
+  }
   // The optimize store is the source of truth; mirror it into the reducer flags and do
   // the per-mode invalidation (carry the changed key so we invalidate only what changed).
   onOptChange((key) => {
     if (key === "rules") {
       fastMode = isOpt("rules");
       reduce.invalidateGraphers(); // graphers bake `fast` at construction
+      if (focus) reduce.schedule(focus); // reschedule → reset the step count + re-estimate in the new mode (consistent bar)
     } else if (key === "graph") {
       shareMode = isOpt("graph");
       if (focus) reduce.schedule(focus);
@@ -1017,8 +1155,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "toggle", label: "Color (4096)", checked: () => colorOn(), run: () => toggleColor() },
       { kind: "sep" },
       { kind: "toggle", label: "FPS counter", checked: () => fpsOn, run: () => toggleFps() },
-      { kind: "sep" },
-      { kind: "action", label: "Fluff…", run: () => fluff.open() },
     ] },
     { title: "Reduce", items: [
       { kind: "radio", label: "Pause", on: () => reduce.mode === "pause", run: () => reduce.setTransport("pause") },
@@ -1031,6 +1167,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "toggle", label: "Sound", checked: () => sound.enabled, run: () => sound.toggle() },
     ] },
     { title: "Special", items: [
+      { kind: "toggle", label: "Game mode", checked: () => gameMode, run: () => setGameMode(!gameMode) },
+      { kind: "sep" },
       { kind: "toggle", label: "Quest", checked: () => quest.isOpen, run: () => quest.toggle() },
       { kind: "toggle", label: "Track Quest", checked: () => !quest.done && !questTracker.isHidden, run: () => { questTracker.setHidden(!questTracker.isHidden); paintRail(); } },
       { kind: "toggle", label: "Zoo", accel: "Z", checked: () => zoo.isOpen, run: () => zoo.toggle() },
@@ -1109,6 +1247,35 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
   }
 
+  // The keyboard's discrete intents, routed per context (the gamepad routes the same via
+  // dispatchPadIntent). Inspect holds rotate-keys for the orbit ticker; Build defers to the tray.
+  function dispatchInspectKey(intent: Intent, k: string): void {
+    switch (intent) {
+      case "rotLeft":
+      case "rotRight":
+      case "rotUp":
+      case "rotDown":
+        heldRot.add(k); // the orbit ticker reads heldRot for continuous rotation
+        return;
+      case "zoomIn":
+        return sphere3d.zoomBy(0.9);
+      case "zoomOut":
+        return sphere3d.zoomBy(1 / 0.9);
+      case "recenter":
+        return sphere3d.recenter();
+      case "exitInspect":
+        return void toggleView3D();
+      case "toggleBuild":
+        return setGameMode(true); // Tab from 3D → Build (mutual exclusion exits 3D)
+    }
+  }
+  function dispatchBuildKey(intent: Intent, key: string): void {
+    if (intent === "enterInspect") return void toggleView3D();
+    if (intent === "toggleBuild") return setGameMode(false);
+    if (intent === "speed") return reduce.setSpeedLevel(parseInt(key, 10));
+    gameInput.trigger(intent);
+  }
+
   window.addEventListener("keydown", (e) => {
     if (zoo.isOpen) {
       if (e.key === "ArrowDown") return e.preventDefault(), zoo.move(1);
@@ -1117,15 +1284,38 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (e.key === "ArrowLeft") return e.preventDefault(), zoo.cyclePage(-1);
       if (e.key === "Escape") return zoo.close();
     }
-    // In 3D: arrows / WASD orbit (held = continuous), Esc exits. Other keys fall through.
-    if (view3D) {
-      const k = e.key.toLowerCase();
-      if (k === "escape") return toggleView3D();
-      if (ROT_KEYS.has(k)) {
-        heldRot.add(k);
-        return e.preventDefault();
+    // A context OWNS the keyboard (ADR 17): in Build / Inspect the bound keys act and every other
+    // desktop letter-shortcut below is suspended (so e.g. `r` can't wipe the canvas mid-play) — the
+    // menu bar (Esc / mouse) still reaches them. Never while an overlay or text field is up, and
+    // modifier combos (Ctrl/Cmd/Alt — browser shortcuts like Ctrl-R) always pass through.
+    const typing = (el: Element | null): boolean => !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || (el as HTMLElement).isContentEditable);
+    const overlayUp = (): boolean => zoo.isOpen || challenges.isOpen || [...document.querySelectorAll<HTMLElement>(".md-root")].some((el) => el.style.display === "flex");
+    const blocked = e.ctrlKey || e.metaKey || e.altKey || overlayUp() || typing(document.activeElement);
+    if (blocked) return; // typing / an overlay / a modifier combo → leave it to the browser + modals
+    noteKbm(); // keyboard activity → keyboard hint glyphs (last-input-wins)
+    const ctx = currentContext();
+    // INSPECT (3D) owns the keyboard: rotate (held) / zoom / recenter / exit.
+    if (ctx === "inspect") {
+      const intent = intentForKey("inspect", e.key);
+      if (intent) {
+        dispatchInspectKey(intent, e.key.toLowerCase());
+        e.preventDefault();
       }
+      return;
     }
+    // BUILD owns the keyboard: tray nav / pick / apply / cancel / speed / enter-3D / exit.
+    if (ctx === "build") {
+      const intent = intentForKey("build", e.key);
+      if (intent) {
+        dispatchBuildKey(intent, e.key);
+        e.preventDefault();
+      }
+      return;
+    }
+    // FREE: the global enter-keys (Tab → Build, V → 3D), then the desktop shortcuts below.
+    const g = intentForKey("build", e.key); // the build map carries the global Tab + the V enter
+    if (g === "toggleBuild") return setGameMode(true), e.preventDefault();
+    if (g === "enterInspect") return toggleView3D(), e.preventDefault();
     if (e.key === "r" || e.key === "R") clearCanvas();
     else if (e.key === "t" || e.key === "T") toggleLayout();
     else if (e.key === "u" || e.key === "U") unlockAll();
@@ -1180,12 +1370,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       sexps: () => trees.map((t) => sexp(t.node)),
       roots: () => trees.map((t) => t.rootWorld),
       discovered: () => [...discovered],
+      discover: (sym: string) => { const l = CATALOG.find((x) => x.sym === sym); if (l) discover(l); }, // dev seam: fire the discovery flow (card + chirp)
       mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : "topdown"),
       toggleLayout: () => toggleLayout(),
-      view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs, drawMs: sphere3d.lastDrawMs, az: sphere3d.azimuth }) },
+      view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs, drawMs: sphere3d.lastDrawMs, az: sphere3d.azimuth, pan: sphere3d.panSum }) },
       transport: { mode: () => reduce.mode, set: (m: string) => reduce.setTransport(m as Transport), cycle: () => reduce.cycleTransport(), step: () => reduce.stepOnce() },
       autoSteps: () => reduce.totalSteps(),
+      est: () => ({ ...reduce.estimate, shown: reduce.focusedSteps() }),
       run: () => { if (focus) reduce.schedule(focus); },
+      game: { on: () => gameMode, set: (b: boolean) => setGameMode(b), state: () => gameInput.debugState },
       fast: { on: () => isOpt("rules"), set: (b: boolean) => setOpt("rules", b) },
       graph: { on: () => isOpt("graph"), set: (b: boolean) => setOpt("graph", b), eval: (s: string) => sexp(evalShared(fromEgg(s), 500000, fastMode).term) },
       expr: () => exprText.text,

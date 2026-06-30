@@ -256,6 +256,67 @@ Cross-check (`npm run check:reduce-wasm`): one-shot + persistent + graph 213/0 v
 `normalize(_,false)`/`evalShared(_,false)`, graph+kernels 253/0 vs `normalize(_,false,
 {numbers:true})`, session invariance 3/0. Deferred: list/bool kernels; a wasm value-read.
 
+## 17: Game controls — keyboard/controller input (`game-controls`)
+
+Combinate becomes playable with a controller, not just mouse drag-and-drop. Designed with
+Codex (consensus).
+
+**Problem.** Drag-and-drop construction is spatial (two roots within a radius merge into
+`app(fn,arg)`, fn = whichever is left by x); a d-pad/controller has no analog precision and no
+spatial fn/arg cue. We need a DISCRETE, navigable scheme that reuses the one construction op
+(application) and keeps the reduction spectacle (watching big trees reduce).
+
+**Decision — Register Tray + Hand.** A small fixed set of *buckets* (registers), each holding
+one term. A *hand* holds a term you've picked up. You navigate a HUD strip of bucket
+slot-chips with the d-pad; each bucket's actual term is a real world-space `TreeView` at a
+fixed anchor (so the reduction still plays out on the canvas — a HYBRID of HUD-chip navigation
+and world-space spectacle). The selected bucket is the `focus` (read-out + reduction work
+unchanged), and selecting auto-fits the camera to it.
+
+- **Hand lifecycle.** `A`/Space with an empty hand picks up: the hotbar cursor's symbol (a
+  *fresh* term — infinite supply) or the selected bucket's term (a *move* — empties the
+  bucket). With a hand: into an empty bucket, place it; over an occupied bucket, `X` applies
+  the held term as the **function** (`bucket := app(hand, bucket)`), `Y` as the **argument**
+  (`bucket := app(bucket, hand)`). `Esc`/`B` cancels (restores a bucket-origin term).
+- **Apply is explicit, not spatial.** `commitSnap`'s build/merge logic is factored into a
+  non-spatial `applyTerms(fn, arg, anchor, fromWorld?)` (preserving `reduce.forget`, destroy,
+  merged `TreeView`, `addTree`, `focus`, `animateAttachFrom`, `reduce.schedule`); the X/Y
+  buttons choose direction, so the x-position rule is dropped on this path.
+- **Coexists with mouse.** A `GameInputController` runs parallel to pointer input; mouse
+  drag/drop/delete stay fully live. Mouse-dragging a bucket-owned tree *detaches* it from its
+  slot (the one desync rule). Game mode is a toggle (Special menu), **OFF by default**; when ON
+  it OWNS the keyboard — game keys act and every *other* desktop letter-shortcut is suspended
+  (so a stray `r` can't clear the canvas; `z`/`x` mean zoom not Zoo/expand) — while modifier
+  combos (Ctrl/Cmd/Alt) and the menu bar (Esc / mouse) still pass through. Shows the tray + a
+  button-hint bar.
+- **Speeds.** Transport gains numeric speed levels 0-4 (0=pause … 4=8×), wired into the
+  normal, heavy-jump-cut, AND turbo pacing (so level 4 actually speeds the big trees the mode
+  is for); `pause|play|ff` stay as compat aliases.
+- **Keymap** is single-sourced in `keymap.ts` (intent → keyboard keys + gamepad button names),
+  rendered by a keybinds reference page in settings, and consumed by both input layers. The
+  scheme was tuned with the Magi council (Codex + Grok, consensus) for naturalness — **apply
+  lands on the bumpers, spatially**: fn = the LEFT child, so `LB` / `Q` applies the held term as
+  the function and `RB` / `E` as the argument (a physical left/right pair beats arbitrary X/Y;
+  `Q` is also left of `E`). Keyboard: **arrows + WASD** = move cursor / switch hotbar↔buckets
+  (nav is the primary action, so it owns the home keys), Space = pick/place, `Q`/`E` = apply
+  fn/arg, `[`/`]` = page, **IJKL = pan** (mirrors the right stick), `=`/`-` (then `z`/`x`) =
+  zoom, `0`-`4` = speed, `Esc` = cancel / menu.
+- **Gamepad** (`gamepad.ts`, also Magi-consensus): a third input producer polled from the Pixi
+  ticker only while game mode is on. It samples `navigator.getGamepads()` fresh each frame
+  (never caching the snapshot), edge-detects the discrete buttons (the d-pad gets time-based
+  auto-repeat), and reads the right stick / triggers as dt-scaled analog — then drives the SAME
+  intents through a thin sink on the controller (`trigger`/`panBy`/`zoomBy`/`cycleSpeed`). The
+  W3C *standard* indices live here (not in `keymap.ts`, which has no edge/repeat/analog notion).
+  D-pad nav (paging by pushing past the toolbar edge — emergent in the shared `move()`), A pick,
+  LB/RB apply, B cancel, right-stick pan, RT/LT zoom, Select cycles speed. Connection events are
+  toast/discovery hints only; the poll loop is the source of truth (Chrome withholds pads until
+  first input). Traps handled: non-standard mappings (toast + ignore), `getGamepads` throwing,
+  index reuse on replug, and a clamped frame-delta so a hidden-tab resume can't fly the camera.
+
+Rejected: a root-cursor on the free canvas (d-pad nav across zoomed/overlapping roots is the
+exact ergonomics trap), an RPN stack (feels like a calculator, loses the buckets-on-screen
+fantasy), a modal builder panel (hides the canvas, breaks the watch-it-reduce loop); X/Y for
+apply (named buttons don't encode the fn=left/arg=right spatial split the bumpers do).
 ## 18: 3D "packed sphere" view — static Three.js visualization (`viz-3d`)
 
 (Number 17 is reserved by the game-controls branch.) Designed with the Magi council (Codex +

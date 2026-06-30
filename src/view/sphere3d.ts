@@ -20,6 +20,7 @@ import { theme, combinatorColor } from "./theme";
 export const NODE_CAP = 20_000;
 const SPHERE_SEGMENTS = 12; // low-poly node sphere (instanced thousands of times)
 const ROT = 0.008; // orbit radians per pixel of drag
+const PAN = 0.0016; // pan world-units per pixel, scaled by orbit radius (consistent at any zoom)
 const POLAR_MIN = 0.08;
 const POLAR_MAX = Math.PI - 0.08;
 const DPR_CAP = 1.5; // cap the 3D canvas DPR — the texture re-upload per orbit step is the cost, not the draw
@@ -66,6 +67,8 @@ export class Sphere3D {
   private az = 0.6; // orbit azimuth
   private pol = 1.05; // orbit polar (from +Y)
   private rad = 800; // orbit radius
+  private target = { x: 0, y: 0, z: 0 }; // orbit look-at point (panned by the left drag)
+  private lastRadius = 120; // model radius from the last layout (for recenter)
   private w = 1;
   private h = 1;
   lastCount = 0;
@@ -76,6 +79,10 @@ export class Sphere3D {
   /** Current orbit azimuth (for the dev seam / E2E — confirms rotation). */
   get azimuth(): number {
     return this.az;
+  }
+  /** Σ of the pan look-at target (for E2E — confirms pan vs orbit don't cross-fire). */
+  get panSum(): number {
+    return this.target.x + this.target.y + this.target.z;
   }
 
   get active(): boolean {
@@ -109,16 +116,14 @@ export class Sphere3D {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
     this.scene = new three.Scene();
     this.camera = new three.PerspectiveCamera(50, 1, 0.1, 500_000);
-    // form-giving light so the spheres read as 3D (cheap: one directional + ambient).
-    this.scene.add(new three.AmbientLight(0xffffff, 0.65));
-    const key = new three.DirectionalLight(0xffffff, 0.9);
-    key.position.set(1, 1.4, 1.2);
-    this.scene.add(key);
+    // No lights: nodes use an unlit MeshBasicMaterial so per-combinator hues read flat + vivid
+    // (a 3D echo of the 2D palette) instead of being darkened by shading.
     this.resize(this.w, this.h);
   }
 
-  /** Render `node` (rebuilds the scene content + frames the camera). Cheap to call again. */
-  update(node: Node | null): void {
+  /** Render `node` (rebuilds the scene content). Frames the camera unless `keepCamera` (a same-term
+   *  repaint — theme/colour — must not reset the user's orbit/pan). Cheap to call again. */
+  update(node: Node | null, keepCamera = false): void {
     this.current = node;
     if (!this.on || !THREE || !this.scene) return;
     const three = THREE;
@@ -148,7 +153,9 @@ export class Sphere3D {
     if (edges) group.add(edges);
     this.scene.add(group);
     this.content = group;
-    this.frame(radius);
+    this.lastRadius = radius;
+    if (keepCamera) this.place();
+    else this.frame(radius);
     this.draw();
     this.lastBuildMs = performance.now() - t0;
   }
@@ -156,7 +163,7 @@ export class Sphere3D {
   // One instanced sphere per node, positioned + scaled by kind, tinted per kind.
   private buildNodes(three: typeof T, root: Node, pos: Map<number, { x: number; y: number; z: number }>): T.InstancedMesh {
     const geo = new three.SphereGeometry(1, SPHERE_SEGMENTS, SPHERE_SEGMENTS);
-    const mat = new three.MeshLambertMaterial();
+    const mat = new three.MeshBasicMaterial(); // unlit: per-instance colours read at full saturation, matching the 2D palette
     const mesh = new three.InstancedMesh(geo, mat, pos.size);
     const m = new three.Matrix4();
     const col = new three.Color();
@@ -226,16 +233,38 @@ export class Sphere3D {
     this.place();
     this.draw();
   }
+  /** Pan the look-at point in the camera's screen plane (left drag / right stick / one finger). */
+  pan(dx: number, dy: number): void {
+    if (!this.camera || !THREE) return;
+    const three = THREE;
+    this.camera.updateMatrixWorld();
+    const right = new three.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0); // camera +X (screen right)
+    const up = new three.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1); // camera +Y (screen up)
+    const k = this.rad * PAN;
+    this.target.x += -dx * k * right.x + dy * k * up.x;
+    this.target.y += -dx * k * right.y + dy * k * up.y;
+    this.target.z += -dx * k * right.z + dy * k * up.z;
+    this.place();
+    this.draw();
+  }
+  /** Reset the camera to frame the whole ball (R / R3 / recenter). */
+  recenter(): void {
+    this.frame(this.lastRadius);
+    this.draw();
+  }
   private place(): void {
     if (!this.camera) return;
     const sp = Math.sin(this.pol);
-    this.camera.position.set(this.rad * sp * Math.cos(this.az), this.rad * Math.cos(this.pol), this.rad * sp * Math.sin(this.az));
-    this.camera.lookAt(0, 0, 0);
+    const t = this.target;
+    this.camera.position.set(t.x + this.rad * sp * Math.cos(this.az), t.y + this.rad * Math.cos(this.pol), t.z + this.rad * sp * Math.sin(this.az));
+    this.camera.lookAt(t.x, t.y, t.z);
   }
   // Frame the whole ball: pull the camera back so a sphere of `radius` fills the view.
   private frame(radius: number): void {
     if (!this.camera) return;
     const r = Math.max(radius, 120);
+    this.lastRadius = radius;
+    this.target = { x: 0, y: 0, z: 0 }; // re-centre the look-at on the ball
     this.rad = (r * 1.6) / Math.tan((this.camera.fov * Math.PI) / 360);
     this.az = 0.6;
     this.pol = 1.05;
@@ -264,9 +293,9 @@ export class Sphere3D {
     this.draw();
   }
 
-  /** Re-read the theme (background + node/edge colours) and repaint. */
+  /** Re-read the theme (background + node/edge colours) and repaint, keeping the camera. */
   retheme(): void {
-    if (this.on) this.update(this.current);
+    if (this.on) this.update(this.current, true);
   }
 
   private disposeGroup(g: T.Group): void {
