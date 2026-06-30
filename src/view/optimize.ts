@@ -16,7 +16,7 @@ export const OPT_SETTINGS: { key: OptKey; label: string; desc: string }[] = [
   { key: "nativeNumbers", label: "Native numbers", desc: "Compute catalog arithmetic (+, ×, =, <, …) on whole numbers directly." },
   { key: "nativeLists", label: "Native lists", desc: "Evaluate list ops (<>, map, concat) on recognised lists directly." },
   { key: "nativeBooleans", label: "Native booleans", desc: "Evaluate not, and, or on recognised booleans directly." },
-  { key: "wasm", label: "Turbo (wasm)", desc: "Reduce big trees in WebAssembly with call-by-need sharing + native number/list/bool kernels — fast, no blow-up. Auto-engages once a tree is big (small trees keep the step-by-step animation). Off while the rule-steps or graph option is on." },
+  { key: "wasm", label: "Turbo", desc: "Reduce big trees in WebAssembly with call-by-need sharing + native number/list/bool kernels — fast, no blow-up. Auto-engages once a tree is big (small trees keep the step-by-step animation). Off while the rule-steps or graph option is on." },
 ];
 
 const STORE_KEY = "combinate:optimize:v1";
