@@ -223,7 +223,15 @@ export class MhsPanel {
     if (!run) return;
     this.setStatus(`compiling ${ex.title}…`, "accent");
     try {
-      const dump = await exampleDump(ex.name);
+      // Fast path: the vendored pre-compiled dump. If it isn't vendored (e.g. a newer example on
+      // the deployed site), fall back to compiling it live in-browser through the stock blob.
+      let dump: string;
+      try {
+        dump = await exampleDump(ex.name);
+      } catch {
+        this.setStatus(`compiling ${ex.title} live in-browser — this takes ~30s…`, "accent");
+        dump = await liveCompile(ex.source);
+      }
       const res = toTree(dump, ex.root);
       if ("error" in res) {
         this.setStatus(res.error, "#cf222e");
