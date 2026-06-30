@@ -16,9 +16,10 @@
  */
 import { type Node } from "../core/term";
 import { Sphere3D } from "./sphere3d";
+import { theme } from "./theme";
 import { withMotion } from "./motion";
 
-export const SLOW_SPIN = 30; // px-equivalent orbit/sec (~14°/s) — the Zoo's ambient turn
+export const SLOW_SPIN = 65; // px-equivalent orbit/sec (~30°/s, ~12s/turn) — the Zoo's ambient turn
 export const FAST_SPIN = 300; // px-equivalent orbit/sec (~one full turn in ~2.6s) — the discovery card
 export const ZOO_PRIO = 1; // the Zoo's lease priority
 export const CARD_PRIO = 2; // the discovery card outranks the Zoo
@@ -114,6 +115,7 @@ class SpherePreview {
     this.running = req;
     let canvas: HTMLCanvasElement | null = null;
     try {
+      this.sphere.bg = theme.inset; // match the box the preview sits in (no jarring white square)
       await this.sphere.show(req.node, req.size, req.size);
       if (req.seq === this.seq) {
         if (this.current && this.current.owner !== req.owner) this.current.onPreempt?.(); // displaced owner → 2D

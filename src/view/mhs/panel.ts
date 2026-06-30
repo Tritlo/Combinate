@@ -74,6 +74,10 @@ function injectStyles(): void {
 .mhs-run { background: var(--mhs-accent); color: var(--mhs-accentFg); padding: 8px 14px; border-radius: 8px;
   cursor: pointer; font-size: 13px; }
 .mhs-status { color: var(--mhs-muted); font-size: 12px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mhs-status.mhs-busy::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 7px; vertical-align: -1px;
+  border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: mhs-spin 0.7s linear infinite; }
+@keyframes mhs-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .mhs-status.mhs-busy::before { animation: none; } }
 `;
   const style = document.createElement("style");
   style.textContent = css;
@@ -221,7 +225,7 @@ export class MhsPanel {
     this.editor.value = ex.source.trimEnd();
     this.updateHighlight();
     if (!run) return;
-    this.setStatus(`compiling ${ex.title}…`, "accent");
+    this.setStatus(`compiling ${ex.title}…`, "accent", true);
     try {
       // Fast path: the vendored pre-compiled dump. If it isn't vendored (e.g. a newer example on
       // the deployed site), fall back to compiling it live in-browser through the stock blob.
@@ -229,7 +233,7 @@ export class MhsPanel {
       try {
         dump = await exampleDump(ex.name);
       } catch {
-        this.setStatus(`compiling ${ex.title} live in-browser — this takes ~30s…`, "accent");
+        this.setStatus(`compiling ${ex.title} live in-browser — this takes ~30s…`, "accent", true);
         dump = await liveCompile(ex.source);
       }
       const res = toTree(dump, ex.root);
@@ -250,7 +254,7 @@ export class MhsPanel {
   private async runEditor(): Promise<void> {
     const src = this.editor.value;
     if (src.trim() === this.current.source.trim()) return this.loadExample(this.current);
-    this.setStatus("compiling live in-browser — this takes ~30s…", "accent");
+    this.setStatus("compiling live in-browser — this takes ~30s…", "accent", true);
     try {
       const dump = await liveCompile(src);
       const res = toTree(dump, "Ex.out");
@@ -267,9 +271,10 @@ export class MhsPanel {
   }
 
   /** Set the status line. `color` is a literal hex, or a palette key (muted/accent). */
-  private setStatus(msg: string, color: string): void {
+  private setStatus(msg: string, color: string, busy = false): void {
     this.status.textContent = msg;
     this.status.style.color = color === "muted" || color === "accent" ? `var(--mhs-${color})` : color;
+    this.status.classList.toggle("mhs-busy", busy); // an animated spinner while a compile is running
   }
 }
 
