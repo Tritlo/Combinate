@@ -40,7 +40,7 @@ import { MenuBar, type Menu } from "./view/menubar";
 import { About } from "./view/about";
 import { Help } from "./view/help";
 import { withMotion } from "./view/motion";
-import { OptimizePanel, isOpt, setOpt, onOptChange } from "./view/optimize";
+import { OPT_SETTINGS, isOpt, setOpt, onOptChange } from "./view/optimize";
 import { type NativeOpts } from "./core/native";
 import { BucketTray } from "./view/bucketTray";
 import { GameInputController } from "./view/gameInput";
@@ -1011,7 +1011,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // now just refreshes the open pull-down's checkmarks. ----
   const about = new About();
   const help = new Help();
-  const optimize = new OptimizePanel();
 
   // ---- controls (ADR 17): keyboard/controller play via a bucket tray + hand, always live in 2D.
   // The visuals adapt to the active input device; "Show controls" (default on) gates the hints. ----
@@ -1185,10 +1184,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "radio", label: "Fast-forward", on: () => reduce.mode === "ff", run: () => reduce.setTransport("ff") },
       { kind: "action", label: "Step", run: () => reduce.stepOnce() },
       { kind: "sep" },
-      { kind: "action", label: "Optimizations…", run: () => optimize.open() },
-      { kind: "sep" },
       { kind: "toggle", label: "Sound", checked: () => sound.enabled, run: () => sound.toggle() },
     ] },
+    { title: "Optimize", items: OPT_SETTINGS.map((s) => ({ kind: "toggle" as const, label: s.label, checked: () => isOpt(s.key), run: () => setOpt(s.key, !isOpt(s.key)) })) },
     { title: "Special", items: [
       { kind: "toggle", label: "Quest", checked: () => quest.isOpen, run: () => quest.toggle() },
       { kind: "toggle", label: "Track Quest", checked: () => !quest.done && !questTracker.isHidden, run: () => { questTracker.setHidden(!questTracker.isHidden); paintRail(); } },

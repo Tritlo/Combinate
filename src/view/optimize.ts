@@ -1,17 +1,16 @@
 /**
- * "Optimizations" — reduction optimizations and their settings. The window chrome is the
- * shared {@link SettingsModal} (ADR 12); this file is just the store + the spec. No master
- * switch: each optimization is an independent capability; all off = the plain pure-ι
- * reducer (the default, ground truth). The shell reads {@link isOpt} and reacts to
- * {@link onOptChange}; every write goes through {@link setOpt} so the modal, permalinks,
- * and the dev seam agree.
+ * "Optimizations" — reduction optimizations and their settings. This file is the store + the
+ * spec ({@link OPT_SETTINGS}); the UI is a dropdown menu the shell builds from the spec. No master
+ * switch: each optimization is an independent capability; all off = the plain pure-ι reducer (the
+ * default, ground truth). The shell reads {@link isOpt} and reacts to {@link onOptChange}; every
+ * write goes through {@link setOpt} so the menu, permalinks, and the dev seam agree.
  */
-import { SettingsModal } from "./modal";
 
 /** A toggleable reduction optimization. */
 export type OptKey = "rules" | "graph" | "nativeNumbers" | "nativeLists" | "nativeBooleans" | "wasm";
 
-const SETTINGS: { key: OptKey; label: string; desc: string }[] = [
+/** The optimizations, in menu order — label + a one-line description (the menu shows the label). */
+export const OPT_SETTINGS: { key: OptKey; label: string; desc: string }[] = [
   { key: "rules", label: "Optimize (rule steps)", desc: "Reduce a named combinator by its law in one step, not its raw ι/SKI tree." },
   { key: "graph", label: "Graph reduction (DAG)", desc: "Call-by-need sharing — a shared subterm is drawn and reduced once." },
   { key: "nativeNumbers", label: "Native numbers", desc: "Compute catalog arithmetic (+, ×, =, <, …) on whole numbers directly." },
@@ -26,7 +25,7 @@ type OptState = Record<OptKey, boolean>;
 
 function defaults(): OptState {
   const s = {} as OptState;
-  for (const e of SETTINGS) s[e.key] = false; // off = the plain pure-ι reducer
+  for (const e of OPT_SETTINGS) s[e.key] = false; // off = the plain pure-ι reducer
   return s;
 }
 
@@ -51,7 +50,7 @@ export function isOpt(key: OptKey): boolean {
 /** Set optimization `key` and notify — the single write path. `persist` (default true)
  *  writes to localStorage; pass `false` for a transient override that mustn't change the
  *  user's saved preference (e.g. restoring a permalink's tree-local modes, which still
- *  need to drive the reducer + reflect in the modal). */
+ *  need to drive the reducer + reflect in the menu). */
 export function setOpt(key: OptKey, val: boolean, persist = true): void {
   if (state[key] === val) return;
   state[key] = val;
@@ -67,17 +66,4 @@ export function setOpt(key: OptKey, val: boolean, persist = true): void {
 /** Run `cb(changedKey)` after any optimization toggles. */
 export function onOptChange(cb: (key: OptKey) => void): void {
   listeners.push(cb);
-}
-
-/** The Optimizations settings window (opened from Reduce ▸ Optimizations…). */
-export class OptimizePanel extends SettingsModal {
-  constructor() {
-    super({
-      title: "Optimizations",
-      rows: SETTINGS,
-      checked: (k) => isOpt(k as OptKey),
-      toggle: (k) => setOpt(k as OptKey, !isOpt(k as OptKey)),
-    });
-    onOptChange(() => this.sync()); // reflect changes from any source (modal, permalink, seam)
-  }
 }
