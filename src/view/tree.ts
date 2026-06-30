@@ -45,7 +45,7 @@ function nodeTexture(): Texture {
 function visSpec(n: Node): { radius: number; tint: number; glyph: { text: string; color: number; size: number } | null } {
   switch (n.kind) {
     case "iota":
-      return { radius: 7, tint: theme.iota, glyph: { text: "ι", color: theme.iotaGlyph, size: 10 } };
+      return { radius: 7, tint: theme.mutedDot, glyph: { text: "ι", color: theme.text, size: 10 } }; // grey dot + ink ι (no longer gold)
     case "comb": {
       const tint = combinatorColor(n.sym); // per-combinator hue in Colour mode, ink in mono
       return { radius: 15, tint, glyph: { text: n.sym, color: glyphOn(tint), size: 15 } };
