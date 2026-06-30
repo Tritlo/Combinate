@@ -23,7 +23,7 @@ import { layoutAuto, layoutRadial, layoutTopDown, type LayoutFn } from "./core/l
 import { recognizeDeep, fromEgg, toEgg } from "./core/refold";
 import { read, render, type Ty } from "./core/types";
 import { inferType } from "./core/infer";
-import { abstractLeaf, defineCombinator, findSubtree, isNameTaken, replaceSubtree, validateName } from "./core/authoring";
+import { defineCombinator, findSubtree, isNameTaken, replaceSubtree, validateName } from "./core/authoring";
 import { TreeView, dashedSegment } from "./view/tree";
 import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
@@ -45,6 +45,7 @@ import { type NativeOpts } from "./core/native";
 import { BucketTray } from "./view/bucketTray";
 import { GameInputController } from "./view/gameInput";
 import { ContextMenu } from "./view/contextMenu";
+import { NameKeyboard } from "./view/nameKeyboard";
 import { GamepadController } from "./view/gamepad";
 import { Sphere3D, NODE_CAP, preloadSphere3D } from "./view/sphere3d";
 import { spherePreview } from "./view/spherePreview";
@@ -264,17 +265,16 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     paintRail();
   }
 
-  // ---- authoring verbs (ADR 0006): Define (name a subtree → a new block) and
-  // one-hole Abstract (mark a leaf as a hole → bracket-abstract the tree over
-  // it). A rail toggle arms a select mode; the next click on a tree node acts. ----
-  type AuthorMode = "define" | "abstract" | null;
+  // ---- authoring verb (ADR 0006): Define (name a subtree → a new block). The player-facing path is
+  // right-click → "Name combinator" (the on-screen keyboard); this armed select-mode + window.prompt
+  // path stays for the dev/e2e seam (author.setMode). ----
+  type AuthorMode = "define" | null;
   let authorMode: AuthorMode = null;
 
   function setAuthorMode(mode: AuthorMode): void {
     authorMode = authorMode === mode ? null : mode;
     paintRail();
     if (authorMode === "define") toast.show("Define: click a subtree to name it as a new block");
-    else if (authorMode === "abstract") toast.show("Abstract: click a leaf to abstract the tree over it");
   }
 
   // Prompt for a fresh combinator name, validating against the catalog + existing
@@ -307,12 +307,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     return law;
   }
 
-  // Define: collapse the selected subtree into a named block, in place.
-  function doDefine(tree: TreeView, id: NodeId): void {
-    const sub = findSubtree(tree.node, id);
-    if (!sub) return;
-    const name = promptName();
-    if (!name) return;
+  // Collapse the selected subtree into a freshly-named block, in place. Shared by the dev-seam
+  // armed-mode path (window.prompt) and the player-facing on-screen keyboard.
+  function commitName(tree: TreeView, id: NodeId, sub: Node, name: string): void {
     const law = register(name, sub);
     reduce.cancel(tree);
     tree.animateTo(replaceSubtree(tree.node, id, collapsedNode(law)), COLLAPSE_MS, () => {});
@@ -320,21 +317,30 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     toast.show(`defined ${name}`);
   }
 
-  // Abstract: mark one leaf as a hole, bracket-abstract the whole tree over it,
-  // and replace the tree with the resulting (named) combinator.
-  function doAbstract(tree: TreeView, id: NodeId): void {
-    const body = abstractLeaf(tree.node, id);
-    if (!body) {
-      toast.show("pick a single leaf (not an application) to abstract over");
-      return;
-    }
+  // Define (dev/e2e seam): name a subtree via window.prompt.
+  function doDefine(tree: TreeView, id: NodeId): void {
+    const sub = findSubtree(tree.node, id);
+    if (!sub) return;
     const name = promptName();
     if (!name) return;
-    const law = register(name, body);
-    reduce.cancel(tree);
-    tree.animateTo(collapsedNode(law), COLLAPSE_MS, () => {});
-    focus = tree;
-    toast.show(`abstracted → ${name}`);
+    commitName(tree, id, sub, name);
+  }
+
+  // "Name combinator" (right-click / M menu): promote a subtree to a named block via the System-1
+  // on-screen keyboard, so a gamepad/keyboard can name it with no text field. Validates on Done and
+  // keeps the keyboard open on a bad name.
+  function nameCombinator(tree: TreeView, id: NodeId): void {
+    const sub = findSubtree(tree.node, id);
+    if (!sub) return;
+    nameKeyboard.show("", (raw) => {
+      const err = validateName(raw);
+      if (err) {
+        toast.show(err);
+        return false; // keep the keyboard open
+      }
+      commitName(tree, id, sub, raw.trim());
+      return true;
+    });
   }
 
   // ---- auto-reduce + transport (extracted to view/reduction.ts, ADR 12). The Pixi
@@ -425,6 +431,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   // The Delete/Copy context popup (mouse right-click + the keyboard "c" / pad-X build bind).
   const ctxMenu = new ContextMenu();
+  // The on-screen keyboard for "Name combinator" (no text field — gamepad/keyboard navigable).
+  const nameKeyboard = new NameKeyboard();
 
   function addTree(tree: TreeView): void {
     trees.push(tree);
@@ -517,7 +525,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     // An armed authoring mode consumes the click on a picked node instead of dragging.
     if (authorMode) {
       const id = tree.pickNode(e.global);
-      if (id !== null) (authorMode === "define" ? doDefine : doAbstract)(tree, id);
+      if (id !== null) doDefine(tree, id);
       authorMode = null;
       paintRail();
       return;
@@ -546,6 +554,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const sx = e.global.x;
     const sy = e.global.y;
     ctxMenu.show(sx, sy, [
+      { label: "Name combinator", run: () => nameCombinator(tree, id) },
       { label: "Delete", run: () => deleteNode(tree, id) },
       { label: "Copy", run: () => copyNodeToCanvas(tree, id, sx, sy) },
     ]);
@@ -1147,11 +1156,16 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // A pad's discrete intent, routed by the active context (Build → the tray controller; Inspect →
   // the 3D camera). The keyboard routes the same intents below.
   function dispatchPadIntent(intent: Intent): void {
+    if (nameKeyboard.isOpen) return routeNameKbNav(intent); // the on-screen keyboard owns the pad (✚/A/B)
     if (menuBar?.isOpen) return routeMenuBarNav(intent); // an open menu bar owns the pad (✚/A/B)
     if (ctxMenu.isOpen) return routeCtxNav(intent); // an open popup owns the pad (↑/↓/A/B/X)
     switch (intent) {
       case "context":
         return openBucketContext();
+      case "transportPrev":
+        return stepTransport(-1); // LB: toward Pause
+      case "transportNext":
+        return stepTransport(1); // RB: toward Fast-forward
       case "enterInspect":
       case "exitInspect":
         return void toggleView3D();
@@ -1211,12 +1225,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "sep" },
       { kind: "action", label: "Clear canvas", run: () => clearCanvas() },
     ] },
-    { title: "Edit", items: [
-      { kind: "toggle", label: "Define combinator", checked: () => authorMode === "define", run: () => setAuthorMode(authorMode === "define" ? null : "define") },
-      { kind: "toggle", label: "Abstract variable", checked: () => authorMode === "abstract", run: () => setAuthorMode(authorMode === "abstract" ? null : "abstract") },
-      { kind: "sep" },
-      { kind: "action", label: "Unlock all combinators", run: () => unlockAll() },
-    ] },
     { title: "View", items: [
       { kind: "radio", label: "Auto layout", on: () => layoutFn === layoutAuto, run: () => setLayoutMode(layoutAuto) },
       { kind: "radio", label: "Top-down layout", on: () => layoutFn === layoutTopDown, run: () => setLayoutMode(layoutTopDown) },
@@ -1243,12 +1251,14 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "sep" },
       { kind: "toggle", label: "Sound", checked: () => sound.enabled, run: () => sound.toggle() },
     ] },
-    { title: "Optimize", items: OPT_SETTINGS.map((s) => ({ kind: "toggle" as const, label: s.label, checked: () => isOpt(s.key), run: () => setOpt(s.key, !isOpt(s.key)) })) },
+    { title: "Optimizations", items: OPT_SETTINGS.map((s) => ({ kind: "toggle" as const, label: s.label, title: s.desc, checked: () => isOpt(s.key), run: () => setOpt(s.key, !isOpt(s.key)) })) },
     { title: "Special", items: [
       { kind: "toggle", label: "Quest", checked: () => quest.isOpen, run: () => quest.toggle() },
       { kind: "toggle", label: "Track Quest", checked: () => !quest.done && !questTracker.isHidden, run: () => { questTracker.setHidden(!questTracker.isHidden); paintRail(); } },
       { kind: "toggle", label: "Zoo", checked: () => zoo.isOpen, run: () => zoo.toggle() },
       { kind: "toggle", label: "Golf challenges", checked: () => challenges.isOpen, run: () => challenges.toggle() },
+      { kind: "sep" },
+      { kind: "action", label: "Unlock all combinators", run: () => unlockAll() },
     ] },
   ];
   menuBar = new MenuBar(menus);
@@ -1341,10 +1351,14 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
         return void toggleView3D();
     }
   }
-  function dispatchBuildKey(intent: Intent, key: string): void {
+  function dispatchBuildKey(intent: Intent): void {
     if (intent === "enterInspect") return void toggleView3D();
-    if (intent === "speed") return reduce.setSpeedLevel(parseInt(key, 10));
     if (intent === "context") return openBucketContext();
+    // Keyboard 1-4 = the transport (the gamepad Select still cycles speed via dispatchPadIntent).
+    if (intent === "transportPause") return reduce.setTransport("pause");
+    if (intent === "transportStep") return reduce.stepOnce();
+    if (intent === "transportPlay") return reduce.setTransport("play");
+    if (intent === "transportFf") return reduce.setTransport("ff");
     gameInput.trigger(intent);
   }
 
@@ -1356,9 +1370,30 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (!tree) return;
     const s = worldToScreen(gameInput.focusedKey * BUCKET_SPACING, 0);
     ctxMenu.show(s.x, s.y, [
+      { label: "Name combinator", run: () => nameCombinator(tree, tree.node.id) },
       { label: "Delete", run: () => removeTree(tree) },
       { label: "Copy", run: () => gameInput.takeToHand(cloneTerm(tree.node)) },
     ]);
+  }
+
+  /** Step the transport one notch along [pause, play, ff], clamped at the ends (gamepad LB/RB).
+   *  `dir` < 0 steps toward Pause, > 0 toward Fast-forward; Step stays keyboard-only. */
+  const TRANSPORT_STEPS: Transport[] = ["pause", "play", "ff"];
+  function stepTransport(dir: number): void {
+    const i = TRANSPORT_STEPS.indexOf(reduce.mode);
+    const next = Math.max(0, Math.min(TRANSPORT_STEPS.length - 1, (i < 0 ? 0 : i) + dir));
+    reduce.setTransport(TRANSPORT_STEPS[next]);
+  }
+
+  /** Route a discrete intent to the open on-screen keyboard (keyboard/gamepad nav): ✚ walks the
+   *  grid, A presses the highlighted key, B cancels. Mirrors the keyboard routing in keydown. */
+  function routeNameKbNav(intent: Intent): void {
+    if (intent === "moveLeft") nameKeyboard.move(-1, 0);
+    else if (intent === "moveRight") nameKeyboard.move(1, 0);
+    else if (intent === "moveUp") nameKeyboard.move(0, -1);
+    else if (intent === "moveDown") nameKeyboard.move(0, 1);
+    else if (intent === "pickPlace") nameKeyboard.press();
+    else if (intent === "cancel" || intent === "context") nameKeyboard.cancel();
   }
 
   /** Route a discrete intent to the open context popup (keyboard/gamepad nav): ↑/↓ walk, A choose,
@@ -1382,6 +1417,22 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
 
   window.addEventListener("keydown", (e) => {
+    // The on-screen keyboard owns the keyboard while open (gates everything else): arrows walk the
+    // grid, Space presses the highlighted key, a printable char types directly, Backspace deletes,
+    // Enter commits (Done), Esc cancels. Modifier combos (Ctrl-R, …) pass through to the browser.
+    if (nameKeyboard.isOpen && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (e.key === "Enter") nameKeyboard.done();
+      else if (e.key === "Escape") nameKeyboard.cancel();
+      else if (e.key === "Backspace") nameKeyboard.backspace();
+      else if (e.key === "ArrowLeft") nameKeyboard.move(-1, 0);
+      else if (e.key === "ArrowRight") nameKeyboard.move(1, 0);
+      else if (e.key === "ArrowUp") nameKeyboard.move(0, -1);
+      else if (e.key === "ArrowDown") nameKeyboard.move(0, 1);
+      else if (e.key === " ") nameKeyboard.press();
+      else if (e.key.length === 1) nameKeyboard.typeChar(e.key);
+      e.preventDefault();
+      return;
+    }
     // An open menu bar owns the keyboard: ←/→ switch menus, ↑/↓ walk the dropdown, Space/Enter
     // choose, Esc close. Like the popup below, it gates everything else (the build binds included).
     if (menuBar?.isOpen) {
@@ -1433,7 +1484,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     // unbound key does nothing — every other command lives in the menu bar.
     const intent = intentForKey("build", e.key);
     if (intent) {
-      dispatchBuildKey(intent, e.key);
+      dispatchBuildKey(intent);
       e.preventDefault();
       return;
     }

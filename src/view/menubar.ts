@@ -17,11 +17,12 @@ import { currentMode, onThemeChange, type Mode } from "./theme";
 import { vendorUrl } from "../vendorUrl";
 
 /** One entry in a pull-down. `toggle` shows a ✓ when on; `radio` a • for the
- *  selected option of a group; `action` just runs; `sep` is a divider. */
+ *  selected option of a group; `action` just runs; `sep` is a divider. `title`
+ *  is an optional hover tooltip (the row's native `title` attribute). */
 export type MenuItem =
-  | { kind: "action"; label: string; run: () => void; accel?: string }
-  | { kind: "toggle"; label: string; checked: () => boolean; run: () => void; accel?: string }
-  | { kind: "radio"; label: string; on: () => boolean; run: () => void; accel?: string }
+  | { kind: "action"; label: string; run: () => void; accel?: string; title?: string }
+  | { kind: "toggle"; label: string; checked: () => boolean; run: () => void; accel?: string; title?: string }
+  | { kind: "radio"; label: string; on: () => boolean; run: () => void; accel?: string; title?: string }
   | { kind: "sep" };
 
 /** A pull-down: a bar title and its items. `apple` styles the ι menu. */
@@ -252,6 +253,7 @@ export class MenuBar {
     }
     const row = document.createElement("div");
     row.className = "mb-item";
+    if (it.title) row.title = it.title; // native hover tooltip (e.g. an optimization's description)
     const mark = document.createElement("span");
     mark.className = "mb-mark";
     mark.textContent = it.kind === "toggle" ? (it.checked() ? "✓" : "") : it.kind === "radio" ? (it.on() ? "•" : "") : "";
