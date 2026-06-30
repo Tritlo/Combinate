@@ -48,6 +48,12 @@ const READ_AS: Record<string, Ty> = { Arithmetic: "Int", Booleans: "Bool", Lists
 // probing (that bails via the size guard).
 const READOUT_PROBE_MAX = 3000;
 
+// The named view evaluates the term (read/normalize + re-fold) — O(nodes). While a term is actively
+// reducing its node changes every step, and a (+) balloons to thousands of nodes mid-reduction, so
+// re-evaluating per frame lags playback. Throttle the named recompute to this cadence while only the
+// node is changing; ski/barker stay per-frame and a view/page/type change still recomputes at once.
+const NAMED_MIN_INTERVAL = 120; // ms (~8 Hz)
+
 export class ReadoutLens {
   // re-folding (used by the named view; behavioural pre-pass works without wasm)
   private refolder: Refolder | null = null;
@@ -60,6 +66,7 @@ export class ReadoutLens {
   private lastType = false;
   private lastMode: Ty | undefined;
   private lastExpr = "";
+  private lastNamedAt = 0; // last wall-clock the (evaluating) named view recomputed — for the throttle
 
   constructor(private readonly deps: ReadoutDeps) {
     deps.ticker.add(() => this.tick());
@@ -89,6 +96,11 @@ export class ReadoutLens {
     const view = this.deps.box.current;
     const mode = READ_AS[this.deps.readPage()];
     if (node === this.lastNode && view === this.lastView && this.typeOn === this.lastType && mode === this.lastMode) return;
+    // Throttle the named view while ONLY the node is changing (i.e. mid-reduction) — see NAMED_MIN_INTERVAL.
+    // A view/page/type change (anything but the node) skips the throttle and recomputes immediately.
+    const onlyNodeChanged = view === this.lastView && this.typeOn === this.lastType && mode === this.lastMode;
+    const now = performance.now();
+    if (view === "named" && onlyNodeChanged && now - this.lastNamedAt < NAMED_MIN_INTERVAL) return; // recompute on a later frame; lastNode stays stale so the memo above won't swallow it
     this.lastNode = node;
     this.lastView = view;
     this.lastType = this.typeOn;
@@ -97,7 +109,10 @@ export class ReadoutLens {
     if (node) {
       if (view === "ski") txt = this.exprOf(node);
       else if (view === "barker") txt = barkerCode(node);
-      else txt = this.named(node, mode);
+      else {
+        this.lastNamedAt = now;
+        txt = this.named(node, mode);
+      }
     }
     if (txt !== this.lastExpr) {
       this.lastExpr = txt;
