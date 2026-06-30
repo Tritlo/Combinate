@@ -80,7 +80,7 @@ export function preloadSphere3D(): Promise<void> {
 function nodeStyle(n: Node): { radius: number; color: number } {
   switch (n.kind) {
     case "iota":
-      return { radius: 9, color: theme.iota };
+      return { radius: 9, color: theme.mutedDot }; // grey sphere — ι is the bare generator (no longer gold)
     case "comb":
       return { radius: 18, color: combinatorColor(n.sym) };
     case "free":
