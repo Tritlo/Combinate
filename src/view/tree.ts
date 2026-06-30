@@ -1,6 +1,6 @@
 import { Container, Graphics, ParticleContainer, Particle, Rectangle, Text, Texture, type Ticker } from "pixi.js";
-import { type Node, type NodeId, iotaTreeFrom, IOTA_ID_SPAN } from "../core/term";
-import { IOTA_CODE, IOTA_BITCODE } from "../core/catalog";
+import { type Node, type NodeId, IOTA_ID_SPAN } from "../core/term";
+import { expandDisplay } from "../core/catalog";
 import { type Layout, type LayoutFn } from "../core/layout";
 import { theme, combinatorColor, glyphOn } from "./theme";
 import { tween } from "./anim";
@@ -397,32 +397,7 @@ export class TreeView {
   // are derived from the source comb id (negative, so they never clash) so the
   // same combinator tweens stably across reduction steps.
   private expand(root: Node): Node {
-    // Memoised by id, so a shared subterm (graph mode) expands once to one shared
-    // result — keeping the display a DAG and the walk linear. On a tree every id
-    // is distinct, so the memo never hits and this is the old plain recursion.
-    const memo = new Map<NodeId, Node>();
-    const go = (n: Node): Node => {
-      const hit = memo.get(n.id);
-      if (hit) return hit;
-      let out: Node;
-      switch (n.kind) {
-        case "comb": {
-          // "Expand" view → every combinator's full ι-tree; otherwise only
-          // undiscovered S/K/I are shown as ι (the discovery mask).
-          const code = this.expandAll() ? IOTA_BITCODE[n.sym] : !this.isDiscovered(n.sym) ? IOTA_CODE[n.sym] : undefined;
-          out = code ? iotaTreeFrom(code, n.id) : n;
-          break;
-        }
-        case "app":
-          out = { ...n, fn: go(n.fn), arg: go(n.arg) };
-          break;
-        default:
-          out = n;
-      }
-      memo.set(n.id, out);
-      return out;
-    };
-    return go(root);
+    return expandDisplay(root, { expandAll: this.expandAll(), isDiscovered: this.isDiscovered });
   }
 
   private rebuild(): void {

@@ -17,7 +17,7 @@ import { ChallengePanel } from "./view/challenge";
 import { QuestPanel } from "./view/quest";
 import { QuestTracker } from "./view/questTracker";
 import { Sound } from "./view/sound";
-import { CATALOG, type Law } from "./core/catalog";
+import { CATALOG, type Law, expandDisplay } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutAuto, layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
 import { recognizeDeep, fromEgg, toEgg } from "./core/refold";
@@ -52,6 +52,7 @@ const KEY_ROT = 6; // 3D orbit: px-equivalent per frame for a held rotate-key
 const MOM_DECAY = 0.92; // 3D orbit: drag-release momentum decay per frame
 const PAD_ORBIT = 320; // 3D orbit: px-equivalent/sec at full left-stick deflection
 const PAD_PAN = 1100; // build camera pan: world-px/sec at full right-stick deflection
+const PAD_PAN3D = 600; // 3D pan: px-equivalent/sec at full right-stick deflection
 const PAD_ROT_STEP = 22; // 3D orbit: px-equivalent per gamepad d-pad step
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
 const COLLAPSE_MS = 340; // morph from a recognised normal form into its named node
@@ -243,6 +244,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     saveDiscovered();
     hotbar.refresh();
     for (const t of trees) t.refresh();
+    rerender3D(); // the 3D view follows the discovery mask too
     zoo.refresh();
     updateHint();
     paintRail();
@@ -258,6 +260,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     saveDiscovered();
     hotbar.refresh();
     for (const t of trees) t.refresh();
+    rerender3D(); // the 3D view follows the discovery mask too
     zoo.refresh();
     updateHint();
     paintRail();
@@ -282,6 +285,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     sound.playIfReady(law.sym); // chirp the new bird (only if audio's already unlocked — discovery isn't a gesture)
     hotbar.reveal(law.sym);
     for (const t of trees) t.refresh(); // reveal newly-known combinators everywhere
+    rerender3D(); // a newly-known combinator changes the 3D discovery mask too
     zoo.refresh();
     updateHint();
     paintRail();
@@ -543,7 +547,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   pixi.stage.on("pointerdown", (e: FederatedPointerEvent) => {
     if (view3D) {
-      if (e.button === 0) orbitDrag = { x: e.global.x, y: e.global.y }; // 3D: drag-to-orbit
+      if (e.pointerType === "touch") return; // touch is handled at the canvas level (1-finger pan / 2-finger orbit)
+      if (e.button === 0) panDrag = { x: e.global.x, y: e.global.y }; // 3D: left-drag pans
+      else if (e.button === 2) orbitDrag = { x: e.global.x, y: e.global.y }; // 3D: right-drag orbits
       return;
     }
     if (drag || pinch || e.button !== 0) return; // a tree/slot claimed it, pinching, or a right-click
@@ -558,7 +564,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   pixi.stage.on("globalpointermove", (e: FederatedPointerEvent) => {
     if (view3D) {
-      if (orbitDrag) {
+      if (panDrag) {
+        sphere3d.pan(e.global.x - panDrag.x, e.global.y - panDrag.y);
+        panDrag = { x: e.global.x, y: e.global.y };
+      } else if (orbitDrag) {
         const dx = e.global.x - orbitDrag.x;
         const dy = e.global.y - orbitDrag.y;
         sphere3d.orbit(dx, dy);
@@ -589,6 +598,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       lastDragD = { x: 0, y: 0 };
     }
     orbitDrag = null; // end a 3D orbit drag
+    panDrag = null; // end a 3D pan drag
     if (!drag) return;
     if (drag.kind === "tree" || drag.kind === "spawn") {
       const tree = drag.tree;
@@ -708,6 +718,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     "wheel",
     (ev) => {
       ev.preventDefault();
+      noteKbm(); // wheel is a mouse action → keyboard hint glyphs
       if (zoo.isOpen || challenges.isOpen) return; // an open overlay owns the wheel (its list scrolls instead of zooming the canvas behind it)
       if (view3D) return sphere3d.zoomBy(ev.deltaY < 0 ? 0.9 : 1 / 0.9); // 3D: wheel orbits-zoom
       zoomTo(world.scale.x * (ev.deltaY < 0 ? 1.1 : 1 / 1.1), ev.clientX, ev.clientY);
@@ -724,7 +735,12 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   };
   pixi.canvas.addEventListener("pointerdown", (ev) => {
     noteKbm(); // mouse/touch on the canvas → keyboard hint glyphs (last-input-wins)
+    if (view3D && ev.pointerType !== "touch") return; // 3D MOUSE is handled on the stage (left-pan / right-orbit) — don't double-handle
     pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (view3D) {
+      if (pointers.size === 2) pinch = pinchMetrics(); // 3D: two fingers orbit + pinch-zoom
+      return; // 3D: one finger pans (handled in move)
+    }
     if (pointers.size === 2) {
       clearGhost();
       drag = null; // hand control to the pinch
@@ -732,10 +748,24 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
   });
   pixi.canvas.addEventListener("pointermove", (ev) => {
+    if (view3D && ev.pointerType !== "touch") return; // 3D MOUSE handled on the stage
     const p = pointers.get(ev.pointerId);
     if (!p) return;
+    const px = p.x; // previous position, before this move
+    const py = p.y;
     p.x = ev.clientX;
     p.y = ev.clientY;
+    if (view3D) {
+      if (pointers.size === 1) {
+        sphere3d.pan(ev.clientX - px, ev.clientY - py); // one finger pans the look-at
+      } else if (pointers.size >= 2 && pinch) {
+        const cur = pinchMetrics();
+        sphere3d.orbit(cur.cx - pinch.cx, cur.cy - pinch.cy); // two-finger centroid drag → orbit
+        if (cur.d !== pinch.d) sphere3d.zoomBy(pinch.d / cur.d); // spread/pinch → zoom
+        pinch = cur;
+      }
+      return;
+    }
     if (pointers.size >= 2 && pinch) {
       const cur = pinchMetrics();
       world.position.set(world.position.x + (cur.cx - pinch.cx), world.position.y + (cur.cy - pinch.cy));
@@ -839,7 +869,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     sphereSprite.setSize(window.innerWidth, window.innerHeight);
     sphereTex.source.update();
   }
-  let orbitDrag: { x: number; y: number } | null = null;
+  let orbitDrag: { x: number; y: number } | null = null; // right-drag (mouse) — 3D orbit
+  let panDrag: { x: number; y: number } | null = null; // left-drag (mouse) — 3D pan
   // 3D rotation: held rotate-keys + drag-release momentum, applied each frame by the ticker so
   // the orbit is smooth/continuous (not one step per pointer event).
   const heldRot = new Set<string>();
@@ -861,20 +892,38 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     momVy = Math.abs(momVy) < 0.05 ? 0 : momVy * MOM_DECAY;
   });
   let view3D = false;
+  // The term the 3D view renders: the same EXPANDED display the 2D tree shows (undiscovered S/K/I
+  // as ι-trees, and every combinator when "Expand ι-trees" is on), so 3D follows that setting.
+  const display3D = (): Node | null => (focus ? expandDisplay(focus.node, { expandAll, isDiscovered }) : null);
+  // Re-render the open 3D view after a setting changes the displayed term (Expand toggle, a
+  // discovery). Keeps the camera; the term may have grown/shrunk but re-framing here is jarring.
+  // If the new display blows past the node cap (e.g. Expand on a big tree), back out to 2D.
+  function rerender3D(): void {
+    if (!view3D) return;
+    const disp = display3D();
+    if (disp && exceedsNodes(disp, NODE_CAP)) {
+      toggleView3D(); // exits 3D
+      return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
+    }
+    sphere3d.update(disp, true);
+  }
   function toggleView3D(): void {
     if (view3D) {
       view3D = false;
       sphereLayer.visible = false;
       world.visible = true;
       sphere3d.hide();
+      heldRot.clear(); // drop any still-held rotate-keys so they don't resume on re-entry
+      pinch = null; // a 2-finger 3D gesture exited mid-flight mustn't bleed into the 2D pinch
       updateHints();
       paintRail();
       return;
     }
     // Entering: preflight (iterative exceedsNodes — deep-tree-safe) so a too-big / unfocused tree
-    // never enters 3D, and the message shows on the visible 2D HUD.
-    if (!focus) return toast.show("focus a tree to view it in 3D");
-    if (exceedsNodes(focus.node, NODE_CAP)) return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
+    // never enters 3D, and the message shows on the visible 2D HUD. Checks the EXPANDED display.
+    const disp = display3D();
+    if (!disp) return toast.show("focus a tree to view it in 3D");
+    if (exceedsNodes(disp, NODE_CAP)) return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
     if (gameMode) setGameMode(false); // contexts are mutually exclusive
     view3D = true;
     world.visible = false;
@@ -882,7 +931,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     updateHints();
     paintRail();
     void sphere3d
-      .show(focus.node, window.innerWidth, window.innerHeight)
+      .show(disp, window.innerWidth, window.innerHeight)
       .then(() => fitSphereSprite())
       .catch((e: unknown) => {
         view3D = false; // Three failed to load / no WebGL — back out visibly
@@ -924,6 +973,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   function toggleExpand(): void {
     expandAll = !expandAll;
     for (const t of trees) t.refresh();
+    rerender3D(); // the 3D view follows the Expand setting too
     paintRail();
   }
 
@@ -985,6 +1035,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     },
     rightStick: (sx, sy, dt) => {
       if (gameMode) gameInput.panBy(-sx * PAD_PAN * dt, -sy * PAD_PAN * dt); // build: pan the camera
+      else if (view3D) sphere3d.pan(sx * PAD_PAN3D * dt, sy * PAD_PAN3D * dt); // inspect: pan the look-at
     },
     zoomBy: (f) => (view3D ? sphere3d.zoomBy(f) : gameInput.zoomBy(f)),
     note: () => notePad(),
@@ -1301,7 +1352,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       discovered: () => [...discovered],
       mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : "topdown"),
       toggleLayout: () => toggleLayout(),
-      view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs, drawMs: sphere3d.lastDrawMs, az: sphere3d.azimuth }) },
+      view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs, drawMs: sphere3d.lastDrawMs, az: sphere3d.azimuth, pan: sphere3d.panSum }) },
       transport: { mode: () => reduce.mode, set: (m: string) => reduce.setTransport(m as Transport), cycle: () => reduce.cycleTransport(), step: () => reduce.stepOnce() },
       autoSteps: () => reduce.totalSteps(),
       run: () => { if (focus) reduce.schedule(focus); },
