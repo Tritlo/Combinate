@@ -14,7 +14,7 @@
 import type * as T from "three";
 import { type Node } from "../core/term";
 import { layoutSphere } from "../core/layout3d";
-import { theme, combinatorColor } from "./theme";
+import { theme, combinatorColor, edgeTierColor } from "./theme";
 
 /** Beyond this node count the static scene gets heavy to build/draw — the app preflights this
  *  (iteratively, deep-safe) before entering 3D. */
@@ -266,27 +266,34 @@ export class Sphere3D {
     // new-tree edges, fn (left) + arg (right) as separate batches (endpoints all in `ids`, so curPos
     // has them); positions rewritten each frame. arg is dashed so left/right reads while it morphs.
     const fnPairs: Array<[number, number]> = [];
+    const fnCols: number[] = [];
     const argPairs: Array<[number, number]> = [];
+    const argCols: number[] = [];
+    const ecol = new three.Color();
     const seen = new Set<number>();
-    const ewalk = (m: Node): void => {
+    const ewalk = (m: Node, depth: number): void => {
       if (seen.has(m.id) || m.kind !== "app") return;
       seen.add(m.id);
+      ecol.set(edgeTierColor(depth)); // depth tier (red/black) — fixed for the morph; only positions move
       fnPairs.push([m.id, m.fn.id]);
+      fnCols.push(ecol.r, ecol.g, ecol.b, ecol.r, ecol.g, ecol.b);
       argPairs.push([m.id, m.arg.id]);
-      ewalk(m.fn);
-      ewalk(m.arg);
+      argCols.push(ecol.r, ecol.g, ecol.b, ecol.r, ecol.g, ecol.b);
+      ewalk(m.fn, depth + 1);
+      ewalk(m.arg, depth + 1);
     };
-    ewalk(node);
+    ewalk(node, 0);
     const edges: EdgeBatch[] = [];
-    const batch = (pairs: Array<[number, number]>, color: number, dashed: boolean): void => {
+    const batch = (pairs: Array<[number, number]>, cols: number[], dashed: boolean): void => {
       if (!pairs.length) return;
       const pos = new Float32Array(pairs.length * 6);
       const geo = new three.BufferGeometry();
       geo.setAttribute("position", new three.BufferAttribute(pos, 3)); // wraps `pos` (no copy) so per-frame writes land
-      edges.push({ seg: this.edgeLine(three, geo, color, dashed), pos, pairs, dashed });
+      geo.setAttribute("color", new three.Float32BufferAttribute(cols, 3));
+      edges.push({ seg: this.edgeLine(three, geo, dashed), pos, pairs, dashed });
     };
-    batch(fnPairs, theme.fnEdge, false);
-    batch(argPairs, theme.argEdge, true);
+    batch(fnPairs, fnCols, false);
+    batch(argPairs, argCols, true);
     const group = new three.Group();
     group.add(mesh);
     for (const e of edges) group.add(e.seg);
@@ -409,47 +416,52 @@ export class Sphere3D {
     return mesh;
   }
 
-  // A LineSegments for one edge batch: solid (fn, warm) or dashed (arg, cool) — encodes left vs right
-  // the way the 2D view does (solid function edge / dashed argument edge). Dashed needs line distances.
-  private edgeLine(three: typeof T, geo: T.BufferGeometry, color: number, dashed: boolean): T.LineSegments {
+  // A LineSegments for one edge batch: solid (fn) or dashed (arg). Per-vertex colour carries the
+  // red/black depth TIER (so parent vs child reads); the style carries left vs right.
+  private edgeLine(three: typeof T, geo: T.BufferGeometry, dashed: boolean): T.LineSegments {
     const mat = dashed
-      ? new three.LineDashedMaterial({ color, transparent: true, opacity: EDGE_OPACITY, dashSize: DASH_SIZE, gapSize: GAP_SIZE })
-      : new three.LineBasicMaterial({ color, transparent: true, opacity: EDGE_OPACITY });
+      ? new three.LineDashedMaterial({ vertexColors: true, transparent: true, opacity: EDGE_OPACITY, dashSize: DASH_SIZE, gapSize: GAP_SIZE })
+      : new three.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: EDGE_OPACITY });
     const seg = new three.LineSegments(geo, mat);
     if (dashed) seg.computeLineDistances();
     return seg;
   }
 
-  // Parent→child edges as two batches: fn (left) SOLID warm, arg (right) DASHED cool — so you can
-  // tell left from right in 3D (the 3D echo of the 2D solid/dashed legend).
+  // Parent→child edges as two batches: fn (left) SOLID, arg (right) DASHED; each vertex coloured by
+  // the parent's depth TIER (red/black) so a node's parent-edge is the opposite colour of its
+  // child-edges. Style = left/right, colour = depth — the 3D echo of the 2D legend.
   private buildEdges(three: typeof T, root: Node, pos: Map<number, { x: number; y: number; z: number }>): T.Object3D | null {
-    const fnVerts: number[] = [];
-    const argVerts: number[] = [];
+    const fn = { verts: [] as number[], cols: [] as number[] };
+    const arg = { verts: [] as number[], cols: [] as number[] };
+    const col = new three.Color();
     const seen = new Set<number>();
-    const push = (into: number[], a: Node, b: Node): void => {
+    const edge = (b: { verts: number[]; cols: number[] }, a: Node, c: Node, depth: number): void => {
       const pa = pos.get(a.id)!;
-      const pb = pos.get(b.id)!;
-      into.push(pa.x, pa.y, pa.z, pb.x, pb.y, pb.z);
+      const pc = pos.get(c.id)!;
+      b.verts.push(pa.x, pa.y, pa.z, pc.x, pc.y, pc.z);
+      col.set(edgeTierColor(depth));
+      b.cols.push(col.r, col.g, col.b, col.r, col.g, col.b);
     };
-    const walk = (n: Node): void => {
+    const walk = (n: Node, depth: number): void => {
       if (seen.has(n.id) || n.kind !== "app") return;
       seen.add(n.id);
-      push(fnVerts, n, n.fn);
-      push(argVerts, n, n.arg);
-      walk(n.fn);
-      walk(n.arg);
+      edge(fn, n, n.fn, depth);
+      edge(arg, n, n.arg, depth);
+      walk(n.fn, depth + 1);
+      walk(n.arg, depth + 1);
     };
-    walk(root);
-    if (!fnVerts.length && !argVerts.length) return null;
+    walk(root, 0);
+    if (!fn.verts.length && !arg.verts.length) return null;
     const group = new three.Group();
-    const add = (verts: number[], color: number, dashed: boolean): void => {
-      if (!verts.length) return;
+    const add = (b: { verts: number[]; cols: number[] }, dashed: boolean): void => {
+      if (!b.verts.length) return;
       const geo = new three.BufferGeometry();
-      geo.setAttribute("position", new three.Float32BufferAttribute(verts, 3));
-      group.add(this.edgeLine(three, geo, color, dashed));
+      geo.setAttribute("position", new three.Float32BufferAttribute(b.verts, 3));
+      geo.setAttribute("color", new three.Float32BufferAttribute(b.cols, 3));
+      group.add(this.edgeLine(three, geo, dashed));
     };
-    add(fnVerts, theme.fnEdge, false);
-    add(argVerts, theme.argEdge, true);
+    add(fn, false);
+    add(arg, true);
     return group;
   }
 
