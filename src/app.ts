@@ -387,6 +387,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       paintRail();
       transportBar.paint();
     },
+    morph3D: (tree, node, dur) => morphFocused3D(tree, node, dur),
   });
 
   // Transport bar (top-right): rate read-out + Pause/Step/Play/FF — a thin view over the
@@ -898,8 +899,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   let momVx = 0;
   let momVy = 0;
   let lastDragD = { x: 0, y: 0 };
-  pixi.ticker.add(() => {
+  pixi.ticker.add((tk: { deltaMS: number }) => {
     if (!view3D) return;
+    if (sphere3d.morphing) return void sphere3d.advanceMorph(tk.deltaMS); // a reduction-step morph owns the frame
     let vx = 0;
     let vy = 0;
     if (heldRot.has("arrowleft") || heldRot.has("a")) vx -= KEY_ROT;
@@ -930,6 +932,18 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
     }
     sphere3d.update(disp, true);
+  }
+  // Mirror a focused tree's reduction step into the open 3D view (plan 06). Hoisted so the reduction
+  // controller (constructed earlier) can call it; a no-op unless 3D is open on the focused tree. The
+  // morph snaps internally above its cap; if the expanded term exceeds the static cap, back out to 2D.
+  function morphFocused3D(tree: TreeView, node: Node, durationMS: number): void {
+    if (!view3D || tree !== focus) return;
+    const disp = expandDisplay(node, { expandAll, isDiscovered });
+    if (exceedsNodes(disp, NODE_CAP)) {
+      toggleView3D();
+      return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
+    }
+    sphere3d.animateTo(disp, durationMS);
   }
   function toggleView3D(): void {
     if (view3D) {
@@ -1389,11 +1403,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       discover: (sym: string) => { const l = CATALOG.find((x) => x.sym === sym); if (l) discover(l); }, // dev seam: fire the discovery flow (card + chirp)
       mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : "topdown"),
       toggleLayout: () => toggleLayout(),
-      view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs, drawMs: sphere3d.lastDrawMs, az: sphere3d.azimuth, pan: sphere3d.panSum }) },
+      view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs, drawMs: sphere3d.lastDrawMs, az: sphere3d.azimuth, pan: sphere3d.panSum }), morph: () => sphere3d.debugMorph() },
       transport: { mode: () => reduce.mode, set: (m: string) => reduce.setTransport(m as Transport), cycle: () => reduce.cycleTransport(), step: () => reduce.stepOnce() },
       autoSteps: () => reduce.totalSteps(),
       est: () => ({ ...reduce.estimate, shown: reduce.focusedSteps() }),
       run: () => { if (focus) reduce.schedule(focus); },
+      spawn: (s: string) => { spawnTreeWorld(fromEgg(s), 0, 0); }, // dev seam: drop a reducing tree from an s-expr
+
       game: { on: () => gameMode, set: (b: boolean) => setGameMode(b), state: () => gameInput.debugState },
       fast: { on: () => isOpt("rules"), set: (b: boolean) => setOpt("rules", b) },
       graph: { on: () => isOpt("graph"), set: (b: boolean) => setOpt("graph", b), eval: (s: string) => sexp(evalShared(fromEgg(s), 500000, fastMode).term) },
