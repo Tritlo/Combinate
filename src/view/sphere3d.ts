@@ -26,6 +26,9 @@ const POLAR_MIN = 0.08;
 const POLAR_MAX = Math.PI - 0.08;
 const DPR_CAP = 1.5; // cap the 3D canvas DPR — the texture re-upload per orbit step is the cost, not the draw
 const MORPH_CAP = 600; // above this the per-frame morph tween is too costly — jump-cut (snap) the step, like the 2D HEAVY path
+const EDGE_OPACITY = 0.85; // edges more opaque than before so the fn/arg cue reads (ADR 0010 follow-up)
+const DASH_SIZE = 16; // arg (right) edges are DASHED, fn (left) solid — the 3D echo of the 2D solid/dashed legend
+const GAP_SIZE = 11; // (layout shells are ~92 units apart, so ~3 dashes per edge)
 
 type Pos3 = { x: number; y: number; z: number };
 // One node's tween across a reduction step: instance slot, from→to position, base radius, scale 0/1.
@@ -43,12 +46,17 @@ interface MorphAnim {
   sTo: number; // 1 survivor/enter end, 0 exit end
 }
 // An in-flight reduction-step morph: its own InstancedMesh + edge buffer, advanced frame by frame.
+// fn (solid) + arg (dashed) edges as separate batches so left/right reads; positions rewritten each frame.
+interface EdgeBatch {
+  seg: T.LineSegments;
+  pos: Float32Array;
+  pairs: Array<[number, number]>;
+  dashed: boolean;
+}
 interface Morph {
   mesh: T.InstancedMesh;
   anims: MorphAnim[];
-  edgeGeo: T.BufferGeometry;
-  epos: Float32Array;
-  pairs: Array<[number, number]>; // new-tree edge endpoint ids (positions interpolate each frame)
+  edges: EdgeBatch[];
   curPos: Map<number, Pos3>;
   node: Node; // the settled term to snap to when the tween ends
   newPos: Map<number, Pos3>;
@@ -255,28 +263,33 @@ export class Sphere3D {
       i++;
     }
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    // new-tree edges (endpoints are all in `ids`, so curPos has them); positions rewritten each frame
-    const pairs: Array<[number, number]> = [];
-    const ecols: number[] = [];
-    const fnC = new three.Color(theme.fnEdge);
-    const argC = new three.Color(theme.argEdge);
+    // new-tree edges, fn (left) + arg (right) as separate batches (endpoints all in `ids`, so curPos
+    // has them); positions rewritten each frame. arg is dashed so left/right reads while it morphs.
+    const fnPairs: Array<[number, number]> = [];
+    const argPairs: Array<[number, number]> = [];
     const seen = new Set<number>();
     const ewalk = (m: Node): void => {
       if (seen.has(m.id) || m.kind !== "app") return;
       seen.add(m.id);
-      pairs.push([m.id, m.fn.id], [m.id, m.arg.id]);
-      ecols.push(fnC.r, fnC.g, fnC.b, fnC.r, fnC.g, fnC.b, argC.r, argC.g, argC.b, argC.r, argC.g, argC.b);
+      fnPairs.push([m.id, m.fn.id]);
+      argPairs.push([m.id, m.arg.id]);
       ewalk(m.fn);
       ewalk(m.arg);
     };
     ewalk(node);
-    const edgeGeo = new three.BufferGeometry();
-    const epos = new Float32Array(pairs.length * 6);
-    edgeGeo.setAttribute("position", new three.BufferAttribute(epos, 3));
-    edgeGeo.setAttribute("color", new three.Float32BufferAttribute(ecols, 3));
+    const edges: EdgeBatch[] = [];
+    const batch = (pairs: Array<[number, number]>, color: number, dashed: boolean): void => {
+      if (!pairs.length) return;
+      const pos = new Float32Array(pairs.length * 6);
+      const geo = new three.BufferGeometry();
+      geo.setAttribute("position", new three.BufferAttribute(pos, 3)); // wraps `pos` (no copy) so per-frame writes land
+      edges.push({ seg: this.edgeLine(three, geo, color, dashed), pos, pairs, dashed });
+    };
+    batch(fnPairs, theme.fnEdge, false);
+    batch(argPairs, theme.argEdge, true);
     const group = new three.Group();
     group.add(mesh);
-    if (pairs.length) group.add(new three.LineSegments(edgeGeo, new three.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55 })));
+    for (const e of edges) group.add(e.seg);
     if (this.content) {
       this.disposeGroup(this.content);
       this.scene.remove(this.content);
@@ -284,7 +297,7 @@ export class Sphere3D {
     this.scene.add(group);
     this.content = group;
     this.place(); // a same-term morph — keep the user's orbit/zoom
-    this.morph = { mesh, anims, edgeGeo, epos, pairs, curPos: new Map(), node, newPos, elapsed: 0, duration: Math.max(16, durationMS) };
+    this.morph = { mesh, anims, edges, curPos: new Map(), node, newPos, elapsed: 0, duration: Math.max(16, durationMS) };
     this.advanceMorph(0); // paint frame 0
   }
 
@@ -310,18 +323,21 @@ export class Sphere3D {
       m.curPos.set(a.id, { x, y, z });
     }
     m.mesh.instanceMatrix.needsUpdate = true;
-    for (let k = 0; k < m.pairs.length; k++) {
-      const pa = m.curPos.get(m.pairs[k][0])!;
-      const pb = m.curPos.get(m.pairs[k][1])!;
-      const o = k * 6;
-      m.epos[o] = pa.x;
-      m.epos[o + 1] = pa.y;
-      m.epos[o + 2] = pa.z;
-      m.epos[o + 3] = pb.x;
-      m.epos[o + 4] = pb.y;
-      m.epos[o + 5] = pb.z;
+    for (const e of m.edges) {
+      for (let k = 0; k < e.pairs.length; k++) {
+        const pa = m.curPos.get(e.pairs[k][0])!;
+        const pb = m.curPos.get(e.pairs[k][1])!;
+        const o = k * 6;
+        e.pos[o] = pa.x;
+        e.pos[o + 1] = pa.y;
+        e.pos[o + 2] = pa.z;
+        e.pos[o + 3] = pb.x;
+        e.pos[o + 4] = pb.y;
+        e.pos[o + 5] = pb.z;
+      }
+      e.seg.geometry.getAttribute("position").needsUpdate = true;
+      if (e.dashed) e.seg.computeLineDistances(); // endpoints moved → recompute the dash pattern
     }
-    if (m.pairs.length) m.edgeGeo.getAttribute("position").needsUpdate = true;
     this.draw();
     if (t >= 1) {
       this.morph = null;
@@ -393,33 +409,48 @@ export class Sphere3D {
     return mesh;
   }
 
-  // All parent→child edges in one LineSegments buffer; fn edges warm, arg edges cool (the 2D legend).
-  private buildEdges(three: typeof T, root: Node, pos: Map<number, { x: number; y: number; z: number }>): T.LineSegments | null {
-    const verts: number[] = [];
-    const colors: number[] = [];
-    const fn = new three.Color(theme.fnEdge);
-    const arg = new three.Color(theme.argEdge);
+  // A LineSegments for one edge batch: solid (fn, warm) or dashed (arg, cool) — encodes left vs right
+  // the way the 2D view does (solid function edge / dashed argument edge). Dashed needs line distances.
+  private edgeLine(three: typeof T, geo: T.BufferGeometry, color: number, dashed: boolean): T.LineSegments {
+    const mat = dashed
+      ? new three.LineDashedMaterial({ color, transparent: true, opacity: EDGE_OPACITY, dashSize: DASH_SIZE, gapSize: GAP_SIZE })
+      : new three.LineBasicMaterial({ color, transparent: true, opacity: EDGE_OPACITY });
+    const seg = new three.LineSegments(geo, mat);
+    if (dashed) seg.computeLineDistances();
+    return seg;
+  }
+
+  // Parent→child edges as two batches: fn (left) SOLID warm, arg (right) DASHED cool — so you can
+  // tell left from right in 3D (the 3D echo of the 2D solid/dashed legend).
+  private buildEdges(three: typeof T, root: Node, pos: Map<number, { x: number; y: number; z: number }>): T.Object3D | null {
+    const fnVerts: number[] = [];
+    const argVerts: number[] = [];
     const seen = new Set<number>();
-    const edge = (a: Node, b: Node, c: T.Color): void => {
+    const push = (into: number[], a: Node, b: Node): void => {
       const pa = pos.get(a.id)!;
       const pb = pos.get(b.id)!;
-      verts.push(pa.x, pa.y, pa.z, pb.x, pb.y, pb.z);
-      colors.push(c.r, c.g, c.b, c.r, c.g, c.b);
+      into.push(pa.x, pa.y, pa.z, pb.x, pb.y, pb.z);
     };
     const walk = (n: Node): void => {
       if (seen.has(n.id) || n.kind !== "app") return;
       seen.add(n.id);
-      edge(n, n.fn, fn);
-      edge(n, n.arg, arg);
+      push(fnVerts, n, n.fn);
+      push(argVerts, n, n.arg);
       walk(n.fn);
       walk(n.arg);
     };
     walk(root);
-    if (!verts.length) return null;
-    const geo = new three.BufferGeometry();
-    geo.setAttribute("position", new three.Float32BufferAttribute(verts, 3));
-    geo.setAttribute("color", new three.Float32BufferAttribute(colors, 3));
-    return new three.LineSegments(geo, new three.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55 }));
+    if (!fnVerts.length && !argVerts.length) return null;
+    const group = new three.Group();
+    const add = (verts: number[], color: number, dashed: boolean): void => {
+      if (!verts.length) return;
+      const geo = new three.BufferGeometry();
+      geo.setAttribute("position", new three.Float32BufferAttribute(verts, 3));
+      group.add(this.edgeLine(three, geo, color, dashed));
+    };
+    add(fnVerts, theme.fnEdge, false);
+    add(argVerts, theme.argEdge, true);
+    return group;
   }
 
   // ---- orbit camera (driven by the host's Pixi pointer events; no OrbitControls) ----
