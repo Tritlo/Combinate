@@ -594,6 +594,104 @@ export function barkerCode(root: Node, maxChars = 4096): string {
   return truncated ? out + "…" : out;
 }
 
+/** Render a term as the player sees its DATA — named combinators (an undiscovered one masks to its
+ *  ι-tree, like the s-expression view) plus Scott literal sugar recognised STRUCTURALLY: numerals
+ *  (`Succ…K` → an int), non-empty lists (`cons…K` → `[…]`), and booleans — all WITHOUT reducing. So a
+ *  term shows its current shape (`((+) 1 1)`), tracking a reduction rather than jumping to the answer.
+ *  Application spines are flattened Haskell-style (`f a b`, not `((f a) b)`). A bare `K` is the shared
+ *  zero/nil/false, disambiguated by the active read page (`mode`). Streams against a char budget, so a
+ *  deep term / shared DAG / cycle truncates with an ellipsis instead of blowing up. */
+export function sugar(root: Node, opts: { isDiscovered: (sym: string) => boolean; mode?: string }, maxChars = 4096): string {
+  const { isDiscovered, mode } = opts;
+  const MAX_NUM = 9999; // a longer Succ-spine isn't worth counting — fall back to structural
+  const MAX_LIST = 256; // ditto for a cons-spine
+  const MAX_DEPTH = 2000; // recursion bound — a deeper tree truncates rather than overflowing the stack
+  let out = "";
+  let truncated = false;
+  const emit = (s: string): void => {
+    if (truncated) return;
+    const room = maxChars - out.length;
+    if (s.length > room) {
+      out += s.slice(0, room);
+      truncated = true;
+    } else out += s;
+  };
+  const isComb = (n: Node, sym: string): boolean => n.kind === "comb" && n.sym === sym;
+  // `Succ^k K` with k ≥ 1 → k (a bare K is left to the context logic below); else null.
+  const asNumeral = (n: Node): number | null => {
+    if (!isDiscovered("Succ")) return null;
+    let k = 0;
+    let cur = n;
+    while (cur.kind === "app" && isComb(cur.fn, "Succ")) {
+      cur = cur.arg;
+      if (++k > MAX_NUM) return null;
+    }
+    return k >= 1 && isComb(cur, "K") ? k : null;
+  };
+  // A non-empty, proper `cons h (… K)` spine → its element nodes; else null (bare K / improper tail).
+  const asList = (n: Node): Node[] | null => {
+    if (!isDiscovered("cons")) return null;
+    const elems: Node[] = [];
+    let cur = n;
+    while (cur.kind === "app" && cur.fn.kind === "app" && isComb(cur.fn.fn, "cons")) {
+      elems.push(cur.fn.arg);
+      cur = cur.arg;
+      if (elems.length > MAX_LIST) return null;
+    }
+    return elems.length >= 1 && isComb(cur, "K") ? elems : null;
+  };
+  // Stream a left-nested application spine as `f a b` (no outer parens), emitting incrementally so the
+  // char budget bounds it — no pre-collected args array (a huge spine can't allocate unboundedly).
+  const spine = (m: Node, depth: number): void => {
+    if (truncated) return;
+    if (depth > MAX_DEPTH) return void (truncated = true); // bottomless spine → truncate, don't overflow
+    if (m.kind === "app") {
+      spine(m.fn, depth + 1);
+      emit(" ");
+      go(m.arg, depth + 1);
+    } else go(m, depth);
+  };
+  const go = (n: Node, depth: number): void => {
+    if (truncated) return;
+    if (depth > MAX_DEPTH) return void (truncated = true);
+    const num = asNumeral(n);
+    if (num !== null) return emit(String(num));
+    const list = asList(n);
+    if (list) {
+      emit("[");
+      list.forEach((e, i) => {
+        if (i) emit(", ");
+        go(e, depth + 1);
+      });
+      return emit("]");
+    }
+    if (mode === "Bool" && n.kind === "app" && isComb(n.fn, "K") && isComb(n.arg, "I")) return emit("true"); // True = K I
+    if (isComb(n, "K")) {
+      // the shared zero / nil / false — disambiguate by the active read page
+      if (mode === "Int") return emit("0");
+      if (mode === "List") return emit("[]");
+      if (mode === "Bool") return emit("false");
+      // else (Programs / Char) fall through to render it as the K combinator
+    }
+    switch (n.kind) {
+      case "iota":
+        return emit("ι");
+      case "comb": {
+        const code = !isDiscovered(n.sym) ? IOTA_CODE[n.sym] : undefined; // undiscovered → its ι-tree (the discovery mask)
+        return code ? go(decode(code), depth + 1) : emit(n.sym);
+      }
+      case "free":
+        return emit(n.name);
+      case "app": // flatten the spine: f a b → (f a b), not (((f) a) b)
+        emit("(");
+        spine(n, depth + 1);
+        return emit(")");
+    }
+  };
+  go(root, 0);
+  return truncated ? out + "…" : out;
+}
+
 /** Expand a term into its DISPLAY form: undiscovered S/K/I become their ι-trees (the discovery
  *  mask), and — when `expandAll` — every combinator becomes its full ι-tree. Memoised by id so a
  *  shared subterm (graph mode) expands once (the display stays a DAG). Pure: the predicates are
