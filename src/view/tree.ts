@@ -12,9 +12,14 @@ const LAYOUT_MS = 360; // duration of the layout-toggle reflow
 const GLYPH_MAX = 300;
 // Above this many displayed nodes we stop animating reduction steps: each step
 // jump-cuts to its settled layout (no per-frame tween, no per-frame edge redraw)
-// and argument edges drop their dashes (which multiply edge geometry). Below it,
-// small trees keep the nice tween + dashed edges. Keeps fac-scale playback fast.
+// and argument edges draw solid WHILE STEPPING (dashing multiplies edge geometry, and a heavy
+// reduction redraws every few ms). Below it, small trees keep the nice tween + dashed edges. A big
+// tree upgrades to dashed once it SETTLES (see SETTLE_DASH_MS) so an expanded ι-tree shows its dashes.
 const HEAVY = 600;
+// A big tree's edges go from solid to dashed once they've not been redrawn for this long — i.e. the
+// reduction stopped / the tree is being inspected (the Expand ι-tree view). Keeps fac-scale playback
+// fast (solid while stepping) without permanently dropping the function/argument dash cue.
+const SETTLE_DASH_MS = 200;
 // Radius of the shared white circle texture all node particles are drawn from; a
 // node of radius r renders at scale r / TEX_R, tinted by its kind.
 const TEX_R = 32;
@@ -118,6 +123,8 @@ export class TreeView {
   private elapsed = 0;
   private duration = 0;
   private onDone: (() => void) | null = null;
+  private lastEdgeDrawAt = 0; // perf clock of the last drawEdges — distinguishes a rapid reduction redraw from a settled one
+  private settleDashTimer = 0; // one-shot: dash a big tree's edges once it stops being redrawn (settled)
   private ticking = false;
   private cancelPop: (() => void) | null = null; // the pop-in tween's canceller — stopped on destroy so it can't tick a freed container
   private readonly tick = (t: Ticker): void => this.advance(t.deltaMS);
@@ -162,6 +169,7 @@ export class TreeView {
   destroy(): void {
     this.cancelPop?.(); // a pop-in tween could still be mid-flight (rapid game-mode spawn→apply)
     this.cancelPop = null;
+    clearTimeout(this.settleDashTimer); // a pending settle-dash redraw must not touch a freed container
     this.stopTicker();
     this.container.destroy({ children: true });
   }
@@ -459,7 +467,14 @@ export class TreeView {
   private drawEdges(): void {
     this.edges.clear();
     const v = this.viewRect();
-    const dash = this.objs.size <= HEAVY; // big trees draw solid — dashing multiplies geometry every frame (same threshold as heavy())
+    // Style = fn (left) solid, arg (right) dashed. Small trees always dash. A big tree draws SOLID
+    // while it's being redrawn rapidly (a running reduction jump-cuts a step every few ms — dashing
+    // thousands of edges per step is slow) and DASHED once it settles: this draw follows a quiet gap,
+    // or the trailing timer below fired after one. So an expanded / inspected ι-tree shows its dashes.
+    const now = performance.now();
+    const settled = now - this.lastEdgeDrawAt > SETTLE_DASH_MS;
+    this.lastEdgeDrawAt = now;
+    const dash = this.objs.size <= HEAVY || settled;
     // Colour = depth TIER (red/black), style = fn solid / arg dashed. Each tier is a separate stroke
     // (one colour per Graphics stroke), so 4 strokes: {arg,fn} × {even,odd}. A node's parent-edge is
     // the opposite colour of its child-edges → you can trace direction even in a dense tree.
@@ -485,6 +500,14 @@ export class TreeView {
       this.edges.stroke({ width: 3, color: edgeTierColor(parity) });
     }
     this.placeRootMark();
+    // Drew a big tree solid because it's being redrawn rapidly (still reducing) → schedule a one-shot
+    // dashed redraw for once it goes idle. A later draw (next step) cancels and reschedules it.
+    if (this.objs.size > HEAVY && !dash) {
+      clearTimeout(this.settleDashTimer);
+      this.settleDashTimer = window.setTimeout(() => {
+        if (!this.container.destroyed) this.drawEdges();
+      }, SETTLE_DASH_MS + 20);
+    }
   }
 
   // The visible viewport in this tree's local coordinates — but only while
