@@ -77,7 +77,7 @@ export function preloadSphere3D(): Promise<void> {
 }
 
 // Per-kind node radius + colour (a 3D echo of tree.ts's visSpec, reusing the theme).
-function nodeStyle(n: Node): { radius: number; color: number } {
+function nodeStyle(n: Node, depth: number): { radius: number; color: number } {
   switch (n.kind) {
     case "iota":
       return { radius: 9, color: theme.mutedDot }; // grey sphere — ι is the bare generator (no longer gold)
@@ -86,7 +86,7 @@ function nodeStyle(n: Node): { radius: number; color: number } {
     case "free":
       return { radius: 15, color: theme.mutedDot };
     default:
-      return { radius: 7, color: theme.mutedDot }; // app junction
+      return { radius: 7, color: depth > 0 ? edgeTierColor(depth - 1) : theme.text }; // app junction takes its incoming-edge tier (root: ink)
   }
 }
 
@@ -120,6 +120,7 @@ export class Sphere3D {
   drawCount = 0; // renders since boot (dev seam: confirms the morph render loop actually advanced)
   private lastPos = new Map<number, Pos3>(); // currently-displayed node positions — the next morph's `from`
   private lastNodes = new Map<number, Node>(); // currently-displayed nodes (to colour/size dropped nodes)
+  private lastDepth = new Map<number, number>(); // currently-displayed node depths (app nodes take their incoming-edge tier)
   private morph: Morph | null = null;
 
   /** Current orbit azimuth (for the dev seam / E2E — confirms rotation). */
@@ -186,6 +187,7 @@ export class Sphere3D {
       this.lastCapped = false;
       this.lastPos = new Map();
       this.lastNodes = new Map();
+      this.lastDepth = new Map();
       this.draw();
       return;
     }
@@ -196,6 +198,7 @@ export class Sphere3D {
     if (this.lastCapped) {
       this.lastPos = new Map(); // can't morph from a tree we never laid out — the next step snaps
       this.lastNodes = new Map();
+      this.lastDepth = new Map();
       this.draw();
       return; // too big to build a static scene — blank (the toast lives in app.ts)
     }
@@ -207,6 +210,7 @@ export class Sphere3D {
     this.content = group;
     this.lastPos = pos;
     this.lastNodes = this.collect(node);
+    this.lastDepth = this.depthMap(node);
     this.lastRadius = radius;
     if (keepCamera) this.place();
     else this.frame(radius);
@@ -229,6 +233,21 @@ export class Sphere3D {
     return m;
   }
 
+  // id → depth (first visit), so an app node can take its incoming-edge tier (edgeTierColor(depth-1)).
+  private depthMap(root: Node): Map<number, number> {
+    const m = new Map<number, number>();
+    const walk = (n: Node, d: number): void => {
+      if (m.has(n.id)) return;
+      m.set(n.id, d);
+      if (n.kind === "app") {
+        walk(n.fn, d + 1);
+        walk(n.arg, d + 1);
+      }
+    };
+    walk(root, 0);
+    return m;
+  }
+
   /** Animate one reduction step (plan 06): persisting nodes (same id) glide old→new, new nodes
    *  scale in, dropped nodes scale out. The 3D analog of TreeView.animateTo. Frame-stepped by the
    *  host via {@link advanceMorph}; snaps (jump-cut) above MORPH_CAP or with nothing to glide from. */
@@ -248,6 +267,7 @@ export class Sphere3D {
       return;
     }
     const newNodes = this.collect(node);
+    const newDepth = this.depthMap(node);
     const mesh = new three.InstancedMesh(new three.SphereGeometry(1, SPHERE_SEGMENTS, SPHERE_SEGMENTS), new three.MeshBasicMaterial(), ids.size);
     const anims: MorphAnim[] = [];
     const col = new three.Color();
@@ -255,7 +275,8 @@ export class Sphere3D {
     for (const id of ids) {
       const np = newPos.get(id);
       const op = this.lastPos.get(id);
-      const { radius: baseR, color } = nodeStyle(newNodes.get(id) ?? this.lastNodes.get(id)!);
+      const depth = newDepth.get(id) ?? this.lastDepth.get(id) ?? 0;
+      const { radius: baseR, color } = nodeStyle(newNodes.get(id) ?? this.lastNodes.get(id)!, depth);
       if (np && op) anims.push({ i, id, fx: op.x, fy: op.y, fz: op.z, tx: np.x, ty: np.y, tz: np.z, baseR, sFrom: 1, sTo: 1 });
       else if (np) anims.push({ i, id, fx: np.x, fy: np.y, fz: np.z, tx: np.x, ty: np.y, tz: np.z, baseR, sFrom: 0, sTo: 1 });
       else anims.push({ i, id, fx: op!.x, fy: op!.y, fz: op!.z, tx: op!.x, ty: op!.y, tz: op!.z, baseR, sFrom: 1, sTo: 0 });
@@ -395,22 +416,22 @@ export class Sphere3D {
     const col = new three.Color();
     let i = 0;
     const seen = new Set<number>();
-    const walk = (n: Node): void => {
+    const walk = (n: Node, depth: number): void => {
       if (seen.has(n.id)) return;
       seen.add(n.id);
       const p = pos.get(n.id)!;
-      const { radius, color } = nodeStyle(n);
+      const { radius, color } = nodeStyle(n, depth);
       m.makeScale(radius, radius, radius);
       m.setPosition(p.x, p.y, p.z);
       mesh.setMatrixAt(i, m);
       mesh.setColorAt(i, col.set(color));
       i++;
       if (n.kind === "app") {
-        walk(n.fn);
-        walk(n.arg);
+        walk(n.fn, depth + 1);
+        walk(n.arg, depth + 1);
       }
     };
-    walk(root);
+    walk(root, 0);
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     return mesh;

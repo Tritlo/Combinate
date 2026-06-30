@@ -436,11 +436,18 @@ export class TreeView {
       const pv = this.objs.get(n.id);
       const lv = this.objs.get(n.fn.id);
       const rv = this.objs.get(n.arg.id);
-      if (pv && lv && rv) this.edgeList.push({ pv, lv, rv, depth }); // depth → the red/black tier colour
+      if (pv && lv && rv) {
+        this.edgeList.push({ pv, lv, rv, depth }); // depth → the red/black tier colour
+        // an app child takes the colour of its incoming edge (the tier edge leaving n at this depth)
+        const tier = edgeTierColor(depth);
+        if (n.fn.kind === "app") lv.particle.tint = tier;
+        if (n.arg.kind === "app") rv.particle.tint = tier;
+      }
       walk(n.fn, depth + 1);
       walk(n.arg, depth + 1);
     };
     walk(this.display, 0);
+    if (this.display.kind === "app") this.objs.get(this.display.id)!.particle.tint = theme.text; // root: no incoming edge → ink
   }
 
   // Edges are drawn from the live particle positions (so they follow tweens),
