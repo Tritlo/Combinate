@@ -83,6 +83,16 @@ let colorMode = false; // false = 1-bit mono (default); true = the 4096-colour p
 let userOverride = false;
 const listeners: Array<() => void> = [];
 
+// Edge TIER colour (red/black-tree style): edges alternate colour by depth, so a node's parent-edge
+// is always the OPPOSITE colour of its child-edges — that's what lets you trace parent→child
+// direction (and tell "a's argument" from "b's argument") in a busy 2D/3D tree. Pairs with the
+// solid(fn)/dashed(arg) STYLE, which encodes left vs right. Even tiers = ink, odd tiers = red. The
+// red is a fixed hue applied directly (not the quantised palette), so it shows in 1-bit mode too.
+const EDGE_RED: Record<Mode, number> = { dark: 0xee4444, light: 0xcc2222 };
+export function edgeTierColor(depth: number): number {
+  return depth % 2 === 0 ? theme.text : EDGE_RED[mode];
+}
+
 /** The OS preference, defaulting to dark when unavailable. */
 export function systemMode(): Mode {
   return typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";

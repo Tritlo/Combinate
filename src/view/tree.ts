@@ -2,7 +2,7 @@ import { Container, Graphics, ParticleContainer, Particle, Rectangle, Text, Text
 import { type Node, type NodeId, IOTA_ID_SPAN } from "../core/term";
 import { expandDisplay } from "../core/catalog";
 import { type Layout, type LayoutFn } from "../core/layout";
-import { theme, combinatorColor, glyphOn } from "./theme";
+import { theme, combinatorColor, glyphOn, edgeTierColor } from "./theme";
 import { tween } from "./anim";
 
 const LAYOUT_MS = 360; // duration of the layout-toggle reflow
@@ -111,7 +111,7 @@ export class TreeView {
   // Parent→child edges with the resolved NodeVis of each endpoint cached at index
   // time, so the per-frame edge draw is pure array iteration — no `objs` Map lookups
   // (3 per edge per frame on the animation hot path).
-  private edgeList: Array<{ pv: NodeVis; lv: NodeVis; rv: NodeVis }> = [];
+  private edgeList: Array<{ pv: NodeVis; lv: NodeVis; rv: NodeVis; depth: number }> = [];
 
   private anims: Anim[] = [];
   private elapsed = 0;
@@ -427,7 +427,7 @@ export class TreeView {
     // edges converge on its single particle. On a tree no id repeats, so this is
     // identical to the old per-app walk.
     const seen = new Set<NodeId>();
-    const walk = (n: Node): void => {
+    const walk = (n: Node, depth: number): void => {
       if (n.kind !== "app" || seen.has(n.id)) return;
       seen.add(n.id);
       // All endpoints are in `objs` by now (rebuild/animateTo populate it before
@@ -435,11 +435,11 @@ export class TreeView {
       const pv = this.objs.get(n.id);
       const lv = this.objs.get(n.fn.id);
       const rv = this.objs.get(n.arg.id);
-      if (pv && lv && rv) this.edgeList.push({ pv, lv, rv });
-      walk(n.fn);
-      walk(n.arg);
+      if (pv && lv && rv) this.edgeList.push({ pv, lv, rv, depth }); // depth → the red/black tier colour
+      walk(n.fn, depth + 1);
+      walk(n.arg, depth + 1);
     };
-    walk(this.display);
+    walk(this.display, 0);
   }
 
   // Edges are drawn from the live particle positions (so they follow tweens),
@@ -451,21 +451,30 @@ export class TreeView {
     this.edges.clear();
     const v = this.viewRect();
     const dash = this.objs.size <= HEAVY; // big trees draw solid — dashing multiplies geometry every frame (same threshold as heavy())
-    for (const e of this.edgeList) {
-      const p = e.pv.particle;
-      const rp = e.rv.particle;
-      if (!v || overlaps(p, rp, v)) {
-        if (dash) dashedSegment(this.edges, p.x, p.y, rp.x, rp.y); // argument edge: dashed
-        else this.edges.moveTo(p.x, p.y).lineTo(rp.x, rp.y);
+    // Colour = depth TIER (red/black), style = fn solid / arg dashed. Each tier is a separate stroke
+    // (one colour per Graphics stroke), so 4 strokes: {arg,fn} × {even,odd}. A node's parent-edge is
+    // the opposite colour of its child-edges → you can trace direction even in a dense tree.
+    for (const parity of [0, 1]) {
+      for (const e of this.edgeList) {
+        if (e.depth % 2 !== parity) continue;
+        const p = e.pv.particle;
+        const rp = e.rv.particle;
+        if (!v || overlaps(p, rp, v)) {
+          if (dash) dashedSegment(this.edges, p.x, p.y, rp.x, rp.y); // argument edge: dashed
+          else this.edges.moveTo(p.x, p.y).lineTo(rp.x, rp.y);
+        }
       }
+      this.edges.stroke({ width: 2.5, color: edgeTierColor(parity) });
     }
-    this.edges.stroke({ width: 2.5, color: theme.argEdge });
-    for (const e of this.edgeList) {
-      const p = e.pv.particle;
-      const lp = e.lv.particle;
-      if (!v || overlaps(p, lp, v)) this.edges.moveTo(p.x, p.y).lineTo(lp.x, lp.y);
+    for (const parity of [0, 1]) {
+      for (const e of this.edgeList) {
+        if (e.depth % 2 !== parity) continue;
+        const p = e.pv.particle;
+        const lp = e.lv.particle;
+        if (!v || overlaps(p, lp, v)) this.edges.moveTo(p.x, p.y).lineTo(lp.x, lp.y); // function edge: solid
+      }
+      this.edges.stroke({ width: 3, color: edgeTierColor(parity) });
     }
-    this.edges.stroke({ width: 3, color: theme.fnEdge });
     this.placeRootMark();
   }
 

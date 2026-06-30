@@ -34,7 +34,7 @@ import { loadWasmReducer, wasmReady, WasmSession } from "./view/wasmReducer";
 import { ReductionController, type Transport } from "./view/reduction";
 import { TransportBar } from "./view/transportBar";
 import { preloadCompiler } from "./view/mhs/compiler";
-import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange } from "./view/theme";
+import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange, edgeTierColor } from "./view/theme";
 import { MenuBar, type Menu } from "./view/menubar";
 import { About } from "./view/about";
 import { withMotion } from "./view/motion";
@@ -660,9 +660,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const right = left === dragged ? target : dragged;
     const ax = (left.rootWorld.x + right.rootWorld.x) / 2;
     const ay = Math.min(left.rootWorld.y, right.rootWorld.y) - 56;
-    ghost.moveTo(ax, ay).lineTo(left.rootWorld.x, left.rootWorld.y).stroke({ width: 3, color: theme.fnEdge, alpha: 0.7 }); // function: solid
+    // the preview is a new depth-0 junction → tier-0 (ink) edges; solid function, dashed argument
+    ghost.moveTo(ax, ay).lineTo(left.rootWorld.x, left.rootWorld.y).stroke({ width: 3, color: edgeTierColor(0), alpha: 0.7 }); // function: solid
     dashedSegment(ghost, ax, ay, right.rootWorld.x, right.rootWorld.y); // argument: dashed, matching the committed tree
-    ghost.stroke({ width: 2.5, color: theme.argEdge, alpha: 0.7 });
+    ghost.stroke({ width: 2.5, color: edgeTierColor(0), alpha: 0.7 });
     ghost.circle(ax, ay, 6).fill({ color: theme.mutedDot, alpha: 0.7 });
     // preview the resulting expression (left is the function), masked like the rest
     ghostLabel.text = `(${readout.exprOf(left.node)} ${readout.exprOf(right.node)})`;
@@ -1362,21 +1363,27 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // Suppress the browser context menu so right-click can delete a node.
   pixi.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
-  // A small key explaining the two edge styles (which child is the function);
-  // repainted on a theme change.
+  // A small key for the edge encoding: STYLE = which child (solid function / dashed argument),
+  // COLOUR = depth tier (red/black alternating, so a parent-edge differs from its child-edges).
+  // Repainted on a theme change.
   function paintLegend(c: Container): void {
     for (const ch of c.removeChildren()) ch.destroy({ children: true });
+    const ink = theme.text;
     const g = new Graphics();
-    g.moveTo(0, 0).lineTo(26, 0).stroke({ width: 3, color: theme.fnEdge }); // function: solid
-    for (let x = 0; x < 26; x += 14) g.moveTo(x, 18).lineTo(Math.min(x + 8, 26), 18); // argument: dashed (matches the tree)
-    g.stroke({ width: 2.5, color: theme.argEdge });
+    g.moveTo(0, 0).lineTo(26, 0).stroke({ width: 3, color: ink }); // function: solid
+    for (let x = 0; x < 26; x += 14) g.moveTo(x, 18).lineTo(Math.min(x + 8, 26), 18); // argument: dashed
+    g.stroke({ width: 2.5, color: ink });
+    g.moveTo(0, 36).lineTo(12, 36).stroke({ width: 3, color: edgeTierColor(0) }); // depth tiers: ink …
+    g.moveTo(14, 36).lineTo(26, 36).stroke({ width: 3, color: edgeTierColor(1) }); // … and red, alternating
     c.addChild(g);
     const style = { fontFamily: "monospace", fontSize: 12, fill: theme.textDim };
     const l1 = new Text({ text: "function (left)", style });
     l1.position.set(34, -7);
     const l2 = new Text({ text: "argument (right)", style });
     l2.position.set(34, 11);
-    c.addChild(l1, l2);
+    const l3 = new Text({ text: "colour = depth", style });
+    l3.position.set(34, 29);
+    c.addChild(l1, l2, l3);
   }
 
   // Preload the re-folding lens wasm during the splash (it's otherwise lazy on
