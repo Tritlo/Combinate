@@ -145,6 +145,7 @@ export class Sphere3D {
 
   hide(): void {
     this.on = false;
+    this.morph = null; // exiting mid-morph: drop it so the host's ticker can't advance a stale/disposed group
   }
 
   private ensureScene(): void {
@@ -163,6 +164,7 @@ export class Sphere3D {
    *  repaint — theme/colour — must not reset the user's orbit/pan). Cheap to call again. */
   update(node: Node | null, keepCamera = false): void {
     this.current = node;
+    this.morph = null; // an external rebuild (theme / Expand / discovery / settle) supersedes any in-flight morph; its group is disposed below
     if (!this.on || !THREE || !this.scene) return;
     const three = THREE;
     this.scene.background = new three.Color(this.bg ?? theme.bg);
@@ -332,6 +334,15 @@ export class Sphere3D {
   /** Whether a reduction-step morph is currently playing (the host drives {@link advanceMorph}). */
   get morphing(): boolean {
     return this.morph !== null;
+  }
+
+  /** Snap an in-flight morph to its settled term — the host calls this when the 2D reducer is paused
+   *  (it stop-animates the tree), so 2D and 3D don't desync. No-op if idle. */
+  settleMorph(): void {
+    const m = this.morph;
+    if (!m) return;
+    this.morph = null;
+    this.update(m.node, true);
   }
 
   /** Dev seam (E2E): the morph's phase + counts so a test can assert the MATH ran (survivors glide,

@@ -68,6 +68,8 @@ export interface ReductionDeps {
   onTransportChange: () => void; // repaint the menu + transport bar
   /** Mirror a focused tree's step into the 3D view (plan 06) — a no-op unless 3D is open + tree is focused. */
   morph3D?: (tree: TreeView, node: Node, durationMS: number) => void;
+  /** Settle any in-flight 3D morph (called when the 2D reducer is paused, which stop-animates trees). */
+  settleMorph3D?: () => void;
 }
 
 // Speed levels 0-4 (the game-mode `0`-`4` keys): 0 = pause, then the running multiplier.
@@ -425,6 +427,7 @@ export class ReductionController {
       clearTimeout(a.timer);
       tree.stopAnimation();
     }
+    this.deps.settleMorph3D?.(); // the focused tree's 3D morph snaps too, so 2D + 3D freeze together
   }
   // Re-kick every tree that still has a reduction left (a resident session, or a TS redex).
   private resumeAll(): void {
