@@ -7,6 +7,11 @@
  * existing action callbacks). Click a title to drop its menu; hover the bar to
  * walk between open menus; checkmarks (✓) mark active toggles, bullets (•) the
  * selected option in a group; click outside or Esc to close.
+ *
+ * Fully keyboard/gamepad-navigable too (the host routes input while {@link isOpen}):
+ * {@link moveMenu} switches the open top-level menu, {@link moveItem} walks the
+ * highlight within the dropdown (skipping separators), {@link choose} runs the
+ * highlighted item, {@link close} dismisses.
  */
 import { currentMode, onThemeChange, type Mode } from "./theme";
 import { vendorUrl } from "../vendorUrl";
@@ -51,10 +56,10 @@ function injectStyles(): void {
   font-family: ${MONO}; font-size: 14px; }
 .mb-header { padding: 5px 12px 2px; font-size: 11px; opacity: 0.5; letter-spacing: 0.05em; pointer-events: none; }
 .mb-item { position: relative; display: flex; justify-content: space-between; gap: 24px; padding: 2px 16px 2px 24px; white-space: nowrap; cursor: default; }
-.mb-item:hover { background: var(--mb-fg); color: var(--mb-bg); }
+.mb-item:hover, .mb-item.mb-active { background: var(--mb-fg); color: var(--mb-bg); }
 .mb-mark { position: absolute; left: 8px; }
 .mb-accel { opacity: 0.5; padding-left: 8px; }
-.mb-item:hover .mb-accel { opacity: 0.85; }
+.mb-item:hover .mb-accel, .mb-item.mb-active .mb-accel { opacity: 0.85; }
 .mb-sep { height: 0; margin: 3px 0; border-top: 1px solid var(--mb-line); opacity: 0.45; }
 `;
   const style = document.createElement("style");
@@ -68,6 +73,10 @@ export class MenuBar {
   private readonly titleEls: HTMLElement[] = [];
   private open: number | null = null;
   private narrow = false; // collapsed (phone) layout: one ι menu instead of six titles
+  // Keyboard/gamepad nav: the navigable rows of the open dropdown (separators excluded) and the
+  // highlighted one. Rebuilt on every render; the mouse shares this cursor (pointerenter updates it).
+  private navItems: { run: () => void; el: HTMLElement }[] = [];
+  private activeItem = 0;
 
   constructor(private readonly menus: Menu[]) {
     injectStyles();
@@ -92,18 +101,8 @@ export class MenuBar {
     this.dropdown.addEventListener("pointerdown", (e) => e.stopPropagation());
     // Click anywhere off the bar/menu (titles + items stopPropagation) closes it.
     document.addEventListener("pointerdown", () => this.close());
-    // A dropped menu owns the keyboard: Esc closes it, and we swallow keys in the
-    // capture phase so the app's global shortcuts (r=clear, t=layout, …) don't fire
-    // underneath an open pull-down.
-    document.addEventListener(
-      "keydown",
-      (e) => {
-        if (this.open === null) return;
-        if (e.key === "Escape") this.close();
-        e.stopPropagation();
-      },
-      true,
-    );
+    // The keyboard/gamepad routing of an open menu lives in the host (app.ts), mirroring the
+    // context popup: it checks `isOpen` and drives moveMenu/moveItem/choose/close.
     onThemeChange(() => this.applyPalette());
   }
 
@@ -146,9 +145,39 @@ export class MenuBar {
     else this.renderDropdown(this.open);
   }
 
-  /** Open the menu bar programmatically (Esc in game mode → "access the menu bar"). */
+  /** Open the menu bar programmatically (Esc in game mode → "access the menu bar"); highlights the
+   *  first menu and its first item. */
   openMenuBar(): void {
     this.openAt(0);
+  }
+
+  /** Whether a pull-down is currently open (the host gates keyboard/gamepad routing on this). */
+  get isOpen(): boolean {
+    return this.open !== null;
+  }
+
+  /** Switch the open top-level menu by `d` (wraps); resets the item highlight to the first. The
+   *  keyboard/gamepad ←/→. No-op when collapsed (the phone layout has a single ι menu). */
+  moveMenu(d: number): void {
+    if (this.open === null) return;
+    const n = this.narrow ? 1 : this.menus.length;
+    this.openAt((this.open + d + n) % n);
+  }
+
+  /** Walk the highlight within the open dropdown by `d` (wraps, separators excluded) — the
+   *  keyboard/gamepad ↑/↓. */
+  moveItem(d: number): void {
+    if (this.open === null || this.navItems.length === 0) return;
+    this.activeItem = (this.activeItem + d + this.navItems.length) % this.navItems.length;
+    this.paintActiveItem();
+  }
+
+  /** Run the highlighted item, then close — the keyboard/gamepad Space/A. */
+  choose(): void {
+    if (this.open === null) return;
+    const it = this.navItems[this.activeItem];
+    this.close();
+    it?.run();
   }
 
   private applyPalette(): void {
@@ -163,6 +192,7 @@ export class MenuBar {
 
   private openAt(i: number): void {
     this.open = i;
+    this.activeItem = 0; // a fresh menu highlights its first item (keyboard/gamepad start)
     this.titleEls.forEach((t, j) => t.classList.toggle("mb-open", j === i));
     if (this.narrow) this.renderCombined();
     else this.renderDropdown(i);
@@ -179,7 +209,8 @@ export class MenuBar {
     this.dropdown.style.maxHeight = `${Math.max(120, window.innerHeight - top - 8)}px`;
   }
 
-  private close(): void {
+  /** Dismiss the open pull-down (no-op if closed) — click-away, Esc, or the keyboard/gamepad B. */
+  close(): void {
     if (this.open === null) return;
     this.open = null;
     this.titleEls.forEach((t) => t.classList.remove("mb-open"));
@@ -187,11 +218,14 @@ export class MenuBar {
   }
 
   private renderDropdown(i: number): void {
+    this.navItems = []; // itemEl repopulates this as it builds the rows
     this.dropdown.replaceChildren(...this.menus[i].items.map((it) => this.itemEl(it)));
+    this.paintActiveItem();
   }
 
   /** The whole menu as one list (phone layout): each menu's items under a header. */
   private renderCombined(): void {
+    this.navItems = [];
     this.dropdown.replaceChildren();
     this.menus.forEach((m, mi) => {
       if (mi > 0) this.dropdown.appendChild(this.itemEl({ kind: "sep" }));
@@ -201,6 +235,13 @@ export class MenuBar {
       this.dropdown.appendChild(h);
       for (const it of m.items) this.dropdown.appendChild(this.itemEl(it));
     });
+    this.paintActiveItem();
+  }
+
+  /** Paint the active-row highlight (keyboard/gamepad cursor), clamping if the list shrank. */
+  private paintActiveItem(): void {
+    if (this.activeItem >= this.navItems.length) this.activeItem = Math.max(0, this.navItems.length - 1);
+    this.navItems.forEach((r, i) => r.el.classList.toggle("mb-active", i === this.activeItem));
   }
 
   private itemEl(it: MenuItem): HTMLElement {
@@ -241,6 +282,13 @@ export class MenuBar {
       if (moved) return; // a scroll, not a tap
       it.run();
       this.close();
+    });
+    // Register as a navigable row + let the mouse share the keyboard/gamepad cursor (hover = highlight).
+    const navIndex = this.navItems.length;
+    this.navItems.push({ run: it.run, el: row });
+    row.addEventListener("pointerenter", () => {
+      this.activeItem = navIndex;
+      this.paintActiveItem();
     });
     return row;
   }
