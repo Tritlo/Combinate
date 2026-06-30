@@ -12,8 +12,9 @@ import { currentMode, type Mode } from "./theme";
 import { vendorUrl } from "../vendorUrl";
 
 /** Draw a term's ι-tree onto a 2D canvas (the discovery card's picture — reliable everywhere, no
- *  WebGL). Gold ι leaves, grey junctions + edges, fit + centred on a dark viewport. */
-function draw2DTree(canvas: HTMLCanvasElement, node: Node, px: number): void {
+ *  WebGL). Colours come from the per-mode {@link Viewport} palette so the picture tracks light/dark
+ *  like the rest of the card; fit + centred. */
+function draw2DTree(canvas: HTMLCanvasElement, node: Node, px: number, v: Viewport): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -22,7 +23,7 @@ function draw2DTree(canvas: HTMLCanvasElement, node: Node, px: number): void {
   canvas.style.width = `${px}px`;
   canvas.style.height = `${px}px`;
   ctx.scale(dpr, dpr);
-  ctx.fillStyle = "#12141c"; // opaque dark viewport (covers the fallback glyph underneath)
+  ctx.fillStyle = v.bg; // opaque viewport (covers the fallback glyph underneath)
   ctx.fillRect(0, 0, px, px);
   const lay = layoutRadial(node);
   const pad = 12;
@@ -31,7 +32,7 @@ function draw2DTree(canvas: HTMLCanvasElement, node: Node, px: number): void {
   const oy = px / 2 - (lay.minY + lay.height / 2) * s;
   const X = (x: number): number => x * s + ox;
   const Y = (y: number): number => y * s + oy;
-  ctx.strokeStyle = "#9aa3b2";
+  ctx.strokeStyle = v.edge;
   ctx.lineWidth = 1.4;
   const edges = (n: Node): void => {
     if (n.kind !== "app") return;
@@ -50,7 +51,7 @@ function draw2DTree(canvas: HTMLCanvasElement, node: Node, px: number): void {
     seen.add(n.id);
     const p = lay.pos.get(n.id);
     if (p) {
-      ctx.fillStyle = n.kind === "iota" ? "#f0b72f" : n.kind === "app" ? "#5b6270" : "#cdd2dc";
+      ctx.fillStyle = n.kind === "iota" ? v.iota : n.kind === "app" ? v.app : v.leaf;
       ctx.beginPath();
       ctx.arc(X(p.x), Y(p.y), n.kind === "iota" ? 3.5 : n.kind === "app" ? 2.5 : 5, 0, Math.PI * 2);
       ctx.fill();
@@ -68,6 +69,16 @@ const PALETTE: Record<Mode, Record<string, string>> = {
   light: { paper: "#ffffff", ink: "#000000", shadow: "rgba(0,0,0,0.85)", gold: "#8a6300" },
   dark: { paper: "#07090d", ink: "#f0f3f6", shadow: "rgba(0,0,0,0.85)", gold: "#f0b72f" },
 };
+
+// The ι-tree picture viewport (the .disco-3d box) — its own per-mode palette so the picture tracks
+// light/dark with the card, instead of a fixed dark screen. The viewport sits just off the card
+// paper (lighter than paper on dark, darker than paper on light); the leaf nodes carry the most
+// contrast against it, ι stays gold, application dots are muted.
+type Viewport = { bg: string; edge: string; iota: string; app: string; leaf: string };
+const VIEWPORT: Record<Mode, Viewport> = {
+  light: { bg: "#eef0f2", edge: "#5a5a5a", iota: "#8a6300", app: "#a0a6ae", leaf: "#1a1d22" },
+  dark: { bg: "#12141c", edge: "#9aa3b2", iota: "#f0b72f", app: "#5b6270", leaf: "#cdd2dc" },
+};
 const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
 
 let injected = false;
@@ -84,7 +95,7 @@ function inject(): void {
 .disco-head span { flex: 1; font-weight: 600; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
 .disco-x { width: 16px; height: 15px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--dc-paper); font-size: 12px; line-height: 1; cursor: pointer; }
 .disco-body { display: flex; gap: 11px; padding: 11px; }
-.disco-3d { position: relative; width: ${PREVIEW_PX}px; height: ${PREVIEW_PX}px; flex: 0 0 auto; background: #12141c; border: 1px solid color-mix(in srgb, var(--dc-ink) 18%, transparent); overflow: hidden; }
+.disco-3d { position: relative; width: ${PREVIEW_PX}px; height: ${PREVIEW_PX}px; flex: 0 0 auto; background: var(--dc-view); border: 1px solid color-mix(in srgb, var(--dc-ink) 18%, transparent); overflow: hidden; }
 .disco-glyph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 48px; color: var(--dc-gold); }
 .disco-canvas { position: absolute; inset: 0; display: block; }
 .disco-info { flex: 1; min-width: 0; }
@@ -109,7 +120,9 @@ export class DiscoveryCard {
     this.clear(); // bursts: the latest discovery replaces the previous card
     inject();
     const tree = iotaTreeOf(law);
-    const p = PALETTE[currentMode()];
+    const mode = currentMode();
+    const p = PALETTE[mode];
+    const v = VIEWPORT[mode];
 
     const root = document.createElement("div");
     root.className = "disco-root";
@@ -117,6 +130,7 @@ export class DiscoveryCard {
     root.style.setProperty("--dc-ink", p.ink);
     root.style.setProperty("--dc-shadow", p.shadow);
     root.style.setProperty("--dc-gold", p.gold);
+    root.style.setProperty("--dc-view", v.bg);
 
 
     const bird = META[law.sym]?.bird;
@@ -141,7 +155,7 @@ export class DiscoveryCard {
     const box = root.querySelector(".disco-3d") as HTMLElement;
     const canvas = document.createElement("canvas");
     canvas.className = "disco-canvas";
-    draw2DTree(canvas, tree, PREVIEW_PX);
+    draw2DTree(canvas, tree, PREVIEW_PX, v);
     box.appendChild(canvas);
 
     requestAnimationFrame(() => root.classList.add("disco-in")); // fade/slide in
