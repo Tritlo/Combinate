@@ -45,6 +45,7 @@ import { GameInputController } from "./view/gameInput";
 import { GamepadController } from "./view/gamepad";
 import { Sphere3D, NODE_CAP, preloadSphere3D } from "./view/sphere3d";
 import { HintBar } from "./view/hints";
+import { DiscoveryCard } from "./view/discovery";
 import { type Context, type Intent, intentForKey } from "./view/keymap";
 import { noteKbm, notePad, onDeviceChange } from "./view/inputDevice";
 
@@ -129,6 +130,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   const toast = new Toast(pixi.ticker);
   hud.addChild(toast.container);
+  const discoveryCard = new DiscoveryCard(); // DOM card on discovery (a rotating 3D mini-view) — replaces the discovery toast
 
   // Live read-out of the current (last-touched) tree's expression, top-centre.
   const exprText = new Text({
@@ -281,7 +283,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   function discover(law: Law): void {
     discovered.add(law.sym);
     saveDiscovered();
-    toast.show(`${law.lawText}  —  discovered!`);
+    discoveryCard.show(law); // a card under the tracked quest: catalog entry + a rotating 3D mini-view
     sound.playIfReady(law.sym); // chirp the new bird (only if audio's already unlocked — discovery isn't a gesture)
     hotbar.reveal(law.sym);
     for (const t of trees) t.refresh(); // reveal newly-known combinators everywhere
@@ -1368,6 +1370,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       sexps: () => trees.map((t) => sexp(t.node)),
       roots: () => trees.map((t) => t.rootWorld),
       discovered: () => [...discovered],
+      discover: (sym: string) => { const l = CATALOG.find((x) => x.sym === sym); if (l) discover(l); }, // dev seam: fire the discovery flow (card + chirp)
       mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : "topdown"),
       toggleLayout: () => toggleLayout(),
       view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs, drawMs: sphere3d.lastDrawMs, az: sphere3d.azimuth, pan: sphere3d.panSum }) },
