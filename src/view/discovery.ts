@@ -1,21 +1,67 @@
 /**
  * The discovery card (ADR 17, plan 05): when you discover a combinator, a small card pops under the
- * tracked quest showing its catalog entry (glyph · bird · law · ι-count) beside a fast-rotating 3D
- * mini-view of its ι-tree. It appears, holds for at least one full rotation, then fades like a toast
- * — with a dismiss [×]. DOM (matches the quest tracker's System-1 chrome). Reuses the pooled
- * {@link spherePreview} (the card outranks the Zoo: acquiring it preempts the Zoo's preview). On a
- * no-WebGL device or under reduced motion it shows the static glyph instead of the spinning sphere.
+ * tracked quest showing its catalog entry (glyph · bird · law · ι-count) beside a 2D picture of its
+ * ι-tree. It appears, holds, then fades like a toast — with a dismiss [×]. DOM (matches the quest
+ * tracker's System-1 chrome). The picture is a plain 2D canvas drawing (reliable everywhere) — an
+ * earlier 3D mini-view didn't render dependably inside a DOM card, so it's 2D only.
  */
 import { type Law, iotaTreeOf, countIotas, META } from "../core/catalog";
-import { spherePreview, FAST_SPIN, CARD_PRIO } from "./spherePreview";
+import { type Node } from "../core/term";
+import { layoutRadial } from "../core/layout";
 import { currentMode, type Mode } from "./theme";
 import { vendorUrl } from "../vendorUrl";
-import { withMotion } from "./motion";
 
-const PREVIEW_PX = 110; // 3D mini-view size
-const VIEW_BG = 0x12141c; // a dark viewport so the ι-tree (gold + grey) clearly pops in the small box
-const HOLD_MS = 3200; // hold long enough for ≥1 full fast rotation (~2.6s) before fading
-const HOLD_STILL_MS = 2000; // reduced-motion: a shorter static hold
+/** Draw a term's ι-tree onto a 2D canvas (the discovery card's picture — reliable everywhere, no
+ *  WebGL). Gold ι leaves, grey junctions + edges, fit + centred on a dark viewport. */
+function draw2DTree(canvas: HTMLCanvasElement, node: Node, px: number): void {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = px * dpr;
+  canvas.height = px * dpr;
+  canvas.style.width = `${px}px`;
+  canvas.style.height = `${px}px`;
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = "#12141c"; // opaque dark viewport (covers the fallback glyph underneath)
+  ctx.fillRect(0, 0, px, px);
+  const lay = layoutRadial(node);
+  const pad = 12;
+  const s = Math.min((px - 2 * pad) / Math.max(lay.width, 1), (px - 2 * pad) / Math.max(lay.height, 1));
+  const ox = px / 2 - (lay.minX + lay.width / 2) * s;
+  const oy = px / 2 - (lay.minY + lay.height / 2) * s;
+  const X = (x: number): number => x * s + ox;
+  const Y = (y: number): number => y * s + oy;
+  ctx.strokeStyle = "#9aa3b2";
+  ctx.lineWidth = 1.4;
+  const edges = (n: Node): void => {
+    if (n.kind !== "app") return;
+    const p = lay.pos.get(n.id);
+    const l = lay.pos.get(n.fn.id);
+    const r = lay.pos.get(n.arg.id);
+    if (p && l) ctx.beginPath(), ctx.moveTo(X(p.x), Y(p.y)), ctx.lineTo(X(l.x), Y(l.y)), ctx.stroke();
+    if (p && r) ctx.beginPath(), ctx.moveTo(X(p.x), Y(p.y)), ctx.lineTo(X(r.x), Y(r.y)), ctx.stroke();
+    edges(n.fn);
+    edges(n.arg);
+  };
+  edges(node);
+  const seen = new Set<number>();
+  const nodes = (n: Node): void => {
+    if (seen.has(n.id)) return;
+    seen.add(n.id);
+    const p = lay.pos.get(n.id);
+    if (p) {
+      ctx.fillStyle = n.kind === "iota" ? "#f0b72f" : n.kind === "app" ? "#5b6270" : "#cdd2dc";
+      ctx.beginPath();
+      ctx.arc(X(p.x), Y(p.y), n.kind === "iota" ? 3.5 : n.kind === "app" ? 2.5 : 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (n.kind === "app") nodes(n.fn), nodes(n.arg);
+  };
+  nodes(node);
+}
+
+const PREVIEW_PX = 110; // the picture size (px)
+const HOLD_MS = 3000; // how long the card holds before fading (toast-like)
 const FADE_MS = 500;
 
 const PALETTE: Record<Mode, Record<string, string>> = {
@@ -58,7 +104,7 @@ export class DiscoveryCard {
   private holdTimer = 0;
   private fadeTimer = 0;
 
-  /** Pop a discovery card for `law`, hold (≥1 rotation), then fade. A burst replaces the prior one. */
+  /** Pop a discovery card for `law` (catalog entry + a 2D ι-tree picture), hold, then fade. A burst replaces the prior one. */
   show(law: Law): void {
     this.clear(); // bursts: the latest discovery replaces the previous card
     inject();
@@ -90,20 +136,16 @@ export class DiscoveryCard {
     document.body.appendChild(root);
     this.root = root;
 
-    // The fast-rotating 3D mini-view over the static glyph — or just the glyph (no WebGL / reduced motion).
-    if (withMotion()) {
-      const box = root.querySelector(".disco-3d") as HTMLElement;
-      void spherePreview.acquire("card", CARD_PRIO, tree, PREVIEW_PX, { onFrame: () => {}, spin: FAST_SPIN, bg: VIEW_BG }).then((canvas) => {
-        if (!canvas || this.root !== root) return; // no WebGL → keep the glyph; or already dismissed
-        canvas.className = "disco-canvas";
-        canvas.style.width = `${PREVIEW_PX}px`;
-        canvas.style.height = `${PREVIEW_PX}px`;
-        box.appendChild(canvas);
-      });
-    }
+    // A 2D ι-tree picture on the dark viewport (3D doesn't render reliably in a DOM card, so 2D only).
+    // The static glyph stays underneath as the fallback if the 2D canvas can't draw.
+    const box = root.querySelector(".disco-3d") as HTMLElement;
+    const canvas = document.createElement("canvas");
+    canvas.className = "disco-canvas";
+    draw2DTree(canvas, tree, PREVIEW_PX);
+    box.appendChild(canvas);
 
     requestAnimationFrame(() => root.classList.add("disco-in")); // fade/slide in
-    this.holdTimer = window.setTimeout(() => this.fade(), withMotion() ? HOLD_MS : HOLD_STILL_MS);
+    this.holdTimer = window.setTimeout(() => this.fade(), HOLD_MS);
   }
 
   private fade(): void {
@@ -112,18 +154,10 @@ export class DiscoveryCard {
     this.fadeTimer = window.setTimeout(() => this.clear(), FADE_MS);
   }
 
-  /** Remove the card + release the shared preview immediately (dismiss / replace / teardown). */
+  /** Remove the card immediately (dismiss / replace / teardown). */
   clear(): void {
     clearTimeout(this.holdTimer);
     clearTimeout(this.fadeTimer);
-    spherePreview.release("card");
-    // hand the shared canvas back clean (detach it + drop our inline sizing) before tearing down the card
-    const canvas = this.root?.querySelector("canvas");
-    if (canvas) {
-      canvas.removeAttribute("style");
-      canvas.className = "";
-      canvas.remove();
-    }
     this.root?.remove();
     this.root = null;
   }
