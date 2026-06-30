@@ -1,84 +1,142 @@
 /**
- * The game-mode control scheme as data (ADR 17): each intent → the keyboard keys that fire
- * it + the gamepad button it maps to. Single source of truth, consumed by the
- * `GameInputController` (key → intent) and rendered by the keybinds reference page. Keeping
- * it here means the gamepad layer (later) binds the same intents, and the help page can never
- * drift from the real bindings.
+ * The control scheme as data (ADR 17, redesigned for 2D Build + 3D Inspect). The single source
+ * for BOTH input (key/button → intent, per context) AND the on-screen hints (each action's
+ * keyboard + gamepad glyph). The contexts are mutually exclusive for the discrete layer: the
+ * same directional input NAVIGATES in Build and ORBITS in Inspect, so bindings are looked up per
+ * context. The mouse/touch canvas + the global menu shortcuts live outside this (always there).
  *
- * Keys are matched against a lower-cased `KeyboardEvent.key` (so "ArrowLeft" → "arrowleft",
- * Space → " ", "Escape" → "escape"). `speed` is the one many-key intent: its digit IS the
- * level, so the controller reads `parseInt(key)` rather than needing five intents.
+ * Keys match a lower-cased `KeyboardEvent.key` ("ArrowLeft" → "arrowleft", Space → " "). Gamepad
+ * button indices are the W3C "standard" layout; analog input (sticks/triggers) is handled in the
+ * gamepad layer, not here. The Build intent names match {@link GameInputController}'s dispatch.
  */
 
-/** A discrete game action. The controller turns a key/button into one of these. */
+/** The interactive contexts that own the discrete input + show contextual hints. */
+export type Context = "build" | "inspect";
+
+/** A discrete action. The controllers turn a key/button into one of these for the active context. */
 export type Intent =
+  // build (2D bucket tray)
   | "moveLeft"
   | "moveRight"
   | "moveUp"
   | "moveDown"
+  | "pagePrev"
+  | "pageNext"
   | "pickPlace"
   | "applyFn"
   | "applyArg"
   | "cancel"
-  | "pagePrev"
-  | "pageNext"
-  | "panUp"
-  | "panDown"
-  | "panLeft"
-  | "panRight"
+  | "speed"
+  | "enterInspect"
+  // inspect (3D orbit)
+  | "rotLeft"
+  | "rotRight"
+  | "rotUp"
+  | "rotDown"
   | "zoomIn"
   | "zoomOut"
-  | "speed";
+  | "recenter"
+  | "exitInspect"
+  // global
+  | "toggleBuild";
 
-/** One binding row: an intent, its human label, the keyboard keys, and the gamepad button. */
-export interface KeyBind {
+// ---- keyboard: per-context key → intent ----
+interface KeyBind {
+  context: Context | "global";
   intent: Intent;
-  label: string;
-  keys: string[]; // lower-cased KeyboardEvent.key values
-  pad: string; // gamepad button (documentation; the pad layer binds the same intent)
-  group: "Navigate" | "Build" | "Camera" | "Playback";
+  keys: string[];
 }
-
-/** The control scheme. Order is the display order on the keybinds page. */
-export const KEYBINDS: KeyBind[] = [
-  { intent: "moveLeft", label: "Cursor left · previous bucket", keys: ["arrowleft", "a"], pad: "D-pad ◄", group: "Navigate" },
-  { intent: "moveRight", label: "Cursor right · next bucket", keys: ["arrowright", "d"], pad: "D-pad ►", group: "Navigate" },
-  { intent: "moveUp", label: "Up to the toolbar", keys: ["arrowup", "w"], pad: "D-pad ▲", group: "Navigate" },
-  { intent: "moveDown", label: "Down to the buckets", keys: ["arrowdown", "s"], pad: "D-pad ▼", group: "Navigate" },
-  { intent: "pagePrev", label: "Previous toolbar page", keys: ["["], pad: "D-pad ◄ at edge", group: "Navigate" },
-  { intent: "pageNext", label: "Next toolbar page", keys: ["]"], pad: "D-pad ► at edge", group: "Navigate" },
-
-  { intent: "pickPlace", label: "Pick up · place · drop", keys: [" ", "enter"], pad: "A", group: "Build" },
-  { intent: "applyFn", label: "Apply held as function — left child", keys: ["q"], pad: "LB", group: "Build" },
-  { intent: "applyArg", label: "Apply held as argument — right child", keys: ["e"], pad: "RB", group: "Build" },
-  { intent: "cancel", label: "Cancel held · open the menu", keys: ["escape"], pad: "B", group: "Build" },
-
-  { intent: "panUp", label: "Pan up", keys: ["i"], pad: "R-stick ▲", group: "Camera" },
-  { intent: "panLeft", label: "Pan left", keys: ["j"], pad: "R-stick ◄", group: "Camera" },
-  { intent: "panDown", label: "Pan down", keys: ["k"], pad: "R-stick ▼", group: "Camera" },
-  { intent: "panRight", label: "Pan right", keys: ["l"], pad: "R-stick ►", group: "Camera" },
-  { intent: "zoomIn", label: "Zoom in", keys: ["=", "+", "z"], pad: "RT", group: "Camera" },
-  { intent: "zoomOut", label: "Zoom out", keys: ["-", "_", "x"], pad: "LT", group: "Camera" },
-
-  { intent: "speed", label: "Reduction speed — 0 pause · 1× · 2× · 4× · 8×", keys: ["0", "1", "2", "3", "4"], pad: "Select cycles", group: "Playback" },
+const KEY_BINDS: KeyBind[] = [
+  { context: "global", intent: "toggleBuild", keys: ["tab"] },
+  // Build
+  { context: "build", intent: "moveLeft", keys: ["arrowleft", "a"] },
+  { context: "build", intent: "moveRight", keys: ["arrowright", "d"] },
+  { context: "build", intent: "moveUp", keys: ["arrowup", "w"] },
+  { context: "build", intent: "moveDown", keys: ["arrowdown", "s"] },
+  { context: "build", intent: "pagePrev", keys: ["["] },
+  { context: "build", intent: "pageNext", keys: ["]"] },
+  { context: "build", intent: "pickPlace", keys: [" ", "enter"] },
+  { context: "build", intent: "applyFn", keys: ["q"] },
+  { context: "build", intent: "applyArg", keys: ["e"] },
+  { context: "build", intent: "cancel", keys: ["escape"] },
+  { context: "build", intent: "speed", keys: ["0", "1", "2", "3", "4"] },
+  { context: "build", intent: "enterInspect", keys: ["v"] },
+  // Inspect
+  { context: "inspect", intent: "rotLeft", keys: ["arrowleft", "a"] },
+  { context: "inspect", intent: "rotRight", keys: ["arrowright", "d"] },
+  { context: "inspect", intent: "rotUp", keys: ["arrowup", "w"] },
+  { context: "inspect", intent: "rotDown", keys: ["arrowdown", "s"] },
+  { context: "inspect", intent: "zoomIn", keys: ["=", "+"] },
+  { context: "inspect", intent: "zoomOut", keys: ["-", "_"] },
+  { context: "inspect", intent: "recenter", keys: ["r"] },
+  { context: "inspect", intent: "exitInspect", keys: ["escape", "v"] },
 ];
 
-const KEY_TO_INTENT = new Map<string, Intent>();
-for (const b of KEYBINDS) for (const k of b.keys) KEY_TO_INTENT.set(k, b.intent);
+const KEY_MAP = new Map<string, Intent>(); // `${context}:${key}` → intent
+for (const b of KEY_BINDS) for (const k of b.keys) KEY_MAP.set(`${b.context}:${k}`, b.intent);
 
-/** The intent a key fires in game mode, or null if it isn't bound (let it through). */
-export function intentForKey(key: string): Intent | null {
-  return KEY_TO_INTENT.get(key.toLowerCase()) ?? null;
+/** The intent a key fires in `context` (a global binding wins), or null. */
+export function intentForKey(context: Context, key: string): Intent | null {
+  const k = key.toLowerCase();
+  return KEY_MAP.get(`global:${k}`) ?? KEY_MAP.get(`${context}:${k}`) ?? null;
 }
 
-/** The display groups in order, each with its rows — for the keybinds page. */
-export function keybindGroups(): { group: string; binds: KeyBind[] }[] {
-  const order = ["Navigate", "Build", "Camera", "Playback"];
-  return order.map((group) => ({ group, binds: KEYBINDS.filter((b) => b.group === group) }));
+// ---- gamepad: W3C standard button index → intent, per context (analog handled separately) ----
+export const PAD_BUTTON = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, SELECT: 8, START: 9, R3: 11, DUP: 12, DDOWN: 13, DLEFT: 14, DRIGHT: 15 };
+const PAD_BINDS: Record<Context | "global", Partial<Record<number, Intent>>> = {
+  global: { [PAD_BUTTON.START]: "toggleBuild" },
+  build: {
+    [PAD_BUTTON.DLEFT]: "moveLeft",
+    [PAD_BUTTON.DRIGHT]: "moveRight",
+    [PAD_BUTTON.DUP]: "moveUp",
+    [PAD_BUTTON.DDOWN]: "moveDown",
+    [PAD_BUTTON.A]: "pickPlace",
+    [PAD_BUTTON.B]: "cancel",
+    [PAD_BUTTON.LB]: "applyFn",
+    [PAD_BUTTON.RB]: "applyArg",
+    [PAD_BUTTON.Y]: "enterInspect",
+    [PAD_BUTTON.SELECT]: "speed",
+  },
+  inspect: {
+    [PAD_BUTTON.DLEFT]: "rotLeft",
+    [PAD_BUTTON.DRIGHT]: "rotRight",
+    [PAD_BUTTON.DUP]: "rotUp",
+    [PAD_BUTTON.DDOWN]: "rotDown",
+    [PAD_BUTTON.B]: "exitInspect",
+    [PAD_BUTTON.Y]: "exitInspect",
+    [PAD_BUTTON.R3]: "recenter",
+  },
+};
+/** The intent a gamepad button fires in `context` (a global binding wins), or null. */
+export function intentForPad(context: Context, button: number): Intent | null {
+  return PAD_BINDS.global[button] ?? PAD_BINDS[context][button] ?? null;
 }
 
-/** A key's printable glyph for the help page (Space, ↵, ←, etc.). */
+// ---- contextual hints (curated per context; both glyphs, the active device picks one) ----
+export interface Hint {
+  label: string;
+  kbd: string; // keyboard glyph(s)
+  pad: string; // gamepad glyph(s)
+}
+export const HINTS: Record<Context, Hint[]> = {
+  build: [
+    { label: "Move", kbd: "↑↓←→", pad: "✚" },
+    { label: "Pick / place", kbd: "Space", pad: "Ⓐ" },
+    { label: "Apply fn", kbd: "Q", pad: "LB" },
+    { label: "Apply arg", kbd: "E", pad: "RB" },
+    { label: "Cancel", kbd: "Esc", pad: "Ⓑ" },
+    { label: "3D", kbd: "V", pad: "Ⓨ" },
+  ],
+  inspect: [
+    { label: "Rotate", kbd: "↑↓←→", pad: "L-stick" },
+    { label: "Zoom", kbd: "− +", pad: "LT RT" },
+    { label: "Recenter", kbd: "R", pad: "R3" },
+    { label: "Exit", kbd: "Esc", pad: "Ⓑ" },
+  ],
+};
+
+/** A key's printable glyph (Space, ↵, ←, …) for hints/reference. */
 export function keyGlyph(key: string): string {
-  const map: Record<string, string> = { " ": "Space", enter: "↵", escape: "Esc", arrowleft: "←", arrowright: "→", arrowup: "↑", arrowdown: "↓" };
+  const map: Record<string, string> = { " ": "Space", enter: "↵", escape: "Esc", arrowleft: "←", arrowright: "→", arrowup: "↑", arrowdown: "↓", tab: "Tab" };
   return map[key] ?? key.toUpperCase();
 }

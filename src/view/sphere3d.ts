@@ -66,6 +66,7 @@ export class Sphere3D {
   private az = 0.6; // orbit azimuth
   private pol = 1.05; // orbit polar (from +Y)
   private rad = 800; // orbit radius
+  private lastRadius = 120; // model radius from the last layout (for recenter)
   private w = 1;
   private h = 1;
   lastCount = 0;
@@ -226,6 +227,11 @@ export class Sphere3D {
     this.place();
     this.draw();
   }
+  /** Reset the camera to frame the whole ball (R / R3 / recenter). */
+  recenter(): void {
+    this.frame(this.lastRadius);
+    this.draw();
+  }
   private place(): void {
     if (!this.camera) return;
     const sp = Math.sin(this.pol);
@@ -236,6 +242,7 @@ export class Sphere3D {
   private frame(radius: number): void {
     if (!this.camera) return;
     const r = Math.max(radius, 120);
+    this.lastRadius = radius;
     this.rad = (r * 1.6) / Math.tan((this.camera.fov * Math.PI) / 360);
     this.az = 0.6;
     this.pol = 1.05;

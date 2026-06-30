@@ -12,11 +12,9 @@ import { type Node } from "../core/term";
 import { type TreeView } from "./tree";
 import { type BucketTray, type TrayState } from "./bucketTray";
 import { type Hotbar } from "./hotbar";
-import { intentForKey, type Intent } from "./keymap";
+import { type Intent } from "./keymap";
 
 const N_BUCKETS = 5;
-const ZOOM_STEP = 1.12;
-const PAN_STEP = 90; // world px per pan key
 
 /** The scene primitives the controller drives (provided by app.ts). */
 export interface GameScene {
@@ -91,15 +89,6 @@ export class GameInputController {
     }
   }
 
-  /** Handle a keydown in game mode. Returns true if consumed (caller preventDefaults). */
-  handleKey(e: KeyboardEvent): boolean {
-    if (!this.on) return false;
-    const intent = intentForKey(e.key);
-    if (!intent) return false;
-    this.dispatch(intent, e.key);
-    return true;
-  }
-
   // ---- the gamepad's input sink (ADR 17): the same intents, plus analog pan/zoom + a speed
   // cycle. The GamepadController owns polling/edge/repeat/deadzone; this is just the actions. ----
   /** Fire a discrete intent (move/page/pick/apply/cancel) from the gamepad. */
@@ -141,18 +130,6 @@ export class GameInputController {
         return this.apply(false);
       case "cancel":
         return this.cancel();
-      case "panUp":
-        return this.scene.pan(0, PAN_STEP);
-      case "panDown":
-        return this.scene.pan(0, -PAN_STEP);
-      case "panLeft":
-        return this.scene.pan(PAN_STEP, 0);
-      case "panRight":
-        return this.scene.pan(-PAN_STEP, 0);
-      case "zoomIn":
-        return this.scene.zoom(ZOOM_STEP);
-      case "zoomOut":
-        return this.scene.zoom(1 / ZOOM_STEP);
       case "speed":
         return this.scene.setSpeed(parseInt(key, 10));
     }

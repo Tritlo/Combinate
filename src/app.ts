@@ -43,11 +43,16 @@ import { type NativeOpts } from "./core/native";
 import { BucketTray } from "./view/bucketTray";
 import { GameInputController } from "./view/gameInput";
 import { GamepadController } from "./view/gamepad";
-import { KeybindsModal } from "./view/keybinds";
 import { Sphere3D, NODE_CAP, preloadSphere3D } from "./view/sphere3d";
+import { HintBar } from "./view/hints";
+import { type Context, type Intent, intentForKey } from "./view/keymap";
+import { noteKbm, notePad, onDeviceChange } from "./view/inputDevice";
 
 const KEY_ROT = 6; // 3D orbit: px-equivalent per frame for a held rotate-key
 const MOM_DECAY = 0.92; // 3D orbit: drag-release momentum decay per frame
+const PAD_ORBIT = 320; // 3D orbit: px-equivalent/sec at full left-stick deflection
+const PAD_PAN = 1100; // build camera pan: world-px/sec at full right-stick deflection
+const PAD_ROT_STEP = 22; // 3D orbit: px-equivalent per gamepad d-pad step
 const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
 const COLLAPSE_MS = 340; // morph from a recognised normal form into its named node
 const ATTACH_MS = 280; // glide two trees together when snapped
@@ -718,6 +723,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
   };
   pixi.canvas.addEventListener("pointerdown", (ev) => {
+    noteKbm(); // mouse/touch on the canvas → keyboard hint glyphs (last-input-wins)
     pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
     if (pointers.size === 2) {
       clearGhost();
@@ -778,6 +784,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     placeExpr();
     zoo.layout();
     challenges.layout();
+    hintBar.place(window.innerWidth, window.innerHeight);
     if (view3D) {
       sphere3d.resize(window.innerWidth, window.innerHeight);
       fitSphereSprite();
@@ -836,7 +843,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // 3D rotation: held rotate-keys + drag-release momentum, applied each frame by the ticker so
   // the orbit is smooth/continuous (not one step per pointer event).
   const heldRot = new Set<string>();
-  const ROT_KEYS = new Set(["arrowleft", "arrowright", "arrowup", "arrowdown", "w", "a", "s", "d"]);
   let momVx = 0;
   let momVy = 0;
   let lastDragD = { x: 0, y: 0 };
@@ -861,6 +867,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       sphereLayer.visible = false;
       world.visible = true;
       sphere3d.hide();
+      updateHints();
       paintRail();
       return;
     }
@@ -868,9 +875,11 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     // never enters 3D, and the message shows on the visible 2D HUD.
     if (!focus) return toast.show("focus a tree to view it in 3D");
     if (exceedsNodes(focus.node, NODE_CAP)) return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
+    if (gameMode) setGameMode(false); // contexts are mutually exclusive
     view3D = true;
     world.visible = false;
     sphereLayer.visible = true;
+    updateHints();
     paintRail();
     void sphere3d
       .show(focus.node, window.innerWidth, window.innerHeight)
@@ -880,6 +889,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
         sphereLayer.visible = false;
         world.visible = true;
         sphere3d.hide();
+        updateHints();
         paintRail();
         toast.show("3D view unavailable — WebGL not supported here");
         console.warn("sphere3d:", e);
@@ -923,12 +933,24 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // now just refreshes the open pull-down's checkmarks. ----
   const about = new About();
   const optimize = new OptimizePanel();
-  const keybinds = new KeybindsModal();
 
   // ---- game mode (ADR 17): keyboard/controller play via a bucket tray + hand ----
   let gameMode = false;
   const tray = new BucketTray();
   hud.addChild(tray.container);
+  const hintBar = new HintBar();
+  hud.addChild(hintBar.container);
+  hintBar.place(window.innerWidth, window.innerHeight);
+  // The active interaction context: Inspect (3D) and Build (the tray) own the discrete input; the
+  // free canvas is mouse/touch + the desktop shortcuts. The two are mutually exclusive.
+  function currentContext(): "free" | Context {
+    return view3D ? "inspect" : gameMode ? "build" : "free";
+  }
+  function updateHints(): void {
+    const c = currentContext();
+    hintBar.setContext(c === "free" ? null : c);
+  }
+  onDeviceChange(() => hintBar.refresh()); // last-input-wins → swap keyboard/pad glyphs
   const labelFor = (node: Node): string => {
     const s = readout.exprOf(node);
     return s.length > 14 ? s.slice(0, 13) + "…" : s;
@@ -951,19 +973,57 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     openMenu: () => menuBar?.openMenuBar(),
     toast: (m) => toast.show(m),
   });
-  // Gamepad: a third input producer (polled from the ticker) feeding the same controller.
+  // Gamepad: a third input producer (polled from the ticker), routed by the active context.
   new GamepadController(pixi.ticker, {
-    enabled: () => gameMode,
-    trigger: (i) => gameInput.trigger(i),
-    panBy: (dx, dy) => gameInput.panBy(dx, dy),
-    zoomBy: (f) => gameInput.zoomBy(f),
-    cycleSpeed: () => gameInput.cycleSpeed(),
+    // Always poll: a pad must be detectable in the free canvas too, so Start can enter Build and
+    // Y can enter 3D (the free context maps to the Build button-map, which carries the globals).
+    enabled: () => true,
+    context: () => (view3D ? "inspect" : "build"),
+    dispatch: (i) => dispatchPadIntent(i),
+    leftStick: (sx, sy, dt) => {
+      if (view3D) sphere3d.orbit(sx * PAD_ORBIT * dt, sy * PAD_ORBIT * dt); // inspect: orbit
+    },
+    rightStick: (sx, sy, dt) => {
+      if (gameMode) gameInput.panBy(-sx * PAD_PAN * dt, -sy * PAD_PAN * dt); // build: pan the camera
+    },
+    zoomBy: (f) => (view3D ? sphere3d.zoomBy(f) : gameInput.zoomBy(f)),
+    note: () => notePad(),
     toast: (m) => toast.show(m),
   });
+  // A pad unplugging must drop the pad hint glyphs immediately (don't strand them on screen) —
+  // fall back to keyboard until the next real input. The hint bar refreshes via onDeviceChange.
+  window.addEventListener("gamepaddisconnected", () => noteKbm());
+  // A pad's discrete intent, routed by the active context (Build → the tray controller; Inspect →
+  // the 3D camera; the global toggles either way). The keyboard routes the same intents below.
+  function dispatchPadIntent(intent: Intent): void {
+    switch (intent) {
+      case "toggleBuild":
+        return setGameMode(!gameMode);
+      case "enterInspect":
+      case "exitInspect":
+        return void toggleView3D();
+      case "recenter":
+        return sphere3d.recenter();
+      case "rotLeft":
+        return sphere3d.orbit(-PAD_ROT_STEP, 0);
+      case "rotRight":
+        return sphere3d.orbit(PAD_ROT_STEP, 0);
+      case "rotUp":
+        return sphere3d.orbit(0, -PAD_ROT_STEP);
+      case "rotDown":
+        return sphere3d.orbit(0, PAD_ROT_STEP);
+      case "speed":
+        return gameInput.cycleSpeed();
+      default:
+        return gameInput.trigger(intent); // build discrete intents (move/page/pick/apply/cancel)
+    }
+  }
   function setGameMode(on: boolean): void {
+    if (on && view3D) toggleView3D(); // contexts are mutually exclusive
     gameMode = on;
     gameInput.setEnabled(on);
-    if (on) toast.show("game mode — arrows/WASD move · Space hold · Q/E apply (fn/arg) · IJKL pan · Esc menu");
+    if (on) toast.show("game mode — arrows/WASD move · Space hold · Q/E apply (fn/arg) · V for 3D · Tab exits");
+    updateHints();
     paintRail();
   }
   // The optimize store is the source of truth; mirror it into the reducer flags and do
@@ -1037,7 +1097,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     ] },
     { title: "Special", items: [
       { kind: "toggle", label: "Game mode", checked: () => gameMode, run: () => setGameMode(!gameMode) },
-      { kind: "action", label: "Controls…", run: () => keybinds.open() },
       { kind: "sep" },
       { kind: "toggle", label: "Quest", checked: () => quest.isOpen, run: () => quest.toggle() },
       { kind: "toggle", label: "Track Quest", checked: () => !quest.done && !questTracker.isHidden, run: () => { questTracker.setHidden(!questTracker.isHidden); paintRail(); } },
@@ -1117,6 +1176,35 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
   }
 
+  // The keyboard's discrete intents, routed per context (the gamepad routes the same via
+  // dispatchPadIntent). Inspect holds rotate-keys for the orbit ticker; Build defers to the tray.
+  function dispatchInspectKey(intent: Intent, k: string): void {
+    switch (intent) {
+      case "rotLeft":
+      case "rotRight":
+      case "rotUp":
+      case "rotDown":
+        heldRot.add(k); // the orbit ticker reads heldRot for continuous rotation
+        return;
+      case "zoomIn":
+        return sphere3d.zoomBy(0.9);
+      case "zoomOut":
+        return sphere3d.zoomBy(1 / 0.9);
+      case "recenter":
+        return sphere3d.recenter();
+      case "exitInspect":
+        return void toggleView3D();
+      case "toggleBuild":
+        return setGameMode(true); // Tab from 3D → Build (mutual exclusion exits 3D)
+    }
+  }
+  function dispatchBuildKey(intent: Intent, key: string): void {
+    if (intent === "enterInspect") return void toggleView3D();
+    if (intent === "toggleBuild") return setGameMode(false);
+    if (intent === "speed") return reduce.setSpeedLevel(parseInt(key, 10));
+    gameInput.trigger(intent);
+  }
+
   window.addEventListener("keydown", (e) => {
     if (zoo.isOpen) {
       if (e.key === "ArrowDown") return e.preventDefault(), zoo.move(1);
@@ -1125,25 +1213,38 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (e.key === "ArrowLeft") return e.preventDefault(), zoo.cyclePage(-1);
       if (e.key === "Escape") return zoo.close();
     }
-    // Game mode OWNS the keyboard (ADR 17): game keys act, every other desktop letter-shortcut
-    // below is suspended (so e.g. `r` can't wipe the canvas mid-play) — the menu bar (Esc /
-    // mouse) still reaches them. Never while an overlay or text field is up, and modifier combos
-    // (Ctrl/Cmd/Alt — browser shortcuts like Ctrl-R) always pass through.
+    // A context OWNS the keyboard (ADR 17): in Build / Inspect the bound keys act and every other
+    // desktop letter-shortcut below is suspended (so e.g. `r` can't wipe the canvas mid-play) — the
+    // menu bar (Esc / mouse) still reaches them. Never while an overlay or text field is up, and
+    // modifier combos (Ctrl/Cmd/Alt — browser shortcuts like Ctrl-R) always pass through.
     const typing = (el: Element | null): boolean => !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || (el as HTMLElement).isContentEditable);
     const overlayUp = (): boolean => zoo.isOpen || challenges.isOpen || [...document.querySelectorAll<HTMLElement>(".md-root")].some((el) => el.style.display === "flex");
-    if (gameMode && !e.ctrlKey && !e.metaKey && !e.altKey && !overlayUp() && !typing(document.activeElement)) {
-      if (gameInput.handleKey(e)) e.preventDefault();
-      return; // desktop letter-shortcuts don't run while game mode owns the keyboard
-    }
-    // In 3D: arrows / WASD orbit (held = continuous), Esc exits. Other keys fall through.
-    if (view3D) {
-      const k = e.key.toLowerCase();
-      if (k === "escape") return toggleView3D();
-      if (ROT_KEYS.has(k)) {
-        heldRot.add(k);
-        return e.preventDefault();
+    const blocked = e.ctrlKey || e.metaKey || e.altKey || overlayUp() || typing(document.activeElement);
+    if (blocked) return; // typing / an overlay / a modifier combo → leave it to the browser + modals
+    noteKbm(); // keyboard activity → keyboard hint glyphs (last-input-wins)
+    const ctx = currentContext();
+    // INSPECT (3D) owns the keyboard: rotate (held) / zoom / recenter / exit.
+    if (ctx === "inspect") {
+      const intent = intentForKey("inspect", e.key);
+      if (intent) {
+        dispatchInspectKey(intent, e.key.toLowerCase());
+        e.preventDefault();
       }
+      return;
     }
+    // BUILD owns the keyboard: tray nav / pick / apply / cancel / speed / enter-3D / exit.
+    if (ctx === "build") {
+      const intent = intentForKey("build", e.key);
+      if (intent) {
+        dispatchBuildKey(intent, e.key);
+        e.preventDefault();
+      }
+      return;
+    }
+    // FREE: the global enter-keys (Tab → Build, V → 3D), then the desktop shortcuts below.
+    const g = intentForKey("build", e.key); // the build map carries the global Tab + the V enter
+    if (g === "toggleBuild") return setGameMode(true), e.preventDefault();
+    if (g === "enterInspect") return toggleView3D(), e.preventDefault();
     if (e.key === "r" || e.key === "R") clearCanvas();
     else if (e.key === "t" || e.key === "T") toggleLayout();
     else if (e.key === "u" || e.key === "U") unlockAll();
