@@ -1,8 +1,9 @@
-import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text } from "pixi.js";
+import { Container, type FederatedPointerEvent, Graphics, Rectangle, Sprite, Text, Texture } from "pixi.js";
 import { CATALOG, countIotas, iotaTreeOf, type Law, META, PAGES } from "../core/catalog";
 import { iota, type Node, type NodeId } from "../core/term";
 import { layoutRadial } from "../core/layout";
 import { theme } from "./theme";
+import { spherePreview } from "./spherePreview";
 
 const LIST_W = 248;
 const LIST_TOP = 88; // list/detail start below the title + tab row
@@ -46,6 +47,9 @@ export class Zoo {
   private pageIdx = 0;
   private readonly rowH = 30;
   private selected = 0;
+  private pic3d = false; // [2D|3D] toggle on the creature picture
+  private picBuild = 0; // generation token: drop a stale async 3D embed if the detail rebuilt under it
+  private previewTex: Texture | null = null; // the pooled preview's canvas as a Pixi texture (lazy)
   private listScroll = 0;
   private listH = 0;
   private cardX = 0;
@@ -100,7 +104,23 @@ export class Zoo {
   }
   close(): void {
     this.panel.visible = false;
+    spherePreview.release("zoo"); // stop the auto-rotate when the Zoo is hidden
   }
+
+  /** Embed the pooled 3D preview over the picture box (async: Three lazy-loads). The 2D picture
+   *  stays under it as the fallback; a stale build (the detail rebuilt) or no-WebGL is a no-op. */
+  private async embed3D(tree: Node, dx: number, dy: number, dw: number, boxSize: number, gen: number): Promise<void> {
+    const size = boxSize - 28;
+    const canvas = await spherePreview.acquire("zoo", tree, size, () => this.previewTex?.source.update());
+    if (!canvas || gen !== this.picBuild || !this.panel.visible) return; // no 3D, stale, or closed
+    this.previewTex = Texture.from(canvas);
+    const sprite = new Sprite(this.previewTex);
+    sprite.anchor.set(0.5);
+    sprite.setSize(size, size);
+    sprite.position.set(dx + dw / 2, dy + boxSize / 2);
+    this.detail.addChild(sprite);
+  }
+
   toggle(): void {
     if (this.panel.visible) this.close();
     else this.open();
@@ -304,6 +324,8 @@ export class Zoo {
     const boxSize = 230;
     this.detail.addChild(new Graphics().roundRect(dx, dy, dw, boxSize, 10).fill({ color: theme.inset }).stroke({ width: 1, color: theme.border }));
     if (known) {
+      // The 2D picture renders always — it's also the fallback while the 3D preview loads / if WebGL
+      // is unavailable; the 3D sprite (when on) is layered on top.
       const pic = renderPicture(tree, boxSize - 28);
       pic.position.set(dx + dw / 2, dy + boxSize / 2);
       this.detail.addChild(pic);
@@ -318,7 +340,23 @@ export class Zoo {
         this.playTone(entry.sym);
       });
       this.detail.addChild(tone);
+      // a [2D|3D] toggle (bottom-right of the box) — 3D shows the slowly auto-rotating packed sphere
+      const tag = new Text({ text: this.pic3d ? "3D" : "2D", style: { fontFamily: "monospace", fontSize: 13, fontWeight: "700", fill: theme.iota } });
+      tag.anchor.set(1, 1);
+      tag.position.set(dx + dw - 10, dy + boxSize - 8);
+      tag.eventMode = "static";
+      tag.cursor = "pointer";
+      tag.on("pointerdown", (e: FederatedPointerEvent) => {
+        e.stopPropagation();
+        this.pic3d = !this.pic3d;
+        if (!this.pic3d) spherePreview.release("zoo");
+        this.refresh();
+      });
+      this.detail.addChild(tag);
+      if (this.pic3d) void this.embed3D(tree, dx, dy, dw, boxSize, ++this.picBuild);
+      else spherePreview.release("zoo");
     } else {
+      spherePreview.release("zoo"); // no 3D for an undiscovered creature
       const q = new Text({ text: "?", style: { fontFamily: "monospace", fontSize: 96, fill: theme.border } });
       q.anchor.set(0.5);
       q.position.set(dx + dw / 2, dy + boxSize / 2);
