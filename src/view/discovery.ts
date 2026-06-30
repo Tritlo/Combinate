@@ -8,11 +8,12 @@
  */
 import { type Law, iotaTreeOf, countIotas, META } from "../core/catalog";
 import { spherePreview, FAST_SPIN, CARD_PRIO } from "./spherePreview";
-import { currentMode, theme, type Mode } from "./theme";
+import { currentMode, type Mode } from "./theme";
 import { vendorUrl } from "../vendorUrl";
 import { withMotion } from "./motion";
 
-const PREVIEW_PX = 92; // 3D mini-view size
+const PREVIEW_PX = 110; // 3D mini-view size
+const VIEW_BG = 0x12141c; // a dark viewport so the ι-tree (gold + grey) clearly pops in the small box
 const HOLD_MS = 3200; // hold long enough for ≥1 full fast rotation (~2.6s) before fading
 const HOLD_STILL_MS = 2000; // reduced-motion: a shorter static hold
 const FADE_MS = 500;
@@ -37,8 +38,8 @@ function inject(): void {
 .disco-head span { flex: 1; font-weight: 600; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
 .disco-x { width: 16px; height: 15px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--dc-paper); font-size: 12px; line-height: 1; cursor: pointer; }
 .disco-body { display: flex; gap: 11px; padding: 11px; }
-.disco-3d { position: relative; width: ${PREVIEW_PX}px; height: ${PREVIEW_PX}px; flex: 0 0 auto; background: var(--dc-inset); border: 1px solid color-mix(in srgb, var(--dc-ink) 18%, transparent); overflow: hidden; }
-.disco-glyph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 40px; color: var(--dc-gold); }
+.disco-3d { position: relative; width: ${PREVIEW_PX}px; height: ${PREVIEW_PX}px; flex: 0 0 auto; background: #12141c; border: 1px solid color-mix(in srgb, var(--dc-ink) 18%, transparent); overflow: hidden; }
+.disco-glyph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 48px; color: var(--dc-gold); }
 .disco-canvas { position: absolute; inset: 0; display: block; }
 .disco-info { flex: 1; min-width: 0; }
 .disco-name { font-weight: 700; font-size: 15px; }
@@ -70,8 +71,6 @@ export class DiscoveryCard {
     root.style.setProperty("--dc-ink", p.ink);
     root.style.setProperty("--dc-shadow", p.shadow);
     root.style.setProperty("--dc-gold", p.gold);
-    root.style.setProperty("--dc-inset", `#${theme.inset.toString(16).padStart(6, "0")}`); // match the 3D scene bg
-
 
 
     const bird = META[law.sym]?.bird;
@@ -94,7 +93,7 @@ export class DiscoveryCard {
     // The fast-rotating 3D mini-view over the static glyph — or just the glyph (no WebGL / reduced motion).
     if (withMotion()) {
       const box = root.querySelector(".disco-3d") as HTMLElement;
-      void spherePreview.acquire("card", CARD_PRIO, tree, PREVIEW_PX, { onFrame: () => {}, spin: FAST_SPIN }).then((canvas) => {
+      void spherePreview.acquire("card", CARD_PRIO, tree, PREVIEW_PX, { onFrame: () => {}, spin: FAST_SPIN, bg: VIEW_BG }).then((canvas) => {
         if (!canvas || this.root !== root) return; // no WebGL → keep the glyph; or already dismissed
         canvas.className = "disco-canvas";
         canvas.style.width = `${PREVIEW_PX}px`;
