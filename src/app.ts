@@ -37,6 +37,7 @@ import { preloadCompiler } from "./view/mhs/compiler";
 import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange, edgeTierColor } from "./view/theme";
 import { MenuBar, type Menu } from "./view/menubar";
 import { About } from "./view/about";
+import { Help } from "./view/help";
 import { withMotion } from "./view/motion";
 import { OptimizePanel, isOpt, setOpt, onOptChange } from "./view/optimize";
 import { type NativeOpts } from "./core/native";
@@ -118,13 +119,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   };
   let menuBar: MenuBar | undefined; // the top menu bar (built below); paintRail() refreshes its open pull-down
 
-  const hint = new Text({
-    text: "drag ι · snap trees · they reduce on their own · right-click deletes a node",
-    style: { fontFamily: "monospace", fontSize: 14, fill: theme.textDim },
-  });
-  hint.position.set(16, 30); // below the menu bar
-  hud.addChild(hint);
-
+  // (The old "drag ι · snap trees…" description moved into the Help window — ι menu ▸ How to play,
+  // and shown on first launch.) The edge legend stays as a compact on-canvas key.
   const legend = new Container();
   paintLegend(legend);
   hud.addChild(legend);
@@ -469,7 +465,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const spawnFor = (sym: string): Node => (sym === "ι" ? iota() : collapsedNode(CATALOG.find((l) => l.sym === sym)!));
   const hotbar = new Hotbar(
     (node, e) => {
-      hint.visible = false;
       drag = { kind: "spawn", tree: spawnTree(node, e.global.x, e.global.y) };
     },
     pixi.ticker,
@@ -803,8 +798,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   pixi.canvas.addEventListener("pointerup", endPointer);
   pixi.canvas.addEventListener("pointercancel", endPointer);
 
-  // Top-left, just under the hint line (offset so the two rows don't overlap it).
-  const placeLegend = () => legend.position.set(16, 58);
+  // Top-left, just under the menu bar (the old description line is gone — it's in Help now).
+  const placeLegend = () => legend.position.set(16, 34);
   placeLegend();
   zoo.layout();
 
@@ -812,7 +807,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // menu bar restyles itself via its own onThemeChange listener.
   function applyTheme(): void {
     pixi.renderer.background.color = theme.bg;
-    hint.style.fill = theme.textDim;
     exprText.style.fill = theme.text;
     nextHint.style.fill = theme.textDim;
     ghostLabel.style.fill = theme.text;
@@ -838,7 +832,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     zoo.layout();
     challenges.layout();
     tray.layout();
-    hintBar.place(window.innerWidth, window.innerHeight);
+    hintBar.place(window.innerWidth, hotbar.topEdge);
     if (view3D) {
       sphere3d.resize(window.innerWidth, window.innerHeight);
       fitSphereSprite();
@@ -1033,6 +1027,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // a • the selected option in a group. paintRail() (kept for its many callers)
   // now just refreshes the open pull-down's checkmarks. ----
   const about = new About();
+  const help = new Help();
   const optimize = new OptimizePanel();
 
   // ---- game mode (ADR 17): keyboard/controller play via a bucket tray + hand ----
@@ -1041,7 +1036,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   hud.addChild(tray.container);
   const hintBar = new HintBar();
   hud.addChild(hintBar.container);
-  hintBar.place(window.innerWidth, window.innerHeight);
+  hintBar.place(window.innerWidth, hotbar.topEdge);
   // The active interaction context: Inspect (3D) and Build (the tray) own the discrete input; the
   // free canvas is mouse/touch + the desktop shortcuts. The two are mutually exclusive.
   function currentContext(): "free" | Context {
@@ -1159,6 +1154,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   });
   const menus: Menu[] = [
     { title: "ι", apple: true, items: [
+      { kind: "action", label: "How to play…", run: () => help.open() },
       { kind: "action", label: "About Combinate…", run: () => about.open() },
     ] },
     { title: "File", items: [
@@ -1274,7 +1270,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       applyModes(decoded.modes);
       const t = spawnTree(decoded.tree, window.innerWidth / 2, window.innerHeight / 2);
       reduce.schedule(t);
-      hint.visible = false;
       toast.show("restored from link");
     }
   }
@@ -1399,6 +1394,16 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // panel is ready and its first compile doesn't pay the download. Best-effort.
   await preloadCompiler();
   onStep("compiler"); // splash step 4/4
+
+  // First launch: open the Help window once (then never auto-open again — it stays in the ι menu).
+  try {
+    if (!localStorage.getItem("combinate.helpSeen")) {
+      help.open();
+      localStorage.setItem("combinate.helpSeen", "1");
+    }
+  } catch {
+    /* private mode / storage disabled — just skip the one-time help */
+  }
 
   // Dev-only test seam (stripped from production builds): expose tree state so
   // an end-to-end driver can assert on spawn/snap/reduce.
