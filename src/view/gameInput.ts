@@ -46,6 +46,8 @@ export interface GameScene {
   removeTree: (tree: TreeView) => void;
   /** Centre the camera on a bucket's world x (faded-neighbour framing — neighbours peek at the edges). */
   frameBucketAt: (x: number) => void;
+  /** Show/move the focus indicator (the "region card") at a bucket's world x, or hide it (null). */
+  markBucket: (x: number | null) => void;
   pan: (dx: number, dy: number) => void;
   zoom: (factor: number) => void;
   setSpeed: (level: number) => void;
@@ -77,6 +79,26 @@ export class GameInputController {
   /** Whether a term is currently held (the host keeps the controls' visuals up while holding). */
   get hasHand(): boolean {
     return this.hand !== null;
+  }
+
+  /** The focused bucket's stable key k (world x = k·spacing) — for placing the build context menu. */
+  get focusedKey(): number {
+    return this.selected;
+  }
+
+  /** The TreeView in the focused bucket, or null when it's empty — the build context menu's target. */
+  get focusedTree(): TreeView | null {
+    return this.buckets.get(this.selected) ?? null;
+  }
+
+  /** Carry a given term in the hand (the Copy action's keyboard/pad path): enter the bucket strip
+   *  and raise the held preview, exactly as if it had been picked from the toolbar. */
+  takeToHand(node: Node): void {
+    this.hand = { node, label: this.scene.labelOf(node), origin: null };
+    this.applySide = "left";
+    this.toZone("buckets");
+    this.renderPreview();
+    this.render();
   }
 
   /** Game state for the dev seam / E2E (not used by the UI). */
@@ -211,6 +233,13 @@ export class GameInputController {
   private frameSelected(): void {
     this.scene.frameBucketAt(this.scene.bucketAnchor(this.selected).x);
     this.applyFade();
+    this.syncBucketMark();
+  }
+
+  /** Show the focus indicator on the focused bucket when the controls are active and we're in the
+   *  buckets zone; hide it otherwise (the hotbar zone, a mouse device, or 3D). */
+  private syncBucketMark(): void {
+    this.scene.markBucket(this.on && this.zone === "buckets" ? this.scene.bucketAnchor(this.selected).x : null);
   }
 
   /** Walk the held term one step along the strip (←/→ WHILE HOLDING). On an occupied bucket we first
@@ -324,6 +353,7 @@ export class GameInputController {
   // separately, from navigation, in applyFade) ----
   private render(): void {
     this.scene.tray.hide(); // no "holding" badge — the greyed in-place preview is what shows the carry
+    this.syncBucketMark(); // keep the focus indicator in sync with enable/zone changes
   }
   /** Focused bucket bright, the rest faded — the spatial cue. NAVIGATION-gated (called from
    *  {@link frameSelected}); `restore` = all bright (the keyboard/pad cursor left, or 3D entry). */

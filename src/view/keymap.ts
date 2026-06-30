@@ -26,6 +26,7 @@ export type Intent =
   | "applyFn"
   | "applyArg"
   | "cancel"
+  | "context"
   | "speed"
   | "enterInspect"
   // inspect (3D orbit)
@@ -54,6 +55,7 @@ const KEY_BINDS: KeyBind[] = [
   { context: "build", intent: "pageNext", keys: ["]"] },
   { context: "build", intent: "pickPlace", keys: [" ", "enter"] },
   { context: "build", intent: "cancel", keys: ["escape"] },
+  { context: "build", intent: "context", keys: ["c"] }, // open the Delete/Copy menu on the focused bucket
   { context: "build", intent: "speed", keys: ["0", "1", "2", "3", "4"] },
   { context: "build", intent: "enterInspect", keys: ["v"] },
   // Inspect
@@ -87,6 +89,7 @@ const PAD_BINDS: Record<Context | "global", Partial<Record<number, Intent>>> = {
     [PAD_BUTTON.DDOWN]: "moveDown",
     [PAD_BUTTON.A]: "pickPlace",
     [PAD_BUTTON.B]: "cancel",
+    [PAD_BUTTON.X]: "context", // open the Delete/Copy menu on the focused bucket
     [PAD_BUTTON.Y]: "enterInspect",
     [PAD_BUTTON.SELECT]: "speed",
   },
