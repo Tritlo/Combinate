@@ -3,7 +3,6 @@ import { CATALOG, countIotas, iotaTreeOf, type Law, META, PAGES } from "../core/
 import { iota, type Node, type NodeId } from "../core/term";
 import { layoutRadial } from "../core/layout";
 import { theme } from "./theme";
-import { isFluff } from "./fluff";
 
 const LIST_W = 248;
 const LIST_TOP = 88; // list/detail start below the title + tab row
@@ -47,8 +46,6 @@ export class Zoo {
   private pageIdx = 0;
   private readonly rowH = 30;
   private selected = 0;
-  private pic: Container | null = null; // the current creature picture (fluff "living Zoo" floats it)
-  private picY = 0;
   private listScroll = 0;
   private listH = 0;
   private cardX = 0;
@@ -96,20 +93,8 @@ export class Zoo {
     this.autoTone();
   }
 
-  /** Fluff "living Zoo": gently float the open creature's picture. Driven by the
-   *  shell's ticker (gated by isFluff("livingZoo") + reduced-motion). */
-  tickFluff(t: number): void {
-    if (this.pic && this.panel.visible) this.pic.y = this.picY + 3 * Math.sin(t * 1.4);
-  }
-
-  /** Reset the floating picture to its resting position (when living-Zoo is off). */
-  clearFluff(): void {
-    if (this.pic) this.pic.y = this.picY;
-  }
-
-  /** Fluff: chirp the selected creature's tone, Pokédex-style, when it's shown. */
+  /** Chirp the selected creature's tone, Pokédex-style, when it's shown. */
   private autoTone(): void {
-    if (!isFluff("zooTone")) return;
     const e = this.entries[this.selected];
     if (e.law === null || this.isDiscovered(e.sym)) this.playTone(e.sym); // known (or ι) only
   }
@@ -292,7 +277,6 @@ export class Zoo {
 
   private buildDetail(): void {
     for (const c of this.detail.removeChildren()) c.destroy({ children: true });
-    this.pic = null; // dropped with the old children; reset before maybe re-storing
     const entry = this.entries[this.selected];
     const known = entry.law === null || this.isDiscovered(entry.sym);
     const dx = this.detailX;
@@ -323,8 +307,6 @@ export class Zoo {
       const pic = renderPicture(tree, boxSize - 28);
       pic.position.set(dx + dw / 2, dy + boxSize / 2);
       this.detail.addChild(pic);
-      this.pic = pic; // fluff: living Zoo floats this around its resting y
-      this.picY = pic.position.y;
       // a "play tone" button (top-right of the picture box) — chirps the bird
       const tone = new Text({ text: "♪", style: { fontFamily: "monospace", fontSize: 20, fill: theme.iota } });
       tone.anchor.set(0.5);
