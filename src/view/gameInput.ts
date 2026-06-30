@@ -13,7 +13,7 @@
  * which + keeps the camera framing the focused one. Mouse input stays fully live; grabbing a bucket
  * tree with the mouse detaches it (see {@link detach}).
  */
-import { type Node } from "../core/term";
+import { app as mkApp, type Node } from "../core/term";
 import { type TreeView } from "./tree";
 import { type BucketTray } from "./bucketTray";
 import { type Hotbar } from "./hotbar";
@@ -64,7 +64,8 @@ export class GameInputController {
   private selected = 0; // the focused bucket's stable key k (world x = k · spacing); unbounded, can be negative
   private hand: Hand | null = null;
   private applySide: "left" | "right" = "left"; // when walking onto an occupied bucket: attach the held as fn (left) or arg (right)
-  private preview: TreeView | null = null; // the dimmed, non-reducing ghost of the held term on the focused bucket
+  private preview: TreeView | null = null; // the dimmed, non-reducing ghost of the applied result on the focused bucket
+  private previewHidden: TreeView | null = null; // the real bucket tree the preview is covering (un-hidden on clear)
   private readonly buckets = new Map<number, TreeView>(); // occupied buckets only, keyed by k
 
   constructor(private readonly scene: GameScene) {}
@@ -274,17 +275,17 @@ export class GameInputController {
    *  to the bucket's tree on the current side (left = held is the function, right = the argument).
    *  placeHand/apply both null the hand and re-frame; we then reset the side and tear down the ghost. */
   private commit(): void {
+    this.clearPreview(); // restore the real tree + drop the ghost BEFORE we mutate the bucket
     if (this.buckets.has(this.selected)) this.apply(this.applySide === "left");
     else this.placeHand(this.selected);
     this.applySide = "left";
-    this.clearPreview();
   }
   /** Esc while holding: drop the held term — restore a bucket-origin term to its bucket (the cancel
    *  hand-restore), then tear down the ghost and reset the side. (Empty-handed, Esc opens the menu.) */
   private drop(): void {
-    this.cancel(); // restores a bucket-origin term + nulls the hand + renders
+    this.clearPreview(); // restore the focused bucket's tree + drop the ghost
+    this.cancel(); // restore a bucket-origin term + null the hand
     this.applySide = "left";
-    this.clearPreview();
   }
 
   // ---- apply the held term to the focused bucket's tree (commit, left = fn / right = arg) ----
@@ -322,10 +323,7 @@ export class GameInputController {
   // ---- view sync: the HAND-gated held badge (device-agnostic; the faded strip is applied
   // separately, from navigation, in applyFade) ----
   private render(): void {
-    const label = this.hand?.label ?? null;
-    if (label) this.scene.tray.show();
-    else this.scene.tray.hide();
-    this.scene.tray.setHand(label);
+    this.scene.tray.hide(); // no "holding" badge — the greyed in-place preview is what shows the carry
   }
   /** Focused bucket bright, the rest faded — the spatial cue. NAVIGATION-gated (called from
    *  {@link frameSelected}); `restore` = all bright (the keyboard/pad cursor left, or 3D entry). */
@@ -341,16 +339,28 @@ export class GameInputController {
   private renderPreview(): void {
     this.clearPreview();
     if (!this.hand) return;
+    const t = this.buckets.get(this.selected);
     const a = this.scene.bucketAnchor(this.selected);
-    const pos = this.buckets.has(this.selected) ? { x: a.x + (this.applySide === "left" ? -140 : 140), y: a.y - 90 } : a;
-    this.preview = this.scene.preview(this.hand.node, pos);
-    this.preview.container.alpha = 0.5; // dimmed — it's a ghost, not a placed tree
+    // On an OCCUPIED bucket, preview the APPLIED RESULT in place — left = held as the function
+    // `(held tree)`, right = held as the argument `(tree held)` — and hide the real tree behind it.
+    // On an EMPTY bucket, preview the held term where it'll land.
+    const node = t ? (this.applySide === "left" ? mkApp(this.hand.node, t.node) : mkApp(t.node, this.hand.node)) : this.hand.node;
+    if (t) {
+      t.container.visible = false;
+      this.previewHidden = t;
+    }
+    this.preview = this.scene.preview(node, a);
+    this.preview.container.alpha = 0.5; // greyed — a ghost of what Space will build
   }
   /** Tear down the preview ghost (no-op if none). */
   private clearPreview(): void {
     if (this.preview) {
       this.scene.unpreview(this.preview);
       this.preview = null;
+    }
+    if (this.previewHidden) {
+      this.previewHidden.container.visible = true; // un-hide the real bucket tree the ghost covered
+      this.previewHidden = null;
     }
   }
 }
