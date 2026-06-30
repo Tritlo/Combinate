@@ -202,6 +202,11 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const collapsedNode = (law: Law): Node => comb(law.sym, law.def?.(), law.arity);
 
   const sound = new Sound();
+  // Sound is on by default, but the browser keeps the AudioContext suspended until a user gesture —
+  // resume it on the first pointer/key interaction so tones play without a manual toggle.
+  const unlockAudio = (): void => sound.unlock();
+  window.addEventListener("pointerdown", unlockAudio, { once: true });
+  window.addEventListener("keydown", unlockAudio, { once: true });
   const zoo = new Zoo(isDiscovered, (sym) => sound.play(sym)); // added to the HUD last (below) so it overlays everything
 
   // Reveal every combinator at once (the "U" cheat key + the Zoo unlock).
@@ -432,8 +437,16 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
 
   const spawnFor = (sym: string): Node => (sym === "ι" ? iota() : collapsedNode(CATALOG.find((l) => l.sym === sym)!));
+  // The tone for a grabbed tree: its leftmost-spine atom (a single combinator → itself). Iterative —
+  // a deep left-associated spine must not overflow the stack on a mere pickup.
+  const headSym = (node: Node): string => {
+    let n = node;
+    while (n.kind === "app") n = n.fn;
+    return n.kind === "comb" ? n.sym : n.kind === "iota" ? "ι" : n.name;
+  };
   const hotbar = new Hotbar(
     (node, e) => {
+      if (sound.enabled) sound.play(headSym(node)); // grabbing a combinator off the hotbar plays its tone
       drag = { kind: "spawn", tree: spawnTree(node, e.global.x, e.global.y) };
     },
     pixi.ticker,
@@ -501,6 +514,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       return;
     }
     focus = tree;
+    if (sound.enabled) sound.play(headSym(tree.node)); // picking a tree up plays its (head) combinator tone
     reduce.cancel(tree); // touching a tree freezes it (§6.4)
     gameInput?.detach(tree); // grabbing a bucket tree with the mouse releases its slot (ADR 17)
     const w = screenToWorld(e.global.x, e.global.y);
@@ -586,6 +600,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (!drag) return;
     if (drag.kind === "tree" || drag.kind === "spawn") {
       const tree = drag.tree;
+      if (sound.enabled) sound.drop(); // a soft cue on release (snap or settle)
       if (snapTarget) {
         commitSnap(tree, snapTarget);
       } else {
