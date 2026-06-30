@@ -833,6 +833,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     placeExpr();
     zoo.layout();
     challenges.layout();
+    tray.layout();
     hintBar.place(window.innerWidth, window.innerHeight);
     if (view3D) {
       sphere3d.resize(window.innerWidth, window.innerHeight);
@@ -988,6 +989,17 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     world.position.set(window.innerWidth / 2 - cx * scale, window.innerHeight / 2 - cy * scale);
   }
 
+  // Game mode's spatial buckets (ADR 17): a stable horizontal strip BUCKET_SPACING apart, keyed by k.
+  const BUCKET_SPACING = 640;
+  // Centre the camera on a bucket's world x at a fixed "region" zoom so the neighbours (±spacing)
+  // peek faded at the screen edges — the faded-neighbour spatial cue. Anchors sit at world y=0; we
+  // drop the focus a little above centre so the tree has room to grow downward over the hotbar.
+  function frameBucketAt(x: number): void {
+    const z = Math.min(1.3, window.innerWidth / (BUCKET_SPACING * 2.3));
+    world.scale.set(z);
+    world.position.set(window.innerWidth / 2 - x * z, window.innerHeight * 0.44);
+  }
+
   // Toggle the "expand everything to ι" view (read by TreeView.expand).
   function toggleExpand(): void {
     expandAll = !expandAll;
@@ -1029,12 +1041,12 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     tray,
     freshNode: spawnFor,
     labelOf: labelFor,
-    bucketAnchor: (i) => ({ x: (i - 2) * 720, y: 0 }), // a centred row of 5 world anchors
+    bucketAnchor: (k) => ({ x: k * BUCKET_SPACING, y: 0 }), // an unbounded strip of world anchors
     spawnAt: (node, w) => spawnTreeWorld(node, w.x, w.y),
     applyTerms: (fn, arg, w, from) => applyTerms(fn, arg, w, from),
     captureWorld: (tree) => tree.nodeWorldPositions(),
     removeTree,
-    fit: (tree) => fitTree(tree),
+    frameBucketAt: (x) => frameBucketAt(x),
     pan: (dx, dy) => world.position.set(world.position.x + dx, world.position.y + dy),
     zoom: (factor) => zoomTo(world.scale.x * factor, window.innerWidth / 2, window.innerHeight / 2),
     setSpeed: (lvl) => reduce.setSpeedLevel(lvl),
@@ -1092,7 +1104,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (on && view3D) toggleView3D(); // contexts are mutually exclusive
     gameMode = on;
     gameInput.setEnabled(on);
-    if (on) toast.show("game mode — arrows/WASD move · Space hold · Q/E apply (fn/arg) · V for 3D · Tab exits");
+    if (on) toast.show("game mode — ←/→ move between buckets (past the end = a fresh one) · Space hold/place · Q/E apply · V for 3D · Tab exits");
     updateHints();
     paintRail();
   }
