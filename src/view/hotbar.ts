@@ -29,6 +29,11 @@ function mono(): { paper: number; ink: number } {
  */
 export class Hotbar {
   readonly container = new Container();
+  private box = { x: 0, y: 0, w: 0, h: 0 }; // the palette window's screen rect (set each layout)
+  /** The palette window's screen rect — the progress bar (plan 02) sits along its top edge. */
+  get boxRect(): { x: number; y: number; w: number; h: number } {
+    return this.box;
+  }
   private readonly frame = new Graphics(); // the palette-window box (behind everything)
   private readonly tabBar = new Container();
   private readonly slotRow = new Container();
@@ -218,6 +223,7 @@ export class Hotbar {
     const boxL = Math.max(6, window.innerWidth / 2 - boxW / 2);
     const boxT = tabY - PAD;
     const boxH = yB + SLOT / 2 + PAD - boxT;
+    this.box = { x: boxL, y: boxT, w: boxW, h: boxH }; // for the reduction progress bar (plan 02)
     this.frame
       .rect(boxL + 3, boxT + 4, boxW, boxH).fill({ color: ink, alpha: 0.16 }) // soft hard-edged drop shadow
       .rect(boxL, boxT, boxW, boxH).fill({ color: paper }).stroke({ width: 1, color: ink })

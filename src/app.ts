@@ -390,6 +390,27 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // ReductionController (extracted to view/transportBar.ts, ADR 12).
   const transportBar = new TransportBar(hud, pixi.ticker, reduce);
 
+  // Reduction progress bar (plan 02): a thin fill along the top edge of the hotbar box, showing how
+  // far the focused tree's reduction has played vs the background same-mode total. Shown only when
+  // there's an honest exact total worth a bar — hidden for instant / huge / non-terminating runs.
+  const PROGRESS_MIN = 12; // skip near-instant reductions
+  const progressBar = new Graphics();
+  progressBar.eventMode = "none";
+  hud.addChild(progressBar);
+  pixi.ticker.add(() => {
+    progressBar.clear();
+    const est = reduce.estimate;
+    if (est.kind !== "exact" || est.total < PROGRESS_MIN) return;
+    const steps = reduce.focusedSteps();
+    if (steps >= est.total) return; // finished → no bar
+    const b = hotbar.boxRect;
+    if (b.w <= 0) return;
+    const frac = Math.max(0, Math.min(1, steps / est.total));
+    const h = 3;
+    progressBar.rect(b.x, b.y - h - 1, b.w, h).fill({ color: theme.textDim, alpha: 0.3 }); // track
+    progressBar.rect(b.x, b.y - h - 1, b.w * frac, h).fill({ color: theme.iota }); // fill
+  });
+
   // FPS counter (View ▸ FPS counter), bottom-left — for diagnosing render cost on
   // big trees (factorial). Off by default; sampled ~4×/s from the Pixi ticker.
   let fpsOn = false;
@@ -487,19 +508,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const TY_PAGE: Record<Ty, string> = { Int: "Arithmetic", Bool: "Booleans", List: "Lists", Char: "Char" };
   const mhsPanel = new MhsPanel(
     (tree, read) => {
-      // Compiled programs get big: turn on Turbo (the wasm graph engine — sharing + number
-      // kernels) so the reduction is fast + doesn't blow up, lay out radially, zoom to fit.
-      // (rules off — it gates Turbo; native numbers on for clean fast arithmetic.) Turbo
-      // auto-engages by size, so small steps still animate; the big reduction runs in wasm.
-      setOpt("rules", false);
-      setOpt("nativeNumbers", true);
-      setOpt("wasm", true);
-      void loadWasmReducer(); // warm the wasm so the first big reduction uses it
+      // Reduce under the user's current settings (no auto-enabling optimizations — Turbo / native
+      // numbers stay opt-in via the Reduce menu). Compiled programs get big, so lay out radially +
+      // zoom to fit; the progress bar shows how the reduction is going.
       setLayoutMode(layoutRadial);
       const view = spawnTree(tree, window.innerWidth / 2, window.innerHeight / 2);
       if (read) hotbar.selectPage(TY_PAGE[read]);
       fitTree(view);
-      toast.show("compiled from Haskell — Turbo on");
+      reduce.schedule(view); // start it reducing under the current settings (was a side effect of the old auto-Turbo)
+      toast.show("compiled from Haskell");
     },
     () => paintRail(),
   );
@@ -1083,6 +1100,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (key === "rules") {
       fastMode = isOpt("rules");
       reduce.invalidateGraphers(); // graphers bake `fast` at construction
+      if (focus) reduce.schedule(focus); // reschedule → reset the step count + re-estimate in the new mode (consistent bar)
     } else if (key === "graph") {
       shareMode = isOpt("graph");
       if (focus) reduce.schedule(focus);
@@ -1355,6 +1373,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs, drawMs: sphere3d.lastDrawMs, az: sphere3d.azimuth, pan: sphere3d.panSum }) },
       transport: { mode: () => reduce.mode, set: (m: string) => reduce.setTransport(m as Transport), cycle: () => reduce.cycleTransport(), step: () => reduce.stepOnce() },
       autoSteps: () => reduce.totalSteps(),
+      est: () => ({ ...reduce.estimate, shown: reduce.focusedSteps() }),
       run: () => { if (focus) reduce.schedule(focus); },
       game: { on: () => gameMode, set: (b: boolean) => setGameMode(b), state: () => gameInput.debugState },
       fast: { on: () => isOpt("rules"), set: (b: boolean) => setOpt("rules", b) },
