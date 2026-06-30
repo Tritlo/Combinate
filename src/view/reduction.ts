@@ -15,6 +15,7 @@ import { type WasmSession } from "./wasmReducer";
 import { ReductionEstimator, type EstimateState } from "./reductionEstimator";
 
 const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducing (§6.4)
+const MORPH_POLL_MS = 16; // while a focused 3D morph is playing, re-check this often before stepping
 const STEP_MS = 300; // duration of one reduction-step tween
 const STEP_GAP = 130; // pause between reduction steps
 const HEAVY_GAP = 8; // big trees jump-cut each step; pace them fast but still yield to the renderer (≠ 0, which starves rAF)
@@ -49,7 +50,10 @@ export type Transport = "play" | "pause" | "ff";
 
 // `source` is the tree as the player built/edited it (captured on release), before
 // reduction mutates it — the golf metric + challenge target score the source, not its NF.
-type AutoState = { gen: number; timer: number; steps: number; source?: Node; grapher?: GraphReducer; session?: WasmSession | null };
+// `stash` is the next raw-TS contractum, precomputed while a 3D morph plays (pipeline depth 1) so the
+// animation's time isn't wasted; keyed by `from` (must still equal tree.node) so a mode/term change
+// discards it. Raw path only — graph/turbo mutate their engines, so we never run them ahead.
+type AutoState = { gen: number; timer: number; steps: number; source?: Node; grapher?: GraphReducer; session?: WasmSession | null; stash?: { from: Node; next: Node; sym: string | null } };
 
 /** What the reduction loop needs from the shell. */
 export interface ReductionDeps {
@@ -70,6 +74,11 @@ export interface ReductionDeps {
   morph3D?: (tree: TreeView, node: Node, durationMS: number) => void;
   /** Settle any in-flight 3D morph (called when the 2D reducer is paused, which stop-animates trees). */
   settleMorph3D?: () => void;
+  /** True when 3D is open AND `tree` is the focused tree — so its playback should pace to the 3D morph
+   *  (the 2D view is hidden in 3D mode, so its jump-cut timing must not drive the visible cadence). */
+  is3DPacing?: (tree: TreeView) => boolean;
+  /** True while a 3D reduction-step morph is actually animating (vs settled/snapped). */
+  morph3DActive?: () => boolean;
 }
 
 // Speed levels 0-4 (the game-mode `0`-`4` keys): 0 = pause, then the running multiplier.
@@ -119,6 +128,12 @@ export class ReductionController {
   // gap. The multiplier speeds the jump-cut too, so a high level actually accelerates big trees.
   private nextGap(t: TreeView): number {
     return t.heavy() ? Math.max(1, HEAVY_GAP / this.mult) : this.stepGap();
+  }
+  // A focused tree whose 3D morph is still animating must wait — advancing the visible state now
+  // would cut the morph short (in 3D the 2D view is hidden, so the morph IS the visible step). True
+  // only when 3D is open, this tree is focused, and a morph is actually in flight.
+  private morphPacing(tree: TreeView): boolean {
+    return !!(this.deps.is3DPacing?.(tree) && this.deps.morph3DActive?.());
   }
   // Turbo reflow gap + steps-per-reflow, scaled by the speed level (faster + bigger jumps).
   private turboGap(): number {
@@ -170,6 +185,7 @@ export class ReductionController {
     if (a) {
       a.gen++;
       clearTimeout(a.timer);
+      a.stash = undefined; // drop any precomputed look-ahead (the term/mode is about to change)
       this.freeSession(a); // release the wasm arena
     }
     tree.stopAnimation();
@@ -184,6 +200,7 @@ export class ReductionController {
     }
     a.gen++;
     a.steps = 0;
+    a.stash = undefined; // a fresh run — no stale look-ahead from the previous term/mode
     a.source = tree.node; // score the tree as built, before reduction
     this.freeSession(a); // drop any prior resident session
     a.grapher = this.deps.getShare() ? new GraphReducer(tree.node, this.deps.getFast()) : undefined;
@@ -206,6 +223,10 @@ export class ReductionController {
     const s = a.session;
     if (!s) {
       this.stepAuto(tree, gen); // session gone — fall back to the TS path
+      return;
+    }
+    if (this.morphPacing(tree)) {
+      a.timer = window.setTimeout(() => this.turboTick(tree, gen), MORPH_POLL_MS); // wait out the 3D morph
       return;
     }
     // Run contractions resident until the frame budget is spent — but cap the steps per
@@ -311,6 +332,19 @@ export class ReductionController {
     if (this.transport === "pause") return; // frozen — resume re-kicks from setTransport
     const share = this.deps.getShare();
     const fast = this.deps.getFast();
+    // Pace to the 3D morph: while it animates, don't advance the visible state — but use that time to
+    // precompute the next RAW contractum (pipeline depth 1), so the cadence stays full once it ends.
+    if (this.morphPacing(tree)) {
+      // Plain raw TS only: fast/native build() can run kernel value-matching (normalize) on the main
+      // thread — exactly the work that would hitch the morph we're pacing for. Those modes (and
+      // graph/turbo) just compute the step when the morph ends, no look-ahead.
+      if (!share && !fast && !this.deps.getNative() && !a.session && !a.stash) {
+        const r = redexAt(tree.node, 0, fast, this.deps.getNative()); // fast/native are falsy here → plain raw redex
+        if (r) a.stash = { from: tree.node, next: r.build(), sym: r.sym };
+      }
+      a.timer = window.setTimeout(() => this.stepAuto(tree, gen), MORPH_POLL_MS);
+      return;
+    }
     // Non-termination guard. Graph mode shares, so it does far fewer, far cheaper steps and
     // can finish reductions the tree reducer can't (fac-scale) — give it a much higher ceiling.
     if (a.steps >= (share ? GRAPH_STEP_CAP : STEP_CAP)) {
@@ -338,14 +372,25 @@ export class ReductionController {
     }
     a.grapher = undefined; // optimize/raw path: no live graph
 
-    // One traversal yields both the rule to sonify and the contractum to animate.
-    const redex = redexAt(tree.node, 0, fast, this.deps.getNative());
-    if (!redex) {
-      this.finishNormalForm(tree, a); // normal form reached — recognise, collapse, score
-      return;
+    // One traversal yields both the rule to sonify and the contractum to animate — unless the morph
+    // pacer already precomputed it (stash), in which case reuse it (still valid only if from === now).
+    const stashed = a.stash && a.stash.from === tree.node ? a.stash : undefined;
+    a.stash = undefined;
+    let next: Node;
+    let sym: string | null;
+    if (stashed) {
+      next = stashed.next;
+      sym = stashed.sym;
+    } else {
+      const redex = redexAt(tree.node, 0, fast, this.deps.getNative());
+      if (!redex) {
+        this.finishNormalForm(tree, a); // normal form reached — recognise, collapse, score
+        return;
+      }
+      next = redex.build(); // build before the side effects (sound/step count)
+      sym = redex.sym;
     }
-    const next = redex.build(); // build before the side effects (sound/step count)
-    this.deps.tickSound(redex.sym); // sonify the rule about to fire
+    this.deps.tickSound(sym); // sonify the rule about to fire
     a.steps++;
     this.stepTo(tree, next, () => {
       const a2 = this.auto.get(tree);
