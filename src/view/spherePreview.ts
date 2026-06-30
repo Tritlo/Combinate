@@ -32,6 +32,7 @@ interface Lease {
   onFrame: () => void;
   onPreempt?: () => void;
   spin: number;
+  bg: number;
   seq: number;
   resolve: (canvas: HTMLCanvasElement | null) => void;
 }
@@ -41,6 +42,7 @@ export interface PreviewOpts {
   onFrame: () => void; // fired after each render (compositors re-upload; a DOM canvas no-ops)
   onPreempt?: () => void; // fired when a higher-priority acquire displaces this owner (fall back to 2D)
   spin?: number; // orbit px-equivalent per second (default SLOW_SPIN)
+  bg?: number; // scene background (default theme.inset — the Zoo box; the card overrides to a dark viewport)
 }
 
 class SpherePreview {
@@ -74,7 +76,7 @@ class SpherePreview {
     const seq = ++this.seq;
     return new Promise((resolve) => {
       this.pending?.resolve(null); // a queued-but-not-yet-run request is superseded
-      this.pending = { owner, priority, node, size, onFrame: opts.onFrame, onPreempt: opts.onPreempt, spin: opts.spin ?? SLOW_SPIN, seq, resolve };
+      this.pending = { owner, priority, node, size, onFrame: opts.onFrame, onPreempt: opts.onPreempt, spin: opts.spin ?? SLOW_SPIN, bg: opts.bg ?? theme.inset, seq, resolve };
       void this.pump();
     });
   }
@@ -115,7 +117,7 @@ class SpherePreview {
     this.running = req;
     let canvas: HTMLCanvasElement | null = null;
     try {
-      this.sphere.bg = theme.inset; // match the box the preview sits in (no jarring white square)
+      this.sphere.bg = req.bg; // match the box the preview sits in (Zoo: inset; card: a dark viewport so the tree pops)
       this.sphere.frameMargin = 1.15; // fill the box (the full view is for the canvas, no panning)
       this.sphere.frameFloor = 36; // a small tree (e.g. K) still fills the box rather than floating tiny
       await this.sphere.show(req.node, req.size, req.size);
