@@ -36,9 +36,7 @@ export type Intent =
   | "zoomIn"
   | "zoomOut"
   | "recenter"
-  | "exitInspect"
-  // global
-  | "toggleBuild";
+  | "exitInspect";
 
 // ---- keyboard: per-context key → intent ----
 interface KeyBind {
@@ -47,12 +45,11 @@ interface KeyBind {
   keys: string[];
 }
 const KEY_BINDS: KeyBind[] = [
-  { context: "global", intent: "toggleBuild", keys: ["tab"] },
   // Build
-  { context: "build", intent: "moveLeft", keys: ["arrowleft", "a"] },
-  { context: "build", intent: "moveRight", keys: ["arrowright", "d"] },
-  { context: "build", intent: "moveUp", keys: ["arrowup", "w"] },
-  { context: "build", intent: "moveDown", keys: ["arrowdown", "s"] },
+  { context: "build", intent: "moveLeft", keys: ["arrowleft"] },
+  { context: "build", intent: "moveRight", keys: ["arrowright"] },
+  { context: "build", intent: "moveUp", keys: ["arrowup"] },
+  { context: "build", intent: "moveDown", keys: ["arrowdown"] },
   { context: "build", intent: "pagePrev", keys: ["["] },
   { context: "build", intent: "pageNext", keys: ["]"] },
   { context: "build", intent: "pickPlace", keys: [" ", "enter"] },
@@ -62,10 +59,10 @@ const KEY_BINDS: KeyBind[] = [
   { context: "build", intent: "speed", keys: ["0", "1", "2", "3", "4"] },
   { context: "build", intent: "enterInspect", keys: ["v"] },
   // Inspect
-  { context: "inspect", intent: "rotLeft", keys: ["arrowleft", "a"] },
-  { context: "inspect", intent: "rotRight", keys: ["arrowright", "d"] },
-  { context: "inspect", intent: "rotUp", keys: ["arrowup", "w"] },
-  { context: "inspect", intent: "rotDown", keys: ["arrowdown", "s"] },
+  { context: "inspect", intent: "rotLeft", keys: ["arrowleft"] },
+  { context: "inspect", intent: "rotRight", keys: ["arrowright"] },
+  { context: "inspect", intent: "rotUp", keys: ["arrowup"] },
+  { context: "inspect", intent: "rotDown", keys: ["arrowdown"] },
   { context: "inspect", intent: "zoomIn", keys: ["=", "+"] },
   { context: "inspect", intent: "zoomOut", keys: ["-", "_"] },
   { context: "inspect", intent: "recenter", keys: ["r"] },
@@ -84,7 +81,7 @@ export function intentForKey(context: Context, key: string): Intent | null {
 // ---- gamepad: W3C standard button index → intent, per context (analog handled separately) ----
 export const PAD_BUTTON = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, SELECT: 8, START: 9, R3: 11, DUP: 12, DDOWN: 13, DLEFT: 14, DRIGHT: 15 };
 const PAD_BINDS: Record<Context | "global", Partial<Record<number, Intent>>> = {
-  global: { [PAD_BUTTON.START]: "toggleBuild" },
+  global: {},
   build: {
     [PAD_BUTTON.DLEFT]: "moveLeft",
     [PAD_BUTTON.DRIGHT]: "moveRight",
