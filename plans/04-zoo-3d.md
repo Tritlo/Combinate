@@ -30,3 +30,9 @@
   first 3D-tab open, `.resize(box)`, `.update(node)`, a slow azimuth spin ticker ONLY while the
   zoo + 3D tab are visible, paused on close / 2D. DPR-capped. Reduced-motion → static (no spin).
 - The [2D|3D] toggle lives in the detail box next to the ♪ button — don't touch `renderPicture`.
+
+## Completeness review (council)
+- Use the shared **pooled `MiniSpherePreview`** (one renderer for Zoo + discovery card, contention:
+  active widget wins, card > zoo). Define its lifecycle: acquire/release, DPR cap, pause on closed
+  Zoo / `document.hidden` / `withMotion` false, dispose on teardown, no-WebGL → 2D fallback,
+  headless smoke screenshot.

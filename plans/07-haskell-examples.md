@@ -28,3 +28,8 @@ The user's running examples; also give bigger trees for the progress bar [02] + 
 - **Verify AFTER regenerating the dumps**, not from source syntax: assert each `.comb` dump is
   primitive-free + size-bounded (set a ceiling before committing quicksort), and smoke-check the
   reduced result (Scott `True`; the sorted list `[1,2,3]`). Risk is only in the gen + vendor step.
+
+## User refinement
+- Verification matrix (the challenge): each new example must render correctly in **2D AND 3D**,
+  **with and without "Expand ι-trees"** — 4 combinations × 2 examples. (Expand-ι blows the tree up
+  — a real stress test of the 3D node cap + layout + the progress bar.)
