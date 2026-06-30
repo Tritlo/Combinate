@@ -76,6 +76,8 @@ export class Sphere3D {
   lastBuildMs = 0;
   lastDrawMs = 0; // wall-clock of the last orbit render + texture re-upload (the per-frame cost)
   bg: number | null = null; // scene background override (the preview matches its box); null = theme.bg
+  frameMargin = 1.6; // camera pull-back factor when framing (smaller = the ball fills more of the view)
+  frameFloor = 120; // min framing radius (keeps a tiny tree from clipping; the preview lowers it to fill its box)
 
   /** Current orbit azimuth (for the dev seam / E2E — confirms rotation). */
   get azimuth(): number {
@@ -263,10 +265,10 @@ export class Sphere3D {
   // Frame the whole ball: pull the camera back so a sphere of `radius` fills the view.
   private frame(radius: number): void {
     if (!this.camera) return;
-    const r = Math.max(radius, 120);
+    const r = Math.max(radius, this.frameFloor);
     this.lastRadius = radius;
     this.target = { x: 0, y: 0, z: 0 }; // re-centre the look-at on the ball
-    this.rad = (r * 1.6) / Math.tan((this.camera.fov * Math.PI) / 360);
+    this.rad = (r * this.frameMargin) / Math.tan((this.camera.fov * Math.PI) / 360);
     this.az = 0.6;
     this.pol = 1.05;
     this.camera.near = Math.max(0.1, this.rad / 1000);
