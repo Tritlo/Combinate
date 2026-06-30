@@ -66,6 +66,8 @@ export interface ReductionDeps {
   tickSound: (sym: string | null) => void; // a tone per contraction (null = no rule)
   notify: (msg: string) => void; // toast
   onTransportChange: () => void; // repaint the menu + transport bar
+  /** Mirror a focused tree's step into the 3D view (plan 06) — a no-op unless 3D is open + tree is focused. */
+  morph3D?: (tree: TreeView, node: Node, durationMS: number) => void;
 }
 
 // Speed levels 0-4 (the game-mode `0`-`4` keys): 0 = pause, then the running multiplier.
@@ -250,7 +252,7 @@ export class ReductionController {
       }
       return;
     }
-    tree.animateTo(snap, this.stepDur(), () => {
+    this.stepTo(tree, snap, () => {
       const a2 = this.auto.get(tree);
       if (!a2 || a2.gen !== gen) return;
       if (this.transport === "pause") return;
@@ -293,6 +295,14 @@ export class ReductionController {
     return a;
   }
 
+  // Animate a focused tree's step in 2D and mirror it into the 3D view (plan 06). One snapshot,
+  // one duration for both; morph3D is a no-op unless 3D is open on this tree.
+  private stepTo(tree: TreeView, node: Node, onDone: () => void): void {
+    const dur = this.stepDur();
+    this.deps.morph3D?.(tree, node, dur);
+    tree.animateTo(node, dur, onDone);
+  }
+
   private stepAuto(tree: TreeView, gen: number): void {
     const a = this.auto.get(tree);
     if (!a || a.gen !== gen) return;
@@ -316,7 +326,7 @@ export class ReductionController {
       }
       this.deps.tickSound(firingRule(tree.node, fast)); // a tone per contraction (approx)
       a.steps = g.steps;
-      tree.animateTo(g.snapshot(), this.stepDur(), () => {
+      this.stepTo(tree, g.snapshot(), () => {
         const a2 = this.auto.get(tree);
         if (!a2 || a2.gen !== gen) return;
         if (this.transport === "pause") return;
@@ -335,7 +345,7 @@ export class ReductionController {
     const next = redex.build(); // build before the side effects (sound/step count)
     this.deps.tickSound(redex.sym); // sonify the rule about to fire
     a.steps++;
-    tree.animateTo(next, this.stepDur(), () => {
+    this.stepTo(tree, next, () => {
       const a2 = this.auto.get(tree);
       if (!a2 || a2.gen !== gen) return;
       if (this.transport === "pause") return; // paused mid-tween — stop scheduling
@@ -365,7 +375,7 @@ export class ReductionController {
       }
       this.deps.tickSound(firingRule(tree.node, fast));
       a.steps = a.grapher.steps;
-      tree.animateTo(a.grapher.snapshot(), this.stepDur(), () => {});
+      this.stepTo(tree, a.grapher.snapshot(), () => {});
     } else {
       a.grapher = undefined;
       const redex = redexAt(tree.node, 0, fast, this.deps.getNative());
@@ -375,7 +385,7 @@ export class ReductionController {
       }
       this.deps.tickSound(redex.sym);
       a.steps++;
-      tree.animateTo(redex.build(), this.stepDur(), () => {});
+      this.stepTo(tree, redex.build(), () => {});
     }
   }
 
