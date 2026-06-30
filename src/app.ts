@@ -388,6 +388,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       transportBar.paint();
     },
     morph3D: (tree, node, dur) => morphFocused3D(tree, node, dur),
+    settleMorph3D: () => sphere3d.settleMorph(),
   });
 
   // Transport bar (top-right): rate read-out + Pause/Step/Play/FF — a thin view over the

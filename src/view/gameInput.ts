@@ -91,6 +91,7 @@ export class GameInputController {
   detach(tree: TreeView): void {
     for (const [k, t] of this.buckets) {
       if (t === tree) {
+        t.container.alpha = 1; // it's leaving the faded-neighbour strip — restore full opacity
         this.buckets.delete(k);
         if (this.on) this.render();
         return;
