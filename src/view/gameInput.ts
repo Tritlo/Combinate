@@ -46,8 +46,6 @@ export interface GameScene {
   removeTree: (tree: TreeView) => void;
   /** Centre the camera on a bucket's world x (faded-neighbour framing — neighbours peek at the edges). */
   frameBucketAt: (x: number) => void;
-  /** Show/move the focus indicator (the "region card") at a bucket's world x, or hide it (null). */
-  markBucket: (x: number | null) => void;
   pan: (dx: number, dy: number) => void;
   zoom: (factor: number) => void;
   setSpeed: (level: number) => void;
@@ -210,9 +208,9 @@ export class GameInputController {
       case "moveRight":
         return this.move(1);
       case "moveUp":
-        return this.toZone("hotbar");
+        return this.toZone("buckets"); // the toolbar sits below the buckets, so Up climbs to the strip
       case "moveDown":
-        return this.toZone("buckets");
+        return this.toZone("hotbar"); // …and Down returns to the toolbar
       case "pagePrev":
         return this.page(-1);
       case "pageNext":
@@ -261,13 +259,6 @@ export class GameInputController {
   private frameSelected(): void {
     this.scene.frameBucketAt(this.scene.bucketAnchor(this.selected).x);
     this.applyFade();
-    this.syncBucketMark();
-  }
-
-  /** Show the focus indicator on the focused bucket when the controls are active and we're in the
-   *  buckets zone; hide it otherwise (the hotbar zone, a mouse device, or 3D). */
-  private syncBucketMark(): void {
-    this.scene.markBucket(this.on && this.zone === "buckets" ? this.scene.bucketAnchor(this.selected).x : null);
   }
 
   /** Walk the held term one step along the strip (←/→ WHILE HOLDING). On an occupied bucket we first
@@ -330,12 +321,14 @@ export class GameInputController {
   // ---- commit / drop the held term (Space / Esc WHILE HOLDING) ----
   /** Space while holding: place the held term into the focused bucket if it's empty, else APPLY it
    *  to the bucket's tree on the current side (left = held is the function, right = the argument).
-   *  placeHand/apply both null the hand and re-frame; we then reset the side and tear down the ghost. */
+   *  placeHand/apply both null the hand and re-frame; we then reset the side, tear down the ghost,
+   *  and return the cursor to the toolbar so the next piece is one move away. */
   private commit(): void {
     this.clearPreview(); // restore the real tree + drop the ghost BEFORE we mutate the bucket
     if (this.buckets.has(this.selected)) this.apply(this.applySide === "left");
     else this.placeHand(this.selected);
     this.applySide = "left";
+    this.toZone("hotbar"); // built a piece → hop back to the toolbar to pick the next
   }
   /** Esc while holding: drop the held term — restore a bucket-origin term to its bucket (the cancel
    *  hand-restore), then tear down the ghost and reset the side. (Empty-handed, Esc opens the menu.) */
@@ -381,7 +374,6 @@ export class GameInputController {
   // separately, from navigation, in applyFade) ----
   private render(): void {
     this.scene.tray.hide(); // no "holding" badge — the greyed in-place preview is what shows the carry
-    this.syncBucketMark(); // keep the focus indicator in sync with enable/zone changes
   }
   /** Focused bucket bright, the rest faded — the spatial cue. NAVIGATION-gated (called from
    *  {@link frameSelected}); `restore` = all bright (the keyboard/pad cursor left, or 3D entry). */

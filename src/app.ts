@@ -423,29 +423,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const screenToWorld = (x: number, y: number) => world.toLocal({ x, y });
   const worldToScreen = (x: number, y: number) => world.toGlobal({ x, y });
 
-  // Controls focus indicator (the "region card"): a thin rounded-rect outline centred on the focused
-  // bucket's world anchor, so it pans with the strip. Lives in `world` (behind the trees), shown only
-  // while the keyboard/gamepad controls are active and we're in the buckets zone (see markBucket).
-  const bucketMark = new Graphics();
-  bucketMark.visible = false;
-  bucketMark.eventMode = "none";
-  world.addChildAt(bucketMark, 1); // just above ghostLayer, below every spawned tree
-  function paintBucketMark(): void {
-    bucketMark.clear();
-    // Anchor y=0 sits at the root; the card reaches ~70px above it and ~190px below (where a tree grows).
-    bucketMark.roundRect(-180, -70, 360, 260, 16).stroke({ width: 2, color: theme.iota, alpha: 0.5 });
-  }
-  paintBucketMark();
-  /** Position + show the focus indicator at a bucket's world x, or hide it when `x` is null. */
-  function markBucket(x: number | null): void {
-    if (x === null) {
-      bucketMark.visible = false;
-      return;
-    }
-    bucketMark.position.set(x, 0);
-    bucketMark.visible = true;
-  }
-
   // The Delete/Copy context popup (mouse right-click + the keyboard "c" / pad-X build bind).
   const ctxMenu = new ContextMenu();
 
@@ -865,7 +842,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     pixi.renderer.background.color = theme.bg;
     ghostLabel.style.fill = theme.text;
     fpsText.style.fill = theme.textDim;
-    paintBucketMark(); // the controls' focus indicator follows theme.iota
     paintLegend(legend);
     // (the transport bar self-subscribes to theme changes)
     hotbar.refresh();
@@ -1135,7 +1111,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     captureWorld: (tree) => tree.nodeWorldPositions(),
     removeTree,
     frameBucketAt: (x) => frameBucketAt(x),
-    markBucket: (x) => markBucket(x),
     pan: (dx, dy) => world.position.set(world.position.x + dx, world.position.y + dy),
     zoom: (factor) => zoomTo(world.scale.x * factor, window.innerWidth / 2, window.innerHeight / 2),
     setSpeed: (lvl) => reduce.setSpeedLevel(lvl),
@@ -1172,6 +1147,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // A pad's discrete intent, routed by the active context (Build → the tray controller; Inspect →
   // the 3D camera). The keyboard routes the same intents below.
   function dispatchPadIntent(intent: Intent): void {
+    if (menuBar?.isOpen) return routeMenuBarNav(intent); // an open menu bar owns the pad (✚/A/B)
     if (ctxMenu.isOpen) return routeCtxNav(intent); // an open popup owns the pad (↑/↓/A/B/X)
     switch (intent) {
       case "context":
@@ -1233,23 +1209,23 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "action", label: "Compile Haskell…", run: () => mhsPanel.open() },
       { kind: "action", label: "Share link", run: () => shareFocused() },
       { kind: "sep" },
-      { kind: "action", label: "Clear canvas", accel: "R", run: () => clearCanvas() },
+      { kind: "action", label: "Clear canvas", run: () => clearCanvas() },
     ] },
     { title: "Edit", items: [
-      { kind: "toggle", label: "Define combinator", accel: "D", checked: () => authorMode === "define", run: () => setAuthorMode(authorMode === "define" ? null : "define") },
-      { kind: "toggle", label: "Abstract variable", accel: "A", checked: () => authorMode === "abstract", run: () => setAuthorMode(authorMode === "abstract" ? null : "abstract") },
+      { kind: "toggle", label: "Define combinator", checked: () => authorMode === "define", run: () => setAuthorMode(authorMode === "define" ? null : "define") },
+      { kind: "toggle", label: "Abstract variable", checked: () => authorMode === "abstract", run: () => setAuthorMode(authorMode === "abstract" ? null : "abstract") },
       { kind: "sep" },
-      { kind: "action", label: "Unlock all combinators", accel: "U", run: () => unlockAll() },
+      { kind: "action", label: "Unlock all combinators", run: () => unlockAll() },
     ] },
     { title: "View", items: [
       { kind: "radio", label: "Auto layout", on: () => layoutFn === layoutAuto, run: () => setLayoutMode(layoutAuto) },
       { kind: "radio", label: "Top-down layout", on: () => layoutFn === layoutTopDown, run: () => setLayoutMode(layoutTopDown) },
-      { kind: "radio", label: "Radial layout", accel: "T", on: () => layoutFn === layoutRadial, run: () => setLayoutMode(layoutRadial) },
+      { kind: "radio", label: "Radial layout", on: () => layoutFn === layoutRadial, run: () => setLayoutMode(layoutRadial) },
       { kind: "toggle", label: "Sphere (3D) ✦", checked: () => view3D, run: () => toggleView3D() },
       { kind: "sep" },
-      { kind: "toggle", label: "Expand ι-trees", accel: "X", checked: () => expandAll, run: () => toggleExpand() },
+      { kind: "toggle", label: "Expand ι-trees", checked: () => expandAll, run: () => toggleExpand() },
       { kind: "toggle", label: "Type lens", checked: () => readout.isTypeOn, run: () => readout.toggleType() },
-      { kind: "radio", label: "Read-out: combinators", accel: "F", on: () => readout.view === "ski", run: () => readoutBox.setView("ski") },
+      { kind: "radio", label: "Read-out: combinators", on: () => readout.view === "ski", run: () => readoutBox.setView("ski") },
       { kind: "radio", label: "Read-out: named + native", on: () => readout.view === "named", run: () => readoutBox.setView("named") },
       { kind: "radio", label: "Read-out: Barker (0/1)", on: () => readout.view === "barker", run: () => readoutBox.setView("barker") },
       { kind: "sep" },
@@ -1271,8 +1247,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     { title: "Special", items: [
       { kind: "toggle", label: "Quest", checked: () => quest.isOpen, run: () => quest.toggle() },
       { kind: "toggle", label: "Track Quest", checked: () => !quest.done && !questTracker.isHidden, run: () => { questTracker.setHidden(!questTracker.isHidden); paintRail(); } },
-      { kind: "toggle", label: "Zoo", accel: "Z", checked: () => zoo.isOpen, run: () => zoo.toggle() },
-      { kind: "toggle", label: "Golf challenges", accel: "G", checked: () => challenges.isOpen, run: () => challenges.toggle() },
+      { kind: "toggle", label: "Zoo", checked: () => zoo.isOpen, run: () => zoo.toggle() },
+      { kind: "toggle", label: "Golf challenges", checked: () => challenges.isOpen, run: () => challenges.toggle() },
     ] },
   ];
   menuBar = new MenuBar(menus);
@@ -1394,7 +1370,30 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     else if (intent === "cancel" || intent === "context") ctxMenu.cancel();
   }
 
+  /** Route a discrete intent to the open menu bar (gamepad nav): D-pad ←/→ switch menus, ↑/↓ walk
+   *  the dropdown, A choose, B close. Mirrors the keyboard routing in the keydown handler. */
+  function routeMenuBarNav(intent: Intent): void {
+    if (intent === "moveLeft") menuBar?.moveMenu(-1);
+    else if (intent === "moveRight") menuBar?.moveMenu(1);
+    else if (intent === "moveUp") menuBar?.moveItem(-1);
+    else if (intent === "moveDown") menuBar?.moveItem(1);
+    else if (intent === "pickPlace") menuBar?.choose();
+    else if (intent === "cancel") menuBar?.close();
+  }
+
   window.addEventListener("keydown", (e) => {
+    // An open menu bar owns the keyboard: ←/→ switch menus, ↑/↓ walk the dropdown, Space/Enter
+    // choose, Esc close. Like the popup below, it gates everything else (the build binds included).
+    if (menuBar?.isOpen) {
+      if (e.key === "ArrowLeft") menuBar.moveMenu(-1);
+      else if (e.key === "ArrowRight") menuBar.moveMenu(1);
+      else if (e.key === "ArrowUp") menuBar.moveItem(-1);
+      else if (e.key === "ArrowDown") menuBar.moveItem(1);
+      else if (e.key === " " || e.key === "Enter") menuBar.choose();
+      else if (e.key === "Escape") menuBar.close();
+      e.preventDefault();
+      return;
+    }
     // An open Delete/Copy popup owns the keyboard: ↑/↓ walk, Space/Enter choose, Esc cancel.
     if (ctxMenu.isOpen) {
       if (e.key === "ArrowDown") ctxMenu.move(1);
@@ -1411,11 +1410,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (e.key === "ArrowLeft") return e.preventDefault(), zoo.cyclePage(-1);
       if (e.key === "Escape") return zoo.close();
     }
-    // INSPECT (3D) OWNS the keyboard (ADR 17): its bound keys act and every desktop letter-shortcut
-    // below is suspended. In 2D, Build's bound keys act too, but anything they DON'T bind falls
-    // through to the desktop letter-accelerators — arrows-only navigation means no key collisions,
-    // so the controls and the accelerators coexist. Never while an overlay or text field is up, and
-    // modifier combos (Ctrl/Cmd/Alt — browser shortcuts like Ctrl-R) always pass through.
+    // The keyboard belongs to the game-mode controls (ADR 17): only Build/Inspect's bound keys act,
+    // and every command else lives in the menu bar (no desktop letter-accelerators). Never while an
+    // overlay or text field is up, and modifier combos (Ctrl/Cmd/Alt — browser shortcuts like Ctrl-R)
+    // always pass through.
     const typing = (el: Element | null): boolean => !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || (el as HTMLElement).isContentEditable);
     const overlayUp = (): boolean => zoo.isOpen || challenges.isOpen || [...document.querySelectorAll<HTMLElement>(".md-root")].some((el) => el.style.display === "flex");
     const blocked = e.ctrlKey || e.metaKey || e.altKey || overlayUp() || typing(document.activeElement);
@@ -1431,23 +1429,14 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       }
       return;
     }
-    // BUILD (2D): a bound key drives the tray (nav / pick / apply / cancel / speed / enter-3D); any
-    // other key falls through to the desktop accelerators below.
+    // BUILD (2D): a bound key drives the tray (nav / pick / apply / cancel / speed / enter-3D). An
+    // unbound key does nothing — every other command lives in the menu bar.
     const intent = intentForKey("build", e.key);
     if (intent) {
       dispatchBuildKey(intent, e.key);
       e.preventDefault();
       return;
     }
-    if (e.key === "r" || e.key === "R") clearCanvas();
-    else if (e.key === "t" || e.key === "T") toggleLayout();
-    else if (e.key === "u" || e.key === "U") unlockAll();
-    else if (e.key === "x" || e.key === "X") toggleExpand();
-    else if (e.key === "f" || e.key === "F") readout.cycleView();
-    else if (e.key === "z" || e.key === "Z") zoo.toggle();
-    else if (e.key === "g" || e.key === "G") challenges.toggle();
-    else if (e.key === "d" || e.key === "D") setAuthorMode("define");
-    else if (e.key === "a" || e.key === "A") setAuthorMode("abstract");
   });
   window.addEventListener("keyup", (e) => heldRot.delete(e.key.toLowerCase())); // release a 3D rotate-key
 
@@ -1522,7 +1511,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       run: () => { if (focus) reduce.schedule(focus); },
       spawn: (s: string) => { spawnTreeWorld(fromEgg(s), 0, 0); }, // dev seam: drop a reducing tree from an s-expr
 
-      game: { active: () => gameInput.enabled, force: (b: boolean) => gameInput.setEnabled(b), state: () => gameInput.debugState, mark: () => bucketMark.visible, ctxOpen: () => ctxMenu.isOpen },
+      game: { active: () => gameInput.enabled, force: (b: boolean) => gameInput.setEnabled(b), state: () => gameInput.debugState, ctxOpen: () => ctxMenu.isOpen },
       fast: { on: () => isOpt("rules"), set: (b: boolean) => setOpt("rules", b) },
       graph: { on: () => isOpt("graph"), set: (b: boolean) => setOpt("graph", b), eval: (s: string) => sexp(evalShared(fromEgg(s), 500000, fastMode).term) },
       expr: () => readout.text,
