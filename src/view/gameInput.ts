@@ -341,16 +341,20 @@ export class GameInputController {
     if (!this.hand) return;
     const t = this.buckets.get(this.selected);
     const a = this.scene.bucketAnchor(this.selected);
-    // On an OCCUPIED bucket, preview the APPLIED RESULT in place — left = held as the function
-    // `(held tree)`, right = held as the argument `(tree held)` — and hide the real tree behind it.
-    // On an EMPTY bucket, preview the held term where it'll land.
-    const node = t ? (this.applySide === "left" ? mkApp(this.hand.node, t.node) : mkApp(t.node, this.hand.node)) : this.hand.node;
     if (t) {
+      // Occupied: preview the APPLIED RESULT in place (left = held as fn `(held tree)`, right = held
+      // as arg `(tree held)`), greying ONLY the new part — the already-placed tree stays full opacity.
+      const keep = new Set(t.nodeWorldPositions().keys()); // the already-placed nodes
+      const result = this.applySide === "left" ? mkApp(this.hand.node, t.node) : mkApp(t.node, this.hand.node);
       t.container.visible = false;
       this.previewHidden = t;
+      this.preview = this.scene.preview(result, a);
+      this.preview.dimExcept(keep, 0.45); // grey the new app node + held; the placed tree stays bright
+    } else {
+      // Empty: the whole held term is new — grey it all where it'll land.
+      this.preview = this.scene.preview(this.hand.node, a);
+      this.preview.container.alpha = 0.5;
     }
-    this.preview = this.scene.preview(node, a);
-    this.preview.container.alpha = 0.5; // greyed — a ghost of what Space will build
   }
   /** Tear down the preview ghost (no-op if none). */
   private clearPreview(): void {
