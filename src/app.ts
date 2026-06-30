@@ -1119,7 +1119,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (on && view3D) toggleView3D(); // contexts are mutually exclusive
     gameMode = on;
     gameInput.setEnabled(on);
-    if (on) toast.show("game mode — ←/→ move between buckets (past the end = a fresh one) · Space hold/place · Q/E apply · V for 3D · Tab exits");
+    // (No entry toast — the hint bar above the toolbar already shows the controls.)
     updateHints();
     paintRail();
   }
