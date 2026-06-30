@@ -559,6 +559,41 @@ const encodeIota = (n: Node): string => (n.kind === "app" ? "0" + encodeIota(n.f
  *  view — keyed by symbol (includes the transient I/K/S). */
 export const IOTA_BITCODE: Record<string, string> = Object.fromEntries(CATALOG.map((l) => [l.sym, encodeIota(iotaTreeOf(l))]));
 
+/** Bounded Barker bit-code of a term *as displayed* (`1` = ι, `0 <fn> <arg>` = app), expanding each
+ *  known combinator inline to its full ι-tree bits. A free variable, or a combinator with no
+ *  precomputed ι-bitcode (e.g. a user law registered after module load), falls back to its atom — so
+ *  an open term stays lossless rather than collapsing every leaf to ι. Streams over the *original*
+ *  tree against a char budget (never materialises an expanded ι-tree), so a deep / named-heavy term
+ *  can't blow up; a budget overrun is truncated with an ellipsis. */
+export function barkerCode(root: Node, maxChars = 4096): string {
+  let out = "";
+  let truncated = false;
+  const emit = (s: string): void => {
+    if (truncated) return;
+    const room = maxChars - out.length;
+    if (s.length > room) {
+      out += s.slice(0, room);
+      truncated = true;
+    } else out += s;
+  };
+  const go = (n: Node): void => {
+    if (truncated) return;
+    switch (n.kind) {
+      case "iota":
+        return emit("1");
+      case "app":
+        emit("0"), go(n.fn), go(n.arg);
+        return;
+      case "comb":
+        return emit(IOTA_BITCODE[n.sym] ?? n.sym); // known bird → its ι bits; late-authored → its name
+      case "free":
+        return emit(n.name);
+    }
+  };
+  go(root);
+  return truncated ? out + "…" : out;
+}
+
 /** Expand a term into its DISPLAY form: undiscovered S/K/I become their ι-trees (the discovery
  *  mask), and — when `expandAll` — every combinator becomes its full ι-tree. Memoised by id so a
  *  shared subterm (graph mode) expands once (the display stays a DAG). Pure: the predicates are

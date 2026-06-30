@@ -1,27 +1,35 @@
 /**
- * The read-out lens (extracted from app.ts, ADR 12): the top-centre live expression of
- * the focused tree, plus the two opt-in lenses — the re-folding lens (the egg/WASM
- * re-sugarer, a lazy driven adapter) and the type lens (principal simple type). It owns
- * the lens state, the per-frame render, and `exprOf`; the shell injects how to find the
- * focused node + the active read page and owns the `exprText` placement, so app.ts stays
- * composition wiring.
+ * The read-out lens (ADR 12): the per-frame driver behind the top-centre read-out box. It reads the
+ * focused tree's *current* term every frame and renders it in the box's active view:
+ *
+ *  - **ski** (default) — `exprOf`: the combinator s-expression of the current term, masking
+ *    undiscovered S/K/I. No reduction, so it never runs ahead of the on-screen reducer (this is what
+ *    "show the current state" means — e.g. `map (+1) [1,2,3]` stays itself until the tree visibly
+ *    reduces, instead of jumping to `[2,3,4]`).
+ *  - **named** — the only evaluating view: the value probe (`read`/`render` → native ints / lists /
+ *    bools / chars) with the combinator residual named by the re-folder (egg, behavioural fallback).
+ *    An explicit "what does this evaluate to" lens. The HM type badge (opt-in) appends here.
+ *  - **barker** — the raw Barker ι bit-code (`1` = ι, `0 <fn> <arg>` = app), bounded.
+ *
+ * The shell injects how to find the focused node + the active read page and owns the box placement.
  */
-import { Text, type Ticker } from "pixi.js";
-import { decode, sexp, exceedsNodes, type Node } from "../core/term";
-import { IOTA_CODE } from "../core/catalog";
+import { type Ticker } from "pixi.js";
+import { sexp, decode, exceedsNodes, type Node } from "../core/term";
+import { IOTA_CODE, barkerCode } from "../core/catalog";
 import { makeRefolder, behavioralRefolder, type Refolder } from "../core/refold";
 import { read, render, type Ty } from "../core/types";
 import { inferType } from "../core/infer";
+import { type ReadoutBox } from "./readoutBox";
 import { type Toast } from "./toast";
 
 /** What the read-out reads from the shell. */
 export interface ReadoutDeps {
   ticker: Ticker;
-  /** The shell-owned read-out Text (placed/themed alongside the other HUD lines). */
-  exprText: Text;
+  /** The shell-owned read-out box (chrome + view state). */
+  box: ReadoutBox;
   /** The focused tree's term, or null when none is live. */
   focusNode: () => Node | null;
-  /** The active hotbar page (drives the data reading mode). */
+  /** The active hotbar page (drives the named view's data reading). */
   readPage: () => string;
   /** Whether a combinator is discovered (undiscovered S/K/I read as their ι-tree). */
   isDiscovered: (sym: string) => boolean;
@@ -30,26 +38,26 @@ export interface ReadoutDeps {
   toast: Toast;
 }
 
-// The hotbar page → the data reading it forces.
+// The hotbar page → the data reading the named view forces.
 const READ_AS: Record<string, Ty> = { Arithmetic: "Int", Booleans: "Bool", Lists: "List", Char: "Char" };
 
-// Above this node count, skip the (reducing) value/type/re-fold probes in the read-out — the
-// raw s-expression is shown instead. The probes are internally size-bounded now (normalize's
-// maxNodes), so this can be generous enough to read a big CLEAN numeral as its value (a
-// Turbo result like (*) 20 20 = 400 is an ~800-node Succ-spine) without freezing on a term
-// that would explode under probing (that bails via the size guard).
+// Above this node count, skip the (reducing) value/type/re-fold probes in the named view — the raw
+// s-expression is shown instead. The probes are internally size-bounded now (normalize's maxNodes),
+// so this can be generous enough to read a big CLEAN numeral as its value (a Turbo result like
+// (*) 20 20 = 400 is an ~800-node Succ-spine) without freezing on a term that would explode under
+// probing (that bails via the size guard).
 const READOUT_PROBE_MAX = 3000;
 
-
 export class ReadoutLens {
-  // re-folding lens (lazy WASM adapter; behavioural pre-pass works without it)
-  private refoldOn = false;
+  // re-folding (used by the named view; behavioural pre-pass works without wasm)
   private refolder: Refolder | null = null;
   private refolderLoading = false;
   private refoldRaw: ((sexpr: string) => string) | null = null;
   private typeOn = false;
-  // render memo: only repaint when the node or reading mode changes
-  private lastShownNode: Node | null = null;
+  // render memo: only repaint when the node / view / type / reading mode changes
+  private lastNode: Node | null = null;
+  private lastView: string | null = null;
+  private lastType = false;
   private lastMode: Ty | undefined;
   private lastExpr = "";
 
@@ -74,39 +82,54 @@ export class ReadoutLens {
     }
   }
 
-  // The per-frame render: read the focused term type-guided (Phase 1), else the re-fold
-  // lens (Phase 2), else the raw sexp; append the type badge when the type lens is on.
+  // The per-frame render: switch on the active view FIRST, so the default (`ski`) and `barker`
+  // paths never touch a normalizing probe — only the `named` view reduces.
   private tick(): void {
     const node = this.deps.focusNode();
+    const view = this.deps.box.current;
     const mode = READ_AS[this.deps.readPage()];
-    if (node === this.lastShownNode && mode === this.lastMode) return;
-    this.lastShownNode = node;
+    if (node === this.lastNode && view === this.lastView && this.typeOn === this.lastType && mode === this.lastMode) return;
+    this.lastNode = node;
+    this.lastView = view;
+    this.lastType = this.typeOn;
     this.lastMode = mode;
     let txt = "";
     if (node) {
-      // The value probe (`read`) and the re-fold lens reduce the term — too slow on a big
-      // term, and run on EVERY identity change (so they'd freeze playback of a big tree,
-      // turbo or not). Past a node budget, skip them and show the raw s-expression.
-      const big = exceedsNodes(node, READOUT_PROBE_MAX);
-      const v = big ? null : read(node, mode ?? null);
-      const value = v ? render(v) : null;
-      const folded = !value && !big && this.refoldOn && this.refolder ? this.refolder(node) : null;
-      txt = value ?? (folded ? sexp(folded) : this.exprOf(node));
-      if (this.typeOn) txt += `  ::  ${big ? "(tree too large to type)" : (inferType(node) ?? "no simple type")}`;
+      if (view === "ski") txt = this.exprOf(node);
+      else if (view === "barker") txt = barkerCode(node);
+      else txt = this.named(node, mode);
     }
     if (txt !== this.lastExpr) {
       this.lastExpr = txt;
-      this.deps.exprText.text = txt;
+      this.deps.box.setText(txt);
     }
   }
 
-  /** Force a read-out recompute on the next frame (after a mode/state change). */
-  invalidate(): void {
-    this.lastShownNode = null;
+  // The named + native view: native value if the term reads as data, else the re-folded
+  // (bird-named) term, else the raw combinator s-expression; with the optional type badge. Past the
+  // node budget the reducing probes would freeze playback, so fall back to the raw expression.
+  private named(node: Node, mode: Ty | undefined): string {
+    if (!this.refolder) {
+      this.refolder = behavioralRefolder; // instant pure-TS lens…
+      void this.ensureRefolder(); // …upgraded with the egg stage when it loads
+    }
+    const big = exceedsNodes(node, READOUT_PROBE_MAX);
+    const v = big ? null : read(node, mode ?? null);
+    const value = v ? render(v) : null;
+    const folded = !value && !big && this.refolder ? this.refolder(node) : null;
+    let txt = value ?? (folded ? sexp(folded) : this.exprOf(node));
+    if (this.typeOn) txt += `  ::  ${big ? "(tree too large to type)" : (inferType(node) ?? "no simple type")}`;
+    return txt;
   }
 
-  // Upgrade the lens from the pure behavioural pre-pass to the full behavioural→egg
-  // pipeline once the wasm loads; a load failure keeps the behavioural-only re-folder.
+  /** Force a read-out recompute on the next frame (after a view / mode / discovery change). */
+  invalidate(): void {
+    this.lastNode = null;
+    this.lastView = null;
+  }
+
+  // Upgrade the named view's re-folder from the pure behavioural pre-pass to the full
+  // behavioural→egg pipeline once the wasm loads; a load failure keeps the behavioural-only folder.
   async ensureRefolder(): Promise<void> {
     if (this.refoldRaw || this.refolderLoading) return;
     this.refolderLoading = true;
@@ -115,7 +138,7 @@ export class ReadoutLens {
       await mod.default();
       this.refoldRaw = mod.refold;
       this.refolder = makeRefolder(mod.refold);
-      this.lastShownNode = null; // recompute now the egg stage is live
+      this.invalidate(); // recompute now the egg stage is live
     } catch {
       this.deps.toast.show("re-folder: behavioural only (wasm unavailable)");
     } finally {
@@ -123,50 +146,42 @@ export class ReadoutLens {
     }
   }
 
-  toggleRefold(): void {
-    this.refoldOn = !this.refoldOn;
-    this.lastShownNode = null;
-    if (this.refoldOn) {
-      if (!this.refolder) this.refolder = behavioralRefolder; // instant pure-TS lens
-      void this.ensureRefolder(); // then upgrade with the egg stage
-    }
-    this.deps.onToggle();
+  /** Advance the read-out view (the F key + the View menu). */
+  cycleView(): void {
+    this.deps.box.cycle();
   }
 
   toggleType(): void {
     this.typeOn = !this.typeOn;
-    this.lastShownNode = null;
+    this.invalidate();
     this.deps.onToggle();
   }
 
   // ---- accessors for the menu, permalink, and dev seam ----
-  get isRefoldOn(): boolean {
-    return this.refoldOn;
-  }
   get isTypeOn(): boolean {
     return this.typeOn;
   }
+  get view(): string {
+    return this.deps.box.current;
+  }
   get text(): string {
-    return this.deps.exprText.text;
+    return this.lastExpr;
   }
   get refolderReady(): boolean {
-    return !!this.refolder;
+    return !!this.refoldRaw;
   }
   rawRefold(s: string): string | null {
     return this.refoldRaw?.(s) ?? null;
   }
 
-  /** The lens state for the permalink. */
-  modes(): { refold?: true; type?: true } {
-    return { refold: this.refoldOn || undefined, type: this.typeOn || undefined };
+  /** The lens state for the permalink (view omitted when it's the default `ski`). */
+  modes(): { view?: "ski" | "named" | "barker"; type?: true } {
+    const v = this.deps.box.current;
+    return { view: v === "ski" ? undefined : v, type: this.typeOn || undefined };
   }
-  applyModes(m: { refold?: boolean; type?: boolean }): void {
+  /** Restore from a permalink: an explicit `view` wins; a legacy `refold:true` maps to `named`. */
+  applyModes(m: { refold?: boolean; view?: "ski" | "named" | "barker"; type?: boolean }): void {
     this.typeOn = !!m.type;
-    this.refoldOn = !!m.refold;
-    if (this.refoldOn && !this.refolder) {
-      this.refolder = behavioralRefolder;
-      void this.ensureRefolder();
-    }
-    this.lastShownNode = null;
+    this.deps.box.setView(m.view ?? (m.refold ? "named" : "ski")); // fires onChange → invalidate
   }
 }

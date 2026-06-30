@@ -30,6 +30,7 @@ import { Toast } from "./view/toast";
 import { Zoo } from "./view/zoo";
 import { MhsPanel } from "./view/mhs/panel";
 import { ReadoutLens } from "./view/readoutLens";
+import { ReadoutBox } from "./view/readoutBox";
 import { loadWasmReducer, wasmReady, WasmSession } from "./view/wasmReducer";
 import { ReductionController, type Transport } from "./view/reduction";
 import { TransportBar } from "./view/transportBar";
@@ -129,26 +130,23 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   hud.addChild(toast.container);
   const discoveryCard = new DiscoveryCard(); // DOM card on discovery (a rotating 3D mini-view) — replaces the discovery toast
 
-  // Live read-out of the current (last-touched) tree's expression, top-centre.
-  const exprText = new Text({
-    text: "",
-    style: { fontFamily: "monospace", fontSize: 18, fill: theme.text },
-  });
-  exprText.anchor.set(0.5, 0);
-  hud.addChild(exprText);
+  // Live read-out of the focused tree's current expression — a small clickable System-1 box,
+  // top-centre. Its title bar cycles the view (combinators / named + native / Barker 0/1); the
+  // per-frame string is driven by the ReadoutLens below, which owns the compute. The box is DOM
+  // (matches the quest tracker / discovery card chrome) and themes itself.
+  const readoutBox = new ReadoutBox({ onChange: () => readout.invalidate() });
 
   // A lighter sub-line hinting at the next combinator worth chasing (the smallest
-  // ι-tree you haven't found yet — easiest to build).
+  // ι-tree you haven't found yet — easiest to build). Sits just below the read-out box.
   const nextHint = new Text({ text: "", style: { fontFamily: "monospace", fontSize: 13, fill: theme.textDim, wordWrap: true, wordWrapWidth: 900, align: "center", lineHeight: 18 } });
   nextHint.anchor.set(0.5, 0);
   hud.addChild(nextHint);
   const placeExpr = () => {
-    exprText.position.set(window.innerWidth / 2, 32); // below the menu bar
     // On phones the centred sub-line collides with the top-left legend; drop it
     // there (the Zoo still shows discovery progress).
     nextHint.visible = window.innerWidth >= 560;
     nextHint.style.wordWrapWidth = Math.min(940, window.innerWidth - 120);
-    nextHint.position.set(window.innerWidth / 2, 58);
+    nextHint.position.set(window.innerWidth / 2, 86); // below the read-out box
   };
   placeExpr();
 
@@ -213,12 +211,12 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
   onStep("catalog"); // splash step 2/3
 
-  // The read-out lens (ADR 12): the focused tree's live top-centre expression + the
-  // re-fold / type lenses. Owns the lens state, `exprOf`, and the per-frame render; the
-  // shell owns the `exprText` placement/theme. Created here so `isDiscovered` exists.
+  // The read-out lens (ADR 12): the focused tree's live expression in the read-out box, with the
+  // cyclable views + the orthogonal type badge. Owns the lens state, `exprOf`, and the per-frame
+  // render; the box owns the chrome/placement. Created here so `isDiscovered` exists.
   const readout = new ReadoutLens({
     ticker: pixi.ticker,
-    exprText,
+    box: readoutBox,
     focusNode: () => (focus && trees.includes(focus) ? focus.node : null),
     readPage: () => hotbar.page,
     isDiscovered,
@@ -246,6 +244,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     rerender3D(); // the 3D view follows the discovery mask too
     zoo.refresh();
     updateHint();
+    readout.invalidate(); // the read-out's combinator-masking depends on the discovery set
     paintRail();
     toast.show("all combinators unlocked");
   }
@@ -257,6 +256,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     discovered.clear();
     for (const n of authoredNames) discovered.add(n);
     saveDiscovered();
+    readout.invalidate(); // unmasked combinators changed → recompute the read-out
     hotbar.refresh();
     for (const t of trees) t.refresh();
     rerender3D(); // the 3D view follows the discovery mask too
@@ -284,6 +284,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     sound.playIfReady(law.sym); // chirp the new bird (only if audio's already unlocked — discovery isn't a gesture)
     hotbar.reveal(law.sym);
     for (const t of trees) t.refresh(); // reveal newly-known combinators everywhere
+    readout.invalidate(); // a newly-known combinator unmasks in the read-out too
     rerender3D(); // a newly-known combinator changes the 3D discovery mask too
     zoo.refresh();
     updateHint();
@@ -329,6 +330,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     hotbar.reveal(name);
     zoo.rebuild();
     updateHint();
+    readout.invalidate(); // a newly-authored combinator can appear named in the read-out
     paintRail();
     return law;
   }
@@ -807,8 +809,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // menu bar restyles itself via its own onThemeChange listener.
   function applyTheme(): void {
     pixi.renderer.background.color = theme.bg;
-    exprText.style.fill = theme.text;
-    nextHint.style.fill = theme.textDim;
+    nextHint.style.fill = theme.textDim; // the read-out box themes itself (onThemeChange)
     ghostLabel.style.fill = theme.text;
     fpsText.style.fill = theme.textDim;
     paintLegend(legend);
@@ -1177,7 +1178,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "sep" },
       { kind: "toggle", label: "Expand ι-trees", accel: "X", checked: () => expandAll, run: () => toggleExpand() },
       { kind: "toggle", label: "Type lens", checked: () => readout.isTypeOn, run: () => readout.toggleType() },
-      { kind: "toggle", label: "Re-fold lens", accel: "F", checked: () => readout.isRefoldOn, run: () => readout.toggleRefold() },
+      { kind: "radio", label: "Read-out: combinators", accel: "F", on: () => readout.view === "ski", run: () => readoutBox.setView("ski") },
+      { kind: "radio", label: "Read-out: named + native", on: () => readout.view === "named", run: () => readoutBox.setView("named") },
+      { kind: "radio", label: "Read-out: Barker (0/1)", on: () => readout.view === "barker", run: () => readoutBox.setView("barker") },
       { kind: "sep" },
       { kind: "toggle", label: "Dark mode", checked: () => currentMode() === "dark", run: () => toggleMode() },
       { kind: "toggle", label: "Color (4096)", checked: () => colorOn(), run: () => toggleColor() },
@@ -1215,8 +1218,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const currentModes = (): Modes => ({
     optimize: fastMode || undefined,
     graph: shareMode || undefined,
-    refold: readout.isRefoldOn || undefined,
-    type: readout.isTypeOn || undefined,
+    ...readout.modes(), // { view?, type? }
     expand: expandAll || undefined,
     page: hotbar.page,
     transport: reduce.mode,
@@ -1347,7 +1349,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     else if (e.key === "t" || e.key === "T") toggleLayout();
     else if (e.key === "u" || e.key === "U") unlockAll();
     else if (e.key === "x" || e.key === "X") toggleExpand();
-    else if (e.key === "f" || e.key === "F") readout.toggleRefold();
+    else if (e.key === "f" || e.key === "F") readout.cycleView();
     else if (e.key === "z" || e.key === "Z") zoo.toggle();
     else if (e.key === "g" || e.key === "G") challenges.toggle();
     else if (e.key === "d" || e.key === "D") setAuthorMode("define");
@@ -1381,11 +1383,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     c.addChild(l1, l2, l3);
   }
 
-  // Preload the re-folding lens wasm during the splash (it's otherwise lazy on
-  // first toggle). A real asset fetch — and it makes the lens instant when first
-  // used. ensureRefolder swallows a load failure (the behavioural-only re-folder
-  // still works), so this never blocks startup.
-  await readout.ensureRefolder();
+  // The re-folding lens wasm loads lazily on first entry to the "named + native" read-out view
+  // (an opt-in lens now), so there's no startup fetch here; the behavioural-only re-folder bridges
+  // until the egg stage arrives.
   if (isOpt("wasm")) void loadWasmReducer(); // persisted Turbo → warm the wasm so the first reduction uses it
   void preloadSphere3D(); // warm the Three.js chunk so the first 3D view is instant
   onStep("lenses"); // splash step 3/4
@@ -1426,7 +1426,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       game: { on: () => gameMode, set: (b: boolean) => setGameMode(b), state: () => gameInput.debugState },
       fast: { on: () => isOpt("rules"), set: (b: boolean) => setOpt("rules", b) },
       graph: { on: () => isOpt("graph"), set: (b: boolean) => setOpt("graph", b), eval: (s: string) => sexp(evalShared(fromEgg(s), 500000, fastMode).term) },
-      expr: () => exprText.text,
+      expr: () => readout.text,
+      view: { get: () => readout.view, cycle: () => readout.cycleView(), set: (v: string) => readoutBox.setView(v as "ski" | "named" | "barker") },
       page: () => hotbar.page,
       setPage: (name: string) => hotbar.selectPage(name),
       type: { on: () => readout.isTypeOn, toggle: () => readout.toggleType(), of: (s: string) => inferType(fromEgg(s)) },
@@ -1459,10 +1460,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
         defs: () => CATALOG.filter((l) => l.userDefined).map((l) => l.sym),
       },
       refold: {
-        on: () => readout.isRefoldOn,
+        // the re-folder now backs the "named + native" read-out view (no boolean toggle)
         ready: () => readout.refolderReady,
         init: () => readout.ensureRefolder(),
-        toggle: () => readout.toggleRefold(),
         raw: (s: string) => readout.rawRefold(s),
         // behavioural pre-pass alone, on an egg s-expression term
         deep: (s: string) => sexp(recognizeDeep(fromEgg(s))),
