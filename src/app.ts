@@ -352,6 +352,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     },
     morph3D: (tree, node, dur) => morphFocused3D(tree, node, dur),
     settleMorph3D: () => sphere3d.settleMorph(),
+    is3DPacing: (tree) => view3D && tree === focus, // 3D hides the 2D view → pace this tree to its morph
+    morph3DActive: () => sphere3d.morphing,
   });
 
   // Transport bar (top-right): rate read-out + Pause/Step/Play/FF — a thin view over the
@@ -1377,7 +1379,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       discover: (sym: string) => { const l = CATALOG.find((x) => x.sym === sym); if (l) discover(l); }, // dev seam: fire the discovery flow (card + chirp)
       mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : "topdown"),
       toggleLayout: () => toggleLayout(),
-      view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs, drawMs: sphere3d.lastDrawMs, az: sphere3d.azimuth, pan: sphere3d.panSum }), morph: () => sphere3d.debugMorph() },
+      view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs, drawMs: sphere3d.lastDrawMs, morphMs: sphere3d.lastMorphFrameMs, az: sphere3d.azimuth, pan: sphere3d.panSum }), morph: () => sphere3d.debugMorph() },
       transport: { mode: () => reduce.mode, set: (m: string) => reduce.setTransport(m as Transport), cycle: () => reduce.cycleTransport(), step: () => reduce.stepOnce() },
       autoSteps: () => reduce.totalSteps(),
       est: () => ({ ...reduce.estimate, shown: reduce.focusedSteps() }),
