@@ -25,7 +25,18 @@ const PAN = 0.0016; // pan world-units per pixel, scaled by orbit radius (consis
 const POLAR_MIN = 0.08;
 const POLAR_MAX = Math.PI - 0.08;
 const DPR_CAP = 1.5; // cap the 3D canvas DPR — the texture re-upload per orbit step is the cost, not the draw
-const MORPH_CAP = 600; // above this the per-frame morph tween is too costly — jump-cut (snap) the step, like the 2D HEAVY path
+// Above this combined node count the per-step morph jump-cuts (snap) instead of tweening. Raised
+// from 600 once the reduction loop paces itself to the morph (3D mode hides the 2D view, so the
+// focused tree only advances when its morph completes — see ReductionController). Measured: the
+// per-frame CPU morph cost (matrices + edge rewrite + dash recompute) stays under ~5 ms up to ~5–6k
+// nodes, which covers the ballooned middle of small Scott arithmetic (e.g. (+) 1 1 peaks ~1.6k,
+// (+) 2 2 ~5.2k). Bigger blow-ups still snap (and anything past NODE_CAP exits to 2D).
+const MORPH_CAP = 6000;
+// Clamp the per-frame morph advance: a single huge tick (a frame hitch, a backgrounded tab, a slow
+// machine) must not jump the tween straight to its end — that reads as the snap we're removing. Above
+// ~20 fps this never bites (deltaMS < 50); below it the morph plays in slight slow-motion instead of
+// teleporting. The reduction loop paces to the morph, so a slower morph just means a slower step.
+const MORPH_MAX_DT = 50;
 const EDGE_OPACITY = 0.85; // edges more opaque than before so the fn/arg cue reads (ADR 0010 follow-up)
 const DASH_SIZE = 16; // arg (right) edges are DASHED, fn (left) solid — the 3D echo of the 2D solid/dashed legend
 const GAP_SIZE = 11; // (layout shells are ~92 units apart, so ~3 dashes per edge)
@@ -114,6 +125,7 @@ export class Sphere3D {
   lastCapped = false;
   lastBuildMs = 0;
   lastDrawMs = 0; // wall-clock of the last orbit render + texture re-upload (the per-frame cost)
+  lastMorphFrameMs = 0; // CPU cost of the last advanceMorph frame (matrices + edge rewrite + dash recompute), excl. the GPU draw — the metric the MORPH_CAP is tuned against
   bg: number | null = null; // scene background override (the preview matches its box); null = theme.bg
   frameMargin = 1.6; // camera pull-back factor when framing (smaller = the ball fills more of the view)
   frameFloor = 120; // min framing radius (keeps a tiny tree from clipping; the preview lowers it to fill its box)
@@ -335,7 +347,8 @@ export class Sphere3D {
     const m = this.morph;
     if (!m || !THREE) return false;
     const three = THREE;
-    m.elapsed += dtMS;
+    const t0 = performance.now();
+    m.elapsed += Math.min(dtMS, MORPH_MAX_DT); // clamp so a frame hitch can't snap the tween to its end
     const t = Math.min(1, m.elapsed / m.duration);
     const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2; // easeInOut
     const M = new three.Matrix4();
@@ -366,6 +379,7 @@ export class Sphere3D {
       e.seg.geometry.getAttribute("position").needsUpdate = true;
       if (e.dashed) e.seg.computeLineDistances(); // endpoints moved → recompute the dash pattern
     }
+    this.lastMorphFrameMs = performance.now() - t0; // CPU morph work this frame, excl. the GPU draw below
     this.draw();
     if (t >= 1) {
       this.morph = null;
