@@ -12,6 +12,7 @@ import { type Node, exceedsNodes } from "../core/term";
 import { type NativeOpts } from "../core/native";
 import { type TreeView } from "./tree";
 import { type WasmSession } from "./wasmReducer";
+import { ReductionEstimator, type EstimateState } from "./reductionEstimator";
 
 const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducing (§6.4)
 const STEP_MS = 300; // duration of one reduction-step tween
@@ -77,8 +78,28 @@ export class ReductionController {
   private readonly auto = new Map<TreeView, AutoState>();
   private transport: Transport = "play"; // trees reduce on their own; auto-pauses if a term won't terminate or blows up
   private mult = 1; // running speed multiplier (set by play/ff or setSpeedLevel); read live so speed changes are seamless
+  // Background estimate of the focused tree's total contractions, for the progress bar (plan 02).
+  private readonly estimator = new ReductionEstimator();
+  private estimateTree: TreeView | null = null;
 
   constructor(private readonly deps: ReductionDeps) {}
+
+  /** The focused tree's reduction progress for the bar: its estimate + how far it's played. */
+  get estimate(): EstimateState {
+    return this.estimateTree && this.estimateTree === this.deps.focusedLive() ? this.estimator.state : { kind: "idle" };
+  }
+  /** Contractions the visible reducer has played on the focused tree so far. */
+  focusedSteps(): number {
+    const f = this.deps.focusedLive();
+    return f ? (this.auto.get(f)?.steps ?? 0) : 0;
+  }
+  /** (Re)start the background estimate for `tree` if it is the focused one (same-mode → exact), keyed
+   *  to the term + mode at this moment so the bar's numerator (steps from here) shares its baseline. */
+  private refreshEstimate(tree: TreeView): void {
+    if (tree !== this.deps.focusedLive()) return;
+    this.estimateTree = tree;
+    this.estimator.estimate(tree.node, { fast: this.deps.getFast(), native: this.deps.getNative(), share: this.deps.getShare(), turbo: this.deps.getTurbo() });
+  }
 
   // The live speed multiplier (1× … 8×); only resuming from pause re-kicks the loop.
   private speed(): number {
@@ -107,6 +128,10 @@ export class ReductionController {
    *  pending timer fires on a destroyed tree, then drop its state. */
   forget(tree: TreeView): void {
     this.cancel(tree);
+    if (this.estimateTree === tree) {
+      this.estimateTree = null;
+      this.estimator.cancel(); // stop counting a removed tree's (possibly ballooning) reduction
+    }
     this.auto.delete(tree);
   }
 
@@ -164,6 +189,7 @@ export class ReductionController {
     const gen = a.gen;
     const tick = turbo ? () => this.turboTick(tree, gen) : () => this.stepAuto(tree, gen);
     a.timer = window.setTimeout(tick, AUTO_DELAY);
+    this.refreshEstimate(tree); // kick the background total-count estimate for the bar (focused tree only)
   }
 
   // Turbo loop: spend a wall-clock budget running resident wasm contractions, then reflow
@@ -400,6 +426,7 @@ export class ReductionController {
         a.timer = window.setTimeout(() => this.turboTick(tree, gen), 0);
       } else if (redexAt(tree.node, 0, this.deps.getFast(), this.deps.getNative())) {
         a.steps = 0; // explicit resume = "keep going" → a fresh budget before auto-pause re-trips
+        this.refreshEstimate(tree); // re-count from here so the bar's numerator + denominator share a baseline
         a.gen++;
         const gen = a.gen;
         a.timer = window.setTimeout(() => this.stepAuto(tree, gen), 0);
