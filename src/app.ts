@@ -475,8 +475,11 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   };
   const hotbar = new Hotbar(
     (node, e) => {
+      if (drag) return; // already carrying — put it down first
       if (sound.enabled) sound.play(headSym(node)); // grabbing a combinator off the hotbar plays its tone
-      drag = { kind: "spawn", tree: spawnTree(node, e.global.x, e.global.y) };
+      const t = spawnTree(node, e.global.x, e.global.y);
+      t.container.eventMode = "none"; // passive while carried
+      drag = { kind: "spawn", tree: t };
     },
     pixi.ticker,
     isDiscovered,
@@ -542,12 +545,14 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       paintRail();
       return;
     }
+    if (drag && drag.kind !== "pan") return putDown(tree); // already carrying → this click drops it onto this tree (apply)
     focus = tree;
     if (sound.enabled) sound.play(headSym(tree.node)); // picking a tree up plays its (head) combinator tone
     reduce.cancel(tree); // touching a tree freezes it (§6.4)
     gameInput?.detach(tree); // grabbing a bucket tree with the mouse releases its slot (ADR 17)
     const w = screenToWorld(e.global.x, e.global.y);
     world.addChild(tree.container); // bring to front
+    tree.container.eventMode = "none"; // passive while carried, so the next click reaches what's underneath
     drag = {
       kind: "tree",
       tree,
@@ -591,6 +596,21 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     spawnTreeWorld(cloneTerm(sub), w.x + 60, w.y + 60);
   }
 
+  /** Put the carried tree down — the second click of the carry model. Apply it to `target` (or the
+   *  snap-highlighted tree) — commitSnap picks fn vs arg by the carried root's side (left = fn) — else
+   *  drop it free where it sits and it begins reducing. */
+  function putDown(target?: TreeView): void {
+    if (!drag || drag.kind === "pan") return;
+    const tree = drag.tree;
+    tree.container.eventMode = "static"; // restore interactivity now it's placed
+    if (sound.enabled) sound.drop(); // a soft cue on release (snap or settle), now that the drop is a click
+    const tgt = target ?? snapTarget;
+    if (tgt && tgt !== tree) commitSnap(tree, tgt);
+    else reduce.schedule(tree); // free placement → reduces where it was dropped
+    clearGhost();
+    drag = null;
+  }
+
   pixi.stage.on("pointerdown", (e: FederatedPointerEvent) => {
     if (view3D) {
       if (e.pointerType === "touch") return; // touch is handled at the canvas level (1-finger pan / 2-finger orbit)
@@ -598,7 +618,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       else if (e.button === 2) orbitDrag = { x: e.global.x, y: e.global.y }; // 3D: right-drag orbits
       return;
     }
-    if (drag || pinch || e.button !== 0) return; // a tree/slot claimed it, pinching, or a right-click
+    if (pinch || e.button !== 0) return; // pinching, or a right-click (the menu)
+    if (drag) { if (drag.kind !== "pan") putDown(); return; } // carrying → drop it here (free, or snap if near a tree)
     drag = {
       kind: "pan",
       startX: e.global.x,
@@ -645,18 +666,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
     orbitDrag = null; // end a 3D orbit drag
     panDrag = null; // end a 3D pan drag
-    if (!drag) return;
-    if (drag.kind === "tree" || drag.kind === "spawn") {
-      const tree = drag.tree;
-      if (sound.enabled) sound.drop(); // a soft cue on release (snap or settle)
-      if (snapTarget) {
-        commitSnap(tree, snapTarget);
-      } else {
-        reduce.schedule(tree); // released untouched → it begins reducing
-      }
-    }
-    clearGhost();
-    drag = null;
+    if (drag?.kind === "pan") drag = null; // end a camera pan; a carried tree keeps following until the next click
   };
   pixi.stage.on("pointerup", onUp);
   pixi.stage.on("pointerupoutside", onUp);
