@@ -79,4 +79,20 @@ export const EXAMPLES: Example[] = [
     root: "Ex.out",
     read: "Int",
   },
+  {
+    name: "lt",
+    title: "less-than",
+    blurb: "2 < 3 — a comparison on Scott naturals, reading back the Scott Boolean True.",
+    source: mod("out :: Bool\nout = (2 :: Int) < 3"),
+    root: "Ex.out",
+    read: "Bool",
+  },
+  {
+    name: "quicksort",
+    title: "quicksort",
+    blurb: "quicksort [3,1,2] — partition by a pivot with filter, recurse, ++ the parts. A meaty tree.",
+    source: mod("qs :: [Int] -> [Int]\nqs [] = []\nqs (p:xs) = qs (filter (< p) xs) ++ (p : qs (filter (>= p) xs))\nout :: [Int]\nout = qs [3, 1, 2]"),
+    root: "Ex.out",
+    read: "List",
+  },
 ];
