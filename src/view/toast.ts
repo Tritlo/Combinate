@@ -21,15 +21,14 @@ export class Toast {
 
   show(text: string): void {
     for (const c of this.container.removeChildren()) c.destroy({ children: true });
-    const t = new Text({ text, style: { fontFamily: "monospace", fontSize: 20, fill: theme.iota } });
+    // System-1 chrome: paper panel, square ink border, a hard drop shadow, ink text (no accent colour).
+    const t = new Text({ text, style: { fontFamily: "monospace", fontSize: 18, fill: theme.text } });
     t.anchor.set(0.5);
-    const w = t.width + 44;
-    const h = t.height + 24;
-    const bg = new Graphics()
-      .roundRect(-w / 2, -h / 2, w, h, 10)
-      .fill({ color: theme.panel })
-      .stroke({ width: 2, color: theme.iota, alpha: 0.5 });
-    this.container.addChild(bg, t);
+    const w = t.width + 40;
+    const h = t.height + 20;
+    const shadow = new Graphics().rect(-w / 2 + 3, -h / 2 + 3, w, h).fill({ color: 0x000000, alpha: 0.2 });
+    const bg = new Graphics().rect(-w / 2, -h / 2, w, h).fill({ color: theme.panel }).stroke({ width: 1.5, color: theme.border });
+    this.container.addChild(shadow, bg, t);
     this.container.visible = true;
     this.layout();
     this.elapsed = 0;
