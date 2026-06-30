@@ -27,3 +27,22 @@
 - **Reduced-motion** → a short static show/hold, no flash.
 - **Fold the discovery tone here** (moved out of `discover()` per [03]). Handle burst discoveries
   with replace-or-queue. Don't fire for authored-only names or during a progress reset.
+
+## User refinement (supersedes the "flash" framing above)
+- It's a discovery **CARD**, not a flash: it shows the discovered combinator's **catalog entry**
+  AND a small **3D rotating view** of it (reuse the [04] mini-3D auto-rotate widget). It must
+  complete **at least one full rotation before fading**.
+- Behaviour like a toast: **appears, holds, then fades after a while** — plus a **dismiss [x]**
+  in the top-right corner of the card. Position under/left of the tracked quest (phone fallback
+  per above).
+- **Drop the existing discovery toast** (the card replaces it). Reduced-motion → static (no spin),
+  brief hold.
+- Shares the mini-3D-auto-rotate widget with [04] (Zoo 3D) — build it once, reuse in both.
+
+## Completeness review fixes (council)
+- **Rotation timing**: "≥1 rotation before fade" at a slow ~15°/s = ~24s — NOT toast-like. Fix:
+  the card's mini-3D spins FAST (e.g. one full turn in ~2-3s), an explicit max lifetime, and
+  dismiss / reduced-motion bypass the rotation (static).
+- **No-WebGL fallback**: the card shows the 2D `renderPicture` if the 3D stack can't load —
+  discovery must never depend on WebGL succeeding.
+- Uses the POOLED `MiniSpherePreview` (shared with [04]) with card-takes-priority contention.

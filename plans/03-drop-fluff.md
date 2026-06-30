@@ -32,3 +32,9 @@
   discovery chirp out of `discover()` into the [05] flash site.
 - Watch: scattered `isFluff()` call sites (tree.ts, zoo.ts, app.ts), the `prevLeaves` hack, any
   E2E that pokes the Fluff menu. Update/retire the Fluff ADR.
+
+## User refinement
+- Reframe the negative `prefersReducedMotion()` to a positive `withMotion()` / `motionOk()`
+  (it currently reads backwards) while keeping the underlying `prefers-reduced-motion` media
+  query. Get rid of the motion + leaves (drift/sway/leaf sprites). **Clean up thoroughly
+  afterwards** — no orphaned constants, textures, ticker hooks, CSS, or dead branches.

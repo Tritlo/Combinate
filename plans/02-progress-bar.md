@@ -46,3 +46,8 @@
   estimator (a stale denominator is worse than no bar).
 - Confirmed: **drop the compile auto-on optimizations** (the "confusing" default); opts stay
   opt-in via the menu.
+
+## User refinement
+- Optimizations (turbo / native ints / etc.) STAY AVAILABLE as opt-in menu toggles — we're only
+  removing the auto-on-by-default. The estimator just FOLLOWS the current settings and counts the
+  final reduction total (fast, same-mode background run), then we play it slowly with the bar.

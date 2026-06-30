@@ -49,3 +49,8 @@ Do first — it settles the camera/input model the gamepad + touch reuse.
 - **Gamepad**: L-stick orbit · right-stick pan · LT/RT zoom · R3 recenter (extend the gamepad
   sink/poll for the inspect context). **Touch**: 1-finger pan · 2-finger orbit · pinch zoom
   (consistent with mouse left=pan + the user's "move around / rotate").
+
+## User refinement
+- The 3D ι-tree rendering FOLLOWS the "Expand ι-trees" setting, and the 3D view **re-renders
+  when settings change** (expand toggle, color mode, theme, native/optimize toggles that change
+  the displayed term) — hook the existing settings-change events to `sphere3d.update`.
