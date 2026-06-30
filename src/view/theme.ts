@@ -20,7 +20,7 @@ export interface Theme {
   accent: number; // UI accent — gold (mono) / blue (colour)
   node: number; // combinator dot fill (ink in mono, blue in colour)
   nodeGlyph: number; // the letter on a combinator dot (paper in mono, white in colour)
-  iota: number; // ι gold / amber — the one reserved node colour
+  iota: number; // the brand accent (tricolor red) — titles, active states. Historically the gold ι (now a grey node).
   iotaGlyph: number; // text drawn on the ι dot
   root: number; // highlight ring on a tree's root (the snap anchor)
   select: number; // selected Zoo / challenge row (a quiet grey under unchanged text)
@@ -40,36 +40,33 @@ const COLOR_DARK: Theme = {
   bg: 0x111111, panel: 0x222222, inset: 0x000000, border: 0xcccccc,
   text: 0xffffff, textDim: 0xaaaaaa, mutedDot: 0x888888,
   accent: 0xff8822, node: 0xbb55bb, nodeGlyph: 0x111111, // Apple purple dot, dark glyph
-  iota: 0xffbb22, iotaGlyph: 0x111111,
+  iota: 0xee4444, iotaGlyph: 0x111111, // the brand accent — red (the gold was dropped)
   root: 0x66cc44, select: 0x333344, backdrop: 0x000000, backdropAlpha: 0.72, // Apple green
 };
 const COLOR_LIGHT: Theme = {
   bg: 0xffffff, panel: 0xeeeeee, inset: 0xdddddd, border: 0x222222, // white canvas, black ink
   text: 0x000000, textDim: 0x555555, mutedDot: 0x999999,
   accent: 0x0099dd, node: 0x994499, nodeGlyph: 0xffffff, // Apple purple dot, white glyph
-  iota: 0x995500, iotaGlyph: 0xffffff,
+  iota: 0xcc2222, iotaGlyph: 0xffffff, // the brand accent — red (the gold was dropped)
   root: 0x006622, select: 0xdddddd, backdrop: 0x000000, backdropAlpha: 0.45, // deep green (tick-safe)
 };
 
-// ---- Tricolor mode (default): red / black / white. Paper (white) + ink (black),
-// with a splash of red — tree edges alternate ink/red by depth tier (the red/black-
-// tree cue; see edgeTierColor) and fn/arg are told apart by solid vs dashed. Plus
-// the one gold ι (the generator / brand). No other hues; the six-colour palette is
-// the opt-in. ----
+// ---- Tricolor mode (default): red / black / white. Paper (white) + ink (black) + red. Tree edges
+// alternate ink/red by depth tier (the red/black-tree cue; see edgeTierColor) and fn/arg are told
+// apart by solid vs dashed; the UI accent (titles, active states — `iota`/`accent`) is the same red.
+// No gold, no other hues; the six-colour palette is the opt-in. ----
 const MONO_DARK: Theme = {
   bg: 0x07090d, panel: 0x07090d, inset: 0x0d1117, border: 0xf0f3f6,
   text: 0xf0f3f6, textDim: 0x9aa3ad, mutedDot: 0x6e7681,
-  accent: 0xf0b72f, node: 0xf0f3f6, nodeGlyph: 0x07090d,
-  iota: 0xf0b72f, iotaGlyph: 0x07090d,
+  accent: 0xee4444, node: 0xf0f3f6, nodeGlyph: 0x07090d, // red accent (was gold)
+  iota: 0xee4444, iotaGlyph: 0x07090d,
   root: 0xf0f3f6, select: 0x21262d, backdrop: 0x000000, backdropAlpha: 0.72,
 };
 const MONO_LIGHT: Theme = {
   bg: 0xffffff, panel: 0xffffff, inset: 0xf2f2f2, border: 0x000000,
   text: 0x000000, textDim: 0x5a5a5a, mutedDot: 0x8a8a8a,
-  // a darker gold so it passes contrast both as the ι dot (white glyph) and as
-  // foreground text on white panels (Zoo tab/heading accents).
-  accent: 0x8a6300, node: 0x000000, nodeGlyph: 0xffffff,
-  iota: 0x8a6300, iotaGlyph: 0xffffff,
+  accent: 0xcc2222, node: 0x000000, nodeGlyph: 0xffffff, // red accent (was gold)
+  iota: 0xcc2222, iotaGlyph: 0xffffff,
   root: 0x000000, select: 0xdcdcdc, backdrop: 0x000000, backdropAlpha: 0.45,
 };
 
