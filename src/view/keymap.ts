@@ -119,6 +119,7 @@ export const HINTS: Record<Context, Hint[]> = {
     { label: "Move", kbd: "←→", pad: "✚" },
     { label: "Pick up / Place", kbd: "Space", pad: "Ⓐ" },
     { label: "Drop", kbd: "Esc", pad: "Ⓑ" },
+    { label: "Copy / Delete", kbd: "C", pad: "Ⓧ" },
     { label: "3D", kbd: "V", pad: "Ⓨ" },
   ],
   inspect: [
