@@ -55,6 +55,8 @@ export interface GameScene {
   getSpeedLevel: () => number;
   /** Esc with an empty hand opens the menu bar. */
   openMenu: () => void;
+  /** Every tree currently on the canvas — entering keyboard mode pulls any loose ones into buckets. */
+  allTrees: () => TreeView[];
   toast: (msg: string) => void;
 }
 
@@ -115,6 +117,14 @@ export class GameInputController {
   setEnabled(on: boolean): void {
     this.on = on;
     if (on) {
+      const wasEmpty = this.buckets.size === 0;
+      if (this.assignBuckets()) {
+        if (wasEmpty) {
+          this.zone = "buckets"; // first entry → start in the freshly-gathered strip
+          this.selected = 0;
+        }
+        this.frameSelected(); // we just arranged loose trees into the strip → show it
+      }
       this.scene.hotbar.setGameCursor(this.zone === "hotbar" ? 0 : null);
       this.renderPreview(); // re-show the held ghost if we re-enter mid-build (no-op when empty-handed)
     } else {
@@ -123,6 +133,24 @@ export class GameInputController {
       this.clearPreview(); // a device switch / 3D entry must never strand a preview ghost
     }
     this.render(); // the held badge follows the hand (device-agnostic); 3D entry hides it explicitly
+  }
+
+  /** Pull every canvas tree not yet in a bucket into a fresh one (appended to the strip, left-to-right
+   *  by position) and snap it to that bucket's anchor — so entering keyboard mode gathers all loose
+   *  trees into the navigable strip. Returns true if any tree was newly assigned. */
+  private assignBuckets(): boolean {
+    const held = new Set(this.buckets.values());
+    const loose = this.scene.allTrees().filter((t) => !held.has(t));
+    if (loose.length === 0) return false;
+    loose.sort((a, b) => a.rootWorld.x - b.rootWorld.x); // left-to-right canvas order
+    let k = this.buckets.size ? Math.max(...this.buckets.keys()) + 1 : 0;
+    for (const t of loose) {
+      this.buckets.set(k, t);
+      const anchor = this.scene.bucketAnchor(k);
+      t.container.position.set(anchor.x, anchor.y);
+      k++;
+    }
+    return true;
   }
 
   /** A bucket tree was grabbed/removed by the mouse — release the slot (the one desync rule). */

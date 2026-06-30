@@ -1141,6 +1141,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     setSpeed: (lvl) => reduce.setSpeedLevel(lvl),
     getSpeedLevel: () => reduce.speedLevel,
     openMenu: () => menuBar?.openMenuBar(),
+    allTrees: () => trees,
     toast: (m) => toast.show(m),
   });
   // Wire the initial controls state: the hints follow the "Show controls" pref, the visuals follow
