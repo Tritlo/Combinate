@@ -13,7 +13,7 @@ import { activeDevice } from "./inputDevice";
 const H = 26; // chip height
 const PADX = 10; // chip horizontal padding
 const GAP = 8; // gap between chips
-const BOTTOM = 30; // distance from the bottom edge
+const ABOVE = 12; // gap between the hint row and the toolbar's top edge
 
 export class HintBar {
   readonly container = new Container();
@@ -31,9 +31,9 @@ export class HintBar {
     this.refresh();
   }
 
-  /** Reposition on resize (centre the row near the bottom). */
-  place(width: number, height: number): void {
-    this.container.position.set(width / 2, height - BOTTOM);
+  /** Reposition: centre the row just above the toolbar's top edge (`toolbarTop`). */
+  place(width: number, toolbarTop: number): void {
+    this.container.position.set(width / 2, toolbarTop - ABOVE);
   }
 
   /** Repaint with the current device's glyphs (also call on device change). */

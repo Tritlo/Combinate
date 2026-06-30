@@ -10,9 +10,11 @@
  *
  * Shows are SERIALIZED through a single-slot queue keyed by a monotonic `seq`: only one
  * `Sphere3D.show()` runs at a time, only the LATEST request is kept, and `release()` bumps `seq` so
- * an in-flight show for the released owner can't commit (no orphaned spinning preview). Renders on a
- * dt-scaled rAF loop, paused with no holder / hidden tab / reduced motion; degrades to null (caller
- * keeps 2D) when WebGL/Three can't load.
+ * an in-flight show for the released owner can't commit (no orphaned spinning preview). The spin is
+ * advanced by the host's Pixi {@link tick} (NOT a private rAF) so the Three-canvas mutation and the
+ * Pixi texture upload share one cadence — a private rAF can mutate Three while Pixi still shows the
+ * last-uploaded (stale) texture, which read as "not spinning". Paused with no holder / hidden tab /
+ * reduced motion; degrades to null (caller keeps 2D) when WebGL/Three can't load.
  */
 import { type Node } from "../core/term";
 import { Sphere3D } from "./sphere3d";
@@ -52,8 +54,6 @@ class SpherePreview {
   private pending: Lease | null = null; // the latest queued request awaiting its show()
   private busy = false; // a show() is in flight
   private running: Lease | null = null; // the in-flight show's request (for priority + release-cancellation)
-  private raf = 0;
-  private lastT = 0;
   private readonly availCbs: Array<() => void> = [];
 
   /** The canvas a borrower composites / appends (a stable, shared source). */
@@ -102,10 +102,17 @@ class SpherePreview {
 
   private stop(): void {
     this.current = null;
-    cancelAnimationFrame(this.raf);
-    this.raf = 0;
     this.sphere.onFrame = null;
     this.sphere.hide();
+  }
+
+  /** Advance the active preview's spin by `dtMS` — call this from the host's Pixi ticker so the
+   *  canvas mutation lands in the same frame Pixi uploads the texture. A no-op with no holder. */
+  tick(dtMS: number): void {
+    const lease = this.current;
+    if (!lease) return;
+    const dt = Math.min(dtMS / 1000, 0.05); // clamp a hidden-tab resume
+    if (dt > 0 && withMotion() && !document.hidden) this.sphere.orbit(lease.spin * dt, 0);
   }
 
   // Drain the single-slot queue: run the latest pending show() and commit it only if still newest.
@@ -125,8 +132,8 @@ class SpherePreview {
         if (this.current && this.current.owner !== req.owner) this.current.onPreempt?.(); // displaced owner → 2D
         this.current = req;
         this.sphere.onFrame = req.onFrame;
-        this.startSpin();
-        canvas = this.sphere.canvas;
+        canvas = this.sphere.canvas; // spun by the host's tick() on the Pixi ticker
+
       }
     } catch {
       if (req.seq === this.seq && this.current?.owner === req.owner) this.stop();
@@ -137,21 +144,7 @@ class SpherePreview {
     if (this.pending) void this.pump(); // a newer request queued while we ran
     else if (!this.current) this.notifyAvailable(); // a show was cancelled mid-flight and nothing took over
   }
-
-  private startSpin(): void {
-    cancelAnimationFrame(this.raf);
-    this.lastT = 0;
-    const loop = (t: number): void => {
-      const lease = this.current;
-      if (!lease) return; // released / preempted
-      const dt = this.lastT ? Math.min((t - this.lastT) / 1000, 0.05) : 0; // clamp a hidden-tab resume
-      this.lastT = t;
-      if (dt > 0 && withMotion() && !document.hidden) this.sphere.orbit(lease.spin * dt, 0);
-      this.raf = requestAnimationFrame(loop);
-    };
-    this.raf = requestAnimationFrame(loop);
-  }
 }
 
-/** The single pooled preview (Zoo + discovery card take turns; the card outranks the Zoo). */
+/** The single pooled preview (only the Zoo uses it now; the discovery card draws 2D). */
 export const spherePreview = new SpherePreview();

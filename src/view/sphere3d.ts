@@ -2,9 +2,10 @@
  * The 3D "packed sphere" view (ADR 18) — a lazy Three.js renderer for the focused term. It
  * renders {@link layoutSphere} as instanced spheres + coloured edges into its OWN off-DOM
  * canvas; the owner draws that canvas as a Pixi texture sprite so the Pixi HUD composites on
- * top (compositing "A", Magi-consensus — no separate overlay covering the HUD). Static + read-
- * only (no reduction animation yet): re-renders on demand (term / theme / resize / orbit), each
- * render firing {@link onFrame} so the owner can re-upload the texture. The camera is a small
+ * top (compositing "A", Magi-consensus — no separate overlay covering the HUD). Re-renders on
+ * demand (term / theme / resize / orbit) and animates reduction steps via {@link animateTo} +
+ * {@link advanceMorph} (plan 06: survivors glide, new nodes scale in, dropped scale out — the 3D
+ * echo of TreeView.animateTo), each render firing {@link onFrame} so the owner re-uploads. The camera is a small
  * orbit driven by the host's Pixi pointer events ({@link orbit} / {@link zoomBy}) — no
  * OrbitControls, since the canvas isn't in the DOM. Three is dynamic-imported on first entry
  * (the lazy-heavy pattern); WebGL by default, WebGPU when the optimization is on (it auto-falls-
@@ -13,7 +14,7 @@
 import type * as T from "three";
 import { type Node } from "../core/term";
 import { layoutSphere } from "../core/layout3d";
-import { theme, combinatorColor } from "./theme";
+import { theme, combinatorColor, edgeTierColor } from "./theme";
 
 /** Beyond this node count the static scene gets heavy to build/draw — the app preflights this
  *  (iteratively, deep-safe) before entering 3D. */
@@ -24,6 +25,44 @@ const PAN = 0.0016; // pan world-units per pixel, scaled by orbit radius (consis
 const POLAR_MIN = 0.08;
 const POLAR_MAX = Math.PI - 0.08;
 const DPR_CAP = 1.5; // cap the 3D canvas DPR — the texture re-upload per orbit step is the cost, not the draw
+const MORPH_CAP = 600; // above this the per-frame morph tween is too costly — jump-cut (snap) the step, like the 2D HEAVY path
+const EDGE_OPACITY = 0.85; // edges more opaque than before so the fn/arg cue reads (ADR 0010 follow-up)
+const DASH_SIZE = 16; // arg (right) edges are DASHED, fn (left) solid — the 3D echo of the 2D solid/dashed legend
+const GAP_SIZE = 11; // (layout shells are ~92 units apart, so ~3 dashes per edge)
+
+type Pos3 = { x: number; y: number; z: number };
+// One node's tween across a reduction step: instance slot, from→to position, base radius, scale 0/1.
+interface MorphAnim {
+  i: number;
+  id: number;
+  fx: number;
+  fy: number;
+  fz: number;
+  tx: number;
+  ty: number;
+  tz: number;
+  baseR: number;
+  sFrom: number; // 1 survivor/exit start, 0 enter start
+  sTo: number; // 1 survivor/enter end, 0 exit end
+}
+// An in-flight reduction-step morph: its own InstancedMesh + edge buffer, advanced frame by frame.
+// fn (solid) + arg (dashed) edges as separate batches so left/right reads; positions rewritten each frame.
+interface EdgeBatch {
+  seg: T.LineSegments;
+  pos: Float32Array;
+  pairs: Array<[number, number]>;
+  dashed: boolean;
+}
+interface Morph {
+  mesh: T.InstancedMesh;
+  anims: MorphAnim[];
+  edges: EdgeBatch[];
+  curPos: Map<number, Pos3>;
+  node: Node; // the settled term to snap to when the tween ends
+  newPos: Map<number, Pos3>;
+  elapsed: number;
+  duration: number;
+}
 
 // Lazily-loaded Three module (WebGL — see ADR 18; WebGPU was dropped as not worth the
 // maintenance/portability cost for this static scene).
@@ -38,16 +77,16 @@ export function preloadSphere3D(): Promise<void> {
 }
 
 // Per-kind node radius + colour (a 3D echo of tree.ts's visSpec, reusing the theme).
-function nodeStyle(n: Node): { radius: number; color: number } {
+function nodeStyle(n: Node, depth: number): { radius: number; color: number } {
   switch (n.kind) {
     case "iota":
-      return { radius: 9, color: theme.iota };
+      return { radius: 9, color: theme.mutedDot }; // grey sphere — ι is the bare generator (no longer gold)
     case "comb":
       return { radius: 18, color: combinatorColor(n.sym) };
     case "free":
       return { radius: 15, color: theme.mutedDot };
     default:
-      return { radius: 7, color: theme.mutedDot }; // app junction
+      return { radius: 7, color: depth > 0 ? edgeTierColor(depth - 1) : theme.text }; // app junction takes its incoming-edge tier (root: ink)
   }
 }
 
@@ -78,6 +117,11 @@ export class Sphere3D {
   bg: number | null = null; // scene background override (the preview matches its box); null = theme.bg
   frameMargin = 1.6; // camera pull-back factor when framing (smaller = the ball fills more of the view)
   frameFloor = 120; // min framing radius (keeps a tiny tree from clipping; the preview lowers it to fill its box)
+  drawCount = 0; // renders since boot (dev seam: confirms the morph render loop actually advanced)
+  private lastPos = new Map<number, Pos3>(); // currently-displayed node positions — the next morph's `from`
+  private lastNodes = new Map<number, Node>(); // currently-displayed nodes (to colour/size dropped nodes)
+  private lastDepth = new Map<number, number>(); // currently-displayed node depths (app nodes take their incoming-edge tier)
+  private morph: Morph | null = null;
 
   /** Current orbit azimuth (for the dev seam / E2E — confirms rotation). */
   get azimuth(): number {
@@ -110,6 +154,7 @@ export class Sphere3D {
 
   hide(): void {
     this.on = false;
+    this.morph = null; // exiting mid-morph: drop it so the host's ticker can't advance a stale/disposed group
   }
 
   private ensureScene(): void {
@@ -128,6 +173,7 @@ export class Sphere3D {
    *  repaint — theme/colour — must not reset the user's orbit/pan). Cheap to call again. */
   update(node: Node | null, keepCamera = false): void {
     this.current = node;
+    this.morph = null; // an external rebuild (theme / Expand / discovery / settle) supersedes any in-flight morph; its group is disposed below
     if (!this.on || !THREE || !this.scene) return;
     const three = THREE;
     this.scene.background = new three.Color(this.bg ?? theme.bg);
@@ -139,6 +185,9 @@ export class Sphere3D {
     if (!node) {
       this.lastCount = 0;
       this.lastCapped = false;
+      this.lastPos = new Map();
+      this.lastNodes = new Map();
+      this.lastDepth = new Map();
       this.draw();
       return;
     }
@@ -147,6 +196,9 @@ export class Sphere3D {
     this.lastCount = pos.size;
     this.lastCapped = pos.size > NODE_CAP;
     if (this.lastCapped) {
+      this.lastPos = new Map(); // can't morph from a tree we never laid out — the next step snaps
+      this.lastNodes = new Map();
+      this.lastDepth = new Map();
       this.draw();
       return; // too big to build a static scene — blank (the toast lives in app.ts)
     }
@@ -156,11 +208,203 @@ export class Sphere3D {
     if (edges) group.add(edges);
     this.scene.add(group);
     this.content = group;
+    this.lastPos = pos;
+    this.lastNodes = this.collect(node);
+    this.lastDepth = this.depthMap(node);
     this.lastRadius = radius;
     if (keepCamera) this.place();
     else this.frame(radius);
     this.draw();
     this.lastBuildMs = performance.now() - t0;
+  }
+
+  // id → Node for the displayed tree (to style dropped nodes + walk new-tree edges).
+  private collect(root: Node): Map<number, Node> {
+    const m = new Map<number, Node>();
+    const walk = (n: Node): void => {
+      if (m.has(n.id)) return;
+      m.set(n.id, n);
+      if (n.kind === "app") {
+        walk(n.fn);
+        walk(n.arg);
+      }
+    };
+    walk(root);
+    return m;
+  }
+
+  // id → depth (first visit), so an app node can take its incoming-edge tier (edgeTierColor(depth-1)).
+  private depthMap(root: Node): Map<number, number> {
+    const m = new Map<number, number>();
+    const walk = (n: Node, d: number): void => {
+      if (m.has(n.id)) return;
+      m.set(n.id, d);
+      if (n.kind === "app") {
+        walk(n.fn, d + 1);
+        walk(n.arg, d + 1);
+      }
+    };
+    walk(root, 0);
+    return m;
+  }
+
+  /** Animate one reduction step (plan 06): persisting nodes (same id) glide old→new, new nodes
+   *  scale in, dropped nodes scale out. The 3D analog of TreeView.animateTo. Frame-stepped by the
+   *  host via {@link advanceMorph}; snaps (jump-cut) above MORPH_CAP or with nothing to glide from. */
+  animateTo(node: Node, durationMS: number): void {
+    if (!this.on || !THREE || !this.scene) return;
+    const three = THREE;
+    if (this.morph) {
+      // settle any in-flight morph to its end so the next one glides from there
+      this.lastPos = this.morph.newPos;
+      this.lastNodes = this.collect(this.morph.node);
+      this.morph = null;
+    }
+    const { pos: newPos } = layoutSphere(node);
+    const ids = new Set<number>([...this.lastPos.keys(), ...newPos.keys()]);
+    if (this.lastPos.size === 0 || ids.size > MORPH_CAP) {
+      this.update(node, true); // nothing to glide from, or too big to tween — snap to the steady scene
+      return;
+    }
+    const newNodes = this.collect(node);
+    const newDepth = this.depthMap(node);
+    const mesh = new three.InstancedMesh(new three.SphereGeometry(1, SPHERE_SEGMENTS, SPHERE_SEGMENTS), new three.MeshBasicMaterial(), ids.size);
+    const anims: MorphAnim[] = [];
+    const col = new three.Color();
+    let i = 0;
+    for (const id of ids) {
+      const np = newPos.get(id);
+      const op = this.lastPos.get(id);
+      const depth = newDepth.get(id) ?? this.lastDepth.get(id) ?? 0;
+      const { radius: baseR, color } = nodeStyle(newNodes.get(id) ?? this.lastNodes.get(id)!, depth);
+      if (np && op) anims.push({ i, id, fx: op.x, fy: op.y, fz: op.z, tx: np.x, ty: np.y, tz: np.z, baseR, sFrom: 1, sTo: 1 });
+      else if (np) anims.push({ i, id, fx: np.x, fy: np.y, fz: np.z, tx: np.x, ty: np.y, tz: np.z, baseR, sFrom: 0, sTo: 1 });
+      else anims.push({ i, id, fx: op!.x, fy: op!.y, fz: op!.z, tx: op!.x, ty: op!.y, tz: op!.z, baseR, sFrom: 1, sTo: 0 });
+      mesh.setColorAt(i, col.set(color));
+      i++;
+    }
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    // new-tree edges, fn (left) + arg (right) as separate batches (endpoints all in `ids`, so curPos
+    // has them); positions rewritten each frame. arg is dashed so left/right reads while it morphs.
+    const fnPairs: Array<[number, number]> = [];
+    const fnCols: number[] = [];
+    const argPairs: Array<[number, number]> = [];
+    const argCols: number[] = [];
+    const ecol = new three.Color();
+    const seen = new Set<number>();
+    const ewalk = (m: Node, depth: number): void => {
+      if (seen.has(m.id) || m.kind !== "app") return;
+      seen.add(m.id);
+      ecol.set(edgeTierColor(depth)); // depth tier (red/black) — fixed for the morph; only positions move
+      fnPairs.push([m.id, m.fn.id]);
+      fnCols.push(ecol.r, ecol.g, ecol.b, ecol.r, ecol.g, ecol.b);
+      argPairs.push([m.id, m.arg.id]);
+      argCols.push(ecol.r, ecol.g, ecol.b, ecol.r, ecol.g, ecol.b);
+      ewalk(m.fn, depth + 1);
+      ewalk(m.arg, depth + 1);
+    };
+    ewalk(node, 0);
+    const edges: EdgeBatch[] = [];
+    const batch = (pairs: Array<[number, number]>, cols: number[], dashed: boolean): void => {
+      if (!pairs.length) return;
+      const pos = new Float32Array(pairs.length * 6);
+      const geo = new three.BufferGeometry();
+      geo.setAttribute("position", new three.BufferAttribute(pos, 3)); // wraps `pos` (no copy) so per-frame writes land
+      geo.setAttribute("color", new three.Float32BufferAttribute(cols, 3));
+      edges.push({ seg: this.edgeLine(three, geo, dashed), pos, pairs, dashed });
+    };
+    batch(fnPairs, fnCols, false);
+    batch(argPairs, argCols, true);
+    const group = new three.Group();
+    group.add(mesh);
+    for (const e of edges) group.add(e.seg);
+    if (this.content) {
+      this.disposeGroup(this.content);
+      this.scene.remove(this.content);
+    }
+    this.scene.add(group);
+    this.content = group;
+    this.place(); // a same-term morph — keep the user's orbit/zoom
+    this.morph = { mesh, anims, edges, curPos: new Map(), node, newPos, elapsed: 0, duration: Math.max(16, durationMS) };
+    this.advanceMorph(0); // paint frame 0
+  }
+
+  /** Advance the active morph by `dtMS` (host's Pixi ticker); snaps to the steady scene at the end.
+   *  No-op when idle. Returns true while a morph is still running. */
+  advanceMorph(dtMS: number): boolean {
+    const m = this.morph;
+    if (!m || !THREE) return false;
+    const three = THREE;
+    m.elapsed += dtMS;
+    const t = Math.min(1, m.elapsed / m.duration);
+    const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2; // easeInOut
+    const M = new three.Matrix4();
+    m.curPos.clear();
+    for (const a of m.anims) {
+      const x = a.fx + (a.tx - a.fx) * e;
+      const y = a.fy + (a.ty - a.fy) * e;
+      const z = a.fz + (a.tz - a.fz) * e;
+      const s = a.baseR * (a.sFrom + (a.sTo - a.sFrom) * e);
+      M.makeScale(s, s, s);
+      M.setPosition(x, y, z);
+      m.mesh.setMatrixAt(a.i, M);
+      m.curPos.set(a.id, { x, y, z });
+    }
+    m.mesh.instanceMatrix.needsUpdate = true;
+    for (const e of m.edges) {
+      for (let k = 0; k < e.pairs.length; k++) {
+        const pa = m.curPos.get(e.pairs[k][0])!;
+        const pb = m.curPos.get(e.pairs[k][1])!;
+        const o = k * 6;
+        e.pos[o] = pa.x;
+        e.pos[o + 1] = pa.y;
+        e.pos[o + 2] = pa.z;
+        e.pos[o + 3] = pb.x;
+        e.pos[o + 4] = pb.y;
+        e.pos[o + 5] = pb.z;
+      }
+      e.seg.geometry.getAttribute("position").needsUpdate = true;
+      if (e.dashed) e.seg.computeLineDistances(); // endpoints moved → recompute the dash pattern
+    }
+    this.draw();
+    if (t >= 1) {
+      this.morph = null;
+      this.update(m.node, true); // settle to the steady InstancedMesh + record lastPos for the next step
+      return false;
+    }
+    return true;
+  }
+
+  /** Whether a reduction-step morph is currently playing (the host drives {@link advanceMorph}). */
+  get morphing(): boolean {
+    return this.morph !== null;
+  }
+
+  /** Snap an in-flight morph to its settled term — the host calls this when the 2D reducer is paused
+   *  (it stop-animates the tree), so 2D and 3D don't desync. No-op if idle. */
+  settleMorph(): void {
+    const m = this.morph;
+    if (!m) return;
+    this.morph = null;
+    this.update(m.node, true);
+  }
+
+  /** Dev seam (E2E): the morph's phase + counts so a test can assert the MATH ran (survivors glide,
+   *  enter 0→1, exit 1→0) without trusting headless pixels. `drawCount` proves the loop advanced. */
+  debugMorph(): { active: boolean; t: number; drawCount: number; survivors: number; entering: number; exiting: number; enterScale: number; exitScale: number } {
+    const m = this.morph;
+    if (!m) return { active: false, t: 1, drawCount: this.drawCount, survivors: 0, entering: 0, exiting: 0, enterScale: 0, exitScale: 0 };
+    const t = Math.min(1, m.elapsed / m.duration);
+    const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+    let survivors = 0;
+    let entering = 0;
+    let exiting = 0;
+    for (const a of m.anims) {
+      if (a.sFrom === 1 && a.sTo === 1) survivors++;
+      else if (a.sTo === 1) entering++;
+      else exiting++;
+    }
+    return { active: true, t, drawCount: this.drawCount, survivors, entering, exiting, enterScale: e, exitScale: 1 - e };
   }
 
   // One instanced sphere per node, positioned + scaled by kind, tinted per kind.
@@ -172,54 +416,74 @@ export class Sphere3D {
     const col = new three.Color();
     let i = 0;
     const seen = new Set<number>();
-    const walk = (n: Node): void => {
+    const walk = (n: Node, depth: number): void => {
       if (seen.has(n.id)) return;
       seen.add(n.id);
       const p = pos.get(n.id)!;
-      const { radius, color } = nodeStyle(n);
+      const { radius, color } = nodeStyle(n, depth);
       m.makeScale(radius, radius, radius);
       m.setPosition(p.x, p.y, p.z);
       mesh.setMatrixAt(i, m);
       mesh.setColorAt(i, col.set(color));
       i++;
       if (n.kind === "app") {
-        walk(n.fn);
-        walk(n.arg);
+        walk(n.fn, depth + 1);
+        walk(n.arg, depth + 1);
       }
     };
-    walk(root);
+    walk(root, 0);
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     return mesh;
   }
 
-  // All parent→child edges in one LineSegments buffer; fn edges warm, arg edges cool (the 2D legend).
-  private buildEdges(three: typeof T, root: Node, pos: Map<number, { x: number; y: number; z: number }>): T.LineSegments | null {
-    const verts: number[] = [];
-    const colors: number[] = [];
-    const fn = new three.Color(theme.fnEdge);
-    const arg = new three.Color(theme.argEdge);
+  // A LineSegments for one edge batch: solid (fn) or dashed (arg). Per-vertex colour carries the
+  // red/black depth TIER (so parent vs child reads); the style carries left vs right.
+  private edgeLine(three: typeof T, geo: T.BufferGeometry, dashed: boolean): T.LineSegments {
+    const mat = dashed
+      ? new three.LineDashedMaterial({ vertexColors: true, transparent: true, opacity: EDGE_OPACITY, dashSize: DASH_SIZE, gapSize: GAP_SIZE })
+      : new three.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: EDGE_OPACITY });
+    const seg = new three.LineSegments(geo, mat);
+    if (dashed) seg.computeLineDistances();
+    return seg;
+  }
+
+  // Parent→child edges as two batches: fn (left) SOLID, arg (right) DASHED; each vertex coloured by
+  // the parent's depth TIER (red/black) so a node's parent-edge is the opposite colour of its
+  // child-edges. Style = left/right, colour = depth — the 3D echo of the 2D legend.
+  private buildEdges(three: typeof T, root: Node, pos: Map<number, { x: number; y: number; z: number }>): T.Object3D | null {
+    const fn = { verts: [] as number[], cols: [] as number[] };
+    const arg = { verts: [] as number[], cols: [] as number[] };
+    const col = new three.Color();
     const seen = new Set<number>();
-    const edge = (a: Node, b: Node, c: T.Color): void => {
+    const edge = (b: { verts: number[]; cols: number[] }, a: Node, c: Node, depth: number): void => {
       const pa = pos.get(a.id)!;
-      const pb = pos.get(b.id)!;
-      verts.push(pa.x, pa.y, pa.z, pb.x, pb.y, pb.z);
-      colors.push(c.r, c.g, c.b, c.r, c.g, c.b);
+      const pc = pos.get(c.id)!;
+      b.verts.push(pa.x, pa.y, pa.z, pc.x, pc.y, pc.z);
+      col.set(edgeTierColor(depth));
+      b.cols.push(col.r, col.g, col.b, col.r, col.g, col.b);
     };
-    const walk = (n: Node): void => {
+    const walk = (n: Node, depth: number): void => {
       if (seen.has(n.id) || n.kind !== "app") return;
       seen.add(n.id);
-      edge(n, n.fn, fn);
-      edge(n, n.arg, arg);
-      walk(n.fn);
-      walk(n.arg);
+      edge(fn, n, n.fn, depth);
+      edge(arg, n, n.arg, depth);
+      walk(n.fn, depth + 1);
+      walk(n.arg, depth + 1);
     };
-    walk(root);
-    if (!verts.length) return null;
-    const geo = new three.BufferGeometry();
-    geo.setAttribute("position", new three.Float32BufferAttribute(verts, 3));
-    geo.setAttribute("color", new three.Float32BufferAttribute(colors, 3));
-    return new three.LineSegments(geo, new three.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55 }));
+    walk(root, 0);
+    if (!fn.verts.length && !arg.verts.length) return null;
+    const group = new three.Group();
+    const add = (b: { verts: number[]; cols: number[] }, dashed: boolean): void => {
+      if (!b.verts.length) return;
+      const geo = new three.BufferGeometry();
+      geo.setAttribute("position", new three.Float32BufferAttribute(b.verts, 3));
+      geo.setAttribute("color", new three.Float32BufferAttribute(b.cols, 3));
+      group.add(this.edgeLine(three, geo, dashed));
+    };
+    add(fn, false);
+    add(arg, true);
+    return group;
   }
 
   // ---- orbit camera (driven by the host's Pixi pointer events; no OrbitControls) ----
@@ -282,6 +546,7 @@ export class Sphere3D {
     const t0 = performance.now();
     this.renderer.render(this.scene, this.camera);
     this.onFrame?.(); // owner re-uploads the canvas into its Pixi texture
+    this.drawCount++;
     this.lastDrawMs = performance.now() - t0;
   }
 

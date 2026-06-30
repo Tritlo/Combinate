@@ -2,7 +2,7 @@ import { Container, Graphics, ParticleContainer, Particle, Rectangle, Text, Text
 import { type Node, type NodeId, IOTA_ID_SPAN } from "../core/term";
 import { expandDisplay } from "../core/catalog";
 import { type Layout, type LayoutFn } from "../core/layout";
-import { theme, combinatorColor, glyphOn } from "./theme";
+import { theme, combinatorColor, glyphOn, edgeTierColor } from "./theme";
 import { tween } from "./anim";
 
 const LAYOUT_MS = 360; // duration of the layout-toggle reflow
@@ -19,9 +19,10 @@ const HEAVY = 600;
 // node of radius r renders at scale r / TEX_R, tinted by its kind.
 const TEX_R = 32;
 
-// Node/edge colours come from the active theme (theme.ts). Edges: function
-// (left) = theme.fnEdge (warm), argument (right) = theme.argEdge (cool) — two
-// distinct hues so `(ι X)` and `(X ι)` read differently.
+// Node/edge colours come from the active theme (theme.ts). Edges encode two things: STYLE =
+// function (left, solid) vs argument (right, dashed), and COLOUR = depth tier (edgeTierColor:
+// red/black alternating), so a node's parent-edge differs from its child-edges and `(ι X)` vs
+// `(X ι)` read differently.
 
 let nodeTex: Texture | null = null;
 /** The white node-particle disc (tinted per kind), built once from a 2D canvas. */
@@ -44,7 +45,7 @@ function nodeTexture(): Texture {
 function visSpec(n: Node): { radius: number; tint: number; glyph: { text: string; color: number; size: number } | null } {
   switch (n.kind) {
     case "iota":
-      return { radius: 7, tint: theme.iota, glyph: { text: "ι", color: theme.iotaGlyph, size: 10 } };
+      return { radius: 7, tint: theme.mutedDot, glyph: { text: "ι", color: theme.text, size: 10 } }; // grey dot + ink ι (no longer gold)
     case "comb": {
       const tint = combinatorColor(n.sym); // per-combinator hue in Colour mode, ink in mono
       return { radius: 15, tint, glyph: { text: n.sym, color: glyphOn(tint), size: 15 } };
@@ -111,7 +112,7 @@ export class TreeView {
   // Parent→child edges with the resolved NodeVis of each endpoint cached at index
   // time, so the per-frame edge draw is pure array iteration — no `objs` Map lookups
   // (3 per edge per frame on the animation hot path).
-  private edgeList: Array<{ pv: NodeVis; lv: NodeVis; rv: NodeVis }> = [];
+  private edgeList: Array<{ pv: NodeVis; lv: NodeVis; rv: NodeVis; depth: number }> = [];
 
   private anims: Anim[] = [];
   private elapsed = 0;
@@ -427,7 +428,7 @@ export class TreeView {
     // edges converge on its single particle. On a tree no id repeats, so this is
     // identical to the old per-app walk.
     const seen = new Set<NodeId>();
-    const walk = (n: Node): void => {
+    const walk = (n: Node, depth: number): void => {
       if (n.kind !== "app" || seen.has(n.id)) return;
       seen.add(n.id);
       // All endpoints are in `objs` by now (rebuild/animateTo populate it before
@@ -435,11 +436,19 @@ export class TreeView {
       const pv = this.objs.get(n.id);
       const lv = this.objs.get(n.fn.id);
       const rv = this.objs.get(n.arg.id);
-      if (pv && lv && rv) this.edgeList.push({ pv, lv, rv });
-      walk(n.fn);
-      walk(n.arg);
+      if (pv && lv && rv) {
+        this.edgeList.push({ pv, lv, rv, depth }); // depth → the red/black tier colour
+        // an app child takes the colour of its incoming edge (the tier edge leaving n at this depth)
+        const tier = edgeTierColor(depth);
+        if (n.fn.kind === "app") lv.particle.tint = tier;
+        if (n.arg.kind === "app") rv.particle.tint = tier;
+      }
+      walk(n.fn, depth + 1);
+      walk(n.arg, depth + 1);
     };
-    walk(this.display);
+    walk(this.display, 0);
+    const rootVis = this.display.kind === "app" ? this.objs.get(this.display.id) : null;
+    if (rootVis) rootVis.particle.tint = theme.text; // root: no incoming edge → ink
   }
 
   // Edges are drawn from the live particle positions (so they follow tweens),
@@ -451,21 +460,30 @@ export class TreeView {
     this.edges.clear();
     const v = this.viewRect();
     const dash = this.objs.size <= HEAVY; // big trees draw solid — dashing multiplies geometry every frame (same threshold as heavy())
-    for (const e of this.edgeList) {
-      const p = e.pv.particle;
-      const rp = e.rv.particle;
-      if (!v || overlaps(p, rp, v)) {
-        if (dash) dashedSegment(this.edges, p.x, p.y, rp.x, rp.y); // argument edge: dashed
-        else this.edges.moveTo(p.x, p.y).lineTo(rp.x, rp.y);
+    // Colour = depth TIER (red/black), style = fn solid / arg dashed. Each tier is a separate stroke
+    // (one colour per Graphics stroke), so 4 strokes: {arg,fn} × {even,odd}. A node's parent-edge is
+    // the opposite colour of its child-edges → you can trace direction even in a dense tree.
+    for (const parity of [0, 1]) {
+      for (const e of this.edgeList) {
+        if (e.depth % 2 !== parity) continue;
+        const p = e.pv.particle;
+        const rp = e.rv.particle;
+        if (!v || overlaps(p, rp, v)) {
+          if (dash) dashedSegment(this.edges, p.x, p.y, rp.x, rp.y); // argument edge: dashed
+          else this.edges.moveTo(p.x, p.y).lineTo(rp.x, rp.y);
+        }
       }
+      this.edges.stroke({ width: 2.5, color: edgeTierColor(parity) });
     }
-    this.edges.stroke({ width: 2.5, color: theme.argEdge });
-    for (const e of this.edgeList) {
-      const p = e.pv.particle;
-      const lp = e.lv.particle;
-      if (!v || overlaps(p, lp, v)) this.edges.moveTo(p.x, p.y).lineTo(lp.x, lp.y);
+    for (const parity of [0, 1]) {
+      for (const e of this.edgeList) {
+        if (e.depth % 2 !== parity) continue;
+        const p = e.pv.particle;
+        const lp = e.lv.particle;
+        if (!v || overlaps(p, lp, v)) this.edges.moveTo(p.x, p.y).lineTo(lp.x, lp.y); // function edge: solid
+      }
+      this.edges.stroke({ width: 3, color: edgeTierColor(parity) });
     }
-    this.edges.stroke({ width: 3, color: theme.fnEdge });
     this.placeRootMark();
   }
 

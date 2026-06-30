@@ -44,7 +44,13 @@ export class Hotbar {
   private tab = 0;
   private sub = 0;
   private popSym: string | null = null;
+  private top = 0; // y of the tab strip (the toolbar's top edge) — the hint bar sits just above it
   private gameCursor: number | null = null; // game-mode keyboard/controller selection (ADR 17); null = mouse mode
+
+  /** The toolbar's top edge (the tab strip), so the hint bar can sit just above the toolbar. */
+  get topEdge(): number {
+    return this.top;
+  }
   private cursorSymCache: string | null = null; // the cursor's sym, resolved each layout so slots can self-highlight
 
   constructor(
@@ -158,6 +164,7 @@ export class Hotbar {
     const yT = yB - (SLOT + GAP); // top row centre
     const mid = (yB + yT) / 2;
     const tabY = yT - SLOT / 2 - 28; // tab row — the palette's title strip
+    this.top = tabY - 4; // the toolbar's top edge (for the hint bar above it)
 
     // ---- title strip: the category tabs (centred; smaller + tighter on phones,
     // where six names won't fit at full size) ----

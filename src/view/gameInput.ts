@@ -1,20 +1,25 @@
 /**
  * The game-mode input controller (ADR 17): a keyboard/controller state machine over the
- * "register tray + hand" model. It owns the discrete game state — which surface the cursor is
- * on (the toolbar or the buckets), the selected bucket, and the held term ("hand") — and turns
- * key intents ({@link keymap}) into scene actions through an injected {@link GameScene}. The
- * buckets' actual terms are world-space `TreeView`s the scene creates/destroys; this just
- * tracks which slot holds which, mirrors it into the {@link BucketTray}, and keeps the camera
- * framing the selected bucket. Mouse input stays fully live; grabbing a bucket tree with the
- * mouse detaches it (see {@link detach}).
+ * "regions + hand" model. It owns the discrete game state — which surface the cursor is on (the
+ * toolbar or the buckets), the focused bucket, and the held term ("hand") — and turns key intents
+ * ({@link keymap}) into scene actions through an injected {@link GameScene}.
+ *
+ * Buckets are spatial regions on the canvas, NOT explicit slots: an unbounded horizontal strip
+ * keyed by a stable integer `k` (world x = k · spacing; k may be negative). You start on bucket 0;
+ * arrowing ←/→ pans to the neighbour, and arrowing past an end simply focuses a fresh empty bucket
+ * (so "adding a bucket" is implicit). The focused bucket renders bright; its neighbours fade to
+ * {@link DIM} — the spatial "there's more ←/→" cue (they peek faded at the screen edges). Each
+ * bucket's term is a world-space `TreeView` the scene creates/destroys; this tracks which k holds
+ * which + keeps the camera framing the focused one. Mouse input stays fully live; grabbing a bucket
+ * tree with the mouse detaches it (see {@link detach}).
  */
 import { type Node } from "../core/term";
 import { type TreeView } from "./tree";
-import { type BucketTray, type TrayState } from "./bucketTray";
+import { type BucketTray } from "./bucketTray";
 import { type Hotbar } from "./hotbar";
 import { type Intent } from "./keymap";
 
-const N_BUCKETS = 5;
+const DIM = 0.3; // faded-neighbour opacity (the focused bucket stays at 1)
 
 /** The scene primitives the controller drives (provided by app.ts). */
 export interface GameScene {
@@ -22,10 +27,10 @@ export interface GameScene {
   tray: BucketTray;
   /** A fresh term for a toolbar symbol (ι or a collapsed combinator). */
   freshNode: (sym: string) => Node;
-  /** A short label for the tray/hand (the read-out's s-expression / value). */
+  /** A short label for the held badge (the read-out's s-expression / value). */
   labelOf: (node: Node) => string;
-  /** World anchor for bucket `i` (a horizontal row). */
-  bucketAnchor: (i: number) => { x: number; y: number };
+  /** World anchor for bucket `k` (a horizontal row; k may be negative). */
+  bucketAnchor: (k: number) => { x: number; y: number };
   /** Create a reducing `TreeView` for `node` at a world anchor; focus it. */
   spawnAt: (node: Node, world: { x: number; y: number }) => TreeView;
   /** Build `app(fn, arg)` at a world anchor (the factored, non-spatial apply); focus it. */
@@ -34,8 +39,8 @@ export interface GameScene {
   captureWorld: (tree: TreeView) => Map<number, { x: number; y: number }>;
   /** Forget + remove + destroy a tree. */
   removeTree: (tree: TreeView) => void;
-  /** Frame a tree to fill the viewport. */
-  fit: (tree: TreeView) => void;
+  /** Centre the camera on a bucket's world x (faded-neighbour framing — neighbours peek at the edges). */
+  frameBucketAt: (x: number) => void;
   pan: (dx: number, dy: number) => void;
   zoom: (factor: number) => void;
   setSpeed: (level: number) => void;
@@ -46,14 +51,14 @@ export interface GameScene {
   toast: (msg: string) => void;
 }
 
-type Hand = { node: Node; label: string; origin: number | null }; // origin = the bucket it was picked from (for cancel)
+type Hand = { node: Node; label: string; origin: number | null }; // origin = the bucket k it was picked from (for cancel)
 
 export class GameInputController {
   private on = false;
   private zone: "hotbar" | "buckets" = "hotbar";
-  private selected = 0;
+  private selected = 0; // the focused bucket's stable key k (world x = k · spacing); unbounded, can be negative
   private hand: Hand | null = null;
-  private readonly buckets: (TreeView | null)[] = Array(N_BUCKETS).fill(null);
+  private readonly buckets = new Map<number, TreeView>(); // occupied buckets only, keyed by k
 
   constructor(private readonly scene: GameScene) {}
 
@@ -62,30 +67,35 @@ export class GameInputController {
   }
 
   /** Game state for the dev seam / E2E (not used by the UI). */
-  get debugState(): { enabled: boolean; zone: string; selected: number; hand: string | null; buckets: boolean[] } {
-    return { enabled: this.on, zone: this.zone, selected: this.selected, hand: this.hand?.label ?? null, buckets: this.buckets.map((b) => !!b) };
+  get debugState(): { enabled: boolean; zone: string; selected: number; hand: string | null; buckets: number[] } {
+    return { enabled: this.on, zone: this.zone, selected: this.selected, hand: this.hand?.label ?? null, buckets: [...this.buckets.keys()].sort((a, b) => a - b) };
   }
 
-  /** Turn game mode on/off: show/hide the tray + the toolbar cursor. */
+  /** Turn game mode on/off: show/hide the held badge + the toolbar cursor; frame bucket 0. */
   setEnabled(on: boolean): void {
     this.on = on;
     if (on) {
       this.zone = "hotbar";
       this.scene.hotbar.setGameCursor(0);
       this.scene.tray.show();
+      this.frameSelected();
       this.render();
     } else {
       this.scene.hotbar.setGameCursor(null);
       this.scene.tray.hide();
+      this.applyFade(true); // restore full opacity on every bucket when leaving game mode
     }
   }
 
   /** A bucket tree was grabbed/removed by the mouse — release the slot (the one desync rule). */
   detach(tree: TreeView): void {
-    const i = this.buckets.indexOf(tree);
-    if (i >= 0) {
-      this.buckets[i] = null;
-      if (this.on) this.render();
+    for (const [k, t] of this.buckets) {
+      if (t === tree) {
+        t.container.alpha = 1; // it's leaving the faded-neighbour strip — restore full opacity
+        this.buckets.delete(k);
+        if (this.on) this.render();
+        return;
+      }
     }
   }
 
@@ -146,7 +156,7 @@ export class GameInputController {
       else if (d > 0 && n > 0 && i >= n - 1) this.scene.hotbar.cycleTab(1);
       else this.scene.hotbar.moveGameCursor(d);
     } else {
-      this.selected = Math.max(0, Math.min(N_BUCKETS - 1, this.selected + d));
+      this.selected += d; // unbounded — arrowing past the end focuses a fresh empty bucket
       this.frameSelected();
     }
     this.render();
@@ -162,19 +172,19 @@ export class GameInputController {
     if (this.zone !== "hotbar") this.toZone("hotbar");
     else this.render();
   }
-  // Frame the selected bucket's tree (camera follows the selection).
+  // Frame the focused bucket (camera centres on it; neighbours peek faded) + refresh the fade.
   private frameSelected(): void {
-    const t = this.buckets[this.selected];
-    if (t) this.scene.fit(t);
+    this.scene.frameBucketAt(this.scene.bucketAnchor(this.selected).x);
+    this.applyFade();
   }
 
   // ---- pick / place / drop (the A button) ----
   private pickPlace(): void {
     if (this.zone === "hotbar") return this.pickFromHotbar();
-    const t = this.buckets[this.selected];
+    const t = this.buckets.get(this.selected);
     if (this.hand) {
-      if (!t) this.placeHand(this.selected); // into an empty bucket
-      else this.scene.toast("bucket full — Q/E to apply, or pick an empty bucket");
+      if (!t) this.placeHand(this.selected); // into the (empty) focused bucket
+      else this.scene.toast("bucket full — Q/E to apply, or move to an empty one");
     } else if (t) {
       this.pickFromBucket(this.selected); // pick up the term (a move)
     }
@@ -187,37 +197,37 @@ export class GameInputController {
     this.hand = { node, label: this.scene.labelOf(node), origin: null };
     this.render();
   }
-  private pickFromBucket(i: number): void {
-    const t = this.buckets[i]!;
-    this.hand = { node: t.node, label: this.scene.labelOf(t.node), origin: i };
+  private pickFromBucket(k: number): void {
+    const t = this.buckets.get(k)!;
+    this.hand = { node: t.node, label: this.scene.labelOf(t.node), origin: k };
     this.scene.removeTree(t);
-    this.buckets[i] = null;
+    this.buckets.delete(k);
     this.render();
   }
-  private placeHand(i: number): void {
+  private placeHand(k: number): void {
     const h = this.hand!;
-    this.buckets[i] = this.scene.spawnAt(h.node, this.scene.bucketAnchor(i));
+    this.buckets.set(k, this.scene.spawnAt(h.node, this.scene.bucketAnchor(k)));
     this.hand = null;
     this.frameSelected();
     this.render();
   }
 
-  // ---- apply held term into the selected bucket (X = fn, Y = arg) ----
+  // ---- apply held term into the focused bucket (X = fn, Y = arg) ----
   private apply(asFn: boolean): void {
     if (this.zone !== "buckets" || !this.hand) return;
-    const i = this.selected;
-    const t = this.buckets[i];
+    const k = this.selected;
+    const t = this.buckets.get(k);
     if (!t) return this.scene.toast("empty bucket — Space to place the held term");
     const held = this.hand.node;
     const bucketNode = t.node;
     const from = this.scene.captureWorld(t);
     this.scene.removeTree(t);
     const merged = asFn
-      ? this.scene.applyTerms(held, bucketNode, this.scene.bucketAnchor(i), from) // held is the function
-      : this.scene.applyTerms(bucketNode, held, this.scene.bucketAnchor(i), from); // held is the argument
-    this.buckets[i] = merged;
+      ? this.scene.applyTerms(held, bucketNode, this.scene.bucketAnchor(k), from) // held is the function
+      : this.scene.applyTerms(bucketNode, held, this.scene.bucketAnchor(k), from); // held is the argument
+    this.buckets.set(k, merged);
     this.hand = null;
-    this.scene.fit(merged);
+    this.frameSelected();
     this.render();
   }
 
@@ -226,30 +236,20 @@ export class GameInputController {
     if (!this.hand) return this.scene.openMenu();
     const h = this.hand;
     this.hand = null;
-    if (h.origin !== null && !this.buckets[h.origin]) {
+    if (h.origin !== null && !this.buckets.has(h.origin)) {
       // restore a term picked up from a bucket
-      this.buckets[h.origin] = this.scene.spawnAt(h.node, this.scene.bucketAnchor(h.origin));
+      this.buckets.set(h.origin, this.scene.spawnAt(h.node, this.scene.bucketAnchor(h.origin)));
     }
     this.render();
   }
 
-  // ---- tray mirror ----
+  // ---- view sync: the held badge + the faded-neighbour opacity ----
   private render(): void {
-    const state: TrayState = {
-      buckets: this.buckets.map((t) => (t ? this.scene.labelOf(t.node) : null)),
-      selected: this.selected,
-      zone: this.zone,
-      hand: this.hand?.label ?? null,
-      hint: this.hint(),
-    };
-    this.scene.tray.render(state);
+    this.scene.tray.setHand(this.hand?.label ?? null);
+    this.applyFade();
   }
-  private hint(): string {
-    if (this.zone === "hotbar") {
-      return this.hand ? "✋ holding · ↓ to a bucket to place · Esc cancel" : "← → choose · Space hold · ↓ buckets · [ ] page";
-    }
-    const occupied = !!this.buckets[this.selected];
-    if (this.hand) return occupied ? "Q apply as fn (left) · E apply as arg (right) · Esc cancel" : "Space place here · ← → move · Esc cancel";
-    return occupied ? "Space pick up · ← → move · ↑ toolbar · 0-4 speed" : "← → move · ↑ toolbar to grab a combinator";
+  /** Focused bucket bright, the rest faded — the spatial cue. `restore` = all bright (leaving game mode). */
+  private applyFade(restore = false): void {
+    for (const [k, t] of this.buckets) t.container.alpha = restore || k === this.selected ? 1 : DIM;
   }
 }

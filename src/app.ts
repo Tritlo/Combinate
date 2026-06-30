@@ -34,9 +34,10 @@ import { loadWasmReducer, wasmReady, WasmSession } from "./view/wasmReducer";
 import { ReductionController, type Transport } from "./view/reduction";
 import { TransportBar } from "./view/transportBar";
 import { preloadCompiler } from "./view/mhs/compiler";
-import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange } from "./view/theme";
+import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange, edgeTierColor } from "./view/theme";
 import { MenuBar, type Menu } from "./view/menubar";
 import { About } from "./view/about";
+import { Help } from "./view/help";
 import { withMotion } from "./view/motion";
 import { OptimizePanel, isOpt, setOpt, onOptChange } from "./view/optimize";
 import { type NativeOpts } from "./core/native";
@@ -44,6 +45,7 @@ import { BucketTray } from "./view/bucketTray";
 import { GameInputController } from "./view/gameInput";
 import { GamepadController } from "./view/gamepad";
 import { Sphere3D, NODE_CAP, preloadSphere3D } from "./view/sphere3d";
+import { spherePreview } from "./view/spherePreview";
 import { HintBar } from "./view/hints";
 import { DiscoveryCard } from "./view/discovery";
 import { type Context, type Intent, intentForKey } from "./view/keymap";
@@ -117,13 +119,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   };
   let menuBar: MenuBar | undefined; // the top menu bar (built below); paintRail() refreshes its open pull-down
 
-  const hint = new Text({
-    text: "drag ι · snap trees · they reduce on their own · right-click deletes a node",
-    style: { fontFamily: "monospace", fontSize: 14, fill: theme.textDim },
-  });
-  hint.position.set(16, 30); // below the menu bar
-  hud.addChild(hint);
-
+  // (The old "drag ι · snap trees…" description moved into the Help window — ι menu ▸ How to play,
+  // and shown on first launch.) The edge legend stays as a compact on-canvas key.
   const legend = new Container();
   paintLegend(legend);
   hud.addChild(legend);
@@ -386,6 +383,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       paintRail();
       transportBar.paint();
     },
+    morph3D: (tree, node, dur) => morphFocused3D(tree, node, dur),
+    settleMorph3D: () => sphere3d.settleMorph(),
   });
 
   // Transport bar (top-right): rate read-out + Pause/Step/Play/FF — a thin view over the
@@ -466,7 +465,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const spawnFor = (sym: string): Node => (sym === "ι" ? iota() : collapsedNode(CATALOG.find((l) => l.sym === sym)!));
   const hotbar = new Hotbar(
     (node, e) => {
-      hint.visible = false;
       drag = { kind: "spawn", tree: spawnTree(node, e.global.x, e.global.y) };
     },
     pixi.ticker,
@@ -657,9 +655,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const right = left === dragged ? target : dragged;
     const ax = (left.rootWorld.x + right.rootWorld.x) / 2;
     const ay = Math.min(left.rootWorld.y, right.rootWorld.y) - 56;
-    ghost.moveTo(ax, ay).lineTo(left.rootWorld.x, left.rootWorld.y).stroke({ width: 3, color: theme.fnEdge, alpha: 0.7 }); // function: solid
+    // the preview is a new depth-0 junction → tier-0 (ink) edges; solid function, dashed argument
+    ghost.moveTo(ax, ay).lineTo(left.rootWorld.x, left.rootWorld.y).stroke({ width: 3, color: edgeTierColor(0), alpha: 0.7 }); // function: solid
     dashedSegment(ghost, ax, ay, right.rootWorld.x, right.rootWorld.y); // argument: dashed, matching the committed tree
-    ghost.stroke({ width: 2.5, color: theme.argEdge, alpha: 0.7 });
+    ghost.stroke({ width: 2.5, color: edgeTierColor(0), alpha: 0.7 });
     ghost.circle(ax, ay, 6).fill({ color: theme.mutedDot, alpha: 0.7 });
     // preview the resulting expression (left is the function), masked like the rest
     ghostLabel.text = `(${readout.exprOf(left.node)} ${readout.exprOf(right.node)})`;
@@ -799,8 +798,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   pixi.canvas.addEventListener("pointerup", endPointer);
   pixi.canvas.addEventListener("pointercancel", endPointer);
 
-  // Top-left, just under the hint line (offset so the two rows don't overlap it).
-  const placeLegend = () => legend.position.set(16, 58);
+  // Top-left, just under the menu bar (the old description line is gone — it's in Help now).
+  const placeLegend = () => legend.position.set(16, 34);
   placeLegend();
   zoo.layout();
 
@@ -808,7 +807,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // menu bar restyles itself via its own onThemeChange listener.
   function applyTheme(): void {
     pixi.renderer.background.color = theme.bg;
-    hint.style.fill = theme.textDim;
     exprText.style.fill = theme.text;
     nextHint.style.fill = theme.textDim;
     ghostLabel.style.fill = theme.text;
@@ -833,7 +831,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     placeExpr();
     zoo.layout();
     challenges.layout();
-    hintBar.place(window.innerWidth, window.innerHeight);
+    tray.layout();
+    hintBar.place(window.innerWidth, hotbar.topEdge);
     if (view3D) {
       sphere3d.resize(window.innerWidth, window.innerHeight);
       fitSphereSprite();
@@ -896,8 +895,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   let momVx = 0;
   let momVy = 0;
   let lastDragD = { x: 0, y: 0 };
-  pixi.ticker.add(() => {
+  pixi.ticker.add((tk: { deltaMS: number }) => {
     if (!view3D) return;
+    if (sphere3d.morphing) return void sphere3d.advanceMorph(tk.deltaMS); // a reduction-step morph owns the frame
     let vx = 0;
     let vy = 0;
     if (heldRot.has("arrowleft") || heldRot.has("a")) vx -= KEY_ROT;
@@ -910,6 +910,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     momVx = Math.abs(momVx) < 0.05 ? 0 : momVx * MOM_DECAY;
     momVy = Math.abs(momVy) < 0.05 ? 0 : momVy * MOM_DECAY;
   });
+  // Drive the pooled Zoo preview's spin from Pixi's ticker (not its own rAF) so the Three-canvas
+  // mutation and the Pixi texture upload share a frame — a private rAF left the texture stale.
+  pixi.ticker.add((tk: { deltaMS: number }) => spherePreview.tick(tk.deltaMS));
   let view3D = false;
   // The term the 3D view renders: the same EXPANDED display the 2D tree shows (undiscovered S/K/I
   // as ι-trees, and every combinator when "Expand ι-trees" is on), so 3D follows that setting.
@@ -925,6 +928,18 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
     }
     sphere3d.update(disp, true);
+  }
+  // Mirror a focused tree's reduction step into the open 3D view (plan 06). Hoisted so the reduction
+  // controller (constructed earlier) can call it; a no-op unless 3D is open on the focused tree. The
+  // morph snaps internally above its cap; if the expanded term exceeds the static cap, back out to 2D.
+  function morphFocused3D(tree: TreeView, node: Node, durationMS: number): void {
+    if (!view3D || tree !== focus) return;
+    const disp = expandDisplay(node, { expandAll, isDiscovered });
+    if (exceedsNodes(disp, NODE_CAP)) {
+      toggleView3D();
+      return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
+    }
+    sphere3d.animateTo(disp, durationMS);
   }
   function toggleView3D(): void {
     if (view3D) {
@@ -988,6 +1003,17 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     world.position.set(window.innerWidth / 2 - cx * scale, window.innerHeight / 2 - cy * scale);
   }
 
+  // Game mode's spatial buckets (ADR 17): a stable horizontal strip BUCKET_SPACING apart, keyed by k.
+  const BUCKET_SPACING = 640;
+  // Centre the camera on a bucket's world x at a fixed "region" zoom so the neighbours (±spacing)
+  // peek faded at the screen edges — the faded-neighbour spatial cue. Anchors sit at world y=0; we
+  // drop the focus a little above centre so the tree has room to grow downward over the hotbar.
+  function frameBucketAt(x: number): void {
+    const z = Math.min(1.3, window.innerWidth / (BUCKET_SPACING * 2.3));
+    world.scale.set(z);
+    world.position.set(window.innerWidth / 2 - x * z, window.innerHeight * 0.44);
+  }
+
   // Toggle the "expand everything to ι" view (read by TreeView.expand).
   function toggleExpand(): void {
     expandAll = !expandAll;
@@ -1001,6 +1027,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // a • the selected option in a group. paintRail() (kept for its many callers)
   // now just refreshes the open pull-down's checkmarks. ----
   const about = new About();
+  const help = new Help();
   const optimize = new OptimizePanel();
 
   // ---- game mode (ADR 17): keyboard/controller play via a bucket tray + hand ----
@@ -1009,7 +1036,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   hud.addChild(tray.container);
   const hintBar = new HintBar();
   hud.addChild(hintBar.container);
-  hintBar.place(window.innerWidth, window.innerHeight);
+  hintBar.place(window.innerWidth, hotbar.topEdge);
   // The active interaction context: Inspect (3D) and Build (the tray) own the discrete input; the
   // free canvas is mouse/touch + the desktop shortcuts. The two are mutually exclusive.
   function currentContext(): "free" | Context {
@@ -1029,12 +1056,12 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     tray,
     freshNode: spawnFor,
     labelOf: labelFor,
-    bucketAnchor: (i) => ({ x: (i - 2) * 720, y: 0 }), // a centred row of 5 world anchors
+    bucketAnchor: (k) => ({ x: k * BUCKET_SPACING, y: 0 }), // an unbounded strip of world anchors
     spawnAt: (node, w) => spawnTreeWorld(node, w.x, w.y),
     applyTerms: (fn, arg, w, from) => applyTerms(fn, arg, w, from),
     captureWorld: (tree) => tree.nodeWorldPositions(),
     removeTree,
-    fit: (tree) => fitTree(tree),
+    frameBucketAt: (x) => frameBucketAt(x),
     pan: (dx, dy) => world.position.set(world.position.x + dx, world.position.y + dy),
     zoom: (factor) => zoomTo(world.scale.x * factor, window.innerWidth / 2, window.innerHeight / 2),
     setSpeed: (lvl) => reduce.setSpeedLevel(lvl),
@@ -1092,7 +1119,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (on && view3D) toggleView3D(); // contexts are mutually exclusive
     gameMode = on;
     gameInput.setEnabled(on);
-    if (on) toast.show("game mode — arrows/WASD move · Space hold · Q/E apply (fn/arg) · V for 3D · Tab exits");
+    // (No entry toast — the hint bar above the toolbar already shows the controls.)
     updateHints();
     paintRail();
   }
@@ -1127,6 +1154,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   });
   const menus: Menu[] = [
     { title: "ι", apple: true, items: [
+      { kind: "action", label: "How to play…", run: () => help.open() },
       { kind: "action", label: "About Combinate…", run: () => about.open() },
     ] },
     { title: "File", items: [
@@ -1242,7 +1270,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       applyModes(decoded.modes);
       const t = spawnTree(decoded.tree, window.innerWidth / 2, window.innerHeight / 2);
       reduce.schedule(t);
-      hint.visible = false;
       toast.show("restored from link");
     }
   }
@@ -1331,21 +1358,27 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // Suppress the browser context menu so right-click can delete a node.
   pixi.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
-  // A small key explaining the two edge styles (which child is the function);
-  // repainted on a theme change.
+  // A small key for the edge encoding: STYLE = which child (solid function / dashed argument),
+  // COLOUR = depth tier (red/black alternating, so a parent-edge differs from its child-edges).
+  // Repainted on a theme change.
   function paintLegend(c: Container): void {
     for (const ch of c.removeChildren()) ch.destroy({ children: true });
+    const ink = theme.text;
     const g = new Graphics();
-    g.moveTo(0, 0).lineTo(26, 0).stroke({ width: 3, color: theme.fnEdge }); // function: solid
-    for (let x = 0; x < 26; x += 14) g.moveTo(x, 18).lineTo(Math.min(x + 8, 26), 18); // argument: dashed (matches the tree)
-    g.stroke({ width: 2.5, color: theme.argEdge });
+    g.moveTo(0, 0).lineTo(26, 0).stroke({ width: 3, color: ink }); // function: solid
+    for (let x = 0; x < 26; x += 14) g.moveTo(x, 18).lineTo(Math.min(x + 8, 26), 18); // argument: dashed
+    g.stroke({ width: 2.5, color: ink });
+    g.moveTo(0, 36).lineTo(12, 36).stroke({ width: 3, color: edgeTierColor(0) }); // depth tiers: ink …
+    g.moveTo(14, 36).lineTo(26, 36).stroke({ width: 3, color: edgeTierColor(1) }); // … and red, alternating
     c.addChild(g);
     const style = { fontFamily: "monospace", fontSize: 12, fill: theme.textDim };
     const l1 = new Text({ text: "function (left)", style });
     l1.position.set(34, -7);
     const l2 = new Text({ text: "argument (right)", style });
     l2.position.set(34, 11);
-    c.addChild(l1, l2);
+    const l3 = new Text({ text: "colour = depth", style });
+    l3.position.set(34, 29);
+    c.addChild(l1, l2, l3);
   }
 
   // Preload the re-folding lens wasm during the splash (it's otherwise lazy on
@@ -1362,6 +1395,16 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   await preloadCompiler();
   onStep("compiler"); // splash step 4/4
 
+  // First launch: open the Help window once (then never auto-open again — it stays in the ι menu).
+  try {
+    if (!localStorage.getItem("combinate.helpSeen")) {
+      help.open();
+      localStorage.setItem("combinate.helpSeen", "1");
+    }
+  } catch {
+    /* private mode / storage disabled — just skip the one-time help */
+  }
+
   // Dev-only test seam (stripped from production builds): expose tree state so
   // an end-to-end driver can assert on spawn/snap/reduce.
   if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
@@ -1373,11 +1416,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       discover: (sym: string) => { const l = CATALOG.find((x) => x.sym === sym); if (l) discover(l); }, // dev seam: fire the discovery flow (card + chirp)
       mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : "topdown"),
       toggleLayout: () => toggleLayout(),
-      view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs, drawMs: sphere3d.lastDrawMs, az: sphere3d.azimuth, pan: sphere3d.panSum }) },
+      view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs, drawMs: sphere3d.lastDrawMs, az: sphere3d.azimuth, pan: sphere3d.panSum }), morph: () => sphere3d.debugMorph() },
       transport: { mode: () => reduce.mode, set: (m: string) => reduce.setTransport(m as Transport), cycle: () => reduce.cycleTransport(), step: () => reduce.stepOnce() },
       autoSteps: () => reduce.totalSteps(),
       est: () => ({ ...reduce.estimate, shown: reduce.focusedSteps() }),
       run: () => { if (focus) reduce.schedule(focus); },
+      spawn: (s: string) => { spawnTreeWorld(fromEgg(s), 0, 0); }, // dev seam: drop a reducing tree from an s-expr
+
       game: { on: () => gameMode, set: (b: boolean) => setGameMode(b), state: () => gameInput.debugState },
       fast: { on: () => isOpt("rules"), set: (b: boolean) => setOpt("rules", b) },
       graph: { on: () => isOpt("graph"), set: (b: boolean) => setOpt("graph", b), eval: (s: string) => sexp(evalShared(fromEgg(s), 500000, fastMode).term) },
