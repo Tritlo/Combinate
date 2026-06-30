@@ -55,7 +55,7 @@ const KEY_BINDS: KeyBind[] = [
   { context: "build", intent: "pageNext", keys: ["]"] },
   { context: "build", intent: "pickPlace", keys: [" ", "enter"] },
   { context: "build", intent: "cancel", keys: ["escape"] },
-  { context: "build", intent: "context", keys: ["c"] }, // open the Delete/Copy menu on the focused bucket
+  { context: "build", intent: "context", keys: ["m"] }, // M = open the Delete/Copy menu on the focused bucket
   { context: "build", intent: "speed", keys: ["0", "1", "2", "3", "4"] },
   { context: "build", intent: "enterInspect", keys: ["v"] },
   // Inspect
@@ -119,7 +119,7 @@ export const HINTS: Record<Context, Hint[]> = {
     { label: "Move", kbd: "←→", pad: "✚" },
     { label: "Pick up / Place", kbd: "Space", pad: "Ⓐ" },
     { label: "Drop", kbd: "Esc", pad: "Ⓑ" },
-    { label: "Copy / Delete", kbd: "C", pad: "Ⓧ" },
+    { label: "Menu", kbd: "M", pad: "Ⓧ" },
     { label: "3D", kbd: "V", pad: "Ⓨ" },
   ],
   inspect: [
