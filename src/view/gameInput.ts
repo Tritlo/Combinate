@@ -66,25 +66,31 @@ export class GameInputController {
     return this.on;
   }
 
+  /** Whether a term is currently held (the host keeps the controls' visuals up while holding). */
+  get hasHand(): boolean {
+    return this.hand !== null;
+  }
+
   /** Game state for the dev seam / E2E (not used by the UI). */
   get debugState(): { enabled: boolean; zone: string; selected: number; hand: string | null; buckets: number[] } {
     return { enabled: this.on, zone: this.zone, selected: this.selected, hand: this.hand?.label ?? null, buckets: [...this.buckets.keys()].sort((a, b) => a - b) };
   }
 
-  /** Turn game mode on/off: show/hide the held badge + the toolbar cursor; frame bucket 0. */
+  /** Show/hide the DEVICE-gated visual — the toolbar's game cursor — and nothing else. The four
+   *  controls' visuals are split by what gates each (a device switch must not lurch the camera or
+   *  re-dim trees): the cursor is device-gated (here); the held badge is hand-gated (see
+   *  {@link render}); the camera framing + the faded-neighbour strip are navigation-gated (see
+   *  {@link frameSelected}). So this toggles only the cursor, un-fades on the way out, and lets the
+   *  badge follow the hand — it never frames a bucket. Build state (zone/selected/hand) is preserved. */
   setEnabled(on: boolean): void {
     this.on = on;
     if (on) {
-      this.zone = "hotbar";
       this.scene.hotbar.setGameCursor(0);
-      this.scene.tray.show();
-      this.frameSelected();
-      this.render();
     } else {
       this.scene.hotbar.setGameCursor(null);
-      this.scene.tray.hide();
-      this.applyFade(true); // restore full opacity on every bucket when leaving game mode
+      this.applyFade(true); // restore full opacity when the keyboard/pad cursor leaves
     }
+    this.render(); // the held badge follows the hand (device-agnostic); 3D entry hides it explicitly
   }
 
   /** A bucket tree was grabbed/removed by the mouse — release the slot (the one desync rule). */
@@ -99,23 +105,24 @@ export class GameInputController {
     }
   }
 
-  // ---- the gamepad's input sink (ADR 17): the same intents, plus analog pan/zoom + a speed
-  // cycle. The GamepadController owns polling/edge/repeat/deadzone; this is just the actions. ----
-  /** Fire a discrete intent (move/page/pick/apply/cancel) from the gamepad. */
+  // ---- the input sink (ADR 17): the same intents, plus analog pan/zoom + a speed cycle. These
+  // ALWAYS act (they're only ever called in 2D); the `on` flag gates VISUALS, not actions — it
+  // must, since the gamepad layer fires dispatch before note(), so `on` may still be stale here. ----
+  /** Fire a discrete intent (move/page/pick/apply/cancel). */
   trigger(intent: Intent): void {
-    if (this.on) this.dispatch(intent, "");
+    this.dispatch(intent, "");
   }
   /** Pan the camera by a (world-space) delta — the right stick, magnitude-scaled. */
   panBy(dx: number, dy: number): void {
-    if (this.on) this.scene.pan(dx, dy);
+    this.scene.pan(dx, dy);
   }
   /** Zoom the camera by a factor — the triggers, time-scaled. */
   zoomBy(factor: number): void {
-    if (this.on) this.scene.zoom(factor);
+    this.scene.zoom(factor);
   }
   /** Cycle the reduction speed 0→1→2→3→4→0 (the Select button). */
   cycleSpeed(): void {
-    if (this.on) this.scene.setSpeed((this.scene.getSpeedLevel() + 1) % 5);
+    this.scene.setSpeed((this.scene.getSpeedLevel() + 1) % 5);
   }
 
   private dispatch(intent: Intent, key: string): void {
@@ -243,12 +250,16 @@ export class GameInputController {
     this.render();
   }
 
-  // ---- view sync: the held badge + the faded-neighbour opacity ----
+  // ---- view sync: the HAND-gated held badge (device-agnostic; the faded strip is applied
+  // separately, from navigation, in applyFade) ----
   private render(): void {
-    this.scene.tray.setHand(this.hand?.label ?? null);
-    this.applyFade();
+    const label = this.hand?.label ?? null;
+    if (label) this.scene.tray.show();
+    else this.scene.tray.hide();
+    this.scene.tray.setHand(label);
   }
-  /** Focused bucket bright, the rest faded — the spatial cue. `restore` = all bright (leaving game mode). */
+  /** Focused bucket bright, the rest faded — the spatial cue. NAVIGATION-gated (called from
+   *  {@link frameSelected}); `restore` = all bright (the keyboard/pad cursor left, or 3D entry). */
   private applyFade(restore = false): void {
     for (const [k, t] of this.buckets) t.container.alpha = restore || k === this.selected ? 1 : DIM;
   }

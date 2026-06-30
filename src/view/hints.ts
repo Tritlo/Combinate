@@ -2,8 +2,8 @@
  * The contextual hint bar (ADR 17) — a bottom action-bar showing the current context's actions,
  * each as a `[glyph] label` chip ("Q Apply fn", "Ⓐ Pick"). The glyph adapts to the active input
  * device (keyboard vs gamepad, {@link activeDevice}), the video-game "E to use" affordance. Shown
- * only while a context (Build / Inspect) owns the input; hidden in the free canvas. Repaint on
- * context change and on device change (the host wires {@link onDeviceChange}).
+ * only when the active device is keyboard/gamepad (not mouse) AND the View ▸ "Show controls"
+ * toggle is on. Repaint on context change and on device change (the host wires {@link onDeviceChange}).
  */
 import { Container, Graphics, Text } from "pixi.js";
 import { theme } from "./theme";
@@ -18,6 +18,7 @@ const ABOVE = 12; // gap between the hint row and the toolbar's top edge
 export class HintBar {
   readonly container = new Container();
   private ctx: Context | null = null;
+  private showControls = true;
 
   constructor() {
     this.container.eventMode = "none"; // hints never eat input
@@ -31,6 +32,12 @@ export class HintBar {
     this.refresh();
   }
 
+  /** Gate the hint display on the View ▸ "Show controls" toggle (visuals only). */
+  setShowControls(v: boolean): void {
+    this.showControls = v;
+    this.refresh();
+  }
+
   /** Reposition: centre the row just above the toolbar's top edge (`toolbarTop`). */
   place(width: number, toolbarTop: number): void {
     this.container.position.set(width / 2, toolbarTop - ABOVE);
@@ -39,15 +46,14 @@ export class HintBar {
   /** Repaint with the current device's glyphs (also call on device change). */
   refresh(): void {
     for (const c of this.container.removeChildren()) c.destroy({ children: true });
-    if (!this.ctx) {
-      this.container.visible = false;
-      return;
-    }
-    this.container.visible = true;
+    const ctx = this.ctx;
+    const visible = this.showControls && activeDevice() !== "mouse" && ctx != null;
+    this.container.visible = visible;
+    if (!visible || ctx == null) return;
     const pad = activeDevice() === "pad";
     const chips: Container[] = [];
     let total = 0;
-    for (const hint of HINTS[this.ctx]) {
+    for (const hint of HINTS[ctx]) {
       const glyph = new Text({ text: pad ? hint.pad : hint.kbd, style: { fontFamily: "monospace", fontSize: 13, fontWeight: "700", fill: theme.text } });
       const label = new Text({ text: hint.label, style: { fontFamily: "monospace", fontSize: 13, fill: theme.textDim } });
       glyph.position.set(PADX, (H - glyph.height) / 2);
