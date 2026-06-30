@@ -19,9 +19,10 @@ const HEAVY = 600;
 // node of radius r renders at scale r / TEX_R, tinted by its kind.
 const TEX_R = 32;
 
-// Node/edge colours come from the active theme (theme.ts). Edges: function
-// (left) = theme.fnEdge (warm), argument (right) = theme.argEdge (cool) — two
-// distinct hues so `(ι X)` and `(X ι)` read differently.
+// Node/edge colours come from the active theme (theme.ts). Edges encode two things: STYLE =
+// function (left, solid) vs argument (right, dashed), and COLOUR = depth tier (edgeTierColor:
+// red/black alternating), so a node's parent-edge differs from its child-edges and `(ι X)` vs
+// `(X ι)` read differently.
 
 let nodeTex: Texture | null = null;
 /** The white node-particle disc (tinted per kind), built once from a 2D canvas. */

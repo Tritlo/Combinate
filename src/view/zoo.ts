@@ -2,7 +2,7 @@ import { Container, type FederatedPointerEvent, Graphics, Rectangle, Sprite, Tex
 import { CATALOG, countIotas, iotaTreeOf, type Law, META, PAGES } from "../core/catalog";
 import { iota, type Node, type NodeId } from "../core/term";
 import { layoutRadial } from "../core/layout";
-import { theme } from "./theme";
+import { theme, edgeTierColor } from "./theme";
 import { spherePreview, ZOO_PRIO } from "./spherePreview";
 
 const LIST_W = 248;
@@ -437,23 +437,29 @@ function renderPicture(tree: Node, size: number): Container {
   };
 
   const edges = new Graphics();
-  const fn: Array<[number, number, number, number]> = [];
-  const arg: Array<[number, number, number, number]> = [];
-  const walk = (n: Node): void => {
+  // Edge colour = depth TIER (red/black), width = fn (thicker) vs arg — the tricolor tree convention,
+  // sized down for the thumbnail. One colour per stroke, so 4 strokes: {arg,fn} × {even,odd tier}.
+  const fn: Array<[number, number, number, number, number]> = [];
+  const arg: Array<[number, number, number, number, number]> = [];
+  const walk = (n: Node, depth: number): void => {
     if (n.kind !== "app") return;
     const p = at(n.id);
     const l = at(n.fn.id);
     const r = at(n.arg.id);
-    fn.push([p.x, p.y, l.x, l.y]);
-    arg.push([p.x, p.y, r.x, r.y]);
-    walk(n.fn);
-    walk(n.arg);
+    fn.push([p.x, p.y, l.x, l.y, depth]);
+    arg.push([p.x, p.y, r.x, r.y, depth]);
+    walk(n.fn, depth + 1);
+    walk(n.arg, depth + 1);
   };
-  walk(tree);
-  for (const [x1, y1, x2, y2] of arg) edges.moveTo(x1, y1).lineTo(x2, y2);
-  edges.stroke({ width: 1, color: theme.argEdge, alpha: 0.85 });
-  for (const [x1, y1, x2, y2] of fn) edges.moveTo(x1, y1).lineTo(x2, y2);
-  edges.stroke({ width: 1.4, color: theme.fnEdge, alpha: 0.95 });
+  walk(tree, 0);
+  for (const parity of [0, 1]) {
+    for (const [x1, y1, x2, y2, d] of arg) if (d % 2 === parity) edges.moveTo(x1, y1).lineTo(x2, y2);
+    edges.stroke({ width: 1, color: edgeTierColor(parity), alpha: 0.85 });
+  }
+  for (const parity of [0, 1]) {
+    for (const [x1, y1, x2, y2, d] of fn) if (d % 2 === parity) edges.moveTo(x1, y1).lineTo(x2, y2);
+    edges.stroke({ width: 1.4, color: edgeTierColor(parity), alpha: 0.95 });
+  }
   c.addChild(edges);
 
   const dots = new Graphics();

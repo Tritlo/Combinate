@@ -1,10 +1,10 @@
 /**
- * Light / dark theming with a **1-bit Macintosh** default and an opt-in **Colour**
- * mode. By default the canvas + panels are pure black-and-white (paper / ink) like
- * the original 512×342 Mac screen, with exactly three reserved colours that carry
- * meaning — the gold ι (the single generator / brand), and the warm function /
- * cool argument edge hues. The View ▸ Colour toggle swaps in the full palette,
- * restricted to 4096 colours (12-bit, RGB444) like an early colour Mac.
+ * Light / dark theming with a **tricolor (red / black / white)** Macintosh-ish default and an opt-in
+ * **Colour** mode. By default the canvas + panels are paper (white) + ink (black), with two reserved
+ * accents that carry meaning: the gold ι (the single generator / brand) and a **red** used to tier
+ * tree edges by depth (red/black alternating, so a parent-edge differs from its child-edges — see
+ * {@link edgeTierColor}). So: red, black, white, plus the gold ι. The View ▸ Colour toggle swaps in
+ * the full palette, restricted to 4096 colours (12-bit, RGB444) like an early colour Mac.
  *
  * The `theme` object is mutated in place and every view reads `theme.*` at render
  * time, so a re-render (hotbar/zoo/tree refresh) repaints in the active scheme.
@@ -22,8 +22,6 @@ export interface Theme {
   nodeGlyph: number; // the letter on a combinator dot (paper in mono, white in colour)
   iota: number; // ι gold / amber — the one reserved node colour
   iotaGlyph: number; // text drawn on the ι dot
-  fnEdge: number; // function (left) edge — reserved warm hue
-  argEdge: number; // argument (right) edge — reserved cool hue
   root: number; // highlight ring on a tree's root (the snap anchor)
   select: number; // selected Zoo / challenge row (a quiet grey under unchanged text)
   backdrop: number;
@@ -32,35 +30,37 @@ export interface Theme {
 
 // ---- Colour mode: the classic 1977–1999 Apple six-colour logo (green/yellow/
 // orange/red/purple/blue) — the macOS heritage palette, six widely-separated hues
-// — mapped to roles: function = red, argument = blue, ι = yellow/gold, combinator
-// node = purple, root = green, accent = orange. Quantised to RGB444 at apply()
-// (channels near 0x11 multiples survive). Mono stays 1-bit; this is the opt-in.
-// Lightness is tuned per mode for contrast: the vivid logo hues on dark, deepened
-// on white where a token doubles as text (ι = Zoo/Golf headings, root = the solved
-// tick, edges = strokes). Verified at those call sites. ----
+// — mapped to roles: ι = yellow/gold, combinator node = purple, root = green,
+// accent = orange/blue. (Tree edges are the red/black depth tiers — see
+// edgeTierColor — in every mode, not a per-role hue.) Quantised to RGB444 at
+// apply() (channels near 0x11 multiples survive); this is the opt-in over the
+// tricolor default. Lightness is tuned per mode for contrast: the vivid logo hues
+// on dark, deepened on white where a token doubles as text. ----
 const COLOR_DARK: Theme = {
   bg: 0x111111, panel: 0x222222, inset: 0x000000, border: 0xcccccc,
   text: 0xffffff, textDim: 0xaaaaaa, mutedDot: 0x888888,
   accent: 0xff8822, node: 0xbb55bb, nodeGlyph: 0x111111, // Apple purple dot, dark glyph
-  iota: 0xffbb22, iotaGlyph: 0x111111, fnEdge: 0xa07c54, argEdge: 0x7e9cc0, // muted warm brown / cool blue-grey (visible on the dark canvas)
+  iota: 0xffbb22, iotaGlyph: 0x111111,
   root: 0x66cc44, select: 0x333344, backdrop: 0x000000, backdropAlpha: 0.72, // Apple green
 };
 const COLOR_LIGHT: Theme = {
   bg: 0xffffff, panel: 0xeeeeee, inset: 0xdddddd, border: 0x222222, // white canvas, black ink
   text: 0x000000, textDim: 0x555555, mutedDot: 0x999999,
   accent: 0x0099dd, node: 0x994499, nodeGlyph: 0xffffff, // Apple purple dot, white glyph
-  iota: 0x995500, iotaGlyph: 0xffffff, fnEdge: 0x33241a, argEdge: 0x7d97b3, // dark brown (almost black) / light blue (almost grey)
+  iota: 0x995500, iotaGlyph: 0xffffff,
   root: 0x006622, select: 0xdddddd, backdrop: 0x000000, backdropAlpha: 0.45, // deep green (tick-safe)
 };
 
-// ---- 1-bit mode (default): paper / ink + the gold ι (the one reserved colour).
-// Edges are grayscale — function = ink, argument = dim — and told apart by solid
-// vs dashed (so mono stays truly colourless beyond the brand ι). ----
+// ---- Tricolor mode (default): red / black / white. Paper (white) + ink (black),
+// with a splash of red — tree edges alternate ink/red by depth tier (the red/black-
+// tree cue; see edgeTierColor) and fn/arg are told apart by solid vs dashed. Plus
+// the one gold ι (the generator / brand). No other hues; the six-colour palette is
+// the opt-in. ----
 const MONO_DARK: Theme = {
   bg: 0x07090d, panel: 0x07090d, inset: 0x0d1117, border: 0xf0f3f6,
   text: 0xf0f3f6, textDim: 0x9aa3ad, mutedDot: 0x6e7681,
   accent: 0xf0b72f, node: 0xf0f3f6, nodeGlyph: 0x07090d,
-  iota: 0xf0b72f, iotaGlyph: 0x07090d, fnEdge: 0xf0f3f6, argEdge: 0x9aa3ad,
+  iota: 0xf0b72f, iotaGlyph: 0x07090d,
   root: 0xf0f3f6, select: 0x21262d, backdrop: 0x000000, backdropAlpha: 0.72,
 };
 const MONO_LIGHT: Theme = {
@@ -69,7 +69,7 @@ const MONO_LIGHT: Theme = {
   // a darker gold so it passes contrast both as the ι dot (white glyph) and as
   // foreground text on white panels (Zoo tab/heading accents).
   accent: 0x8a6300, node: 0x000000, nodeGlyph: 0xffffff,
-  iota: 0x8a6300, iotaGlyph: 0xffffff, fnEdge: 0x000000, argEdge: 0x5a5a5a,
+  iota: 0x8a6300, iotaGlyph: 0xffffff,
   root: 0x000000, select: 0xdcdcdc, backdrop: 0x000000, backdropAlpha: 0.45,
 };
 
@@ -86,8 +86,8 @@ const listeners: Array<() => void> = [];
 // Edge TIER colour (red/black-tree style): edges alternate colour by depth, so a node's parent-edge
 // is always the OPPOSITE colour of its child-edges — that's what lets you trace parent→child
 // direction (and tell "a's argument" from "b's argument") in a busy 2D/3D tree. Pairs with the
-// solid(fn)/dashed(arg) STYLE, which encodes left vs right. Even tiers = ink, odd tiers = red. The
-// red is a fixed hue applied directly (not the quantised palette), so it shows in 1-bit mode too.
+// solid(fn)/dashed(arg) STYLE, which encodes left vs right. Even tiers = ink, odd tiers = red — the
+// red of the tricolor (red/black/white) identity, a fixed hue applied directly in every mode.
 const EDGE_RED: Record<Mode, number> = { dark: 0xee4444, light: 0xcc2222 };
 export function edgeTierColor(depth: number): number {
   return depth % 2 === 0 ? theme.text : EDGE_RED[mode];
