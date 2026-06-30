@@ -2,9 +2,8 @@ import { Container, Graphics, ParticleContainer, Particle, Rectangle, Text, Text
 import { type Node, type NodeId, iotaTreeFrom, IOTA_ID_SPAN } from "../core/term";
 import { IOTA_CODE, IOTA_BITCODE } from "../core/catalog";
 import { type Layout, type LayoutFn } from "../core/layout";
-import { theme, combinatorColor, glyphOn, currentMode } from "./theme";
+import { theme, combinatorColor, glyphOn } from "./theme";
 import { tween } from "./anim";
-import { isFluff } from "./fluff";
 
 const LAYOUT_MS = 360; // duration of the layout-toggle reflow
 // Above this node count we drop the per-node text glyphs (you can't read them at
@@ -16,7 +15,6 @@ const GLYPH_MAX = 300;
 // and argument edges drop their dashes (which multiply edge geometry). Below it,
 // small trees keep the nice tween + dashed edges. Keeps fac-scale playback fast.
 const HEAVY = 600;
-const DRIFT_AMP = 3; // px — fluff "water drift": how far leaves sway around their layout spot
 // Radius of the shared white circle texture all node particles are drawn from; a
 // node of radius r renders at scale r / TEX_R, tinted by its kind.
 const TEX_R = 32;
@@ -25,44 +23,20 @@ const TEX_R = 32;
 // (left) = theme.fnEdge (warm), argument (right) = theme.argEdge (cool) — two
 // distinct hues so `(ι X)` and `(X ι)` read differently.
 
-let nodeTex: { circle: Texture; leaf: Texture } | null = null;
-/** Two white node-particle shapes — a circle and a leaf — packed into ONE texture
- *  atlas (so the ParticleContainer still batches): the leaf is the fluff "leaf
- *  nodes" look. Built once from a 2D canvas; tinted per kind. */
-function nodeTextures(): { circle: Texture; leaf: Texture } {
+let nodeTex: Texture | null = null;
+/** The white node-particle disc (tinted per kind), built once from a 2D canvas. */
+function nodeTexture(): Texture {
   if (nodeTex) return nodeTex;
   const s = TEX_R * 2;
   const canvas = document.createElement("canvas");
-  canvas.width = s * 2; // [circle | leaf]
+  canvas.width = s;
   canvas.height = s;
   const ctx = canvas.getContext("2d")!;
   ctx.fillStyle = "#ffffff";
   ctx.beginPath();
   ctx.arc(TEX_R, TEX_R, TEX_R - 1, 0, Math.PI * 2); // -1px of AA breathing room
   ctx.fill();
-  // leaf: a pointed ellipse pointing UP (tip at -y); each particle is rotated to
-  // its branch so the blade emerges outward. Midrib cut out for shape.
-  ctx.save();
-  ctx.translate(s + TEX_R, TEX_R);
-  const r = TEX_R - 2;
-  ctx.beginPath();
-  ctx.moveTo(0, -r);
-  ctx.quadraticCurveTo(r * 0.78, r * 0.15, 0, r);
-  ctx.quadraticCurveTo(-r * 0.78, r * 0.15, 0, -r);
-  ctx.fill();
-  ctx.globalCompositeOperation = "destination-out"; // midrib
-  ctx.lineWidth = 1.5;
-  ctx.strokeStyle = "#000";
-  ctx.beginPath();
-  ctx.moveTo(0, -r * 0.9);
-  ctx.lineTo(0, r * 0.7);
-  ctx.stroke();
-  ctx.restore();
-  const source = Texture.from(canvas).source;
-  nodeTex = {
-    circle: new Texture({ source, frame: new Rectangle(0, 0, s, s) }),
-    leaf: new Texture({ source, frame: new Rectangle(s, 0, s, s) }),
-  };
+  nodeTex = new Texture({ source: Texture.from(canvas).source, frame: new Rectangle(0, 0, s, s) });
   return nodeTex;
 }
 
@@ -93,7 +67,6 @@ interface NodeVis {
   baseScale: number;
   glyphSpec: { text: string; color: number; size: number } | null;
   glyph: Text | null;
-  kind: Node["kind"]; // for leaf/vine mode: which nodes are leaves vs anchored joints
 }
 
 interface Anim {
@@ -125,22 +98,20 @@ export class TreeView {
   private readonly edges = new Graphics();
   private readonly rootMark = new Graphics(); // halo on the root (snap anchor)
   // All node discs in one GPU-instanced batch; glyphs in a thin layer on top.
-  // Only position (movement/drift) + colour (tint + alpha fades) change per frame;
+  // Only position (movement) + colour (tint + alpha fades) change per frame;
   // vertices/uvs/rotation stay static (no per-dot scale/rotation animation — the
   // grow-in is the Text glyph scaling + the dot alpha-fading). `scale` isn't a real
   // Pixi v8 particle property, so it was a no-op before.
-  private readonly particles = new ParticleContainer({ dynamicProperties: { position: true, color: true, rotation: true } });
+  private readonly particles = new ParticleContainer({ dynamicProperties: { position: true, color: true } });
   private readonly glyphs = new Container();
   node: Node; // the logical term (used for reduction)
   private display: Node; // node with undiscovered S/K/I expanded to their ι-trees
   private lay: Layout;
   private readonly objs = new Map<NodeId, NodeVis>();
-  // Parent→(left, right) child ids, cached from the display topology so drawEdges
-  // (run every tween frame) reads live positions without re-walking the tree.
-  // Parent→child edges with the child id (vine bow seed) and the resolved NodeVis of
-  // each endpoint cached at index time, so the per-frame edge draw is pure array
-  // iteration — no `objs` Map lookups (4 per edge per frame on the animation hot path).
-  private edgeList: Array<{ l: NodeId; r: NodeId; pv: NodeVis; lv: NodeVis; rv: NodeVis }> = [];
+  // Parent→child edges with the resolved NodeVis of each endpoint cached at index
+  // time, so the per-frame edge draw is pure array iteration — no `objs` Map lookups
+  // (3 per edge per frame on the animation hot path).
+  private edgeList: Array<{ pv: NodeVis; lv: NodeVis; rv: NodeVis }> = [];
 
   private anims: Anim[] = [];
   private elapsed = 0;
@@ -340,7 +311,7 @@ export class TreeView {
   }
 
   /** Pop the whole tree in — a quick scale-up of the container around its anchor.
-   *  The fluff grab/spawn flourish; gated by the caller. */
+   *  The grab/spawn pop; gated by the caller (withMotion). */
   popIn(): void {
     const c = this.container;
     c.scale.set(0.55);
@@ -349,43 +320,6 @@ export class TreeView {
       if (c.destroyed) return; // destroyed mid-pop — the canceller usually beats this, but guard anyway
       c.scale.set(0.55 + 0.45 * e);
     });
-  }
-
-  /** Fluff "water drift": sway each node a few px around its layout position
-   *  (the leaves), while the edges stay put (the spine). Caller drives `t` (sec)
-   *  and gates by the Fluff toggle / reduced-motion. Skipped while tweening (the
-   *  animation owns positions) or on big trees. */
-  applyDrift(t: number): void {
-    if (this.ticking || this.heavy()) return;
-    const vine = isFluff("leaves");
-    for (const [id, vis] of this.objs) {
-      const base = this.lay.pos.get(id);
-      if (!base) continue;
-      if (vine && vis.kind === "app") {
-        // vine mode: the application joints are the anchor points — they don't sway
-        vis.particle.x = base.x;
-        vis.particle.y = base.y;
-        continue;
-      }
-      const amp = vine ? DRIFT_AMP + 1.5 : DRIFT_AMP; // leaves flutter a touch more
-      const x = base.x + amp * Math.sin(t * 0.8 + base.y * 0.02);
-      const y = base.y + amp * Math.cos(t * 0.6 + base.x * 0.02);
-      vis.particle.x = x;
-      vis.particle.y = y;
-      if (vis.glyph) vis.glyph.position.set(x, y);
-    }
-    if (vine) this.drawEdges(); // branches + leaf orientation follow the swaying leaves
-  }
-
-  /** Snap nodes back to their exact layout positions (when drift is turned off). */
-  clearDrift(): void {
-    for (const [id, vis] of this.objs) {
-      const base = this.lay.pos.get(id);
-      if (!base) continue;
-      vis.particle.x = base.x;
-      vis.particle.y = base.y;
-      if (vis.glyph) vis.glyph.position.set(base.x, base.y);
-    }
   }
 
   /** Cancel a running tween, snapping to its settled state (no `onDone`). */
@@ -526,7 +460,7 @@ export class TreeView {
       const pv = this.objs.get(n.id);
       const lv = this.objs.get(n.fn.id);
       const rv = this.objs.get(n.arg.id);
-      if (pv && lv && rv) this.edgeList.push({ l: n.fn.id, r: n.arg.id, pv, lv, rv });
+      if (pv && lv && rv) this.edgeList.push({ pv, lv, rv });
       walk(n.fn);
       walk(n.arg);
     };
@@ -540,10 +474,6 @@ export class TreeView {
   // bounding per-frame geometry to what's visible (see viewRect).
   private drawEdges(): void {
     this.edges.clear();
-    if (isFluff("leaves")) {
-      this.drawVines();
-      return;
-    }
     const v = this.viewRect();
     const dash = this.objs.size <= HEAVY; // big trees draw solid — dashing multiplies geometry every frame (same threshold as heavy())
     for (const e of this.edgeList) {
@@ -562,45 +492,6 @@ export class TreeView {
     }
     this.edges.stroke({ width: 3, color: theme.fnEdge });
     this.placeRootMark();
-  }
-
-  // Leaf/vine mode: brown branches (function thick, argument thinner — no dashes),
-  // each gently curved + seeded for organic variation; leaves are rotated to emerge
-  // from their branch; app joints are hidden (alpha 0) except the root. Redrawn each
-  // drift frame so the branches sway with their leaves (parent end anchored).
-  private drawVines(): void {
-    const v = this.viewRect();
-    const brown = currentMode() === "dark" ? 0x9a7547 : 0x6b4423;
-    const rootId = this.display.id;
-    for (const [id, vis] of this.objs) {
-      if (vis.kind === "app" && id !== rootId) vis.particle.alpha = 0; // hide joints
-    }
-    for (const e of this.edgeList) {
-      const p = e.pv.particle;
-      if (!v || overlaps(p, e.rv.particle, v)) this.vineSeg(p, e.rv, e.r);
-    }
-    this.edges.stroke({ width: 1.8, color: brown }); // argument branch: thinner
-    for (const e of this.edgeList) {
-      const p = e.pv.particle;
-      if (!v || overlaps(p, e.lv.particle, v)) this.vineSeg(p, e.lv, e.l);
-    }
-    this.edges.stroke({ width: 3.4, color: brown }); // function branch: thicker
-    this.placeRootMark();
-  }
-
-  /** One curved branch parent→child (bow seeded by id) + orient the child leaf to
-   *  point outward along it. */
-  private vineSeg(parent: Particle, child: NodeVis, childId: NodeId): void {
-    const c = child.particle;
-    const dx = c.x - parent.x;
-    const dy = c.y - parent.y;
-    const len = Math.hypot(dx, dy) || 1;
-    const seed = ((Math.abs(childId) * 2654435761) >>> 0) / 0xffffffff; // 0..1, stable per node
-    const bow = (seed - 0.5) * 0.22 * len; // perpendicular bow → organic curve
-    const mx = (parent.x + c.x) / 2 - (dy / len) * bow;
-    const my = (parent.y + c.y) / 2 + (dx / len) * bow;
-    this.edges.moveTo(parent.x, parent.y).quadraticCurveTo(mx, my, c.x, c.y);
-    if (child.kind !== "app") c.rotation = Math.atan2(dy, dx) + Math.PI / 2; // blade emerges along the branch
   }
 
   // The visible viewport in this tree's local coordinates — but only while
@@ -636,11 +527,9 @@ export class TreeView {
   // contains discovered combinators (undiscovered S/K/I are expanded to ι-trees).
   private makeVis(n: Node): NodeVis {
     const spec = visSpec(n);
-    const tex = nodeTextures();
-    const leafy = isFluff("leaves") && n.kind !== "app"; // fluff: terminal nodes become leaves; app junctions stay dots
-    const particle = new Particle({ texture: leafy ? tex.leaf : tex.circle, anchorX: 0.5, anchorY: 0.5, tint: spec.tint });
+    const particle = new Particle({ texture: nodeTexture(), anchorX: 0.5, anchorY: 0.5, tint: spec.tint });
     this.particles.addParticle(particle);
-    return { particle, baseScale: spec.radius / TEX_R, glyphSpec: spec.glyph, glyph: null, kind: n.kind };
+    return { particle, baseScale: spec.radius / TEX_R, glyphSpec: spec.glyph, glyph: null };
   }
 
   // Show text glyphs only below GLYPH_MAX nodes (LOD): create the ones now needed,

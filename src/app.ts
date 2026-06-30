@@ -37,10 +37,9 @@ import { preloadCompiler } from "./view/mhs/compiler";
 import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange } from "./view/theme";
 import { MenuBar, type Menu } from "./view/menubar";
 import { About } from "./view/about";
-import { FluffPanel, isFluff, prefersReducedMotion, onFluffChange } from "./view/fluff";
+import { withMotion } from "./view/motion";
 import { OptimizePanel, isOpt, setOpt, onOptChange } from "./view/optimize";
 import { type NativeOpts } from "./core/native";
-import { tween } from "./view/anim";
 import { BucketTray } from "./view/bucketTray";
 import { GameInputController } from "./view/gameInput";
 import { GamepadController } from "./view/gamepad";
@@ -89,9 +88,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   ghostLabel.anchor.set(0.5, 1);
   ghostLabel.visible = false;
   ghostLayer.addChild(ghost, ghostLabel);
-  const flourish = new Graphics(); // fluff: a marching-ants ring at each reduction
-  flourish.eventMode = "none";
-  world.addChild(flourish); // brought to front in reduceFlourish so it's not hidden under trees
 
   const trees: TreeView[] = [];
   let drag: Drag = null;
@@ -278,7 +274,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     discovered.add(law.sym);
     saveDiscovered();
     toast.show(`${law.lawText}  —  discovered!`);
-    if (isFluff("discovery")) sound.playIfReady(law.sym); // fluff: chirp the new bird (only if audio's already unlocked — discovery isn't a gesture)
+    sound.playIfReady(law.sym); // chirp the new bird (only if audio's already unlocked — discovery isn't a gesture)
     hotbar.reveal(law.sym);
     for (const t of trees) t.refresh(); // reveal newly-known combinators everywhere
     zoo.refresh();
@@ -360,7 +356,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
 
   // ---- auto-reduce + transport (extracted to view/reduction.ts, ADR 12). The Pixi
-  // side effects (the redex flourish, the transport bar) stay here and are injected. ----
+  // side effects (the transport bar) stay here and are injected. ----
   const reduce = new ReductionController({
     getFast: () => fastMode,
     getShare: () => shareMode,
@@ -374,42 +370,12 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       quest.onNormalForm(source); // guided progression
     },
     tickSound: (sym) => sound.tick(sym),
-    flourish: (tree) => reduceFlourish(tree),
     notify: (msg) => toast.show(msg),
     onTransportChange: () => {
       paintRail();
       transportBar.paint();
     },
   });
-
-  // Fluff "marching ants": a gold dashed ring crawls + fades at a tree's root when
-  // a reduction fires — skipped on fast-forward (would strobe), big trees, reduced
-  // motion. One ring at a time; rapid steps restart it.
-  let flourishCancel: (() => void) | null = null;
-  function reduceFlourish(tree: TreeView): void {
-    if (!isFluff("redexAnts") || reduce.mode === "ff" || prefersReducedMotion() || tree.heavy()) return;
-    flourishCancel?.();
-    world.addChild(flourish); // bring to front (above the trees added after it)
-    const { x, y } = tree.rootWorld;
-    flourishCancel = tween(
-      pixi.ticker,
-      340,
-      (e) => {
-        const r = 26 + 22 * e; // start outside the root-mark ring, then expand
-        const N = 12;
-        const arc = (Math.PI * 2) / N;
-        const span = arc * 0.5;
-        const off = e * arc * 1.5; // crawling dashes
-        flourish.clear();
-        for (let i = 0; i < N; i++) flourish.arc(x, y, r, i * arc + off, i * arc + off + span);
-        flourish.stroke({ width: 2.5, color: theme.iota, alpha: 0.9 * (1 - e) });
-      },
-      () => {
-        flourish.clear();
-        flourishCancel = null;
-      },
-    );
-  }
 
   // Transport bar (top-right): rate read-out + Pause/Step/Play/FF — a thin view over the
   // ReductionController (extracted to view/transportBar.ts, ADR 12).
@@ -439,35 +405,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     fpsText.text = `${pixi.ticker.FPS.toFixed(0)} fps`;
   });
 
-  // Fluff: water drift — sway settled trees' leaves around their layout positions
-  // (the edges/spine stay put). One ticker over all trees; each tree skips itself
-  // while tweening or if it's big (heavy). Toggling drift off snaps everyone back.
-  let driftT = 0;
-  pixi.ticker.add((tk: { deltaMS: number }) => {
-    if (prefersReducedMotion()) return;
-    driftT += tk.deltaMS;
-    const t = driftT / 1000;
-    if (isFluff("drift")) for (const tree of trees) tree.applyDrift(t);
-    if (isFluff("livingZoo")) zoo.tickFluff(t); // float the open creature's picture
-  });
-  // Snap everything back to rest whenever ambient motion stops (a toggle changed,
-  // or the OS reduced-motion preference flipped). The ticker re-applies next frame
-  // if the effect is still on.
-  const resetAmbient = (): void => {
-    for (const tree of trees) tree.clearDrift();
-    zoo.clearFluff();
-  };
-  onFluffChange(resetAmbient);
-  window.matchMedia?.("(prefers-reduced-motion: reduce)").addEventListener("change", resetAmbient);
-  // Leaf-nodes toggle changes the particle texture, baked in at creation — rebuild
-  // each tree's display so it applies immediately (only when that toggle flips).
-  let prevLeaves = isFluff("leaves");
-  onFluffChange(() => {
-    if (isFluff("leaves") !== prevLeaves) {
-      prevLeaves = isFluff("leaves");
-      for (const tree of trees) tree.refresh();
-    }
-  });
 
   // Stage receives pointer events over empty space (so panning works there).
   pixi.stage.eventMode = "static";
@@ -490,7 +427,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const tree = new TreeView(node, w.x, w.y, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
     addTree(tree);
     focus = tree;
-    if (!prefersReducedMotion()) tree.popIn(); // grab/spawn pop is always on (only reduced-motion suppresses it)
+    if (withMotion()) tree.popIn(); // grab/spawn pop is always on (only reduced-motion suppresses it)
     return tree;
   }
 
@@ -721,7 +658,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     addTree(merged);
     focus = merged;
     if (fromWorld) merged.animateAttachFrom(fromWorld, ATTACH_MS); // smooth merge into the app tree
-    else if (!prefersReducedMotion()) merged.popIn();
+    else if (withMotion()) merged.popIn();
     reduce.schedule(merged); // then it reduces on its own
     return merged;
   }
@@ -731,7 +668,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const tree = new TreeView(node, wx, wy, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
     addTree(tree);
     focus = tree;
-    if (!prefersReducedMotion()) tree.popIn();
+    if (withMotion()) tree.popIn();
     reduce.schedule(tree);
     return tree;
   }
@@ -848,8 +785,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   });
 
   // Render efficiency: stop the render/animation loop while the tab is hidden —
-  // no point drawing the drift to an invisible canvas. (Browsers throttle rAF in
-  // the background; this also idles the drift/rate samplers.) setTimeout-driven
+  // no point rendering to an invisible canvas. (Browsers throttle rAF in the
+  // background; this also idles the rate samplers.) setTimeout-driven
   // reduction keeps crawling and catches up on return.
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) pixi.ticker.stop();
@@ -985,7 +922,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // a • the selected option in a group. paintRail() (kept for its many callers)
   // now just refreshes the open pull-down's checkmarks. ----
   const about = new About();
-  const fluff = new FluffPanel();
   const optimize = new OptimizePanel();
   const keybinds = new KeybindsModal();
 
@@ -1088,8 +1024,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "toggle", label: "Color (4096)", checked: () => colorOn(), run: () => toggleColor() },
       { kind: "sep" },
       { kind: "toggle", label: "FPS counter", checked: () => fpsOn, run: () => toggleFps() },
-      { kind: "sep" },
-      { kind: "action", label: "Fluff…", run: () => fluff.open() },
     ] },
     { title: "Reduce", items: [
       { kind: "radio", label: "Pause", on: () => reduce.mode === "pause", run: () => reduce.setTransport("pause") },

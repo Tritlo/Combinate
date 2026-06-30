@@ -3,7 +3,7 @@
  * per-tree reduction loop (each settled tree plays itself to normal form one tween at a
  * time, cancelled on touch), the playback transport (play / pause / fast-forward), the
  * non-termination guard, and the graph-mode lifecycle. Pure-ish imperative shell: the Pixi
- * side effects (the reduction flourish, the transport bar) stay in app.ts and are injected
+ * side effects (the transport bar) stay in app.ts and are injected
  * as callbacks, so this is the state machine, not the chrome.
  */
 import { firingRule, redexAt } from "../core/reduce";
@@ -63,7 +63,6 @@ export interface ReductionDeps {
   settle: (tree: TreeView) => void; // recognise + collapse a normal form
   onNormalForm: (source: Node) => void; // golf + quest progression
   tickSound: (sym: string | null) => void; // a tone per contraction (null = no rule)
-  flourish: (tree: TreeView) => void; // the redex-ants ripple (Pixi, in app)
   notify: (msg: string) => void; // toast
   onTransportChange: () => void; // repaint the menu + transport bar
 }
@@ -225,7 +224,6 @@ export class ReductionController {
       }
       return;
     }
-    this.deps.flourish(tree);
     tree.animateTo(snap, this.stepDur(), () => {
       const a2 = this.auto.get(tree);
       if (!a2 || a2.gen !== gen) return;
@@ -292,7 +290,6 @@ export class ReductionController {
       }
       this.deps.tickSound(firingRule(tree.node, fast)); // a tone per contraction (approx)
       a.steps = g.steps;
-      this.deps.flourish(tree);
       tree.animateTo(g.snapshot(), this.stepDur(), () => {
         const a2 = this.auto.get(tree);
         if (!a2 || a2.gen !== gen) return;
@@ -312,7 +309,6 @@ export class ReductionController {
     const next = redex.build(); // build before the side effects (sound/step count)
     this.deps.tickSound(redex.sym); // sonify the rule about to fire
     a.steps++;
-    this.deps.flourish(tree);
     tree.animateTo(next, this.stepDur(), () => {
       const a2 = this.auto.get(tree);
       if (!a2 || a2.gen !== gen) return;
@@ -343,7 +339,6 @@ export class ReductionController {
       }
       this.deps.tickSound(firingRule(tree.node, fast));
       a.steps = a.grapher.steps;
-      this.deps.flourish(tree);
       tree.animateTo(a.grapher.snapshot(), this.stepDur(), () => {});
     } else {
       a.grapher = undefined;
@@ -354,7 +349,6 @@ export class ReductionController {
       }
       this.deps.tickSound(redex.sym);
       a.steps++;
-      this.deps.flourish(tree);
       tree.animateTo(redex.build(), this.stepDur(), () => {});
     }
   }
