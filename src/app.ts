@@ -4,11 +4,9 @@ import {
   type FederatedPointerEvent,
   Graphics,
   Rectangle,
-  Sprite,
   Text,
-  Texture,
 } from "pixi.js";
-import { app as mkApp, cloneTerm, comb, decode, exceedsNodes, freeVar, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
+import { app as mkApp, cloneTerm, comb, decode, freeVar, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
 import { evalShared } from "./core/graph";
 import { encodePermalink, decodePermalink, type Modes } from "./core/permalink";
 import { LocalStore } from "./store/local";
@@ -49,14 +47,13 @@ import { GameInputController } from "./view/gameInput";
 import { ContextMenu } from "./view/contextMenu";
 import { NameKeyboard } from "./view/nameKeyboard";
 import { GamepadController } from "./view/gamepad";
-import { Sphere3D, NODE_CAP, preloadSphere3D } from "./view/sphere3d";
+import { preloadSphere3D } from "./view/sphere3d";
+import { SphereController } from "./view/sphereController";
 import { HintBar } from "./view/hints";
 import { DiscoveryCard } from "./view/discovery";
 import { type Context, type Intent, intentForKey } from "./view/keymap";
 import { activeDevice, noteKeyboard, noteMouse, notePad, onDeviceChange } from "./view/inputDevice";
 
-const KEY_ROT = 6; // 3D orbit: px-equivalent per frame for a held rotate-key
-const MOM_DECAY = 0.92; // 3D orbit: drag-release momentum decay per frame
 const PAD_ORBIT = 320; // 3D orbit: px-equivalent/sec at full left-stick deflection
 const PAD_PAN = 1100; // build camera pan: world-px/sec at full right-stick deflection
 const PAD_PAN3D = 600; // 3D pan: px-equivalent/sec at full right-stick deflection
@@ -220,7 +217,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     saveDiscovered();
     hotbar.refresh();
     for (const t of trees) t.refresh();
-    rerender3D(); // the 3D view follows the discovery mask too
+    sphere.rerender(); // the 3D view follows the discovery mask too
     zoo.refresh();
     readout.invalidate(); // the read-out's combinator-masking depends on the discovery set
     paintRail();
@@ -236,7 +233,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     readout.invalidate(); // unmasked combinators changed → recompute the read-out
     hotbar.refresh();
     for (const t of trees) t.refresh();
-    rerender3D(); // the 3D view follows the discovery mask too
+    sphere.rerender(); // the 3D view follows the discovery mask too
     zoo.refresh();
     paintRail();
   }
@@ -261,7 +258,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     hotbar.reveal(law.sym);
     for (const t of trees) t.refresh(); // reveal newly-known combinators everywhere
     readout.invalidate(); // a newly-known combinator unmasks in the read-out too
-    rerender3D(); // a newly-known combinator changes the 3D discovery mask too
+    sphere.rerender(); // a newly-known combinator changes the 3D discovery mask too
     zoo.refresh();
     paintRail();
   }
@@ -392,10 +389,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       paintRail();
       transportBar.paint();
     },
-    morph3D: (tree, node, dur) => morphFocused3D(tree, node, dur),
-    settleMorph3D: () => sphere3d.settleMorph(),
-    is3DPacing: (tree) => view3D && tree === focus, // 3D hides the 2D view → pace this tree to its morph
-    morph3DActive: () => sphere3d.morphing,
+    morph3D: (tree, node, dur) => sphere.morph(tree, node, dur),
+    settleMorph3D: () => sphere.settleMorph(),
+    is3DPacing: (tree) => sphere.isPacing(tree), // 3D hides the 2D view → pace this tree to its morph
+    morph3DActive: () => sphere.morphing(),
   });
 
   // Transport bar (top-right): rate read-out + Pause/Step/Play/FF — a thin view over the
@@ -628,10 +625,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
 
   pixi.stage.on("pointerdown", (e: FederatedPointerEvent) => {
-    if (view3D) {
+    if (sphere.active()) {
       if (e.pointerType === "touch") return; // touch is handled at the canvas level (1-finger pan / 2-finger orbit)
-      if (e.button === 0) panDrag = { x: e.global.x, y: e.global.y }; // 3D: left-drag pans
-      else if (e.button === 2) orbitDrag = { x: e.global.x, y: e.global.y }; // 3D: right-drag orbits
+      if (e.button === 0) sphere.beginDrag("pan", e.global.x, e.global.y); // 3D: left-drag pans
+      else if (e.button === 2) sphere.beginDrag("orbit", e.global.x, e.global.y); // 3D: right-drag orbits
       return;
     }
     if (pinch || e.button !== 0) return; // pinching, or a right-click (the menu)
@@ -646,17 +643,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   });
 
   pixi.stage.on("globalpointermove", (e: FederatedPointerEvent) => {
-    if (view3D) {
-      if (panDrag) {
-        sphere3d.pan(e.global.x - panDrag.x, e.global.y - panDrag.y);
-        panDrag = { x: e.global.x, y: e.global.y };
-      } else if (orbitDrag) {
-        const dx = e.global.x - orbitDrag.x;
-        const dy = e.global.y - orbitDrag.y;
-        sphere3d.orbit(dx, dy);
-        lastDragD = { x: dx, y: dy }; // remember the flick for release momentum
-        orbitDrag = { x: e.global.x, y: e.global.y };
-      }
+    if (sphere.active()) {
+      sphere.dragTo(e.global.x, e.global.y);
       return;
     }
     if (!drag) return;
@@ -675,13 +663,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   });
 
   const onUp = () => {
-    if (orbitDrag) {
-      momVx = lastDragD.x; // a flick imparts spin momentum (decays on the ticker)
-      momVy = lastDragD.y;
-      lastDragD = { x: 0, y: 0 };
-    }
-    orbitDrag = null; // end a 3D orbit drag
-    panDrag = null; // end a 3D pan drag
+    sphere.endDrag(); // end a 3D drag (imparts release momentum); no-op in 2D
     if (drag?.kind === "pan") drag = null; // end a camera pan; a carried tree keeps following until the next click
   };
   pixi.stage.on("pointerup", onUp);
@@ -810,7 +792,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       ev.preventDefault();
       noteMouse(); // wheel is a mouse action → hide the controls' visuals/hints
       if (zoo.isOpen || challenges.isOpen) return; // an open overlay owns the wheel (its list scrolls instead of zooming the canvas behind it)
-      if (view3D) return sphere3d.zoomBy(ev.deltaY < 0 ? 0.9 : 1 / 0.9); // 3D: wheel orbits-zoom
+      if (sphere.active()) return sphere.zoomBy(ev.deltaY < 0 ? 0.9 : 1 / 0.9); // 3D: wheel orbits-zoom
       zoomTo(world.scale.x * (ev.deltaY < 0 ? 1.1 : 1 / 1.1), ev.clientX, ev.clientY);
     },
     { passive: false },
@@ -825,9 +807,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   };
   pixi.canvas.addEventListener("pointerdown", (ev) => {
     noteMouse(); // mouse/touch on the canvas → hide the controls' visuals/hints (last-input-wins)
-    if (view3D && ev.pointerType !== "touch") return; // 3D MOUSE is handled on the stage (left-pan / right-orbit) — don't double-handle
+    if (sphere.active() && ev.pointerType !== "touch") return; // 3D MOUSE is handled on the stage (left-pan / right-orbit) — don't double-handle
     pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-    if (view3D) {
+    if (sphere.active()) {
       if (pointers.size === 2) pinch = pinchMetrics(); // 3D: two fingers orbit + pinch-zoom
       return; // 3D: one finger pans (handled in move)
     }
@@ -838,20 +820,20 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
   });
   pixi.canvas.addEventListener("pointermove", (ev) => {
-    if (view3D && ev.pointerType !== "touch") return; // 3D MOUSE handled on the stage
+    if (sphere.active() && ev.pointerType !== "touch") return; // 3D MOUSE handled on the stage
     const p = pointers.get(ev.pointerId);
     if (!p) return;
     const px = p.x; // previous position, before this move
     const py = p.y;
     p.x = ev.clientX;
     p.y = ev.clientY;
-    if (view3D) {
+    if (sphere.active()) {
       if (pointers.size === 1) {
-        sphere3d.pan(ev.clientX - px, ev.clientY - py); // one finger pans the look-at
+        sphere.panBy(ev.clientX - px, ev.clientY - py); // one finger pans the look-at
       } else if (pointers.size >= 2 && pinch) {
         const cur = pinchMetrics();
-        sphere3d.orbit(cur.cx - pinch.cx, cur.cy - pinch.cy); // two-finger centroid drag → orbit
-        if (cur.d !== pinch.d) sphere3d.zoomBy(pinch.d / cur.d); // spread/pinch → zoom
+        sphere.orbitBy(cur.cx - pinch.cx, cur.cy - pinch.cy); // two-finger centroid drag → orbit
+        if (cur.d !== pinch.d) sphere.zoomBy(pinch.d / cur.d); // spread/pinch → zoom
         pinch = cur;
       }
       return;
@@ -891,7 +873,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     zoo.applyTheme();
     challenges.applyTheme();
     for (const t of trees) t.refresh();
-    sphere3d.retheme(); // no-op when the 3D view is closed
+    sphere.retheme(); // no-op when the 3D view is closed
   }
   onThemeChange(applyTheme);
 
@@ -906,10 +888,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     zoo.layout();
     challenges.layout();
     hintBar.place(window.innerWidth, hotbar.topEdge);
-    if (view3D) {
-      sphere3d.resize(window.innerWidth, window.innerHeight);
-      fitSphereSprite();
-    }
+    sphere.resize(window.innerWidth, window.innerHeight);
   });
 
   // Render efficiency: stop the render/animation loop while the tab is hidden —
@@ -946,127 +925,30 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
 
   // ---- 3D "packed sphere" view (ADR 18): a lazy Three.js render of the focused term ----
-  // Compositing "A": Three renders to its own off-DOM canvas, which we draw as a Pixi texture
-  // sprite in `sphereLayer` between `world` and `hud`, so the Pixi HUD composites on top. The
-  // per-render canvas→texture re-upload is measured-negligible (~0.6ms, render-on-demand). (A
-  // zero-copy stacked-transparent-canvas path was investigated + rejected — Pixi v8's MSAA back-
-  // buffer resolve won't emit transparent pixels reliably; and a shared GL context inverts the
-  // Pixi-first app. See ADR 18.)
-  const sphere3d = new Sphere3D();
-  const sphereLayer = new Container();
-  sphereLayer.visible = false;
-  sphereLayer.eventMode = "none"; // orbit input is read off the stage; the sprite never intercepts
-  pixi.stage.addChildAt(sphereLayer, pixi.stage.getChildIndex(hud)); // just below the HUD
-  let sphereTex = Texture.from(sphere3d.canvas);
-  const sphereSprite = new Sprite(sphereTex);
-  sphereLayer.addChild(sphereSprite);
-  sphere3d.onFrame = () => sphereTex.source.update(); // re-upload the canvas after each 3D render
-  // Match the sprite to the (resized) off-DOM canvas; re-bind the texture if the canvas grew.
-  function fitSphereSprite(): void {
-    if (sphereTex.source.resource !== sphere3d.canvas || sphereTex.source.pixelWidth !== sphere3d.canvas.width) {
-      sphereTex.destroy();
-      sphereTex = Texture.from(sphere3d.canvas);
-      sphereSprite.texture = sphereTex;
-      sphere3d.onFrame = () => sphereTex.source.update();
-    }
-    sphereSprite.setSize(window.innerWidth, window.innerHeight);
-    sphereTex.source.update();
-  }
-  let orbitDrag: { x: number; y: number } | null = null; // right-drag (mouse) — 3D orbit
-  let panDrag: { x: number; y: number } | null = null; // left-drag (mouse) — 3D pan
-  // 3D rotation: held rotate-keys + drag-release momentum, applied each frame by the ticker so
-  // the orbit is smooth/continuous (not one step per pointer event).
-  const heldRot = new Set<string>();
-  let momVx = 0;
-  let momVy = 0;
-  let lastDragD = { x: 0, y: 0 };
-  pixi.ticker.add((tk: { deltaMS: number }) => {
-    if (!view3D) return;
-    if (sphere3d.morphing) return void sphere3d.advanceMorph(tk.deltaMS); // a reduction-step morph owns the frame
-    let vx = 0;
-    let vy = 0;
-    if (heldRot.has("arrowleft") || heldRot.has("a")) vx -= KEY_ROT;
-    if (heldRot.has("arrowright") || heldRot.has("d")) vx += KEY_ROT;
-    if (heldRot.has("arrowup") || heldRot.has("w")) vy -= KEY_ROT;
-    if (heldRot.has("arrowdown") || heldRot.has("s")) vy += KEY_ROT;
-    vx += momVx;
-    vy += momVy;
-    if (Math.abs(vx) > 0.05 || Math.abs(vy) > 0.05) sphere3d.orbit(vx, vy);
-    momVx = Math.abs(momVx) < 0.05 ? 0 : momVx * MOM_DECAY;
-    momVy = Math.abs(momVy) < 0.05 ? 0 : momVy * MOM_DECAY;
-  });
-  let view3D = false;
-  // The term the 3D view renders: the same EXPANDED display the 2D tree shows (undiscovered S/K/I
-  // as ι-trees, and every combinator when "Expand ι-trees" is on), so 3D follows that setting.
-  const display3D = (): Node | null => (focus ? expandDisplay(focus.node, { expandAll, isDiscovered }) : null);
-  // Re-render the open 3D view after a setting changes the displayed term (Expand toggle, a
-  // discovery). Keeps the camera; the term may have grown/shrunk but re-framing here is jarring.
-  // If the new display blows past the node cap (e.g. Expand on a big tree), back out to 2D.
-  function rerender3D(): void {
-    if (!view3D) return;
-    const disp = display3D();
-    if (disp && exceedsNodes(disp, NODE_CAP)) {
-      toggleView3D(); // exits 3D
-      return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
-    }
-    sphere3d.update(disp, true);
-  }
-  // Mirror a focused tree's reduction step into the open 3D view (plan 06). Hoisted so the reduction
-  // controller (constructed earlier) can call it; a no-op unless 3D is open on the focused tree. The
-  // morph snaps internally above its cap; if the expanded term exceeds the static cap, back out to 2D.
-  function morphFocused3D(tree: TreeView, node: Node, durationMS: number): void {
-    if (!view3D || tree !== focus) return;
-    const disp = expandDisplay(node, { expandAll, isDiscovered });
-    if (exceedsNodes(disp, NODE_CAP)) {
-      toggleView3D();
-      return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
-    }
-    sphere3d.animateTo(disp, durationMS);
-  }
-  function toggleView3D(): void {
-    if (view3D) {
-      view3D = false;
-      sphereLayer.visible = false;
-      world.visible = true;
-      sphere3d.hide();
-      heldRot.clear(); // drop any still-held rotate-keys so they don't resume on re-entry
-      pinch = null; // a 2-finger 3D gesture exited mid-flight mustn't bleed into the 2D pinch
-      syncControls(); // restore the build visuals per the current device (no auto-framing)
+  // The whole subsystem lives in SphereController: it owns the view3D flag, the Sphere3D renderer +
+  // its Pixi-composited sprite (a layer between `world` and `hud`), orbit/momentum state, and the
+  // orbit ticker. The shell forwards raw input, supplies the display term / 3D layout / toasts, and
+  // re-syncs its own controls (cursor visuals, hints, rail) whenever 3D opens or closes.
+  const sphere = new SphereController({
+    stage: pixi.stage,
+    hud,
+    world,
+    ticker: pixi.ticker,
+    focus: () => focus,
+    display: (node) => expandDisplay(node, { expandAll, isDiscovered }),
+    layout3: () => (layoutFn === layoutRadial ? layoutSphere : layoutHTree3D), // 3D defaults to the cubic H-tree; the packed sphere only for the explicit radial layout
+    notify: (msg) => toast.show(msg),
+    onActiveChange: (active) => {
+      if (!active) pinch = null; // a 2-finger 3D gesture exited mid-flight mustn't bleed into the 2D pinch
+      syncControls(); // hide the build visuals on enter / restore them on exit (per the active device)
       updateHints();
       paintRail();
-      return;
-    }
-    // Entering: preflight (iterative exceedsNodes — deep-tree-safe) so a too-big / unfocused tree
-    // never enters 3D, and the message shows on the visible 2D HUD. Checks the EXPANDED display.
-    const disp = display3D();
-    if (!disp) return toast.show("focus a tree to view it in 3D");
-    if (exceedsNodes(disp, NODE_CAP)) return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
-    view3D = true;
-    sphere3d.setLayout3(layoutFn === layoutRadial ? layoutSphere : layoutHTree3D); // 3D defaults to the cubic H-tree; the packed sphere only for the explicit radial layout
-    syncControls(); // hide the build visuals (cursor off, un-fade) before the world hides
-    world.visible = false;
-    sphereLayer.visible = true;
-    updateHints();
-    paintRail();
-    void sphere3d
-      .show(disp, window.innerWidth, window.innerHeight)
-      .then(() => fitSphereSprite())
-      .catch((e: unknown) => {
-        view3D = false; // Three failed to load / no WebGL — back out visibly
-        sphereLayer.visible = false;
-        world.visible = true;
-        sphere3d.hide();
-        syncControls(); // restore the build visuals per the current device
-        updateHints();
-        paintRail();
-        toast.show("3D view unavailable — WebGL not supported here");
-        console.warn("sphere3d:", e);
-      });
-  }
+    },
+  });
 
   // Set the layout for every tree (and trees spawned afterward). Picking a 2D layout leaves 3D.
   const setLayoutMode = (fn: LayoutFn): void => {
-    if (view3D) toggleView3D(); // a 2D layout choice exits the 3D view
+    if (sphere.active()) sphere.exit(); // a 2D layout choice exits the 3D view
     if (layoutFn !== fn) {
       layoutFn = fn;
       for (const t of trees) t.setLayout(fn);
@@ -1113,7 +995,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   function toggleExpand(): void {
     expandAll = !expandAll;
     for (const t of trees) t.refresh();
-    rerender3D(); // the 3D view follows the Expand setting too
+    sphere.rerender(); // the 3D view follows the Expand setting too
     paintRail();
     layoutControls?.refresh(); // the ι toggle in the control bar
   }
@@ -1135,7 +1017,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // The active interaction context: 2D is always Build (the tray), 3D is Inspect. The controls are
   // always live in 2D; only their visuals/hints adapt to the active input device.
   function currentContext(): Context {
-    return view3D ? "inspect" : "build";
+    return sphere.active() ? "inspect" : "build";
   }
   function updateHints(): void {
     hintBar.setContext(currentContext());
@@ -1143,7 +1025,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   /** Keep the controls' visuals in sync with the active device: the toolbar's game cursor shows
    *  for keyboard/gamepad (not mouse) and not in 3D. Actions stay live regardless; this is visuals. */
   function syncControls(): void {
-    gameInput.setEnabled(activeDevice() !== "mouse" && !view3D);
+    gameInput.setEnabled(activeDevice() !== "mouse" && !sphere.active());
     layoutControls?.refresh(); // keep the toggle bar in sync (3D on/off, layout changes)
   }
   /** View ▸ "Show controls": gate the on-screen hints only (persisted; visuals/actions unaffected). */
@@ -1188,9 +1070,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   updateHints();
   // The top-right layout toggle bar (under the transport): [2D|3D], [Top-Down|Radial|H-tree], [Auto].
   layoutControls = new LayoutControls({
-    is3D: () => view3D,
+    is3D: () => sphere.active(),
     set3D: (on) => {
-      if (on !== view3D) toggleView3D();
+      if (on !== sphere.active()) sphere.toggle();
     },
     layout: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutTopDown ? "topdown" : layoutFn === layoutRadial ? "radial" : "htree"),
     setLayout: (k) => setLayoutMode(k === "auto" ? layoutAuto : k === "topdown" ? layoutTopDown : k === "radial" ? layoutRadial : layoutHTree),
@@ -1222,16 +1104,16 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   new GamepadController(pixi.ticker, {
     // Always poll: the pad is always live (2D Build / 3D Inspect); Y enters/exits 3D either way.
     enabled: () => true,
-    context: () => (view3D ? "inspect" : "build"),
+    context: () => (sphere.active() ? "inspect" : "build"),
     dispatch: (i) => dispatchPadIntent(i),
     leftStick: (sx, sy, dt) => {
-      if (view3D) sphere3d.orbit(sx * PAD_ORBIT * dt, sy * PAD_ORBIT * dt); // inspect: orbit
+      if (sphere.active()) sphere.orbitBy(sx * PAD_ORBIT * dt, sy * PAD_ORBIT * dt); // inspect: orbit
     },
     rightStick: (sx, sy, dt) => {
-      if (!view3D) gameInput.panBy(-sx * PAD_PAN * dt, -sy * PAD_PAN * dt); // build: pan the camera
-      else if (view3D) sphere3d.pan(sx * PAD_PAN3D * dt, sy * PAD_PAN3D * dt); // inspect: pan the look-at
+      if (!sphere.active()) gameInput.panBy(-sx * PAD_PAN * dt, -sy * PAD_PAN * dt); // build: pan the camera
+      else sphere.panBy(sx * PAD_PAN3D * dt, sy * PAD_PAN3D * dt); // inspect: pan the look-at
     },
-    zoomBy: (f) => (view3D ? sphere3d.zoomBy(f) : gameInput.zoomBy(f)),
+    zoomBy: (f) => (sphere.active() ? sphere.zoomBy(f) : gameInput.zoomBy(f)),
     note: () => notePad(),
     toast: (m) => toast.show(m),
   });
@@ -1253,17 +1135,17 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
         return stepTransport(1); // RB: toward Fast-forward
       case "enterInspect":
       case "exitInspect":
-        return void toggleView3D();
+        return sphere.toggle();
       case "recenter":
-        return sphere3d.recenter();
+        return sphere.recenter();
       case "rotLeft":
-        return sphere3d.orbit(-PAD_ROT_STEP, 0);
+        return sphere.orbitBy(-PAD_ROT_STEP, 0);
       case "rotRight":
-        return sphere3d.orbit(PAD_ROT_STEP, 0);
+        return sphere.orbitBy(PAD_ROT_STEP, 0);
       case "rotUp":
-        return sphere3d.orbit(0, -PAD_ROT_STEP);
+        return sphere.orbitBy(0, -PAD_ROT_STEP);
       case "rotDown":
-        return sphere3d.orbit(0, PAD_ROT_STEP);
+        return sphere.orbitBy(0, PAD_ROT_STEP);
       case "speed":
         return gameInput.cycleSpeed();
       default:
@@ -1344,7 +1226,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "radio", label: "Top-Down Layout", title: "Lay trees out strictly top-down.", on: () => layoutFn === layoutTopDown, run: () => setLayoutMode(layoutTopDown) },
       { kind: "radio", label: "Radial Layout", title: "Lay trees out radially.", on: () => layoutFn === layoutRadial, run: () => setLayoutMode(layoutRadial) },
       { kind: "radio", label: "H-Tree Layout", title: "Lay trees out as a nested square antenna — alternating axes, arms shrinking with depth.", on: () => layoutFn === layoutHTree, run: () => setLayoutMode(layoutHTree) },
-      { kind: "toggle", label: "3D", title: "View the tree in 3D (mirrors the 2D layout — H-tree → cubic H-tree, else packed sphere).", checked: () => view3D, run: () => toggleView3D() },
+      { kind: "toggle", label: "3D", title: "View the tree in 3D (mirrors the 2D layout — H-tree → cubic H-tree, else packed sphere).", checked: () => sphere.active(), run: () => sphere.toggle() },
       { kind: "sep" },
       { kind: "toggle", label: "Expand ι-Trees", title: "Show every combinator expanded to raw ι.", checked: () => expandAll, run: () => toggleExpand() },
       { kind: "toggle", label: "Type Lens", title: "Annotate the read-out with inferred types.", checked: () => readout.isTypeOn, run: () => readout.toggleType() },
@@ -1444,20 +1326,20 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       case "rotRight":
       case "rotUp":
       case "rotDown":
-        heldRot.add(k); // the orbit ticker reads heldRot for continuous rotation
+        sphere.holdRotate(k); // the orbit ticker reads held rotate-keys for continuous rotation
         return;
       case "zoomIn":
-        return sphere3d.zoomBy(0.9);
+        return sphere.zoomBy(0.9);
       case "zoomOut":
-        return sphere3d.zoomBy(1 / 0.9);
+        return sphere.zoomBy(1 / 0.9);
       case "recenter":
-        return sphere3d.recenter();
+        return sphere.recenter();
       case "exitInspect":
-        return void toggleView3D();
+        return sphere.toggle();
     }
   }
   function dispatchBuildKey(intent: Intent): void {
-    if (intent === "enterInspect") return void toggleView3D();
+    if (intent === "enterInspect") return sphere.toggle();
     if (intent === "context") return openBucketContext();
     // Keyboard 1-4 = the transport (the gamepad Select still cycles speed via dispatchPadIntent).
     if (intent === "transportPause") return reduce.setTransport("pause");
@@ -1594,7 +1476,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       return;
     }
   });
-  window.addEventListener("keyup", (e) => heldRot.delete(e.key.toLowerCase())); // release a 3D rotate-key
+  window.addEventListener("keyup", (e) => sphere.releaseRotate(e.key.toLowerCase())); // release a 3D rotate-key
 
   // Kill the browser's native context menu everywhere — right-click opens our Delete/Copy popup, never
   // the OS one — except inside real text fields (the Haskell editor / name prompts), where it's useful.
@@ -1660,7 +1542,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       discover: (sym: string) => { const l = CATALOG.find((x) => x.sym === sym); if (l) discover(l); }, // dev seam: fire the discovery flow (card + chirp)
       mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : layoutFn === layoutHTree ? "htree" : "topdown"),
       toggleLayout: () => toggleLayout(),
-      view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs, drawMs: sphere3d.lastDrawMs, morphMs: sphere3d.lastMorphFrameMs, az: sphere3d.azimuth, pan: sphere3d.panSum }), morph: () => sphere3d.debugMorph() },
+      view3d: { on: () => sphere.active(), toggle: () => sphere.toggle(), info: () => sphere.info(), morph: () => sphere.debugMorph() },
       transport: { mode: () => reduce.mode, set: (m: string) => reduce.setTransport(m as Transport), cycle: () => reduce.cycleTransport(), step: () => reduce.stepOnce() },
       autoSteps: () => reduce.totalSteps(),
       est: () => ({ ...reduce.estimate, shown: reduce.focusedSteps() }),
