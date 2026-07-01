@@ -7,7 +7,7 @@
  */
 import { currentMode, onThemeChange, type Mode } from "./theme";
 import { vendorUrl } from "../vendorUrl";
-import { CHAPTERS, QUEST, locate, QuestProgress, type QuestStage, type QuestLocation } from "../core/quest";
+import { CHAPTERS, QuestProgress, type QuestStage, type QuestLocation } from "../core/quest";
 import { type Node } from "../core/term";
 
 const PALETTE: Record<Mode, Record<string, string>> = {
@@ -73,10 +73,21 @@ function injectStyles(): void {
 .qs-finale { font-size: 16px; }
 .qs-log { margin-top: 16px; padding-top: 12px; border-top: 1px solid color-mix(in srgb, var(--qs-ink) 25%, transparent); }
 .qs-logh { font-size: 11px; letter-spacing: 0.06em; opacity: 0.5; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
-.qs-logch { font-size: 11px; opacity: 0.45; margin: 8px 0 2px; }
-.qs-logrow { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; font-size: 12.5px; }
+.qs-logch { display: flex; align-items: baseline; gap: 6px; margin: 8px 0 2px; padding: 2px 0; cursor: pointer; user-select: none;
+  font-size: 11px; opacity: 0.55; text-transform: uppercase; letter-spacing: 0.04em; }
+.qs-logch:hover { opacity: 0.9; }
+.qs-logch .qs-chname { flex: 1; }
+.qs-logch .qs-chn { opacity: 0.7; }
+.qs-caret { width: 0.9em; flex: 0 0 auto; }
+.qs-logrow { display: flex; align-items: baseline; gap: 8px; padding: 2px 0 2px 16px; font-size: 12.5px; cursor: pointer; user-select: none; }
+.qs-logrow:hover { background: color-mix(in srgb, var(--qs-ink) 6%, transparent); }
 .qs-logname { flex: 1; opacity: 0.8; }
 .qs-logunlock { font-size: 11px; color: var(--qs-gold); white-space: nowrap; }
+.qs-logdetail { margin: 2px 0 8px 16px; padding: 8px 11px; border-left: 2px solid color-mix(in srgb, var(--qs-ink) 30%, transparent);
+  font-size: 12.5px; line-height: 1.45; }
+.qs-logdetail p { margin: 0 0 7px; }
+.qs-dhint { margin-top: 7px; padding: 6px 9px; border-left: 2px solid var(--qs-gold);
+  background: color-mix(in srgb, var(--qs-gold) 10%, transparent); }
 `;
   const style = document.createElement("style");
   style.textContent = css;
@@ -98,6 +109,10 @@ export class QuestPanel {
   private readonly titleLabel = document.createElement("span");
   private readonly progress = new QuestProgress(loadStage(), saveStage);
   private hintShown = false;
+  // Which chapters / solved stages are unfolded in the review log (in-memory; collapsed by default
+  // so the log stays compact once you've solved a lot).
+  private readonly openChapters = new Set<string>();
+  private readonly openStages = new Set<string>();
   private readonly advanceListeners: Array<() => void> = [];
 
   constructor(private readonly opts: QuestOpts) {
@@ -212,7 +227,54 @@ export class QuestPanel {
     const loc = this.progress.location;
     const stage = this.progress.current;
     this.titleLabel.textContent = loc ? `Quest — ${loc.chapter.name}` : "Quest";
-    if (!stage || !loc) {
+    if (stage && loc) {
+      const prog = document.createElement("div");
+      prog.className = "qs-prog";
+      prog.textContent = `Chapter ${loc.chapterIndex + 1} of ${CHAPTERS.length} · ${loc.chapter.name}`;
+
+      const steps = document.createElement("div");
+      steps.className = "qs-steps";
+      loc.chapter.stages.forEach((_, i) => {
+        const s = document.createElement("div");
+        s.className = "qs-step" + (i < loc.stageInChapter ? " done" : i === loc.stageInChapter ? " now" : "");
+        steps.append(s);
+      });
+
+      const name = document.createElement("div");
+      name.className = "qs-name";
+      name.innerHTML = stage.name; // SKI-Quest names carry markup (Q<sub>1</sub>, &phi;)
+      const intro = document.createElement("div");
+      intro.innerHTML = stage.intro.join("\n");
+      const task = document.createElement("div");
+      task.className = "qs-task";
+      task.textContent = "Build it on the canvas — drag ι and snap trees. This advances as you solve.";
+
+      const hintWrap = document.createElement("div");
+      hintWrap.className = "qs-hint";
+      if (stage.hint && this.hintShown) {
+        const h = document.createElement("div");
+        h.className = "qs-hinttext";
+        h.innerHTML = `Hint:  ${stage.hint}`;
+        hintWrap.append(h);
+      } else if (stage.hint) {
+        const btn = document.createElement("button");
+        btn.className = "qs-hintbtn";
+        btn.textContent = "Show hint";
+        btn.addEventListener("pointerdown", () => {
+          this.hintShown = true;
+          this.render();
+        });
+        hintWrap.append(btn);
+      }
+      this.body.append(prog, steps, name);
+      if (loc.stageInChapter === 0) {
+        const blurb = document.createElement("div");
+        blurb.className = "qs-blurb";
+        blurb.textContent = loc.chapter.blurb;
+        this.body.append(blurb);
+      }
+      this.body.append(intro, task, hintWrap);
+    } else {
       const f = document.createElement("div");
       f.className = "qs-finale";
       f.innerHTML =
@@ -222,89 +284,64 @@ export class QuestPanel {
         "ι. Nothing was given; everything was made.</p>" +
         "<p>The aviary is open — keep golfing, keep discovering.</p>";
       this.body.append(f);
-      return;
     }
-    const prog = document.createElement("div");
-    prog.className = "qs-prog";
-    prog.textContent = `Chapter ${loc.chapterIndex + 1} of ${CHAPTERS.length} · ${loc.chapter.name}`;
-
-    const steps = document.createElement("div");
-    steps.className = "qs-steps";
-    loc.chapter.stages.forEach((_, i) => {
-      const s = document.createElement("div");
-      s.className = "qs-step" + (i < loc.stageInChapter ? " done" : i === loc.stageInChapter ? " now" : "");
-      steps.append(s);
-    });
-
-    const name = document.createElement("div");
-    name.className = "qs-name";
-    name.innerHTML = stage.name; // SKI-Quest names carry markup (Q<sub>1</sub>, &phi;)
-    const intro = document.createElement("div");
-    intro.innerHTML = stage.intro.join("\n");
-    const task = document.createElement("div");
-    task.className = "qs-task";
-    task.textContent = "Build it on the canvas — drag ι and snap trees. This advances as you solve.";
-
-    const hintWrap = document.createElement("div");
-    hintWrap.className = "qs-hint";
-    if (stage.hint && this.hintShown) {
-      const h = document.createElement("div");
-      h.className = "qs-hinttext";
-      h.innerHTML = `Hint:  ${stage.hint}`;
-      hintWrap.append(h);
-    } else if (stage.hint) {
-      const btn = document.createElement("button");
-      btn.className = "qs-hintbtn";
-      btn.textContent = "Show hint";
-      btn.addEventListener("pointerdown", () => {
-        this.hintShown = true;
-        this.render();
-      });
-      hintWrap.append(btn);
-    }
-    this.body.append(prog, steps, name);
-    if (loc.stageInChapter === 0) {
-      const blurb = document.createElement("div");
-      blurb.className = "qs-blurb";
-      blurb.textContent = loc.chapter.blurb;
-      this.body.append(blurb);
-    }
-    this.body.append(intro, task, hintWrap);
-    this.appendLog();
+    this.appendLog(); // the foldable review of solved stages — shown mid-quest AND on the finale
   }
 
-  /** The quest log: the stages already solved, most-recent first, grouped by chapter. */
+  /** The quest log: every solved stage, grouped into collapsible chapters (folded by default so it
+   *  stays compact once you've done a lot). Click a chapter to fold/unfold; click a solved stage to
+   *  reveal its text + recorded solution. Shown mid-quest and on the finale. */
   private appendLog(): void {
     const solved = this.progress.stage;
     if (solved <= 0) return;
     const log = document.createElement("div");
     log.className = "qs-log";
     log.append(Object.assign(document.createElement("div"), { className: "qs-logh", textContent: `Quest log — ${solved} solved` }));
-    let lastChapter = "";
-    for (let i = solved - 1; i >= 0; i--) {
-      const stage = QUEST[i];
-      const loc = locate(i);
-      const chapter = loc?.chapter.name ?? "";
-      if (chapter !== lastChapter) {
-        lastChapter = chapter;
-        const ch = document.createElement("div");
-        ch.className = "qs-logch";
-        ch.innerHTML = chapter;
-        log.append(ch);
+
+    let offset = 0; // global index of this chapter's first stage
+    for (const ch of CHAPTERS) {
+      const nSolved = Math.max(0, Math.min(ch.stages.length, solved - offset));
+      offset += ch.stages.length;
+      if (nSolved === 0) continue;
+      const open = this.openChapters.has(ch.id);
+
+      const head = document.createElement("div");
+      head.className = "qs-logch";
+      head.append(caret(open));
+      const chname = document.createElement("span");
+      chname.className = "qs-chname";
+      chname.innerHTML = ch.name;
+      head.append(chname, Object.assign(document.createElement("span"), { className: "qs-chn", textContent: `${nSolved}/${ch.stages.length}` }));
+      head.addEventListener("pointerdown", () => {
+        toggle(this.openChapters, ch.id, open);
+        this.render();
+      });
+      log.append(head);
+      if (!open) continue;
+
+      for (let si = 0; si < nSolved; si++) {
+        const stage = ch.stages[si];
+        const stageOpen = this.openStages.has(stage.id);
+        const row = document.createElement("div");
+        row.className = "qs-logrow";
+        row.append(caret(stageOpen));
+        const name = document.createElement("span");
+        name.className = "qs-logname";
+        name.innerHTML = stage.name;
+        row.append(name);
+        if (stage.unlock) {
+          const u = document.createElement("span");
+          u.className = "qs-logunlock";
+          u.textContent = `✓ ${stage.unlock}`;
+          row.append(u);
+        }
+        row.addEventListener("pointerdown", () => {
+          toggle(this.openStages, stage.id, stageOpen);
+          this.render();
+        });
+        log.append(row);
+        if (stageOpen) log.append(stageDetail(stage));
       }
-      const row = document.createElement("div");
-      row.className = "qs-logrow";
-      const name = document.createElement("span");
-      name.className = "qs-logname";
-      name.innerHTML = stage.name;
-      row.append(name);
-      if (stage.unlock) {
-        const u = document.createElement("span");
-        u.className = "qs-logunlock";
-        u.textContent = `✓ ${stage.unlock}`;
-        row.append(u);
-      }
-      log.append(row);
     }
     this.body.append(log);
   }
@@ -313,4 +350,39 @@ export class QuestPanel {
     const p = PALETTE[currentMode()];
     for (const [k, v] of Object.entries(p)) this.root.style.setProperty(`--qs-${k}`, v);
   }
+}
+
+/** A fold/unfold caret (▾ open, ▸ closed). */
+const caret = (open: boolean): HTMLElement =>
+  Object.assign(document.createElement("span"), { className: "qs-caret", textContent: open ? "▾" : "▸" });
+
+/** Toggle `id`'s membership in `set` (it was `present` before the click). */
+function toggle(set: Set<string>, id: string, present: boolean): void {
+  if (present) set.delete(id);
+  else set.add(id);
+}
+
+/** The expanded detail for a solved stage: its narrative text, then its recorded solution (the answer
+ *  key, in SKI-Quest notation) — or, failing that, its hint. */
+function stageDetail(stage: QuestStage): HTMLElement {
+  const d = document.createElement("div");
+  d.className = "qs-logdetail";
+  const text = document.createElement("div");
+  text.innerHTML = stage.intro.join("\n");
+  d.append(text);
+  if (stage.solution) {
+    const s = document.createElement("div");
+    s.className = "qs-dhint";
+    s.append(document.createTextNode("Solution:  ")); // the solution is literal source, not HTML
+    const code = document.createElement("code");
+    code.textContent = stage.solution;
+    s.append(code);
+    d.append(s);
+  } else if (stage.hint) {
+    const h = document.createElement("div");
+    h.className = "qs-dhint";
+    h.innerHTML = `Hint:  ${stage.hint}`;
+    d.append(h);
+  }
+  return d;
 }

@@ -17,7 +17,7 @@ import { ReductionEstimator, type EstimateState } from "./reductionEstimator";
 const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducing (§6.4)
 const MORPH_POLL_MS = 16; // while a focused 3D morph is playing, re-check this often before stepping
 const STEP_MS = 300; // duration of one reduction-step tween
-const STEP_GAP = 130; // pause between reduction steps
+const STEP_GAP = 700; // pause between reduction steps — with STEP_MS this makes Play ≈ 1 reduction/s
 const HEAVY_GAP = 8; // big trees jump-cut each step; pace them fast but still yield to the renderer (≠ 0, which starves rAF)
 const STEP_CAP = 2000; // non-termination guard: stop auto-reducing past this many steps
 const GRAPH_STEP_CAP = 100_000; // graph mode shares (cheap steps) — let fac-scale reductions finish
@@ -69,7 +69,7 @@ const TURBO_EXPLODE_NODES = 2_000_000; // a raw term blowing up (e.g. Scott arit
 const FINISH_PROBE_MAX = 150; // skip the catalog/quest/golf probes on a normal form (or source) bigger than this — they'd reduce it (too slow), and a big result isn't a bird/puzzle solution
 
 
-export type Transport = "play" | "pause" | "ff";
+export type Transport = "play" | "pause" | "ff" | "max";
 
 // `source` is the tree as the player built/edited it (captured on release), before
 // reduction mutates it — the golf metric + challenge target score the source, not its NF.
@@ -111,7 +111,8 @@ export interface ReductionDeps {
 // Speed levels 0-4 (the game-mode `0`-`4` keys): 0 = pause, then the running multiplier.
 // `ff` is level 3 (4×), so the legacy Pause/Play/Fast-forward still line up.
 const SPEED_MULT = [1, 1, 2, 4, 8]; // index = level (0 maps to pause, so its mult is unused)
-const FF_MULT = 4; // what the legacy "ff" transport means as a multiplier (= level 3)
+const FF_MULT = 3; // "ff" transport multiplier → ≈ 3 reductions/s (Play ×3)
+const MAX_MULT = 32; // "max" transport (▶▶▶) — uncapped feel: ≈ 1 step every couple of frames
 const LEVEL_OF_MULT: Record<number, number> = { 1: 1, 2: 2, 4: 3, 8: 4 };
 
 export class ReductionController {
@@ -617,13 +618,14 @@ export class ReductionController {
   }
 
   /** Switch playback mode. Pause freezes every tree; resuming re-kicks the ones that still
-   *  have a reduction left (settled trees stay put). play↔ff needs no re-kick. play = 1×, ff
-   *  = the fast-forward multiplier (level 3). */
+   *  have a reduction left (settled trees stay put). play↔ff↔max needs no re-kick — the running
+   *  loop reads `mult` live. play ≈ 1 red/s, ff ≈ 3/s, max ≈ as-fast-as-it-animates. */
   setTransport(mode: Transport): void {
     const wasPaused = this.transport === "pause";
     this.transport = mode;
     if (mode === "play") this.mult = 1;
     else if (mode === "ff") this.mult = FF_MULT;
+    else if (mode === "max") this.mult = MAX_MULT;
     this.deps.onTransportChange();
     if (mode === "pause") this.pauseAll();
     else if (wasPaused) this.resumeAll();
@@ -674,12 +676,17 @@ export class ReductionController {
 
   /** Cycle Pause → Play → Fast-forward → Pause. */
   cycleTransport(): void {
-    this.setTransport(this.transport === "pause" ? "play" : this.transport === "play" ? "ff" : "pause");
+    this.setTransport(this.transport === "pause" ? "play" : this.transport === "play" ? "ff" : this.transport === "ff" ? "max" : "pause");
   }
 
   /** The current transport mode (read by the bar + permalink + dev seam). */
   get mode(): Transport {
     return this.transport;
+  }
+
+  /** The playback modes the transport bar shows, slowest → fastest (Step is a separate action). */
+  transportModes(): Transport[] {
+    return ["pause", "play", "ff", "max"];
   }
 
   /** Total contractions across all live trees (the reduction-rate read-out + dev seam). */

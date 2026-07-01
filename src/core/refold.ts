@@ -64,6 +64,39 @@ export function fromEgg(s: string): Node {
   return parse();
 }
 
+/** Parse a combinator expression in ordinary notation — `S K K`, `(S (K I))`, `ι` / `iota` — into a
+ *  `Node`. Left-associative application, parens group; each leaf resolves to a catalogued bird (ι, S,
+ *  K, …), else an opaque free variable. This is exactly the shape {@link import("./term").sexp}
+ *  emits, so it round-trips a printed term; the human-facing counterpart to the internal egg reader
+ *  {@link fromEgg} (`(@ fn arg)`). Throws on malformed input (unbalanced parens / empty). */
+export function parseComb(s: string): Node {
+  const toks = s.replace(/\(/g, " ( ").replace(/\)/g, " ) ").trim().split(/\s+/).filter(Boolean);
+  if (toks.length === 0) throw new Error("empty expression");
+  let i = 0;
+  const atom = (): Node => {
+    const t = toks[i];
+    if (t === undefined) throw new Error("unexpected end of expression");
+    if (t === ")") throw new Error("unexpected ')'");
+    if (t === "(") {
+      i++;
+      const e = expr();
+      if (toks[i] !== ")") throw new Error("missing ')'");
+      i++;
+      return e;
+    }
+    i++;
+    return t === "ι" ? iota() : leaf(t);
+  };
+  const expr = (): Node => {
+    let left = atom();
+    while (i < toks.length && toks[i] !== ")") left = app(left, atom());
+    return left;
+  };
+  const e = expr();
+  if (i < toks.length) throw new Error(`unexpected '${toks[i]}'`);
+  return e;
+}
+
 /** Readability weight — a proxy for the Rust extractor's cost, used to keep a
  *  re-folding only when it is genuinely simpler than the input: raw ι is dear,
  *  the S/K/I primitives less so, named birds and free vars cheap. */
