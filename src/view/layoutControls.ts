@@ -45,9 +45,11 @@ function injectStyles(): void {
 .lc-root { position: fixed; top: 52px; right: 16px; z-index: 41; font-family: ${MONO}; }
 .lc-title { display: none; }
 .lc-body { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
-.lc-row { display: flex; gap: 8px; align-items: stretch; justify-content: space-between; }
-.lc-seg { display: flex; border: 1px solid var(--lc-ink); background: var(--lc-ink); box-shadow: 2px 2px 0 rgba(0,0,0,0.6); }
-.lc-btn { font-family: ${MONO}; font-size: 11px; line-height: 1; padding: 4px 9px; border: none; background: transparent;
+.lc-row { display: flex; gap: 8px; align-items: stretch; }
+/* Segments + cells grow to fill the row, so the two rows come out equal-width with a UNIFORM 8px gap
+   (rather than space-between, which stretched the gaps unevenly). */
+.lc-seg { display: flex; flex: 1 1 auto; border: 1px solid var(--lc-ink); background: var(--lc-ink); box-shadow: 2px 2px 0 rgba(0,0,0,0.6); }
+.lc-btn { flex: 1 1 auto; font-family: ${MONO}; font-size: 11px; line-height: 1; padding: 4px 9px; border: none; background: transparent;
   color: var(--lc-paper); cursor: pointer; white-space: nowrap; letter-spacing: 0.02em; transition: background 0.14s, color 0.14s; }
 .lc-btn + .lc-btn { border-left: 1px solid color-mix(in srgb, var(--lc-paper) 30%, transparent); }
 .lc-btn.on { background: var(--lc-paper); color: var(--lc-ink); font-weight: 700; }
