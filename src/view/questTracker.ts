@@ -51,6 +51,12 @@ function injectStyles(): void {
 .qt-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 9px; }
 .qt-prog { font-size: 11px; opacity: 0.6; }
 .qt-reward { font-size: 11px; color: var(--qt-gold); border: 1px solid var(--qt-gold); padding: 0 6px; border-radius: 2px; white-space: nowrap; }
+.qt-hint { margin-top: 9px; }
+.qt-hintbtn { font-family: ${MONO}; font-size: 11px; color: var(--qt-ink); background: none;
+  border: 1px solid var(--qt-ink); padding: 2px 10px; cursor: pointer; }
+.qt-hinttext { margin-top: 4px; padding: 6px 9px; border-left: 2px solid var(--qt-gold);
+  background: color-mix(in srgb, var(--qt-gold) 10%, transparent); font-size: 12px; line-height: 1.4; }
+.qt-hinttext code { background: color-mix(in srgb, var(--qt-ink) 12%, transparent); padding: 0 3px; border-radius: 2px; }
 .qt-iota { margin-top: 9px; padding-top: 8px; border-top: 1px solid color-mix(in srgb, var(--qt-ink) 18%, transparent); }
 .qt-iolabel { font-size: 11px; opacity: 0.6; }
 .qt-ioform { margin-top: 3px; font-size: 12px; line-height: 1.45; max-height: 4.4em; overflow-y: auto; word-break: break-word;
@@ -96,6 +102,8 @@ export class QuestTracker {
   private readonly body = document.createElement("div");
   private hidden = false; // user hid it (View ▸ Track Quest)
   private collapsed = false;
+  private hintShown = false; // reveal the current stage's hint (reset when the stage advances)
+  private lastStageId: string | null = null;
 
   constructor(private readonly deps: TrackerDeps) {
     injectStyles();
@@ -140,6 +148,10 @@ export class QuestTracker {
     this.collapseBtn.textContent = this.collapsed ? "▸" : "▾";
     this.body.style.display = this.collapsed ? "none" : "block";
     if (!visible || !stage || !loc) return;
+    if (stage.id !== this.lastStageId) {
+      this.lastStageId = stage.id;
+      this.hintShown = false; // a new stage — hide the hint again
+    }
     this.titleLabel.textContent = this.collapsed ? stage.name : "Tracked Quest";
     const kids: HTMLElement[] = [
       el("div", "qt-eyebrow", loc.chapter.name.replace(/<[^>]+>/g, "")),
@@ -147,6 +159,7 @@ export class QuestTracker {
       objective(stage),
       meta(loc, stage),
     ];
+    if (stage.hint) kids.push(this.hintSection(stage.hint)); // same `stage.hint` the modal shows
     const prev = iotaPreview(stage.unlock); // the target bird, in ι form (ADR 13)
     if (prev) {
       const wrap = document.createElement("div");
@@ -155,6 +168,30 @@ export class QuestTracker {
       kids.push(wrap);
     }
     this.body.replaceChildren(...kids);
+  }
+
+  /** A compact "Show hint" toggle that reveals the current stage's hint — the same `stage.hint`
+   *  the Quest modal shows, so the two stay in sync. */
+  private hintSection(hint: string): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "qt-hint";
+    if (this.hintShown) {
+      const h = document.createElement("div");
+      h.className = "qt-hinttext";
+      h.innerHTML = `Hint:  ${hint}`;
+      wrap.append(h);
+    } else {
+      const btn = document.createElement("button");
+      btn.className = "qt-hintbtn";
+      btn.textContent = "Show hint";
+      btn.addEventListener("pointerdown", (e) => {
+        e.stopPropagation(); // the body's pointerdown opens the modal; a hint click must not
+        this.hintShown = true;
+        this.refresh();
+      });
+      wrap.append(btn);
+    }
+    return wrap;
   }
 
   /** Hide / show the tracker (the View-menu toggle). Persisted. */
