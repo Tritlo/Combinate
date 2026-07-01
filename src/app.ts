@@ -547,7 +547,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
     if (drag && drag.kind !== "pan") return putDown(tree); // already carrying → this click drops it onto this tree (apply)
     focus = tree;
-    if (sound.enabled) sound.play(headSym(tree.node)); // picking a tree up plays its (head) combinator tone
     reduce.cancel(tree); // touching a tree freezes it (§6.4)
     gameInput?.detach(tree); // grabbing a bucket tree with the mouse releases its slot (ADR 17)
     const w = screenToWorld(e.global.x, e.global.y);
@@ -604,7 +603,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (!drag || drag.kind === "pan") return;
     const tree = drag.tree;
     tree.container.eventMode = "static"; // restore interactivity now it's placed
-    if (sound.enabled) sound.drop(); // a soft cue on release (snap or settle), now that the drop is a click
     const tgt = target ?? snapTarget;
     if (tgt && tgt !== tree) commitSnap(tree, tgt);
     else reduce.schedule(tree); // free placement → reduces where it was dropped
