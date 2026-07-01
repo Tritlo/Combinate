@@ -18,6 +18,9 @@ export interface Layout {
    *  this to shrink nodes toward their local arm so they don't overwhelm the structure; a node
    *  without an entry (or a layout that omits the map) renders at full size. */
   scale?: Map<NodeId, number>;
+  /** The H-tree arm scale used (px). The view caches this and passes it back while a tree reduces, so a
+   *  changing max depth doesn't rescale the whole layout every step (see {@link layoutHTree}'s `frozen`). */
+  l0?: number;
   width: number;
   height: number;
   minX: number;
@@ -26,8 +29,10 @@ export interface Layout {
   maxY: number;
 }
 
-/** A layout algorithm: term → node positions. */
-export type LayoutFn = (root: Node) => Layout;
+/** A layout algorithm: term → node positions. `frozen` carries the previous layout's frozen scale (the
+ *  H-tree's L0) so a reducing tree keeps a stable arm length across steps; layouts that don't need it
+ *  ignore it. */
+export type LayoutFn = (root: Node, frozen?: { l0?: number }) => Layout;
 
 function bounds(pos: Map<NodeId, Pos>): Omit<Layout, "pos"> {
   let minX = 0;
@@ -156,24 +161,29 @@ export const HTREE_MIN_ARM = 42;
 /** Floor on the per-node glyph scale so a very deep tip never vanishes entirely. */
 export const HTREE_MIN_NODE_SCALE = 0.28;
 
-export function layoutHTree(root: Node): Layout {
-  // Deepest application (first-visit, DAG-safe) — the arm shrink bottoms out here.
-  const seen = new Set<NodeId>();
-  let maxAppDepth = 0;
-  const measure = (n: Node, d: number): void => {
-    if (seen.has(n.id)) return;
-    seen.add(n.id);
-    if (n.kind === "app") {
-      maxAppDepth = Math.max(maxAppDepth, d);
-      measure(n.fn, d + 1);
-      measure(n.arg, d + 1);
-    }
-  };
-  measure(root, 0);
-  // Scale the initial arm so the SHORTEST arm (at the deepest application) lands near HTREE_MIN_ARM
-  // regardless of depth — this ratio is invariant under camera zoom, since nodes scale with the
-  // world. Clamped so a huge tree still frames and a shallow one isn't blown up.
-  const L0 = Math.min(4000, Math.max(180, HTREE_MIN_ARM / HTREE_SHRINK ** maxAppDepth));
+export function layoutHTree(root: Node, frozen?: { l0?: number }): Layout {
+  // Arm scale L0. Recomputing it from max depth EVERY step would rescale the whole tree whenever the
+  // deepest node changes — a global ripple that defeats incremental layout. So a reducing tree passes its
+  // cached L0 (frozen), and only re-fits on an explicit event (fresh tree, layout switch, discovery).
+  // When not frozen: scale the initial arm so the SHORTEST arm (at the deepest application, first-visit
+  // DAG-safe) lands near HTREE_MIN_ARM — invariant under camera zoom; clamped so a huge tree still frames
+  // and a shallow one isn't blown up.
+  let L0 = frozen?.l0;
+  if (L0 == null) {
+    const seen = new Set<NodeId>();
+    let maxAppDepth = 0;
+    const measure = (n: Node, d: number): void => {
+      if (seen.has(n.id)) return;
+      seen.add(n.id);
+      if (n.kind === "app") {
+        maxAppDepth = Math.max(maxAppDepth, d);
+        measure(n.fn, d + 1);
+        measure(n.arg, d + 1);
+      }
+    };
+    measure(root, 0);
+    L0 = Math.min(4000, Math.max(180, HTREE_MIN_ARM / HTREE_SHRINK ** maxAppDepth));
+  }
   const pos = new Map<NodeId, Pos>();
   const scale = new Map<NodeId, number>();
   const place = (node: Node, x: number, y: number, depth: number): void => {
@@ -195,7 +205,7 @@ export function layoutHTree(root: Node): Layout {
     }
   };
   place(root, 0, 0, 0);
-  return { pos, scale, ...bounds(pos) };
+  return { pos, scale, l0: L0, ...bounds(pos) };
 }
 
 /** Past this top-down span (px) a tree is too wide/tall for a typical screen, so it gets
