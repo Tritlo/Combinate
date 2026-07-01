@@ -1027,7 +1027,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (!disp) return toast.show("focus a tree to view it in 3D");
     if (exceedsNodes(disp, NODE_CAP)) return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
     view3D = true;
-    sphere3d.setLayout3(layoutFn === layoutHTree ? layoutHTree3D : layoutSphere); // 3D mirrors the 2D layout: H-tree → cubic H-tree, else the packed sphere
+    sphere3d.setLayout3(layoutFn === layoutRadial ? layoutSphere : layoutHTree3D); // 3D defaults to the cubic H-tree; the packed sphere only for the explicit radial layout
     syncControls(); // hide the build visuals (cursor off, un-fade) before the world hides
     tray.hide(); // and hide the held badge while inspecting
     world.visible = false;
