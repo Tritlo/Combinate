@@ -1272,7 +1272,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "radio", label: "Auto Layout", title: "Lay trees out automatically.", on: () => layoutFn === layoutAuto, run: () => setLayoutMode(layoutAuto) },
       { kind: "radio", label: "Top-Down Layout", title: "Lay trees out strictly top-down.", on: () => layoutFn === layoutTopDown, run: () => setLayoutMode(layoutTopDown) },
       { kind: "radio", label: "Radial Layout", title: "Lay trees out radially.", on: () => layoutFn === layoutRadial, run: () => setLayoutMode(layoutRadial) },
-      { kind: "toggle", label: "3D", title: "View the tree in 3D as a packed sphere.", checked: () => view3D, run: () => toggleView3D() },
+      { kind: "toggle", label: "3D", title: "View the tree in 3D.", checked: () => view3D, run: () => toggleView3D() },
       { kind: "sep" },
       { kind: "toggle", label: "Expand ι-Trees", title: "Show every combinator expanded to raw ι.", checked: () => expandAll, run: () => toggleExpand() },
       { kind: "toggle", label: "Type Lens", title: "Annotate the read-out with inferred types.", checked: () => readout.isTypeOn, run: () => readout.toggleType() },
