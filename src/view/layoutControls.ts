@@ -8,7 +8,7 @@
  * into a single "Controls" card with a title bar + collapse caret, styled like the quest tracker.
  * System-1 chrome throughout: an ink track, the selected cell a paper slider.
  */
-import { currentMode, onThemeChange, type Mode } from "./theme";
+import { currentMode, onThemeChange, type Mode, MONO, PAPER, INK } from "./theme";
 
 /** The layout the view row picks between — the three explicit ones plus Auto. */
 export type LayoutKey = "auto" | "topdown" | "radial" | "htree";
@@ -30,10 +30,9 @@ export interface LayoutControlsDeps {
 }
 
 const PALETTE: Record<Mode, { paper: string; ink: string }> = {
-  light: { paper: "#ffffff", ink: "#000000" },
-  dark: { paper: "#07090d", ink: "#f0f3f6" },
+  light: { paper: PAPER.light, ink: INK.light },
+  dark: { paper: PAPER.dark, ink: INK.dark },
 };
-const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
 const STORE_KEY = "combinate:controls:collapsed:v1";
 const PHONE = 600;
 

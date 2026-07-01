@@ -30,9 +30,10 @@
  * Worker adapter (`../view/mhs/`).
  */
 
-import { type Node, app, comb } from "./term";
+import { type Node, app, comb, exceedsNodes } from "./term";
 import { named } from "./catalog";
 import { step } from "./reduce";
+import { natTree } from "./native";
 
 // ---------------------------------------------------------------------------
 // Parse tree: a binary application tree with string leaves.
@@ -293,13 +294,6 @@ const PRIM_OP: Record<string, string> = {
  *  `Int` literal is already the Scott numeral we substitute for it). */
 const PRIM_ID = new Set(["Primitives.primChr", "Primitives.primOrd", "Data.Integer_Type._integerToInt"]);
 
-/** The Scott numeral `Succ^k Z` (Z = K). Also a Char of code `k`. */
-function numeral(k: number): Node {
-  let n = named("K"); // Z
-  for (let i = 0; i < k; i++) n = app(named("Succ"), n);
-  return n;
-}
-
 /** Decode a MicroHs string-literal atom (`"…"`, with \-escapes) to its text. */
 function unescape(atom: string): string {
   const body = atom.slice(1, -1);
@@ -314,7 +308,7 @@ function unescape(atom: string): string {
 function scottString(atom: string): Node {
   const s = unescape(atom);
   let list = named("K"); // nil
-  for (let i = s.length - 1; i >= 0; i--) list = app(app(named("cons"), numeral(s.charCodeAt(i))), list);
+  for (let i = s.length - 1; i >= 0; i--) list = app(app(named("cons"), natTree(s.charCodeAt(i))), list);
   return list;
 }
 
@@ -342,7 +336,7 @@ function toNode(t: Tm, sink: Set<string>, memo: Map<Tm, Node>): Node {
     const s = t.s;
     if (s[0] === "#") {
       const k = parseInt(s.slice(1), 10);
-      out = !Number.isFinite(k) || k < 0 ? sentinel(s, sink) : numeral(k); // naturals only: no negatives
+      out = !Number.isFinite(k) || k < 0 ? sentinel(s, sink) : natTree(k); // naturals only: no negatives
     } else if (s[0] === '"') out = scottString(s);
     else if (PRIM_OP[s]) out = named(PRIM_OP[s]);
     else if (PRIM_ID.has(s)) out = named("I");
@@ -381,16 +375,6 @@ export type DumpResult = { tree: Node } | { error: string };
 const CHECK_STEPS = 6000; // reduction budget for the reachability/reject probe
 const CHECK_SIZE = 8000; // tree-size guard: a program that blows past this is left to the shell
 
-/** True if `n` has more than `max` nodes (early-exit DFS — cheap to call). */
-function exceeds(n: Node, max: number): boolean {
-  let count = 0;
-  const go = (m: Node): boolean => {
-    if (++count > max) return true;
-    return m.kind === "app" && (go(m.fn) || go(m.arg));
-  };
-  return go(n);
-}
-
 /**
  * Turn a stock `-ddump-combinator` dump into a Combinate tree, inlining from
  * `root` (default: the last definition in the dump) and substituting primitives.
@@ -426,7 +410,7 @@ export function dumpToTree(dump: string, root?: string): DumpResult {
     let cur = tree;
     let conclusive = false;
     for (let i = 0; i < CHECK_STEPS; i++) {
-      if (exceeds(cur, CHECK_SIZE)) break; // blow-up → inconclusive, accept
+      if (exceedsNodes(cur, CHECK_SIZE)) break; // blow-up → inconclusive, accept
       const nx = step(cur, true);
       if (!nx) {
         conclusive = true; // reached normal form within budget

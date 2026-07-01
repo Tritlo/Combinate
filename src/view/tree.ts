@@ -52,24 +52,27 @@ function nodeTexture(): Texture {
   return nodeTex;
 }
 
+/** The disc radius per node kind — the one source of truth {@link visSpec} and {@link radiusOf} share. */
+const RADIUS: Record<Node["kind"], number> = { iota: 7, comb: 15, free: 13, app: 5 };
+
 /** The disc radius and (optional) text glyph for each node kind. */
 function visSpec(n: Node): { radius: number; tint: number; glyph: { text: string; color: number; size: number } | null } {
   switch (n.kind) {
     case "iota":
-      return { radius: 7, tint: theme.mutedDot, glyph: { text: "ι", color: theme.text, size: 10 } }; // grey dot + ink ι (no longer gold)
+      return { radius: RADIUS.iota, tint: theme.mutedDot, glyph: { text: "ι", color: theme.text, size: 10 } }; // grey dot + ink ι (no longer gold)
     case "comb": {
       const tint = combinatorColor(n.sym); // per-combinator hue in Colour mode, ink in mono
-      return { radius: 15, tint, glyph: { text: n.sym, color: glyphOn(tint), size: 15 } };
+      return { radius: RADIUS.comb, tint, glyph: { text: n.sym, color: glyphOn(tint), size: 15 } };
     }
     case "free":
       // a free var sits on a muted (grey) dot, so its glyph is ink (text), not
       // paper — paper-on-grey is too low-contrast.
-      return { radius: 13, tint: theme.mutedDot, glyph: { text: n.name, color: theme.text, size: 14 } };
+      return { radius: RADIUS.free, tint: theme.mutedDot, glyph: { text: n.name, color: theme.text, size: 14 } };
     default:
-      return { radius: 5, tint: theme.mutedDot, glyph: null }; // app junction dot
+      return { radius: RADIUS.app, tint: theme.mutedDot, glyph: null }; // app junction dot
   }
 }
-const radiusOf = (kind: Node["kind"]): number => (kind === "comb" ? 15 : kind === "free" ? 13 : kind === "iota" ? 7 : 5);
+const radiusOf = (kind: Node["kind"]): number => RADIUS[kind];
 
 /** One rendered node: an instanced particle (the disc), the scale that maps the
  *  shared texture to this kind's radius, and a lazily-created text glyph (only

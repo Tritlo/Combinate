@@ -5,16 +5,14 @@
  * when a tree settles, which advances the quest and announces a solve. Adapted,
  * with permission, from Konstantin S. Uvarin's SKI Quest.
  */
-import { currentMode, onThemeChange, type Mode } from "./theme";
-import { vendorUrl } from "../vendorUrl";
+import { currentMode, onThemeChange, type Mode, MONO, PAPER, INK, ensureFont } from "./theme";
 import { CHAPTERS, QuestProgress, type QuestStage, type QuestLocation } from "../core/quest";
 import { type Node } from "../core/term";
 
 const PALETTE: Record<Mode, Record<string, string>> = {
-  light: { paper: "#ffffff", ink: "#000000", backdrop: "rgba(27,31,36,0.5)", shadow: "rgba(0,0,0,0.85)", gold: "#8a6300" },
-  dark: { paper: "#07090d", ink: "#f0f3f6", backdrop: "rgba(1,4,9,0.6)", shadow: "rgba(0,0,0,0.85)", gold: "#f0b72f" },
+  light: { paper: PAPER.light, ink: INK.light, backdrop: "rgba(27,31,36,0.5)", shadow: "rgba(0,0,0,0.85)", gold: "#8a6300" },
+  dark: { paper: PAPER.dark, ink: INK.dark, backdrop: "rgba(1,4,9,0.6)", shadow: "rgba(0,0,0,0.85)", gold: "#f0b72f" },
 };
-const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
 
 // The player's quest stage, persisted here in the view (the shell) — `core/quest.ts`
 // stays pure (ADR 0001) and just gets the starting stage + a persist callback.
@@ -38,8 +36,8 @@ let stylesInjected = false;
 function injectStyles(): void {
   if (stylesInjected) return;
   stylesInjected = true;
+  ensureFont();
   const css = `
-@font-face { font-family: 'IoskeleyMono'; src: url('${vendorUrl("vendor/fonts/IoskeleyMono-Regular.woff2")}') format('woff2'); font-display: swap; }
 .qs-root { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center;
   background: var(--qs-backdrop); font-family: ${MONO}; }
 .qs-card { width: min(500px, 92vw); max-height: 86vh; display: flex; flex-direction: column;

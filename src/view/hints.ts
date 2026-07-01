@@ -6,7 +6,7 @@
  * toggle is on. Repaint on context change and on device change (the host wires {@link onDeviceChange}).
  */
 import { Container, Graphics, Text } from "pixi.js";
-import { currentMode } from "./theme";
+import { paperInk } from "./theme";
 import { type Context, HINTS } from "./keymap";
 import { activeDevice } from "./inputDevice";
 
@@ -14,11 +14,6 @@ const H = 26; // chip height
 const PADX = 10; // chip horizontal padding
 const GAP = 8; // gap between chips
 const ABOVE = 12; // gap between the hint row and the toolbar's top edge
-
-/** Mono black-and-white chrome, matching the menu bar + hotbar tooltip (System-1 box). */
-function mono(): { paper: number; ink: number } {
-  return currentMode() === "dark" ? { paper: 0x07090d, ink: 0xf0f3f6 } : { paper: 0xffffff, ink: 0x000000 };
-}
 
 export class HintBar {
   readonly container = new Container();
@@ -55,7 +50,7 @@ export class HintBar {
     const visible = this.showControls && activeDevice() !== "mouse" && ctx != null;
     this.container.visible = visible;
     if (!visible || ctx == null) return;
-    const { paper, ink } = mono();
+    const { paper, ink } = paperInk();
     const pad = activeDevice() === "pad";
     const chips: { c: Container; w: number }[] = [];
     let total = 0;

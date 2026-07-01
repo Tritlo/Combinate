@@ -10,7 +10,7 @@
  * ({@link typeChar} / {@link backspace}); Enter commits ({@link done}); Esc cancels ({@link cancel}).
  * The host routes input while {@link isOpen}, exactly like the menu bar / context popup.
  */
-import { currentMode, onThemeChange, type Mode } from "./theme";
+import { currentMode, onThemeChange, type Mode, MONO, PAPER, INK } from "./theme";
 
 /** One key in the grid: its glyph and the action it runs when pressed. `wide` stretches it. */
 interface Key {
@@ -26,10 +26,9 @@ const PAGE_CHARS: string[][][] = [
 ];
 
 const PALETTE: Record<Mode, { bg: string; fg: string; line: string; shadow: string; backdrop: string }> = {
-  light: { bg: "#ffffff", fg: "#000000", line: "#000000", shadow: "rgba(0,0,0,0.85)", backdrop: "rgba(27,31,36,0.5)" },
-  dark: { bg: "#07090d", fg: "#f0f3f6", line: "#f0f3f6", shadow: "rgba(0,0,0,0.85)", backdrop: "rgba(1,4,9,0.6)" },
+  light: { bg: PAPER.light, fg: INK.light, line: "#000000", shadow: "rgba(0,0,0,0.85)", backdrop: "rgba(27,31,36,0.5)" },
+  dark: { bg: PAPER.dark, fg: INK.dark, line: "#f0f3f6", shadow: "rgba(0,0,0,0.85)", backdrop: "rgba(1,4,9,0.6)" },
 };
-const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
 
 let stylesInjected = false;
 function injectStyles(): void {

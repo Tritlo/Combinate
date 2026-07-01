@@ -14,7 +14,10 @@ import type { Store, Definition, Best, LeaderEntry } from "./port";
 // stays the single source of the real types).
 interface Conn {
   query(sql: string): Promise<{ toArray(): Array<Record<string, unknown>> }>;
-  prepare(sql: string): Promise<{ query(...params: unknown[]): Promise<unknown>; close(): Promise<void> }>;
+  prepare(sql: string): Promise<{
+    query(...params: unknown[]): Promise<{ toArray(): Array<Record<string, unknown>> }>;
+    close(): Promise<void>;
+  }>;
 }
 
 const SCHEMA = `
@@ -50,8 +53,11 @@ export class DuckdbStore implements Store {
     await stmt.query(...params);
     await stmt.close();
   }
-  private async rows<T>(sql: string): Promise<T[]> {
-    return (await (await this.conn()).query(sql)).toArray() as T[];
+  private async rows<T>(sql: string, ...params: unknown[]): Promise<T[]> {
+    const stmt = await (await this.conn()).prepare(sql);
+    const result = await stmt.query(...params);
+    await stmt.close();
+    return result.toArray() as T[];
   }
 
   async getDefinitions(): Promise<Definition[]> {
@@ -62,7 +68,7 @@ export class DuckdbStore implements Store {
     await this.run("INSERT INTO definitions VALUES (?, ?)", d.name, d.egg);
   }
   async getBest(challengeId: string): Promise<Best | null> {
-    const r = await this.rows<Best>(`SELECT challengeId, metric, permalink FROM bests WHERE challengeId = '${challengeId.replace(/'/g, "''")}' ORDER BY metric LIMIT 1`);
+    const r = await this.rows<Best>("SELECT challengeId, metric, permalink FROM bests WHERE challengeId = ? ORDER BY metric LIMIT 1", challengeId);
     return r[0] ?? null;
   }
   async putBest(b: Best): Promise<void> {
@@ -72,8 +78,11 @@ export class DuckdbStore implements Store {
     await this.run("INSERT INTO bests VALUES (?, ?, ?)", b.challengeId, b.metric, b.permalink);
   }
   async topN(challengeId: string, n: number): Promise<LeaderEntry[]> {
-    const cid = challengeId.replace(/'/g, "''");
-    return this.rows<LeaderEntry>(`SELECT challengeId, bitcode, metric, handle FROM leaderboard WHERE challengeId = '${cid}' ORDER BY metric LIMIT ${Math.max(0, Math.floor(n))}`);
+    return this.rows<LeaderEntry>(
+      "SELECT challengeId, bitcode, metric, handle FROM leaderboard WHERE challengeId = ? ORDER BY metric LIMIT ?",
+      challengeId,
+      Math.max(0, Math.floor(n)),
+    );
   }
   async submit(e: LeaderEntry): Promise<void> {
     await this.run("INSERT INTO leaderboard VALUES (?, ?, ?, ?)", e.challengeId, e.bitcode, e.metric, e.handle);

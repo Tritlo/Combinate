@@ -1,29 +1,13 @@
-import { type Node, type NodeId, app, comb, iota, freeVar, exceedsNodes } from "./term";
+import { type Node, type NodeId, app, comb, cloneTermDeep, exceedsNodes } from "./term";
 import { RULES } from "./catalog";
 import { kernelFor, type NativeOpts } from "./kernels";
-
-/** Deep-copy a term with fresh ids — used to duplicate the shared argument in
- * the S rule so every node in the result has a unique id (the view keys layout
- * and animation by id; sharing one node in two places would collapse them). */
-function clone(n: Node): Node {
-  switch (n.kind) {
-    case "iota":
-      return iota();
-    case "comb":
-      return comb(n.sym, n.def ? clone(n.def) : undefined, n.arity);
-    case "free":
-      return freeVar(n.name);
-    case "app":
-      return app(clone(n.fn), clone(n.arg));
-  }
-}
 
 /** Make every node id unique: clone any subtree whose id was already seen. An
  * optimize-mode rule may reuse an argument term twice (e.g. `(+)` threads `n`
  * into both branches); the first use keeps its ids (persists/glides in the view),
  * later uses become fresh copies — the same convention as the S rule's clone. */
 function dedupIds(n: Node, seen: Set<NodeId>): Node {
-  if (seen.has(n.id)) return clone(n);
+  if (seen.has(n.id)) return cloneTermDeep(n);
   seen.add(n.id);
   if (n.kind === "app") {
     const fn = dedupIds(n.fn, seen);
@@ -38,11 +22,6 @@ function dedupIds(n: Node, seen: Set<NodeId>): Node {
 function reapplyExtras(core: Node, args: Node[], from: number): Node {
   for (let i = from; i < args.length; i++) core = app(core, args[i]);
   return core;
-}
-
-/** Apply a catalog `rule` to the first `k` (its arity) of `args`, re-applying any extras. */
-function applyRule(rule: (args: Node[]) => Node, args: Node[], k: number): Node {
-  return reapplyExtras(rule(args.slice(0, k)), args, k);
 }
 
 /** The next redex in normal order: the rule it fires (`sym`) and a thunk that
@@ -148,7 +127,7 @@ function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts
       const rule = fast ? RULES[head.sym] : undefined;
       if (rule && args.length >= k) {
         if (trace) trace.oldRedex = n;
-        return { sym: head.sym, build: () => dedupIds(applyRule(rule, args, k), new Set()) };
+        return { sym: head.sym, build: () => dedupIds(reapplyExtras(rule(args.slice(0, k)), args, k), new Set()) };
       }
     }
   }
@@ -179,7 +158,7 @@ function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts
     if (trace) trace.oldRedex = n;
     // z is duplicated: keep the original ids on the left (persist), fresh-clone
     // the right copy (the "copy" the view grows out of the source, §6.3).
-    return { sym: "S", build: () => app(app(x, z), app(y, clone(z))) };
+    return { sym: "S", build: () => app(app(x, z), app(y, cloneTermDeep(z))) };
   }
   // A collapsed named combinator with no built-in rule (A, X, cons, …) in head
   // position: unfold its definition so it can reduce like its ι-tree — but only
@@ -188,7 +167,7 @@ function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts
   if (fn.kind === "comb" && fn.def && argsAbove + 1 >= (fn.arity ?? 1)) {
     const def = fn.def;
     if (trace) trace.oldRedex = n;
-    return { sym: fn.sym, build: () => app(clone(def), arg) };
+    return { sym: fn.sym, build: () => app(cloneTermDeep(def), arg) };
   }
 
   // No rule fires at the root: recurse left spine first (one more arg above),

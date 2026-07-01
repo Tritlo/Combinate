@@ -59,6 +59,22 @@ export function cloneTerm(n: Node): Node {
   }
 }
 
+/** Like {@link cloneTerm}, but also re-mints a combinator's `def` recursively
+ *  instead of sharing it — used where a def is about to be spliced into a live
+ *  tree (unfolding a redex, spawning a user combinator) and needs its own ids. */
+export function cloneTermDeep(n: Node): Node {
+  switch (n.kind) {
+    case "iota":
+      return iota();
+    case "comb":
+      return comb(n.sym, n.def ? cloneTermDeep(n.def) : undefined, n.arity);
+    case "free":
+      return freeVar(n.name);
+    case "app":
+      return app(cloneTermDeep(n.fn), cloneTermDeep(n.arg));
+  }
+}
+
 /** Parse Barker prefix bit-code (§3.2: `1` = ι, `0 <fn> <arg>` = app) into a term. */
 export function decode(code: string): Node {
   let i = 0;
