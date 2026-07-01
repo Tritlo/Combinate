@@ -1693,15 +1693,27 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const v = read(nf);
     return v ? render(v) : sexp(nf);
   };
+  // Run a parse/eval, but return a clean "⚠ …" string on bad input instead of throwing an
+  // uncaught error into the console (with an optional format hint for the expected notation).
+  const tryStr = (f: () => string, hint?: string): string => {
+    try {
+      return f();
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      return hint ? `⚠ ${hint} — ${m}` : `⚠ ${m}`;
+    }
+  };
+  const EGG = "expects egg notation, e.g. (@ (@ S K) K)";
+  const BITS = "expects Barker bit-code (1=ι, 0<fn><arg>), e.g. 011";
   const consoleApi = {
     /** Parse a combinator expression in egg notation `(@ f x)` → its term (s-expr echoed back). */
-    parse: (egg: string): string => sexp(fromEgg(egg)),
+    parse: (egg: string): string => tryStr(() => sexp(fromEgg(egg)), EGG),
     /** Parse Barker bit-code (`1` = ι, `0 <fn> <arg>` = app) → its term (s-expr). */
-    barker: (bits: string): string => sexp(decode(bits)),
+    barker: (bits: string): string => tryStr(() => sexp(decode(bits)), BITS),
     /** Parse an egg expression and evaluate it to normal form with Turbo → value or raw NF. */
-    eval: (egg: string): string => evalTurbo(fromEgg(egg)),
+    eval: (egg: string): string => tryStr(() => evalTurbo(fromEgg(egg)), EGG),
     /** Parse Barker bit-code and evaluate it with Turbo → value or raw NF. */
-    evalBarker: (bits: string): string => evalTurbo(decode(bits)),
+    evalBarker: (bits: string): string => tryStr(() => evalTurbo(decode(bits)), BITS),
     /** Reprint this help. */
     help: (): void => printConsoleHelp(),
   };
@@ -1711,8 +1723,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       "font-weight:bold",
       "\n  .eval(\"(@ (@ S K) K)\")   parse + evaluate (Turbo) → native value, or raw NF" +
         "\n  .parse(\"(@ S K)\")        parse egg notation `(@ f x)` → term" +
-        "\n  .barker(\"010\")           parse Barker bit-code (1=ι, 0<fn><arg>=app) → term" +
-        "\n  .evalBarker(bits)         parse + evaluate Barker bit-code" +
+        "\n  .barker(\"011\")           parse Barker bit-code (1=ι, 0<fn><arg>=app) → term" +
+        "\n  .evalBarker(\"011\")       parse + evaluate Barker bit-code" +
         "\n  .help()                   this message",
     );
   }
