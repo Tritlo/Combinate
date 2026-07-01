@@ -2,7 +2,7 @@
  * Cross-check the wasm raw reducer (`crates/reduce`) against the TS reducer's NON-fast
  * ("plain pure-ι") mode — the semantics it mirrors. The wasm NF must be structurally equal
  * to TS `normalize(_, cap, false)` for every terminating term; divergent terms must bail in
- * both. This is the regression net for the (shelved, not-yet-wired) wasm capability — run
+ * both. This is the parity oracle for the shipped "Turbo" wasm engine (ADR 16/19) — run
  * it after any change to the crate or the codec.
  *
  *   npm run build:reduce-wasm   # build crates/reduce → pkg-node first

@@ -184,7 +184,7 @@ function runCase(c: RawCase, scope: Scope): boolean {
     opts = c[0] as typeof opts;
     strs = c.slice(1);
   }
-  if (opts.caps) return false; // structural-property cases not yet supported (skip-with-note in the loader)
+  if (opts.caps) return false; // structural-property cases not yet supported — isSupported filters these puzzles out before they reach here; this is the defensive fallback
   const e1 = strs[0] as string;
   const e2 = strs[1] as string;
   // A self-equal case `[e, e]` is a termination / laziness check: `e` must reach a

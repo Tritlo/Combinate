@@ -18,11 +18,11 @@
   },
   "dependencies": {
     "@duckdb/duckdb-wasm": "^1.33.1-dev57.0",
-    "@types/three": "^0.185.0",
     "pixi.js": "^8.6.0",
     "three": "^0.185.0"
   },
   "devDependencies": {
+    "@types/three": "^0.185.0",
     "playwright-core": "^1.61.1",
     "tsx": "^4.22.4",
     "typescript": "^5.7.0",

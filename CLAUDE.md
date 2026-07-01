@@ -26,19 +26,30 @@ trees; golf; etc.
 
 ## Architecture
 
-- **Functional core** `src/core/` — pure, no DOM/Pixi/wasm (ADR 0001):
-  `term.ts` (the `Node` model: ι, app, comb, free), `reduce.ts` (tree reducer),
-  `graph.ts` (call-by-need graph reducer with sharing, drawn as a DAG),
-  `catalog.ts` (combinator laws, the hotbar pages incl. Char), `types.ts`/`infer.ts`
-  (value read-back + HM types), `refold.ts` (re-sugaring), `mhs.ts` (post-process a
-  stock MicroHs `-ddump-combinator` dump into an ι tree), `layout.ts`, `permalink.ts`,
-  `authoring.ts`, `probe.ts`.
-- **View** `src/view/` — Pixi + DOM: `tree.ts`, `hotbar.ts`, `zoo.ts`, `toast.ts`,
-  `sound.ts`, `challenge.ts`, `theme.ts` (light/dark, `currentMode`/`onThemeChange`),
-  and `mhs/` (`panel.ts` the Haskell panel, `compiler.ts`, `worker.ts`, `highlight.ts`,
-  `examples.ts`).
-- **`src/app.ts`** — the orchestrator that wires the core to the Pixi scene (left
-  rail, hotbar, drag/snap, auto-reduce, camera, the `__combinate` dev seam). Large file.
+- **Functional core** `src/core/` — pure, no DOM/Pixi/wasm (ADR 0001), ~21 modules.
+  Terms & reduction: `term.ts` (the `Node` model: ι, app, comb, free), `reduce.ts`
+  (tree reducer), `graph.ts` (call-by-need graph reducer with sharing, drawn as a
+  DAG), `native.ts`/`kernels.ts`/`church.ts` (native-value peephole + the kernel
+  registry, ADR 10/11). Reading: `catalog.ts` (combinator laws, the hotbar pages
+  incl. Char), `value.ts` (Scott value matchers), `types.ts`/`infer.ts` (value
+  read-back + HM types), `refold.ts` (re-sugaring), `probe.ts`. Layout:
+  `layout.ts`/`layout3d.ts` (2D/3D H-tree + radial). Sharing/authoring:
+  `permalink.ts`, `authoring.ts`, `challenges.ts` (golf). The Quest:
+  `quest.ts` + `skiq/` (the SKI-Quest puzzle data + engine), `goals.ts`. Haskell
+  compile: `mhs.ts` (post-process a stock MicroHs `-ddump-combinator` dump into an
+  ι tree), `wasmCodec.ts` (the `Node` ⇄ Turbo wire codec).
+- **View** `src/view/` — Pixi + DOM chrome, grouped: canvas/tree (`tree.ts`,
+  `hotbar.ts`, `edgeBuffer.ts`), 3D (`sphere3d.ts`, `sphereController.ts`,
+  `layoutControls.ts`), input (`keymap.ts`, `gamepad.ts`, `gameInput.ts`,
+  `inputDevice.ts`, `camera.ts`, `dragController.ts`), chrome/modals (`menubar.ts`,
+  `modal.ts`, `optimize.ts`, `zoo.ts`, `toast.ts`, `discovery.ts`), the Quest
+  (`quest.ts`, `questTracker.ts`), transport/reduction (`transportBar.ts`,
+  `reduction.ts`), plus `sound.ts`, `challenge.ts`, `theme.ts` (light/dark,
+  `currentMode`/`onThemeChange`), and `mhs/` (`panel.ts` the Haskell panel,
+  `compiler.ts`, `worker.ts`, `highlight.ts`, `examples.ts`).
+- **`src/app.ts`** — the orchestrator that wires the core to the Pixi scene (menu
+  bar, hotbar, drag/snap, auto-reduce, camera, the `__combinate` dev seam). Large
+  file (the left rail folded into the menu bar in v10).
 - **`src/store/`** — a `Store` port; `LocalStore` (default) + `DuckdbStore`
   (`?store=duckdb`, lazy, DuckDB-WASM from the jsDelivr CDN).
 - **`crates/refold/`** — Rust → wasm re-folder (egg), built in CI from source.

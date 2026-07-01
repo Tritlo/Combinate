@@ -25,9 +25,6 @@
 # [emscripten_web] playground build lacks this, which is why its dump was lost) and
 # NO ASYNCIFY / USE_WEB_INPUT.
 #
-# NOTE (open, runtime side): `MicroHs.Main` defaults to the interactive REPL; driving
-# the blob to *batch*-compile headless (the right callMain/args + search path) is the
-# remaining work on the worker side — it is not a build problem.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

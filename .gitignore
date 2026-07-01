@@ -10,7 +10,6 @@ dist/
 crates/*/target/
 crates/refold/pkg
 .DS_Store
-src/_smoke.ts
 *.local.mjs
 2mamb.pdf
 .em_cache/
@@ -23,6 +22,5 @@ public/vendor/
 .claude/
 
 # wasm reduce capability — built from source, never committed (like refold)
-crates/reduce/target/
 crates/reduce/pkg-node
 crates/reduce/pkg
