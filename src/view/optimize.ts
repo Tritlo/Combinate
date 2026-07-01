@@ -25,7 +25,10 @@ type OptState = Record<OptKey, boolean>;
 
 function defaults(): OptState {
   const s = {} as OptState;
-  for (const e of OPT_SETTINGS) s[e.key] = false; // off = the plain pure-ι reducer
+  for (const e of OPT_SETTINGS) s[e.key] = false;
+  s.rules = true; // default to rule-based reduction: reduce named combinators by their law (no ι blow-up),
+  // so most programs finish without ballooning; one that still balloons auto-escalates to Graph (see the
+  // reducer). Turn it off (Optimizations menu) to watch the raw pure-ι grind.
   return s;
 }
 

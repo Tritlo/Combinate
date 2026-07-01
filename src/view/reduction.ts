@@ -38,12 +38,11 @@ const INCR_MAX_STEPS = 400; // steps per reflow (× speed level)
 // upload is O(rendered) — so it hands back to the background path (reduce undrawn, reflow when small)
 // and the frozen snapshot stays on screen. Above HEAVY_RENDER_CAP so the 2.5k–4k band still renders live.
 const INCR_RENDER_CAP = 4000;
-// A raw (unshared) reduction can balloon without bound (quicksort duplicates subterms via the S rule);
-// past this the term reduces UNDRAWN in the background (yielding), so the only frame risk is a single
-// giant `build()` clone. A quicksort cap sweep shows that stays sub-frame up to a few hundred k nodes and
-// only breaks near ~1–2M — so now that the incremental reflow means the huge intermediate isn't drawn,
-// raise the cap 8× (30k → 250k): quicksort reduces ~5× further, still no frame over 80ms. Past it, pause
-// cleanly ("try Graph/Turbo", which share and don't clone) instead of freezing on a giant copy.
+// The escalation trigger. A raw/rules reduction that grows past this hands to the NEXT reducer tier
+// (raw → rules → graph, see deps.escalateOnBalloon) instead of freezing on a single giant `build()`
+// clone. Kept high so a normal rules reduction (whose named-combinator terms stay small) finishes without
+// ever tripping it — only a genuinely exploding term escalates, and it escalates to graph (which shares,
+// so it never clones/balloons) rather than pausing. The ladder ends at graph.
 const BALLOON_CAP = 250_000;
 
 // ---- Turbo (wasm) playback: run many resident contractions per visible frame, so a big
@@ -93,6 +92,10 @@ export interface ReductionDeps {
   onNormalForm: (source: Node) => void; // golf + quest progression
   tickSound: (sym: string | null) => void; // a tone per contraction (null = no rule)
   notify: (msg: string) => void; // toast
+  /** On a raw/rules balloon, escalate the reduction one tier (raw→rules→graph) and return the tier's
+   *  display name for the toast, or null when nothing's left to escalate to (→ pause). Graph shares, so it
+   *  doesn't clone/balloon — the ladder ends there. */
+  escalateOnBalloon?: () => string | null;
   onTransportChange: () => void; // repaint the menu + transport bar
   /** Mirror a focused tree's step into the 3D view (plan 06) — a no-op unless 3D is open + tree is focused. */
   morph3D?: (tree: TreeView, node: Node, durationMS: number) => void;
@@ -460,7 +463,13 @@ export class ReductionController {
     let node = a.work ?? tree.node;
     if (exceedsNodes(node, BALLOON_CAP)) {
       a.work = undefined;
-      this.autoPause("term is ballooning — try Graph reduction or Turbo (Optimizations menu)");
+      const tier = this.deps.escalateOnBalloon?.();
+      if (tier) {
+        this.deps.notify(`term is ballooning — auto-switched to ${tier}`);
+        this.schedule(tree); // restart under the sharing/law reducer (Graph shares → no clone → no balloon)
+      } else {
+        this.autoPause("term is ballooning — try Graph reduction or Turbo (Optimizations menu)");
+      }
       return;
     }
     let sym: string | null = null;

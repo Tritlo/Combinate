@@ -375,6 +375,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     },
     tickSound: (sym) => sound.tick(sym),
     notify: (msg) => toast.show(msg),
+    escalateOnBalloon: () => {
+      // A ballooning raw/rules reduction escalates one tier — raw → rules (reduce by law, no ι blow-up)
+      // → graph (call-by-need sharing, which never clones). setOpt reschedules the focus via onOptChange.
+      if (!isOpt("rules")) { setOpt("rules", true); return "Rule-based reduction"; }
+      if (!isOpt("graph")) { setOpt("graph", true); return "Graph reduction"; }
+      return null;
+    },
     onTransportChange: () => {
       paintRail();
       transportBar.paint();
