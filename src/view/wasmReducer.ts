@@ -47,9 +47,9 @@ export class WasmSession {
   private readonly symName: string[];
   private readonly freeName: string[];
 
-  constructor(term: Node, opts?: NativeOpts) {
+  constructor(term: Node, opts?: NativeOpts, fast = false) {
     if (!mod) throw new Error("wasm reducer not loaded");
-    const { data, symName, freeName } = encode(term, opts); // opts.numbers → wasm number kernels
+    const { data, symName, freeName } = encode(term, opts, fast); // opts → wasm kernels; fast → rule-based reduction
     this.symName = symName;
     this.freeName = freeName;
     this.session = new mod.GraphSession(data);
