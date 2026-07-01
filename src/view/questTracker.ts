@@ -34,7 +34,7 @@ function injectStyles(): void {
   stylesInjected = true;
   const css = `
 @font-face { font-family: 'IoskeleyMono'; src: url('${vendorUrl("vendor/fonts/IoskeleyMono-Regular.woff2")}') format('woff2'); font-display: swap; }
-.qt-root { position: fixed; top: 72px; right: 16px; width: min(320px, calc(100vw - 32px)); z-index: 40;
+.qt-root { position: fixed; top: 86px; right: 16px; width: min(320px, calc(100vw - 32px)); z-index: 40;
   font-family: ${MONO}; display: none; }
 .qt-card { background: var(--qt-paper); color: var(--qt-ink); border: 1px solid var(--qt-ink);
   box-shadow: 2px 2px 0 var(--qt-shadow); }

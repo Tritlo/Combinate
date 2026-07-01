@@ -36,6 +36,7 @@ import { ReadoutBox } from "./view/readoutBox";
 import { loadWasmReducer, wasmReady, WasmSession } from "./view/wasmReducer";
 import { ReductionController, type Transport } from "./view/reduction";
 import { TransportBar } from "./view/transportBar";
+import { LayoutControls } from "./view/layoutControls";
 import { preloadCompiler } from "./view/mhs/compiler";
 import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange, edgeTierColor } from "./view/theme";
 import { MenuBar, type Menu, type MenuItem } from "./view/menubar";
@@ -200,6 +201,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   // Layout: top-down by default; T toggles the radial view (§5.1).
   let layoutFn: LayoutFn = layoutAuto;
+  let lastManualLayout: LayoutFn = layoutHTree; // the explicit layout to restore when Auto is toggled off
+  let layoutControls: LayoutControls | undefined; // the top-right toggle bar (wired once the shell is built)
 
   // What a recognised tree collapses into: a single named node. I/K/S reduce by
   // built-in rules; the rest carry their definition (law.def) for the reducer
@@ -1053,10 +1056,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // Set the layout for every tree (and trees spawned afterward). Picking a 2D layout leaves 3D.
   const setLayoutMode = (fn: LayoutFn): void => {
     if (view3D) toggleView3D(); // a 2D layout choice exits the 3D view
-    if (layoutFn === fn) return;
-    layoutFn = fn;
-    for (const t of trees) t.setLayout(fn);
-    paintRail();
+    if (fn !== layoutAuto) lastManualLayout = fn; // remember the manual pick so the Auto toggle can restore it
+    if (layoutFn !== fn) {
+      layoutFn = fn;
+      for (const t of trees) t.setLayout(fn);
+      paintRail();
+    }
+    layoutControls?.refresh();
   };
   // T cycles auto → top-down → radial → H-tree → auto.
   function toggleLayout(): void {
@@ -1129,6 +1135,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
    *  for keyboard/gamepad (not mouse) and not in 3D. Actions stay live regardless; this is visuals. */
   function syncControls(): void {
     gameInput.setEnabled(activeDevice() !== "mouse" && !view3D);
+    layoutControls?.refresh(); // keep the toggle bar in sync (3D on/off, layout changes)
   }
   /** View ▸ "Show controls": gate the on-screen hints only (persisted; visuals/actions unaffected). */
   function setShowControls(v: boolean): void {
@@ -1171,6 +1178,17 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   hintBar.setShowControls(showControls);
   syncControls();
   updateHints();
+  // The top-right layout toggle bar (under the transport): [2D|3D], [Top-Down|Radial|H-tree], [Auto].
+  layoutControls = new LayoutControls({
+    is3D: () => view3D,
+    set3D: (on) => {
+      if (on !== view3D) toggleView3D();
+    },
+    layoutKey: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutTopDown ? "topdown" : layoutFn === layoutRadial ? "radial" : "htree"),
+    setLayout: (k) => setLayoutMode(k === "topdown" ? layoutTopDown : k === "radial" ? layoutRadial : layoutHTree),
+    autoOn: () => layoutFn === layoutAuto,
+    toggleAuto: () => setLayoutMode(layoutFn === layoutAuto ? lastManualLayout : layoutAuto),
+  });
   // Gamepad: a third input producer (polled from the ticker), routed by the active context.
   new GamepadController(pixi.ticker, {
     // Always poll: the pad is always live (2D Build / 3D Inspect); Y enters/exits 3D either way.

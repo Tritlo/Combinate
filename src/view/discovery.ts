@@ -7,7 +7,7 @@
  */
 import { type Law, iotaTreeOf, countIotas, META } from "../core/catalog";
 import { type Node } from "../core/term";
-import { layoutRadial } from "../core/layout";
+import { layoutHTree } from "../core/layout";
 import { currentMode, type Mode } from "./theme";
 import { vendorUrl } from "../vendorUrl";
 
@@ -25,7 +25,7 @@ function draw2DTree(canvas: HTMLCanvasElement, node: Node, px: number, v: Viewpo
   ctx.scale(dpr, dpr);
   ctx.fillStyle = v.bg; // opaque viewport (covers the fallback glyph underneath)
   ctx.fillRect(0, 0, px, px);
-  const lay = layoutRadial(node);
+  const lay = layoutHTree(node);
   const pad = 12;
   const s = Math.min((px - 2 * pad) / Math.max(lay.width, 1), (px - 2 * pad) / Math.max(lay.height, 1));
   const ox = px / 2 - (lay.minX + lay.width / 2) * s;

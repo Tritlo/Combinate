@@ -1,7 +1,7 @@
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Sprite, Text, Texture } from "pixi.js";
 import { CATALOG, countIotas, iotaTreeOf, type Law, META, PAGES } from "../core/catalog";
 import { iota, type Node, type NodeId } from "../core/term";
-import { layoutRadial } from "../core/layout";
+import { layoutHTree } from "../core/layout";
 import { theme, edgeTierColor } from "./theme";
 import { spherePreview, ZOO_PRIO } from "./spherePreview";
 
@@ -355,19 +355,33 @@ export class Zoo {
         this.playTone(entry.sym);
       });
       this.detail.addChild(tone);
-      // a [2D|3D] toggle (bottom-right of the box) — 3D shows the slowly auto-rotating packed sphere
-      const tag = new Text({ text: this.pic3d ? "3D" : "2D", style: { fontFamily: "monospace", fontSize: 13, fontWeight: "700", fill: theme.iota } });
-      tag.anchor.set(1, 1);
-      tag.position.set(dx + dw - 10, dy + boxSize - 8);
-      tag.eventMode = "static";
-      tag.cursor = "pointer";
-      tag.on("pointerdown", (e: FederatedPointerEvent) => {
+      // a [2D | 3D] sliding toggle (bottom-right) — System-1: an ink track with a paper "slider" over
+      // the selected cell (3D shows the slowly auto-rotating H-tree). Matches the toolbar toggles.
+      const segW = 30;
+      const segH = 20;
+      const seg = new Container();
+      seg.position.set(dx + dw - 10 - 2 * segW, dy + boxSize - 8 - segH);
+      seg.addChild(new Graphics().roundRect(0, 0, 2 * segW, segH, 4).fill(theme.text).stroke({ width: 1, color: theme.text }));
+      seg.addChild(new Graphics().roundRect(this.pic3d ? segW : 0, 0, segW, segH, 4).fill(theme.bg)); // the slider
+      const segLabel = (text: string, i: number, on: boolean): Text => {
+        const t = new Text({ text, style: { fontFamily: "monospace", fontSize: 12, fontWeight: "700", fill: on ? theme.text : theme.bg } });
+        t.anchor.set(0.5);
+        t.position.set(i * segW + segW / 2, segH / 2);
+        return t;
+      };
+      seg.addChild(segLabel("2D", 0, !this.pic3d), segLabel("3D", 1, this.pic3d));
+      seg.eventMode = "static";
+      seg.cursor = "pointer";
+      seg.hitArea = new Rectangle(0, 0, 2 * segW, segH);
+      seg.on("pointerdown", (e: FederatedPointerEvent) => {
         e.stopPropagation();
-        this.pic3d = !this.pic3d;
+        const want3d = e.getLocalPosition(seg).x >= segW; // click a cell to select it
+        if (want3d === this.pic3d) return;
+        this.pic3d = want3d;
         if (!this.pic3d) spherePreview.release("zoo");
         this.refresh();
       });
-      this.detail.addChild(tag);
+      this.detail.addChild(seg);
       if (this.pic3d) void this.embed3D(tree, dx, dy, dw, boxSize, ++this.picBuild);
       else spherePreview.release("zoo");
     } else {
@@ -427,7 +441,7 @@ function buildPages(): Page[] {
 // Draw a term's nodes/edges, scaled to fit `size`, centred at the container origin.
 function renderPicture(tree: Node, size: number): Container {
   const c = new Container();
-  const lay = layoutRadial(tree);
+  const lay = layoutHTree(tree);
   const scale = Math.min(size / (lay.maxX - lay.minX || 1), size / (lay.maxY - lay.minY || 1), 1);
   const cx = (lay.minX + lay.maxX) / 2;
   const cy = (lay.minY + lay.maxY) / 2;
