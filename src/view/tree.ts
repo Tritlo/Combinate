@@ -114,6 +114,9 @@ export class TreeView {
   node: Node; // the logical term (used for reduction)
   private display: Node; // node with undiscovered S/K/I expanded to their ι-trees
   private lay: Layout;
+  // The H-tree arm scale, frozen while the tree reduces so a max-depth change doesn't rescale every node
+  // (undefined for non-H-tree layouts). Re-fit on a fresh tree / layout switch / discovery.
+  private frozenL0: number | undefined;
   private readonly objs = new Map<NodeId, NodeVis>();
   // Parent→child edges with the resolved NodeVis of each endpoint cached at index
   // time, so the per-frame edge draw is pure array iteration — no `objs` Map lookups
@@ -148,6 +151,7 @@ export class TreeView {
     this.node = node;
     this.display = this.expand(node);
     this.lay = this.layoutFn(this.display);
+    this.frozenL0 = this.lay.l0; // (re-)fit the H-tree arm scale
     this.particles.eventMode = "none";
     this.glyphs.eventMode = "none";
     this.container.addChild(this.edges, this.rootMark, this.particles, this.glyphs);
@@ -181,6 +185,7 @@ export class TreeView {
     if (this.ticking) this.finish();
     this.display = this.expand(this.node);
     this.lay = this.layoutFn(this.display);
+    this.frozenL0 = this.lay.l0; // (re-)fit the H-tree arm scale
     this.rebuild();
   }
 
@@ -190,6 +195,7 @@ export class TreeView {
     this.onDone = null;
     this.finish();
     const newLay = fn(this.display);
+    this.frozenL0 = newLay.l0; // layout switch → re-fit the arm scale
     this.anims = [];
     for (const [id, vis] of this.objs) {
       const target = newLay.pos.get(id)!;
@@ -283,7 +289,7 @@ export class TreeView {
     for (const [id, vis] of this.objs) from.set(id, { x: vis.particle.x, y: vis.particle.y });
 
     const newDisplay = this.expand(node);
-    const newLay = this.layoutFn(newDisplay);
+    const newLay = this.layoutFn(newDisplay, { l0: this.frozenL0 }); // freeze the H-tree arm scale across the step
     const newNodes = collectNodes(newDisplay);
     this.anims = [];
 
