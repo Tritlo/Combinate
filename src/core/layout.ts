@@ -18,6 +18,10 @@ export interface Layout {
    *  this to shrink nodes toward their local arm so they don't overwhelm the structure; a node
    *  without an entry (or a layout that omits the map) renders at full size. */
   scale?: Map<NodeId, number>;
+  /** Optional per-node depth (app-nesting from the root). The H-tree fills it so the incremental
+   *  reflow can re-place a subtree from its anchor depth and tier its edges (depth % 2) without a
+   *  full walk; other layouts omit it. */
+  depth?: Map<NodeId, number>;
   /** The H-tree arm scale used (px). The view caches this and passes it back while a tree reduces, so a
    *  changing max depth doesn't rescale the whole layout every step (see {@link layoutHTree}'s `frozen`). */
   l0?: number;
@@ -186,34 +190,56 @@ export function layoutHTree(root: Node, frozen?: { l0?: number }): Layout {
   }
   const pos = new Map<NodeId, Pos>();
   const scale = new Map<NodeId, number>();
-  const place = (node: Node, x: number, y: number, depth: number): void => {
-    if (pos.has(node.id)) return; // DAG (graph mode): position each shared node once — a no-op on a tree
-    pos.set(node.id, { x, y });
-    // Shrink a node toward its shortest adjacent arm so it never overwhelms the structure (the "grey
-    // blob" on big/clamped trees): full-size while arms are long, scaling down once an arm drops
-    // below a node's span. Only bites when L0 clamps — small trees keep full-size nodes.
-    const childArm = L0 * HTREE_SHRINK ** depth;
-    const minArm = node.kind === "app" ? childArm : L0 * HTREE_SHRINK ** Math.max(0, depth - 1); // leaf → its parent arm
-    scale.set(node.id, Math.max(HTREE_MIN_NODE_SCALE, Math.min(1, minArm / HTREE_MIN_ARM)));
-    if (node.kind !== "app") return;
-    if (depth % 2 === 0) {
-      place(node.fn, x - childArm, y, depth + 1); // fn → left
-      place(node.arg, x + childArm, y, depth + 1); // arg → right
-    } else {
-      place(node.fn, x, y - childArm, depth + 1); // fn → up
-      place(node.arg, x, y + childArm, depth + 1); // arg → down
-    }
-  };
-  place(root, 0, 0, 0);
-  return { pos, scale, l0: L0, ...bounds(pos) };
+  const depth = new Map<NodeId, number>();
+  placeHTree(root, 0, 0, 0, L0, pos, scale, depth);
+  return { pos, scale, depth, l0: L0, ...bounds(pos) };
+}
+
+/** The H-tree placement recursion, shared by {@link layoutHTree} and {@link layoutHTreeSubtree} so
+ *  the incremental reflow re-places a subtree with the exact same geometry as a full relayout. Fills
+ *  `pos` / `scale` / `depthOut` for `node` and its descendants, hung from (`x`, `y`) at `d`. */
+function placeHTree(node: Node, x: number, y: number, d: number, L0: number, pos: Map<NodeId, Pos>, scale: Map<NodeId, number>, depthOut: Map<NodeId, number>): void {
+  if (pos.has(node.id)) return; // DAG (graph mode): position each shared node once — a no-op on a tree
+  pos.set(node.id, { x, y });
+  depthOut.set(node.id, d);
+  // Shrink a node toward its shortest adjacent arm so it never overwhelms the structure (the "grey
+  // blob" on big/clamped trees): full-size while arms are long, scaling down once an arm drops
+  // below a node's span. Only bites when L0 clamps — small trees keep full-size nodes.
+  const childArm = L0 * HTREE_SHRINK ** d;
+  const minArm = node.kind === "app" ? childArm : L0 * HTREE_SHRINK ** Math.max(0, d - 1); // leaf → its parent arm
+  scale.set(node.id, Math.max(HTREE_MIN_NODE_SCALE, Math.min(1, minArm / HTREE_MIN_ARM)));
+  if (node.kind !== "app") return;
+  if (d % 2 === 0) {
+    placeHTree(node.fn, x - childArm, y, d + 1, L0, pos, scale, depthOut); // fn → left
+    placeHTree(node.arg, x + childArm, y, d + 1, L0, pos, scale, depthOut); // arg → right
+  } else {
+    placeHTree(node.fn, x, y - childArm, d + 1, L0, pos, scale, depthOut); // fn → up
+    placeHTree(node.arg, x, y + childArm, d + 1, L0, pos, scale, depthOut); // arg → down
+  }
+}
+
+/**
+ * Re-place just `subtreeRoot` and its descendants as an H-tree hung from (`x`, `y`) at depth `d`,
+ * reusing the frozen arm scale `l0`. For the incremental reflow (deeper-perf, ADR 18): the anchor
+ * slot + depth come from the unchanged spine, so the subtree lands EXACTLY where a full relayout
+ * would put it — letting the view recompute only the changed neighbourhood. Cost is O(subtree).
+ */
+export function layoutHTreeSubtree(subtreeRoot: Node, x: number, y: number, d: number, l0: number): { pos: Map<NodeId, Pos>; scale: Map<NodeId, number>; depth: Map<NodeId, number> } {
+  const pos = new Map<NodeId, Pos>();
+  const scale = new Map<NodeId, number>();
+  const depth = new Map<NodeId, number>();
+  placeHTree(subtreeRoot, x, y, d, l0, pos, scale, depth);
+  return { pos, scale, depth };
 }
 
 /** Past this top-down span (px) a tree is too wide/tall for a typical screen, so it gets
- *  the more compact radial layout instead. */
+ *  the more compact H-tree layout instead. */
 export const RADIAL_SPAN = 1400;
 
-/** Auto layout: top-down for normal trees, radial once a tree gets too big to fit. */
-export function layoutAuto(root: Node): Layout {
+/** Auto layout: top-down while a tree fits, the H-tree once it grows too big (deeper-perf, ADR 18 —
+ *  was radial). The H-tree is path-local, so a big reducing tree reflows in O(changed) per step; it
+ *  also threads the frozen arm scale so a max-depth change mid-reduction doesn't rescale everything. */
+export function layoutAuto(root: Node, frozen?: { l0?: number }): Layout {
   const td = layoutTopDown(root);
-  return td.width > RADIAL_SPAN || td.height > RADIAL_SPAN ? layoutRadial(root) : td;
+  return td.width > RADIAL_SPAN || td.height > RADIAL_SPAN ? layoutHTree(root, frozen) : td;
 }
