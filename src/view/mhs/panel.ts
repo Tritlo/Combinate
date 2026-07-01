@@ -186,7 +186,7 @@ export class MhsPanel {
     right.appendChild(wrap);
 
     const bar = div("mhs-bar");
-    const run = divText("mhs-run", "Compile & run ▶");
+    const run = divText("mhs-run", "Compile & run ▶︎"); // trailing U+FE0E — ▶ is emoji-eligible, forces text presentation
     run.addEventListener("pointerdown", () => this.runEditor());
     bar.appendChild(run);
     this.status.className = "mhs-status";
