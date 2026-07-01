@@ -116,17 +116,18 @@ export class LayoutControls {
     row1.className = "lc-row";
     row1.append(dim, laySeg, iotaSeg);
 
-    // — Row 2: optimizations —
-    const optSeg = document.createElement("div");
-    optSeg.className = "lc-seg";
-    for (const { key, label, title } of OPTS) {
-      const b = cell(label, title, () => this.act(() => this.deps.toggleOpt(key)));
-      this.optBtns.set(key, b);
-      optSeg.append(b);
-    }
+    // — Row 2: optimizations — independent (not mutually exclusive), so each is its own separated
+    // toggle rather than one joined segment.
     const row2 = document.createElement("div");
     row2.className = "lc-row";
-    row2.append(optSeg);
+    for (const { key, label, title } of OPTS) {
+      const seg = document.createElement("div");
+      seg.className = "lc-seg";
+      const b = cell(label, title, () => this.act(() => this.deps.toggleOpt(key)));
+      this.optBtns.set(key, b);
+      seg.append(b);
+      row2.append(seg);
+    }
 
     this.root.append(row1, row2);
     document.body.append(this.root);
