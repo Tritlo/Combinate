@@ -523,9 +523,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const mhsPanel = new MhsPanel(
     (tree, read) => {
       // Reduce under the user's current settings (no auto-enabling optimizations — Turbo / native
-      // numbers stay opt-in via the Optimizations menu). Compiled programs get big, so lay out radially +
-      // zoom to fit; the progress bar shows how the reduction is going.
-      setLayoutMode(layoutRadial);
+      // numbers stay opt-in via the Optimizations menu). Compiled programs get big, so lay out as an
+      // H-tree (path-local → incremental O(changed) reflow, ADR 18) + zoom to fit; the progress bar
+      // shows how the reduction is going.
+      setLayoutMode(layoutHTree);
       const view = spawnTree(tree, window.innerWidth / 2, window.innerHeight / 2);
       if (read) hotbar.selectPage(TY_PAGE[read]);
       fitTree(view);
@@ -1604,6 +1605,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       autoSteps: () => reduce.totalSteps(),
       est: () => ({ ...reduce.estimate, shown: reduce.focusedSteps() }),
       run: () => { if (focus) reduce.schedule(focus); },
+      incrParity: () => (focus ? focus.debugLayoutParity() : null), // dev seam: incremental-layout parity vs a full recompute
+      incrActive: () => (focus ? focus.canIncremental() : false),
       spawn: (s: string) => { spawnTreeWorld(fromEgg(s), 0, 0); }, // dev seam: drop a reducing tree from an s-expr
       fit: () => { if (focus) fitTree(focus); }, // dev seam: frame the focused tree to the viewport
 

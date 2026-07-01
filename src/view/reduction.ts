@@ -6,7 +6,7 @@
  * side effects (the transport bar) stay in app.ts and are injected
  * as callbacks, so this is the state machine, not the chrome.
  */
-import { firingRule, redexAt } from "../core/reduce";
+import { firingRule, redexAt, stepWithPatch } from "../core/reduce";
 import { GraphReducer } from "../core/graph";
 import { type Node, exceedsNodes } from "../core/term";
 import { type NativeOpts } from "../core/native";
@@ -27,6 +27,16 @@ const GRAPH_STEP_CAP = 100_000; // graph mode shares (cheap steps) — let fac-s
 // small enough to draw in a frame, or reaches normal form — so the UI stays live + the bar keeps moving.
 const HEAVY_RENDER_CAP = 2500;
 const HEAVY_TS_BUDGET_MS = 6; // wall-clock spent building contractions per batch before yielding to rAF
+// Incremental H-tree path (deeper-perf, ADR 18): a big H-tree tree reflows each step in O(changed), so
+// it renders live (batched a few steps per frame) instead of hiding in the background. Same 6ms frame
+// budget; the step cap keeps churn perceptible yet far faster than one tween/step.
+const INCR_BUDGET_MS = 6;
+const INCR_MAX_STEPS = 400; // steps per reflow (× speed level)
+// Ceiling on the LIVE-rendered incremental tree. A raw term can balloon without bound (quicksort
+// clones via S); past this it is too big to redraw every frame even incrementally, so it hands back
+// to the background path (reduce undrawn, reflow when small) — the frozen snapshot stays on screen.
+// Above HEAVY_RENDER_CAP so trees in the 2.5k–8k band still render live.
+const INCR_RENDER_CAP = 8000;
 // A raw (unshared) reduction can balloon without bound (quicksort duplicates subterms via the S rule);
 // once a single contraction would deep-clone a term this big, ONE `build()` blocks a frame. Past this,
 // pause cleanly ("try Graph/Turbo", which share and don't clone) rather than freeze on a giant copy.
@@ -343,9 +353,16 @@ export class ReductionController {
     if (this.transport === "pause") return; // frozen — resume re-kicks from setTransport
     const share = this.deps.getShare();
     const fast = this.deps.getFast();
-    // A big ballooning raw/optimize term reduces in the BACKGROUND (budgeted + yielding) rather than
-    // paying an O(n) layout+edge reflow every step — the per-step reflow is what freezes the UI on a
-    // 14k-node quicksort intermediate. Graph mode (share) already does cheap shared steps, so it's out.
+    // A big H-tree tree reflows each step in O(changed) (ADR 18), so render it LIVE, batched a few
+    // steps per frame — no O(n) reflow, no hiding it in the background. Gated to non-graph (sharing
+    // conflicts with the path-local layout), non-3D (the morph drives that cadence via stepTo), and
+    // within the render cap (a ballooning term hands to the background path). beginIncremental() is a
+    // no-op returning false unless the tree is a big H-tree, so this only engages where it should.
+    if (!share && !this.deps.is3DPacing?.(tree) && !exceedsNodes(tree.node, INCR_RENDER_CAP) && tree.beginIncremental()) return this.stepIncrementalTs(tree, gen);
+    // A big term (a ballooning raw intermediate, or a non-H-tree big tree) reduces in the BACKGROUND
+    // (budgeted + yielding) rather than paying an O(n) layout+edge reflow every step — the per-step
+    // reflow is what freezes the UI on a 14k-node quicksort intermediate. Graph mode (share) already
+    // does cheap shared steps. The incremental edge buffer, if any, stays visible (frozen snapshot).
     if (!share && exceedsNodes(tree.node, HEAVY_RENDER_CAP)) return this.stepHeavyTs(tree, gen);
     // Pace to the 3D morph: while it animates, don't advance the visible state — but use that time to
     // precompute the next RAW contractum (pipeline depth 1), so the cadence stays full once it ends.
@@ -478,6 +495,82 @@ export class ReductionController {
       }
       a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(tree));
     });
+  }
+
+  /** Reduce a big H-tree tree LIVE through the incremental path (ADR 18): a short budgeted batch of
+   *  {@link stepWithPatch} + {@link TreeView.applyPatch} — each O(changed) — then one edge/particle
+   *  commit, so the tree stays on screen and reflows only what moved. Re-enters {@link stepAuto} after
+   *  the gap; a stale-cache patch bails to a full {@link stepTo} (which exits incremental mode). */
+  private stepIncrementalTs(tree: TreeView, gen: number): void {
+    const a = this.auto.get(tree);
+    if (!a || a.gen !== gen) return;
+    if (this.transport === "pause") return;
+    if (this.morphPacing(tree)) {
+      a.timer = window.setTimeout(() => this.stepIncrementalTs(tree, gen), MORPH_POLL_MS);
+      return;
+    }
+    const fast = this.deps.getFast();
+    const native = this.deps.getNative();
+    let node = tree.node;
+    let sym: string | null = null;
+    let nf = false;
+    let ballooned = false;
+    let stepped = 0;
+    const maxSteps = INCR_MAX_STEPS * this.mult;
+    const start = performance.now();
+    while (performance.now() - start < INCR_BUDGET_MS && stepped < maxSteps) {
+      if (a.steps >= STEP_CAP) {
+        tree.commitIncremental();
+        this.autoPause(`won't settle after ${a.steps} steps — try Graph reduction (Optimizations menu)`);
+        return;
+      }
+      if (exceedsNodes(node, BALLOON_CAP)) {
+        ballooned = true;
+        break;
+      }
+      const patch = stepWithPatch(node, 0, fast, native);
+      if (!patch) {
+        nf = true;
+        break;
+      }
+      if (exceedsNodes(patch.root, INCR_RENDER_CAP)) {
+        // This contraction blows past the live-render budget — flush what landed and hand the reduction
+        // to the background path (which builds + reduces the giant intermediate undrawn, reflowing once
+        // it is small again). The frozen incremental snapshot stays on screen meanwhile.
+        tree.commitIncremental();
+        this.deps.tickSound(sym);
+        return this.stepHeavyTs(tree, gen); // resumes from tree.node (the last applied contractum)
+      }
+      if (!tree.applyPatch(patch)) {
+        // Stale cache (e.g. a discovery changed the display) — flush what landed, then advance to this
+        // contractum with a full recompute (stepTo → animateTo exits incremental mode + resyncs).
+        tree.commitIncremental();
+        a.steps++;
+        this.deps.tickSound(patch.sym);
+        this.stepTo(tree, patch.root, () => {
+          const a2 = this.auto.get(tree);
+          if (!a2 || a2.gen !== gen) return;
+          if (this.transport === "pause") return;
+          a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(tree));
+        });
+        return;
+      }
+      node = patch.root;
+      sym = patch.sym;
+      a.steps++;
+      stepped++;
+    }
+    tree.commitIncremental();
+    this.deps.tickSound(sym); // one tone per batch (a heavy term can't sonify every contraction)
+    if (ballooned) {
+      this.autoPause("term is ballooning — try Graph reduction or Turbo (Optimizations menu)");
+      return;
+    }
+    if (nf) {
+      this.finishNormalForm(tree, a);
+      return;
+    }
+    a.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(tree));
   }
 
   /** Step: pause, then advance the focused tree by exactly one reduction (no reschedule).
