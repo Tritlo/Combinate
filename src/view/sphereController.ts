@@ -266,13 +266,4 @@ export class SphereController {
   debugMorph(): ReturnType<Sphere3D["debugMorph"]> {
     return this.sphere.debugMorph();
   }
-
-  /** Release resources (ticker callback, texture, layer). For test/remount correctness — not called
-   *  in the normal single-lifetime SPA flow. */
-  dispose(): void {
-    this.deps.ticker.remove(this.tickFn);
-    this.sphere.hide();
-    this.tex.destroy();
-    this.layer.destroy({ children: true });
-  }
 }

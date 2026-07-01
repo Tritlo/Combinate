@@ -824,7 +824,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     fitStage();
     hotbar.layout();
     placeLegend();
-    transportBar.place();
     positionPhoneOverlays();
     placeFps();
     toast.layout();
@@ -1042,8 +1041,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   positionPhoneOverlays();
   // Gamepad: a third input producer (polled from the ticker), routed by the active context.
   new GamepadController(pixi.ticker, {
-    // Always poll: the pad is always live (2D Build / 3D Inspect); Y enters/exits 3D either way.
-    enabled: () => true,
     context: () => (sphere.active() ? "inspect" : "build"),
     dispatch: (i) => dispatchPadIntent(i),
     leftStick: (sx, sy, dt) => {

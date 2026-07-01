@@ -381,7 +381,7 @@ export class ReductionController {
       // thread — exactly the work that would hitch the morph we're pacing for. Those modes (and
       // graph/turbo) just compute the step when the morph ends, no look-ahead.
       if (!share && !fast && !this.deps.getNative() && !a.session && !a.stash) {
-        const r = redexAt(tree.node, 0, fast, this.deps.getNative()); // fast/native are falsy here → plain raw redex
+        const r = redexAt(tree.node, fast, this.deps.getNative()); // fast/native are falsy here → plain raw redex
         if (r) a.stash = { from: tree.node, next: r.build(), sym: r.sym };
       }
       a.timer = window.setTimeout(() => this.stepAuto(tree, gen), MORPH_POLL_MS);
@@ -424,7 +424,7 @@ export class ReductionController {
       next = stashed.next;
       sym = stashed.sym;
     } else {
-      const redex = redexAt(tree.node, 0, fast, this.deps.getNative());
+      const redex = redexAt(tree.node, fast, this.deps.getNative());
       if (!redex) {
         this.finishNormalForm(tree, a); // normal form reached — recognise, collapse, score
         return;
@@ -484,7 +484,7 @@ export class ReductionController {
         this.autoPause(`won't settle after ${a.steps} steps — try Graph reduction (Optimizations menu)`);
         return;
       }
-      const redex = redexAt(node, 0, fast, native);
+      const redex = redexAt(node, fast, native);
       if (!redex) {
         nf = true;
         break;
@@ -601,7 +601,7 @@ export class ReductionController {
       this.stepTo(tree, a.grapher.snapshot(), () => {});
     } else {
       a.grapher = undefined;
-      const redex = redexAt(tree.node, 0, fast, this.deps.getNative());
+      const redex = redexAt(tree.node, fast, this.deps.getNative());
       if (!redex) {
         this.finishNormalForm(tree, a);
         return;
@@ -659,7 +659,7 @@ export class ReductionController {
         a.gen++;
         const gen = a.gen;
         a.timer = window.setTimeout(() => this.turboTick(tree, gen), 0);
-      } else if (redexAt(tree.node, 0, this.deps.getFast(), this.deps.getNative())) {
+      } else if (redexAt(tree.node, this.deps.getFast(), this.deps.getNative())) {
         a.steps = 0; // explicit resume = "keep going" → a fresh budget before auto-pause re-trips
         this.refreshEstimate(tree); // re-count from here so the bar's numerator + denominator share a baseline
         a.gen++;

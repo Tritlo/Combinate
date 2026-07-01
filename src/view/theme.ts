@@ -88,7 +88,7 @@ export function edgeTierColor(depth: number): number {
 }
 
 /** The OS preference, defaulting to dark when unavailable. */
-export function systemMode(): Mode {
+function systemMode(): Mode {
   return typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
 
@@ -166,7 +166,7 @@ function apply(): void {
 }
 
 /** Switch mode explicitly (a manual toggle pins the choice over OS changes). */
-export function setMode(m: Mode): void {
+function setMode(m: Mode): void {
   userOverride = true;
   mode = m;
   apply();

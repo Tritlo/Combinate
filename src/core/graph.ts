@@ -270,7 +270,7 @@ export class GraphReducer {
 }
 
 /** The outcome of a straight-to-NF shared reduction — same shape as a normalize result. */
-export interface ShareResult {
+interface ShareResult {
   term: Node;
   steps: number;
   done: boolean;

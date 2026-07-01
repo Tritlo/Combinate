@@ -1,10 +1,10 @@
 import { type Node, type NodeId } from "./term";
 
 /** Top-down grid spacing. */
-export const XS = 56;
-export const YS = 64;
+const XS = 56;
+const YS = 64;
 /** Radius added per depth level in the radial layout. */
-export const RING = 84;
+const RING = 84;
 
 export interface Pos {
   x: number;
@@ -157,9 +157,9 @@ export function countNodes(root: Node): number {
  */
 /** The arm length (px) at which a node's glyph reaches full size; where arms are shorter (deep in the
  *  tree) the node shrinks WITH its arm, so a short arm never looks unnatural next to the glyph. */
-export const HTREE_MIN_ARM = 42;
+const HTREE_MIN_ARM = 42;
 /** Floor on the per-node glyph scale so a very deep tip never vanishes entirely. */
-export const HTREE_MIN_NODE_SCALE = 0.28;
+const HTREE_MIN_NODE_SCALE = 0.28;
 
 export function layoutHTree(root: Node, frozen?: { l0?: number }): Layout {
   // Modest initial arm, scaled by node count — the tree stays COMPACT (no giant span / zoom-out); deep
@@ -213,7 +213,7 @@ export function layoutHTreeSubtree(subtreeRoot: Node, x: number, y: number, d: n
 
 /** Past this top-down span (px) a tree is too wide/tall for a typical screen, so it gets
  *  the more compact H-tree layout instead. */
-export const COMPACT_SPAN = 1400;
+const COMPACT_SPAN = 1400;
 
 /** Auto layout: top-down while a tree fits, the compact H-tree once it grows too big. The H-tree is
  *  path-local, so a big reducing tree reflows in O(changed) per step; it threads the frozen arm scale so

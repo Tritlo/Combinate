@@ -13,7 +13,7 @@ import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text } from
 import { type Node } from "../core/term";
 import { toEgg, fromEgg } from "../core/refold";
 import { encodePermalink, decodePermalink } from "../core/permalink";
-import { CHALLENGES, type Challenge } from "../core/challenges";
+import { CHALLENGES, iotaCost, type Challenge } from "../core/challenges";
 import type { Store, Best, LeaderEntry } from "../store/port";
 import { theme } from "./theme";
 
@@ -133,13 +133,13 @@ export class ChallengePanel {
         ok = false;
       }
       if (!ok) continue;
-      const metric = c.metric(source);
+      const metric = iotaCost(source);
       const prev = await this.store.getBest(c.id);
       if (prev && prev.metric <= metric) continue;
       const best: Best = { challengeId: c.id, metric, permalink: encodePermalink(source, {}) };
       await this.store.putBest(best);
       this.bests.set(c.id, best);
-      this.opts.notify(`${c.title}: solved in ${metric} ${c.metricLabel}${prev ? ` — new best (was ${prev.metric})` : ""}!`);
+      this.opts.notify(`${c.title}: solved in ${metric} ι${prev ? ` — new best (was ${prev.metric})` : ""}!`);
       changed = true;
     }
     if (changed && this.panel.visible) this.paint();
@@ -259,7 +259,7 @@ export class ChallengePanel {
       tick.position.set(10, 7);
       const name = new Text({ text: c.title, style: { fontFamily: "monospace", fontSize: 15, fill: theme.text } });
       name.position.set(34, 7);
-      const score = new Text({ text: best ? `${best.metric}${c.metricLabel}` : "", style: { fontFamily: "monospace", fontSize: 13, fill: theme.textDim } });
+      const score = new Text({ text: best ? `${best.metric}ι` : "", style: { fontFamily: "monospace", fontSize: 13, fill: theme.textDim } });
       score.anchor.set(1, 0);
       score.position.set(w - 10, 8);
       row.addChild(tick, name, score);
@@ -292,8 +292,8 @@ export class ChallengePanel {
 
     line(c.title, theme.iota, 20, 8);
     line(c.goal, theme.text, 14, 10);
-    line(`metric:  fewest ${c.metricLabel}`, theme.textDim, 13, 4);
-    line(best ? `your best:  ${best.metric} ${c.metricLabel}` : "your best:  —  (not solved yet)", best ? theme.text : theme.textDim, 14, 12);
+    line(`metric:  fewest ι`, theme.textDim, 13, 4);
+    line(best ? `your best:  ${best.metric} ι` : "your best:  —  (not solved yet)", best ? theme.text : theme.textDim, 14, 12);
 
     // action buttons
     if (best) {
@@ -310,7 +310,7 @@ export class ChallengePanel {
       line("no verified entries yet — be the first.", theme.textDim, 13);
     } else {
       board.slice(0, 10).forEach((e, i) => {
-        line(`${String(i + 1).padStart(2, " ")}.  ${e.metric} ${c.metricLabel}   ${e.handle}`, theme.text, 13, 2);
+        line(`${String(i + 1).padStart(2, " ")}.  ${e.metric} ι   ${e.handle}`, theme.text, 13, 2);
       });
     }
   }
@@ -348,7 +348,7 @@ function verify(c: Challenge, rows: LeaderEntry[]): LeaderEntry[] {
       ok = false;
     }
     if (!ok) continue;
-    out.push({ ...e, metric: c.metric(tree) });
+    out.push({ ...e, metric: iotaCost(tree) });
   }
   return out.sort((a, b) => a.metric - b.metric);
 }
