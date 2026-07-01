@@ -569,7 +569,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const sx = e.global.x;
     const sy = e.global.y;
     ctxMenu.show(sx, sy, [
-      { label: "Name combinator", run: () => nameCombinator(tree, id) },
+      { label: "Name Combinator", run: () => nameCombinator(tree, id) },
       { label: "Delete", run: () => deleteNode(tree, id) },
       { label: "Copy", run: () => copyNodeToCanvas(tree, id, sx, sy) },
     ]);
@@ -1252,7 +1252,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const nativeAllOn = (): boolean => NATIVE_KEYS.every((k) => isOpt(k));
   const menus: Menu[] = [
     { title: "ι", apple: true, items: [
-      { kind: "action", label: "How to play…", title: "The basics: drag ι, snap trees, watch them reduce.", run: () => help.open() },
+      { kind: "action", label: "How to Play…", title: "The basics: drag ι, snap trees, watch them reduce.", run: () => help.open() },
       { kind: "action", label: "About Combinate…", title: "What this is, and credits.", run: () => about.open() },
     ] },
     { title: "File", items: [
@@ -1261,38 +1261,38 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "toggle", label: "Golf", title: "Timed challenges: hit a target in the fewest ι.", checked: () => challenges.isOpen, run: () => challenges.toggle() },
       { kind: "sep" },
       { kind: "action", label: "Compile Haskell…", title: "Compile a Haskell expression into a combinator tree, using Micro Haskell.", run: () => mhsPanel.open() },
-      { kind: "action", label: "Share link", title: "Copy a permalink to the current canvas.", run: () => shareFocused() },
+      { kind: "action", label: "Share Link", title: "Copy a permalink to the current canvas.", run: () => shareFocused() },
     ] },
     { title: "Edit", items: [
-      { kind: "action", label: "Clear canvas", title: "Remove every tree from the canvas.", run: () => clearCanvas() },
-      { kind: "action", label: "Unlock all combinators", title: "Reveal every combinator in the hotbar and Zoo.", run: () => unlockAll() },
+      { kind: "action", label: "Clear Canvas", title: "Remove every tree from the canvas.", run: () => clearCanvas() },
       { kind: "action", label: "Add Rule…", title: "Add a custom one-step rewrite rule, e.g. W f x = f x x.", run: () => addRule.open() },
       { kind: "sep" },
       { kind: "action", label: "Reset Progression", title: "Wipe your quest, discovered combinators, and named combinators.", run: () => resetProgression() },
+      { kind: "action", label: "Unlock All Combinators", title: "Reveal every combinator in the hotbar and Zoo.", run: () => unlockAll() },
     ] },
     { title: "View", items: [
-      { kind: "radio", label: "Auto layout", title: "Lay trees out automatically.", on: () => layoutFn === layoutAuto, run: () => setLayoutMode(layoutAuto) },
-      { kind: "radio", label: "Top-down layout", title: "Lay trees out strictly top-down.", on: () => layoutFn === layoutTopDown, run: () => setLayoutMode(layoutTopDown) },
-      { kind: "radio", label: "Radial layout", title: "Lay trees out radially.", on: () => layoutFn === layoutRadial, run: () => setLayoutMode(layoutRadial) },
-      { kind: "toggle", label: "3D", title: "View the focused term as a packed sphere.", checked: () => view3D, run: () => toggleView3D() },
+      { kind: "radio", label: "Auto Layout", title: "Lay trees out automatically.", on: () => layoutFn === layoutAuto, run: () => setLayoutMode(layoutAuto) },
+      { kind: "radio", label: "Top-Down Layout", title: "Lay trees out strictly top-down.", on: () => layoutFn === layoutTopDown, run: () => setLayoutMode(layoutTopDown) },
+      { kind: "radio", label: "Radial Layout", title: "Lay trees out radially.", on: () => layoutFn === layoutRadial, run: () => setLayoutMode(layoutRadial) },
+      { kind: "toggle", label: "3D", title: "View the tree in 3D as a packed sphere.", checked: () => view3D, run: () => toggleView3D() },
       { kind: "sep" },
-      { kind: "toggle", label: "Expand ι-trees", title: "Show every combinator expanded to raw ι.", checked: () => expandAll, run: () => toggleExpand() },
-      { kind: "toggle", label: "Type lens", title: "Annotate the read-out with inferred types.", checked: () => readout.isTypeOn, run: () => readout.toggleType() },
-      { kind: "radio", label: "Read-out: combinators", title: "Show the top read-out as raw SKI / ι.", on: () => readout.view === "ski", run: () => readoutBox.setView("ski") },
-      { kind: "radio", label: "Read-out: named + native", title: "Show discovered birds and native values.", on: () => readout.view === "named", run: () => readoutBox.setView("named") },
-      { kind: "radio", label: "Read-out: Barker (0/1)", title: "Show the term as Barker bit-code.", on: () => readout.view === "barker", run: () => readoutBox.setView("barker") },
+      { kind: "toggle", label: "Expand ι-Trees", title: "Show every combinator expanded to raw ι.", checked: () => expandAll, run: () => toggleExpand() },
+      { kind: "toggle", label: "Type Lens", title: "Annotate the read-out with inferred types.", checked: () => readout.isTypeOn, run: () => readout.toggleType() },
+      { kind: "radio", label: "Read-Out: Combinators", title: "Show the top read-out as raw SKI / ι.", on: () => readout.view === "ski", run: () => readoutBox.setView("ski") },
+      { kind: "radio", label: "Read-Out: Named + Native", title: "Show discovered birds and native values.", on: () => readout.view === "named", run: () => readoutBox.setView("named") },
+      { kind: "radio", label: "Read-Out: Barker (0/1)", title: "Show the term as Barker bit-code.", on: () => readout.view === "barker", run: () => readoutBox.setView("barker") },
       { kind: "sep" },
-      { kind: "toggle", label: "Dark mode", title: "Switch to the dark palette.", checked: () => currentMode() === "dark", run: () => toggleMode() },
+      { kind: "toggle", label: "Dark Mode", title: "Switch to the dark palette.", checked: () => currentMode() === "dark", run: () => toggleMode() },
       { kind: "toggle", label: "Color (4096)", title: "Enable the 4096-colour palette.", checked: () => colorOn(), run: () => toggleColor() },
       { kind: "sep" },
       { kind: "toggle", label: "Track Quest", title: "Show the quest-tracker panel.", checked: () => !quest.done && !questTracker.isHidden, run: () => { questTracker.setHidden(!questTracker.isHidden); paintRail(); } },
-      { kind: "toggle", label: "Show controls", title: "Show the on-screen control hints.", checked: () => showControls, run: () => setShowControls(!showControls) },
-      { kind: "toggle", label: "FPS counter", title: "Show the frame-rate counter.", checked: () => fpsOn, run: () => toggleFps() },
+      { kind: "toggle", label: "Show Controls", title: "Show the on-screen control hints.", checked: () => showControls, run: () => setShowControls(!showControls) },
+      { kind: "toggle", label: "FPS Counter", title: "Show the frame-rate counter.", checked: () => fpsOn, run: () => toggleFps() },
     ] },
     { title: "Optimizations", items: [
       optItem("rules"),
       optItem("graph"),
-      { kind: "toggle", label: "Native data", title: "Compute catalog numbers, lists, and booleans on recognised native values directly.", checked: () => nativeAllOn(), run: () => { const next = !nativeAllOn(); for (const k of NATIVE_KEYS) setOpt(k, next); } },
+      { kind: "toggle", label: "Native Data", title: "Compute catalog numbers, lists, and booleans on recognised native values directly.", checked: () => nativeAllOn(), run: () => { const next = !nativeAllOn(); for (const k of NATIVE_KEYS) setOpt(k, next); } },
       optItem("wasm"),
     ] },
   ];
@@ -1405,7 +1405,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (!tree) return;
     const s = worldToScreen(gameInput.focusedKey * BUCKET_SPACING, 0);
     ctxMenu.show(s.x, s.y, [
-      { label: "Name combinator", run: () => nameCombinator(tree, tree.node.id) },
+      { label: "Name Combinator", run: () => nameCombinator(tree, tree.node.id) },
       { label: "Delete", run: () => removeTree(tree) },
       { label: "Copy", run: () => gameInput.takeToHand(cloneTerm(tree.node)) },
     ]);
