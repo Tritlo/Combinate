@@ -62,6 +62,9 @@ function injectStyles(): void {
 .mb-accel { opacity: 0.5; padding-left: 8px; }
 .mb-item:hover .mb-accel, .mb-item.mb-active .mb-accel { opacity: 0.85; }
 .mb-sep { height: 0; margin: 3px 0; border-top: 1px solid var(--mb-line); opacity: 0.45; }
+.mb-tip { position: fixed; display: none; max-width: 300px; padding: 5px 9px; z-index: 61; pointer-events: none;
+  background: var(--mb-bg); color: var(--mb-fg); border: 1px solid var(--mb-line); box-shadow: 2px 2px 0 var(--mb-shadow);
+  font-family: ${MONO}; font-size: 12px; line-height: 1.45; white-space: normal; }
 `;
   const style = document.createElement("style");
   style.textContent = css;
@@ -71,12 +74,13 @@ function injectStyles(): void {
 export class MenuBar {
   private readonly bar = document.createElement("div");
   private readonly dropdown = document.createElement("div");
+  private readonly tip = document.createElement("div"); // a System-1 hover tooltip for items with a title
   private readonly titleEls: HTMLElement[] = [];
   private open: number | null = null;
   private narrow = false; // collapsed (phone) layout: one ι menu instead of the menu titles
   // Keyboard/gamepad nav: the navigable rows of the open dropdown (separators excluded) and the
   // highlighted one. Rebuilt on every render; the mouse shares this cursor (pointerenter updates it).
-  private navItems: { run: () => void; el: HTMLElement }[] = [];
+  private navItems: { run: () => void; el: HTMLElement; title?: string }[] = [];
   private activeItem = 0;
 
   constructor(private readonly menus: Menu[]) {
@@ -89,6 +93,8 @@ export class MenuBar {
 
     document.body.appendChild(this.bar);
     document.body.appendChild(this.dropdown);
+    this.tip.className = "mb-tip";
+    document.body.appendChild(this.tip);
     // Rebuild the bar when crossing the narrow/wide breakpoint (collapse the menus
     // into one ι menu on phones, where the titles won't fit).
     window.addEventListener("resize", () => {
@@ -188,7 +194,24 @@ export class MenuBar {
     for (const [k, v] of Object.entries(p)) {
       this.bar.style.setProperty(`--mb-${k}`, v);
       this.dropdown.style.setProperty(`--mb-${k}`, v);
+      this.tip.style.setProperty(`--mb-${k}`, v);
     }
+  }
+
+  /** Show the System-1 hover tooltip for `text` beside `row` (flips left if it would overflow). */
+  private showTip(text: string, row: HTMLElement): void {
+    this.tip.textContent = text;
+    this.tip.style.display = "block";
+    const r = row.getBoundingClientRect();
+    const w = this.tip.offsetWidth;
+    const h = this.tip.offsetHeight;
+    const x = r.right + 8 + w > window.innerWidth - 6 ? Math.max(6, r.left - w - 8) : r.right + 8;
+    this.tip.style.left = `${x}px`;
+    this.tip.style.top = `${Math.max(6, Math.min(r.top, window.innerHeight - h - 6))}px`;
+  }
+  /** Hide the hover tooltip. */
+  private hideTip(): void {
+    this.tip.style.display = "none";
   }
 
   private openAt(i: number): void {
@@ -216,6 +239,7 @@ export class MenuBar {
     this.open = null;
     this.titleEls.forEach((t) => t.classList.remove("mb-open"));
     this.dropdown.style.display = "none";
+    this.hideTip();
   }
 
   private renderDropdown(i: number): void {
@@ -243,6 +267,10 @@ export class MenuBar {
   private paintActiveItem(): void {
     if (this.activeItem >= this.navItems.length) this.activeItem = Math.max(0, this.navItems.length - 1);
     this.navItems.forEach((r, i) => r.el.classList.toggle("mb-active", i === this.activeItem));
+    // The hover tooltip follows the SELECTION — mouse hover and keyboard/gamepad nav both set activeItem.
+    const active = this.navItems[this.activeItem];
+    if (active?.title) this.showTip(active.title, active.el);
+    else this.hideTip();
   }
 
   private itemEl(it: MenuItem): HTMLElement {
@@ -253,7 +281,6 @@ export class MenuBar {
     }
     const row = document.createElement("div");
     row.className = "mb-item";
-    if (it.title) row.title = it.title; // native hover tooltip (e.g. an optimization's description)
     const mark = document.createElement("span");
     mark.className = "mb-mark";
     mark.textContent = it.kind === "toggle" ? (it.checked() ? "✓" : "") : it.kind === "radio" ? (it.on() ? "•" : "") : "";
@@ -287,7 +314,7 @@ export class MenuBar {
     });
     // Register as a navigable row + let the mouse share the keyboard/gamepad cursor (hover = highlight).
     const navIndex = this.navItems.length;
-    this.navItems.push({ run: it.run, el: row });
+    this.navItems.push({ run: it.run, el: row, title: it.title });
     row.addEventListener("pointerenter", () => {
       this.activeItem = navIndex;
       this.paintActiveItem();
