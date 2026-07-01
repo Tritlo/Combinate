@@ -112,7 +112,13 @@ export class ReadoutLens {
     this.lastMode = mode;
     let txt = "";
     if (node) {
-      if (view === "ski") txt = this.exprOf(node);
+      // The ski / barker views build an O(nodes) string; re-run each frame a big reducing tree changes
+      // the node, that string (tens of KB, unreadable anyway) would dominate the frame. Past the probe
+      // cap show a constant placeholder instead — the `exceedsNodes` gate is bounded (O(cap)), the memo
+      // suppresses the repaint, and the value lens still reads a bounded normal form at settle. (`named`
+      // keeps its own big-term guard + throttle below.)
+      if (view !== "named" && exceedsNodes(node, READOUT_PROBE_MAX)) txt = "⟨reducing — term too large to show⟩";
+      else if (view === "ski") txt = this.exprOf(node);
       else if (view === "barker") txt = barkerCode(node);
       else {
         this.lastNamedAt = now;
