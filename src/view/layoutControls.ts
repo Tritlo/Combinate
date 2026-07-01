@@ -107,19 +107,20 @@ export class LayoutControls {
       laySeg.append(b);
     }
 
+    const row1 = document.createElement("div");
+    row1.className = "lc-row";
+    row1.append(dim, laySeg);
+
+    // — Row 2: the [ι] iota-tree toggle + the optimizations. All independent (not mutually exclusive),
+    // so each is its own separated toggle rather than one joined segment. [ι] leads the row so the two
+    // rows balance optically (row 1 is the wide view segment). —
+    const row2 = document.createElement("div");
+    row2.className = "lc-row";
     const iotaSeg = document.createElement("div");
     iotaSeg.className = "lc-seg";
     this.bIota = cell("ι", "Show every combinator expanded to its raw ι-tree", () => this.act(() => this.deps.toggleIotaTree()));
     iotaSeg.append(this.bIota);
-
-    const row1 = document.createElement("div");
-    row1.className = "lc-row";
-    row1.append(dim, laySeg, iotaSeg);
-
-    // — Row 2: optimizations — independent (not mutually exclusive), so each is its own separated
-    // toggle rather than one joined segment.
-    const row2 = document.createElement("div");
-    row2.className = "lc-row";
+    row2.append(iotaSeg);
     for (const { key, label, title } of OPTS) {
       const seg = document.createElement("div");
       seg.className = "lc-seg";

@@ -52,7 +52,7 @@ function injectStyles(): void {
 .mb-title { display: flex; align-items: center; padding: 0 11px; cursor: default; }
 .mb-title.mb-apple { font-weight: 600; font-size: 16px; padding: 0 13px; }
 .mb-title:hover, .mb-title.mb-open { background: var(--mb-fg); color: var(--mb-bg); }
-.mb-menu { position: fixed; display: none; min-width: 184px; max-height: calc(100vh - 26px); overflow-y: auto; padding: 2px 0; z-index: 41;
+.mb-menu { position: fixed; display: none; min-width: 184px; max-height: calc(100vh - 26px); overflow-y: auto; padding: 2px 0; z-index: 60;
   background: var(--mb-bg); color: var(--mb-fg); border: 1px solid var(--mb-line); box-shadow: 2px 2px 0 var(--mb-shadow);
   font-family: ${MONO}; font-size: 14px; }
 .mb-header { padding: 5px 12px 2px; font-size: 11px; opacity: 0.5; letter-spacing: 0.05em; pointer-events: none; }
