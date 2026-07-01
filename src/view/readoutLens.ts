@@ -170,13 +170,17 @@ export class ReadoutLens {
   async ensureRefolder(quiet = false): Promise<void> {
     if (this.refoldRaw || this.refolderLoading) return;
     this.refolderLoading = true;
+    const t0 = performance.now();
+    console.log("[combinate] loading re-folder wasm (crates/refold)…");
     try {
       const mod = await import("../../crates/refold/pkg/refold.js");
       await mod.default();
       this.refoldRaw = mod.refold;
       this.refolder = makeRefolder(mod.refold);
+      console.log(`[combinate] re-folder wasm ready — ${(performance.now() - t0).toFixed(0)}ms (egg pipeline live)`);
       this.invalidate(); // re-render now the egg stage is live
-    } catch {
+    } catch (e) {
+      console.warn(`[combinate] re-folder wasm FAILED after ${(performance.now() - t0).toFixed(0)}ms — behavioural fallback only`, e);
       if (!quiet) this.deps.toast.show("re-folder: behavioural only (wasm unavailable)");
     } finally {
       this.refolderLoading = false;

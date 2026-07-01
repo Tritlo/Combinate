@@ -1,0 +1,142 @@
+/**
+ * The SKI-Quest answer key: puzzle id → a solution source, in the same language the player types
+ * (combinators by name, `->` lambdas, juxtaposition for application). Every entry is verified to
+ * satisfy its puzzle's {@link import("./engine").makeGoal} by {@link import("../../../scripts/answer-key.mts")}
+ * (run it after any engine change — it fails loudly on a regression).
+ *
+ * Surfaced read-only in the Quest review: a *solved* stage can reveal its recorded solution. Kept in
+ * `core/` (pure data, no DOM) so both the app and the verifier share one source of truth.
+ *
+ * The four `prologue-*` entries are ι-form display solutions (the ι tower I→A→K→S); they are not
+ * SKIQ-verified because the Prologue isn't a SKI-Quest chapter — they exist only so every stage in
+ * the Quest, Prologue included, can show a solution.
+ */
+export const SOLUTIONS: Record<string, string> = {
+  // — Prologue: the ι tower (display only; ι is Combinate's primitive, not SKIQ source) —
+  "prologue-i": "ι ι", // I
+  "prologue-a": "ι I", // A (Scott true)
+  "prologue-k": "ι A", // K
+  "prologue-s": "ι K", // S
+  // — reverse-engineered this session —
+  // Identity but later: `B C C a b = C(C a) b` is a normal form (a, b never merged),
+  // and `B C C a b c → C(C a) b c → C a c b → a b c`. (η-long `λabc.abc`/`I` diverge.)
+  BzhFzwua: "B C C",
+  // Plan first / if: `c x` (→ K/KI) selects `t x` vs `e x`.
+  uvtknMlN: "c -> t -> e -> x -> c x (t x) (e x)",
+  // gcd — kernel-assisted (ADR 11): Euclid (Y + iszero) over a pure Church `cmod` kernel.
+  // Raw Church Euclid is over budget; the native `cmod` makes each step O(1).
+  u1Sr43PU: "Y (g -> m -> n -> (m (K (KI)) K) n (g (cmod n m) m))",
+  // — combinator constructions (unrestricted): the λ from the case —
+  DADG8des: "f -> g -> h -> x -> f (g (h x))", // f(g(h x)) (env f,g,h)
+  T89a9q7G: "x -> y -> z -> t -> t", // ignore 3, return the 4th
+  WhYIkSJR: "a -> b -> c -> d -> d a b c", // v3
+  EuOQExqe: "a -> b -> c -> a (c b)", // Q1
+  xAqffqWv: "a -> b -> c -> b (c a)", // Q2
+  DAGc1HC2: "a -> b -> c -> c (b a)", // Q4
+  xWDGLJvA: "a -> b -> c -> d -> a b (a d c)", // J
+  E2nhX4bs: "head -> tail -> f -> x -> f head (tail f x)", // fold-cons
+  // — fold-list ops · pairs (V) · booleans · recursion (Y) — authored —
+  YAN4Mxrt: "b -> b S K", // x -> x(S)(K)
+  Uu9HxTCJ: "p -> q -> t -> f -> p (q f t) t", // nand
+  fWb8i2Gg: "f -> p -> p (a -> b -> x -> x (f a) (f b))", // pair map
+  NmPkROHm: "f -> g -> p -> p (a -> b -> f a (g b))", // f a (g b) over a pair
+  gjDIpuTl: "f -> g -> p -> p (a -> b -> x -> x (f a b) (g a b))", // pair transform
+  A4fAPvZb: "f -> d -> arg -> arg (a -> b -> K (f a b)) d", // maybe/pattern-match
+  u27lZ0cN: "l -> l (K (S B)) (K I)", // len = fold succ over 0 (succ = S B, 0 = K I)
+  uGAfI2SW: "xs -> ys -> f -> x -> xs f (ys f x)", // cat (fold-list append)
+  e1NlHHr6: "f -> xs -> xs (a -> r -> g -> y -> g (f a) (r g y)) (K I)", // map
+  RtjKvs82: "xs -> xs (a -> r -> f -> x -> r f (f a x)) (K I)", // reverse
+  BkuOGuwe: "n -> f -> x -> n (g -> h -> h (g f)) (u -> x) (u -> u)", // Church predecessor
+  "3JcMqUYU": "Y (self -> n -> x -> x (self (S B n)) n) (K I)", // count K's before KI
+  Z5FPLOrV: "Y K", // quine: q x = q
+  TdfaCuW3: "Y (self -> x -> x self)", // crawl: f x = x f
+  // — restricted-basis builds (only the allowed/env combinators) —
+  NPQ1PIwx: "B (B W) B", // a(b c)c, from B,C,K,I,W
+  TNgeTiRp: "M A", // I, from M,T,A,B (M A = (K I)(K I) = I)
+  Jv13RWtU: "B (T B) K", // I, from B,K,T
+  lphEyMXf: "J I I", // T x y = y x, from J,I
+  "7gLQo32W": "J I", // Q1 x y z = x(z y), from J,I
+  "4e3mymsq": "X X", // I, from the universal X
+  XUVE0eoI: "X (X X)", // omit-first, from X
+  "63bwJwPZ": "X (X (X X))", // K, from X
+  QqpxVpZk: "X (X (X (X X)))", // S, from X
+  // — V-pair (Scott) linked-list ops + fixed points —
+  bMdsUR5U: "z -> x -> y -> z (a -> b -> K y) x", // is_empty (K for nil, KI for a pair)
+  "5yxwDzNg": "z -> z (a -> b -> K b) (K I)", // failsafe tail (pair → b, nil → nil)
+  VvbGJqE1: "Y (self -> z -> f -> x -> z (a -> b -> K (f a (self b f x))) x)", // fold
+  SltEHvuL: "xs -> xs (a -> p -> s -> s (lst a (p K)) (p K)) (s -> s nil nil) (K I)", // tail (fold-list)
+  "2vWAfjsP": "Y K", // K x = x  (the K-fixed-point is the quine)
+  "1fz2DwNy": "Y T", // T x = x
+  bmXggXLn: "xs -> (xs (a -> r -> f -> x -> r f (f a x)) (K I)) (a -> r -> a) nil", // last = head ∘ reverse
+  EPtKyvC9: "tail=xs->xs (a->p->s->s (lst a (p K)) (p K)) (s->s nil nil) (K I); head=xs->xs (a->r->a) nil; n -> xs -> head (n tail xs)", // nth = head ∘ drop n
+  // — Church numerics via the pair-iteration trick (counter, accumulator) —
+  l79rFZSF: "V=u->v->s->s u v; mul=m->n->f->m(n f); one=f->x->f x; n -> n (p -> V (S B (p K)) (mul (p K) (p (K I)))) (V one one) (K I)", // factorial
+  ifb4SqXX: "V=u->v->s->s u v; add=m->n->f->x->m f(n f x); one=f->x->f x; n -> n (p -> V (p (K I)) (add (p K) (p (K I)))) (V (K I) one) K", // fibonacci
+  JrSTFmW9: "V=u->v->s->s u v; n -> n (p -> p (r -> g -> g (V (S B r) (K I)) (V r K))) (V (K I) (K I)) K", // n/2
+  Rpc0i8ff: "double=n->f->x->n f(n f x); Y (self -> z -> z (b -> rest -> K (b (S B (double (self rest))) (double (self rest)))) (K I))", // little-endian binary → numeral
+  // — restricted-basis combinatory-completeness builds + lazy fixed points (with Codex) —
+  "2LpsCjKe": "W (B ((B W) (C B)))", // U a b = b(a a b), from B,C,K,I,W
+  fGRC4aUm: "C (K ((B C) (W C)))", // a d a c, from B,C,K,I,W
+  SDFiIPyt: "B (B W) (B B C)", // S, from B,C,I,K,W
+  QwHhI1rZ: "M (M (M ((M B) T)))", // C, from M,T,A,B
+  IJfBd6Wj: "(B (T A)) ((M B) T)", // K, from M,T,A,B
+  ZCMoK02Q: "(M (M (M ((M B) T)))) ((B M) (M (M (M (M ((M B) T))))))", // W, from M,T,A,B
+  "9AOyLk8v": "(B triple) (V (K (B K)))", // M, from triple
+  KKFt7eS5: "((J (J I I)) ((J I) (J I I))) (J (J (J I I)))", // B, from J,I
+  "16TntDIM": "((J (J I I)) (J (J I I))) (J (J I I))", // C, from J,I
+  ZpRyf6k6:
+    "(((J (J I I)) (J (J I I))) (J (J I I))) ((((J (J I I)) ((J I) (J I I))) (J (J (J I I)))) ((((J (J I I)) ((J I) (J I I))) (J (J (J I I)))) ((J I I) (J I I))) ((((J (J I I)) ((J I) (J I I))) (J (J (J I I)))) ((J I I) I) ((((J (J I I)) ((J I) (J I I))) (J (J (J I I)))) (((J (J I I)) (J (J I I))) (J (J I I))) ((((J (J I I)) ((J I) (J I I))) (J (J (J I I)))) J (J I I)))))", // W, from J,I
+  Ci0vMhSM: "C (B Y V) (C B (T K))", // M, from a non-terminating Y
+  "0aFCHGH0": "D=g->C(C(C(KM) g)) I; f -> D (g -> f (D g))", // lazy fixed point Z
+  RMSPwloE: "D=g->C(C(C(KM) g)) I; expr -> D (g -> expr (D g))", // f x = expr f x, terminating
+  IWFhxleA: "K (K K)", // C x = x
+  JAfbcmSX: "K (K I)", // S x = x  (the constant family K(K d) is a fixed point of S)
+  iUn7wg3l: "Y K", // Y x = x  (the quine is the fixed point of the fixed-point combinator)
+  // — authored Church arithmetic —
+  FYutDKYw: "m -> n -> f -> x -> m f (n f x)", // add
+  ZssuKELX: "m -> n -> f -> m (n f)", // mult
+  Q3UWpMFt: "m -> n -> n m", // power
+  aVXplSUP: "n -> n (K (KI)) K", // is-zero (selector)
+  c9RywwUB: "n -> n (b -> b (KI) K) K", // parity (even → K, odd → KI)
+  // — auto-recovered bird combinators (verified against makeGoal) —
+  O3BfTzg2: "K I",
+  UZdEyeiN: "B",
+  VbnUGtfn: "T",
+  "4LmjXm1E": "C",
+  Jz41j8ae: "S I I",
+  hiwf2WWz: "W W",
+  fvQITKZd: "S I",
+  lNUrDS4M: "S K K",
+  HQO9AiXx: "B",
+  "5zTCoMld": "D B",
+  zhxYRTMO: "T",
+  LAhD47Yg: "W",
+  cKg6FHW9: "W Z",
+  WiTB9Xy0: "R",
+  Qq7dQfBW: "C",
+  glGifOC9: "V",
+  EERaTEWg: "W K",
+  MH4kIGqY: "C I",
+  F9xS85rq: "W I",
+  DZgmxmiQ: "B B",
+  "3MuxHf1M": "C C",
+  FWZDq8fU: "B W B",
+  gi5mV965: "B C",
+  buOZQ9o7: "Q",
+  f6tNnmm1: "B T",
+  M3mOh0CW: "D R",
+  HRESMOB6: "B M",
+  HnLa4AzW: "M L",
+  Mls7TePA: "W C",
+  "1WLQktu6": "C",
+  ZJQC2K3h: "V",
+  RQq5xiBV: "M",
+  QRVhriTN: "or",
+  rARLv86e: "S Q1",
+  "6jZEOKHX": "S B",
+  azxJgdmk: "M U",
+  "8JqqvQtV": "I",
+  sCvZqC2r: "I",
+  Zlpj8BYe: "I",
+  U2xSO7on: "B",
+};

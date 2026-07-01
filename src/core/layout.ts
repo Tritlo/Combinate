@@ -158,36 +158,19 @@ export function countNodes(root: Node): number {
  * the shrink stays below 1/√2 sibling subtrees never overlap, so no subtree-spacing pass is needed.
  * The initial arm scales with the node count (bigger terms start with a longer arm). Root at (0, 0).
  */
-/** Shortest arm target (px). A hair longer than a combinator node's diameter (~30), so the deepest
- *  arms never shrink under the glyphs — the "shortest line looks unnatural next to the node" fix.
- *  Also the arm at which a node's glyph reaches full size (below it, the node shrinks with the arm). */
+/** The arm length (px) at which a node's glyph reaches full size; where arms are shorter (deep in the
+ *  tree) the node shrinks WITH its arm, so a short arm never looks unnatural next to the glyph. */
 export const HTREE_MIN_ARM = 42;
 /** Floor on the per-node glyph scale so a very deep tip never vanishes entirely. */
 export const HTREE_MIN_NODE_SCALE = 0.28;
 
 export function layoutHTree(root: Node, frozen?: { l0?: number }): Layout {
-  // Arm scale L0. Recomputing it from max depth EVERY step would rescale the whole tree whenever the
-  // deepest node changes — a global ripple that defeats incremental layout. So a reducing tree passes its
-  // cached L0 (frozen), and only re-fits on an explicit event (fresh tree, layout switch, discovery).
-  // When not frozen: scale the initial arm so the SHORTEST arm (at the deepest application, first-visit
-  // DAG-safe) lands near HTREE_MIN_ARM — invariant under camera zoom; clamped so a huge tree still frames
-  // and a shallow one isn't blown up.
-  let L0 = frozen?.l0;
-  if (L0 == null) {
-    const seen = new Set<NodeId>();
-    let maxAppDepth = 0;
-    const measure = (n: Node, d: number): void => {
-      if (seen.has(n.id)) return;
-      seen.add(n.id);
-      if (n.kind === "app") {
-        maxAppDepth = Math.max(maxAppDepth, d);
-        measure(n.fn, d + 1);
-        measure(n.arg, d + 1);
-      }
-    };
-    measure(root, 0);
-    L0 = Math.min(4000, Math.max(180, HTREE_MIN_ARM / HTREE_SHRINK ** maxAppDepth));
-  }
+  // Modest initial arm, scaled by node count — the tree stays COMPACT (no giant span / zoom-out); deep
+  // tips stay legible by shrinking the NODES to their arm (the `scale` map below), NOT by inflating L0.
+  // FROZEN across a reduction (deeper-perf, ADR 18): a reducing tree passes its cached L0 so a changing
+  // node count doesn't rescale every node each step — which would defeat the incremental O(changed)
+  // reflow. Re-fit only on an explicit event (fresh tree, layout switch, discovery).
+  const L0 = frozen?.l0 ?? (80 + 40 * Math.log2(countNodes(root) + 2));
   const pos = new Map<NodeId, Pos>();
   const scale = new Map<NodeId, number>();
   const depth = new Map<NodeId, number>();
@@ -234,12 +217,12 @@ export function layoutHTreeSubtree(subtreeRoot: Node, x: number, y: number, d: n
 
 /** Past this top-down span (px) a tree is too wide/tall for a typical screen, so it gets
  *  the more compact H-tree layout instead. */
-export const RADIAL_SPAN = 1400;
+export const COMPACT_SPAN = 1400;
 
-/** Auto layout: top-down while a tree fits, the H-tree once it grows too big (deeper-perf, ADR 18 —
- *  was radial). The H-tree is path-local, so a big reducing tree reflows in O(changed) per step; it
- *  also threads the frozen arm scale so a max-depth change mid-reduction doesn't rescale everything. */
+/** Auto layout: top-down while a tree fits, the compact H-tree once it grows too big. The H-tree is
+ *  path-local, so a big reducing tree reflows in O(changed) per step; it threads the frozen arm scale so
+ *  a node-count change mid-reduction doesn't rescale everything (deeper-perf, ADR 18). */
 export function layoutAuto(root: Node, frozen?: { l0?: number }): Layout {
   const td = layoutTopDown(root);
-  return td.width > RADIAL_SPAN || td.height > RADIAL_SPAN ? layoutHTree(root, frozen) : td;
+  return td.width > COMPACT_SPAN || td.height > COMPACT_SPAN ? layoutHTree(root, frozen) : td;
 }

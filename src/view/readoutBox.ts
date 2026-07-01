@@ -44,7 +44,10 @@ function injectStyles(): void {
 .ro-body { padding: 5px 9px; font-size: 16px; line-height: 1.4; white-space: nowrap;
   overflow-x: auto; overflow-y: hidden; user-select: text; }
 .ro-body.ro-wrap { white-space: pre-wrap; word-break: break-all; overflow-x: hidden; overflow-y: auto; max-height: 42vh; }
-@media (max-width: 560px) { .ro-root { top: 26px; } .ro-body { font-size: 14px; } .ro-body.ro-wrap { max-height: 60vh; } }
+/* Small screens: the centred read-out would collide with the top-right control bars, so drop it
+   BELOW the whole stack (transport + layout + optimizations rows end ~102px down). */
+@media (max-width: 1024px) { .ro-root { top: 116px; } }
+@media (max-width: 560px) { .ro-body { font-size: 14px; } .ro-body.ro-wrap { max-height: 60vh; } }
 `;
   const style = document.createElement("style");
   style.textContent = css;

@@ -18,13 +18,17 @@ let loading: Promise<WasmModule | null> | null = null;
 export async function loadWasmReducer(): Promise<WasmModule | null> {
   if (mod) return mod;
   if (!loading) {
+    const t0 = performance.now();
+    console.log("[combinate] loading Turbo reduce wasm (crates/reduce)…");
     loading = (async () => {
       try {
         const m = await import("../../crates/reduce/pkg/reduce.js");
         await m.default();
         mod = m;
+        console.log(`[combinate] Turbo reduce wasm ready — ${(performance.now() - t0).toFixed(0)}ms`);
         return m;
-      } catch {
+      } catch (e) {
+        console.warn(`[combinate] Turbo reduce wasm FAILED after ${(performance.now() - t0).toFixed(0)}ms — falling back to the TS reducer`, e);
         return null; // wasm unavailable — the shell keeps using the TS reducer
       }
     })();

@@ -8,7 +8,7 @@ import {
   Text,
   Texture,
 } from "pixi.js";
-import { app as mkApp, cloneTerm, comb, exceedsNodes, freeVar, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
+import { app as mkApp, cloneTerm, comb, decode, exceedsNodes, freeVar, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
 import { evalShared } from "./core/graph";
 import { encodePermalink, decodePermalink, type Modes } from "./core/permalink";
 import { LocalStore } from "./store/local";
@@ -21,7 +21,7 @@ import { CATALOG, type Law, expandDisplay } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutAuto, layoutRadial, layoutHTree, layoutTopDown, type LayoutFn } from "./core/layout";
 import { layoutHTree3D, layoutSphere } from "./core/layout3d";
-import { recognizeDeep, fromEgg, toEgg } from "./core/refold";
+import { recognizeDeep, fromEgg, parseComb, toEgg } from "./core/refold";
 import { read, render, type Ty } from "./core/types";
 import { inferType } from "./core/infer";
 import { defineCombinator, defineRule, findSubtree, isNameTaken, parseRule, replaceSubtree, validateName } from "./core/authoring";
@@ -36,6 +36,7 @@ import { ReadoutBox } from "./view/readoutBox";
 import { loadWasmReducer, wasmReady, WasmSession } from "./view/wasmReducer";
 import { ReductionController, type Transport } from "./view/reduction";
 import { TransportBar } from "./view/transportBar";
+import { LayoutControls } from "./view/layoutControls";
 import { preloadCompiler } from "./view/mhs/compiler";
 import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange, edgeTierColor } from "./view/theme";
 import { MenuBar, type Menu, type MenuItem } from "./view/menubar";
@@ -200,6 +201,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   // Layout: top-down by default; T toggles the radial view (§5.1).
   let layoutFn: LayoutFn = layoutAuto;
+  let layoutControls: LayoutControls | undefined; // the top-right toggle bar (wired once the shell is built)
 
   // What a recognised tree collapses into: a single named node. I/K/S reduce by
   // built-in rules; the rest carry their definition (law.def) for the reducer
@@ -394,7 +396,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   // Transport bar (top-right): rate read-out + Pause/Step/Play/FF — a thin view over the
   // ReductionController (extracted to view/transportBar.ts, ADR 12).
-  const transportBar = new TransportBar(hud, pixi.ticker, reduce, sound);
+  const transportBar = new TransportBar(pixi.ticker, reduce, sound);
 
   // Reduction progress bar (plan 02): a thin fill along the top edge of the hotbar box, showing how
   // far the focused tree's reduction has played vs the background same-mode total. Shown only when
@@ -579,7 +581,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     ctxMenu.show(sx, sy, [
       { label: "Name Combinator", run: () => nameCombinator(tree, id) },
       { label: "Delete", run: () => deleteNode(tree, id) },
-      { label: "Copy", run: () => copyNodeToCanvas(tree, id, sx, sy) },
+      { label: "Copy", run: () => copyNode(tree, id, sx, sy) },
     ]);
   }
 
@@ -596,13 +598,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
   }
 
-  /** Deep-clone a node's subtree (fresh ids) and spawn it as a new reducing tree, offset from the
-   *  click so the copy doesn't land under the original and stays grabbable. */
-  function copyNodeToCanvas(tree: TreeView, id: NodeId, sx: number, sy: number): void {
+  /** Deep-clone a node's subtree (fresh ids) and PICK THE COPY UP — like a fresh hotbar grab, it
+   *  follows the cursor and the next click places it (drop free, or snap-apply onto a tree). */
+  function copyNode(tree: TreeView, id: NodeId, sx: number, sy: number): void {
+    if (drag) return; // already carrying — ignore (defensive; the menu shouldn't open mid-carry)
     const sub = findSubtree(tree.node, id);
     if (!sub) return;
-    const w = screenToWorld(sx, sy);
-    spawnTreeWorld(cloneTerm(sub), w.x + 60, w.y + 60);
+    const t = spawnTree(cloneTerm(sub), sx, sy);
+    t.container.eventMode = "none"; // passive while carried, so the placing click reaches what's underneath
+    drag = { kind: "spawn", tree: t };
   }
 
   /** Put the carried tree down — the second click of the carry model. Apply it to `target` (or the
@@ -1033,7 +1037,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (!disp) return toast.show("focus a tree to view it in 3D");
     if (exceedsNodes(disp, NODE_CAP)) return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
     view3D = true;
-    sphere3d.setLayout3(layoutFn === layoutHTree ? layoutHTree3D : layoutSphere); // 3D mirrors the 2D layout: H-tree → cubic H-tree, else the packed sphere
+    sphere3d.setLayout3(layoutFn === layoutRadial ? layoutSphere : layoutHTree3D); // 3D defaults to the cubic H-tree; the packed sphere only for the explicit radial layout
     syncControls(); // hide the build visuals (cursor off, un-fade) before the world hides
     tray.hide(); // and hide the held badge while inspecting
     world.visible = false;
@@ -1059,10 +1063,12 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // Set the layout for every tree (and trees spawned afterward). Picking a 2D layout leaves 3D.
   const setLayoutMode = (fn: LayoutFn): void => {
     if (view3D) toggleView3D(); // a 2D layout choice exits the 3D view
-    if (layoutFn === fn) return;
-    layoutFn = fn;
-    for (const t of trees) t.setLayout(fn);
-    paintRail();
+    if (layoutFn !== fn) {
+      layoutFn = fn;
+      for (const t of trees) t.setLayout(fn);
+      paintRail();
+    }
+    layoutControls?.refresh();
   };
   // T cycles auto → top-down → radial → H-tree → auto.
   function toggleLayout(): void {
@@ -1105,6 +1111,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     for (const t of trees) t.refresh();
     rerender3D(); // the 3D view follows the Expand setting too
     paintRail();
+    layoutControls?.refresh(); // the ι toggle in the control bar
   }
 
   // ---- top menu bar (System 1 Macintosh): the old left rail folded into
@@ -1135,6 +1142,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
    *  for keyboard/gamepad (not mouse) and not in 3D. Actions stay live regardless; this is visuals. */
   function syncControls(): void {
     gameInput.setEnabled(activeDevice() !== "mouse" && !view3D);
+    layoutControls?.refresh(); // keep the toggle bar in sync (3D on/off, layout changes)
   }
   /** View ▸ "Show controls": gate the on-screen hints only (persisted; visuals/actions unaffected). */
   function setShowControls(v: boolean): void {
@@ -1177,6 +1185,28 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   hintBar.setShowControls(showControls);
   syncControls();
   updateHints();
+  // The top-right layout toggle bar (under the transport): [2D|3D], [Top-Down|Radial|H-tree], [Auto].
+  layoutControls = new LayoutControls({
+    is3D: () => view3D,
+    set3D: (on) => {
+      if (on !== view3D) toggleView3D();
+    },
+    layout: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutTopDown ? "topdown" : layoutFn === layoutRadial ? "radial" : "htree"),
+    setLayout: (k) => setLayoutMode(k === "auto" ? layoutAuto : k === "topdown" ? layoutTopDown : k === "radial" ? layoutRadial : layoutHTree),
+    iotaTree: () => expandAll,
+    toggleIotaTree: () => toggleExpand(),
+    opt: (k) =>
+      k === "primitives" ? isOpt("nativeNumbers") && isOpt("nativeLists") && isOpt("nativeBooleans") : k === "turbo" ? isOpt("wasm") : isOpt(k),
+    toggleOpt: (k) => {
+      if (k === "primitives") {
+        const next = !(isOpt("nativeNumbers") && isOpt("nativeLists") && isOpt("nativeBooleans"));
+        setOpt("nativeNumbers", next);
+        setOpt("nativeLists", next);
+        setOpt("nativeBooleans", next);
+      } else if (k === "turbo") setOpt("wasm", !isOpt("wasm"));
+      else setOpt(k, !isOpt(k)); // rules | graph
+    },
+  });
   // Gamepad: a third input producer (polled from the ticker), routed by the active context.
   new GamepadController(pixi.ticker, {
     // Always poll: the pad is always live (2D Build / 3D Inspect); Y enters/exits 3D either way.
@@ -1238,7 +1268,17 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (focus) reduce.schedule(focus); // reschedule → reset the step count + re-estimate in the new mode (consistent bar)
     } else if (key === "graph") {
       shareMode = isOpt("graph");
-      if (focus) reduce.schedule(focus);
+      if (focus) {
+        // Graph snapshots read back as a shared DAG (stable ids). Turning graph OFF must drop that
+        // shared view — clone the current term to fresh ids so each occurrence draws separately —
+        // and rebuild the display, else the tree keeps rendering the DAG. (ON needs nothing:
+        // sharing only accrues as the graph reduces.)
+        if (!shareMode) {
+          focus.node = cloneTerm(focus.node);
+          focus.refresh();
+        }
+        reduce.schedule(focus);
+      }
     } else if (key === "wasm") {
       // Turbo toggled: preload the wasm (so the next reduction can use it), drop any stale
       // sessions, and re-decide turbo-vs-TS for the focused tree.
@@ -1257,6 +1297,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (focus) reduce.schedule(focus);
     }
     paintRail();
+    layoutControls?.refresh(); // the optimizations row reflects isOpt
   });
   // One Optimizations row for a single opt key (label + description from OPT_SETTINGS).
   const optItem = (key: OptKey): MenuItem => {
@@ -1309,7 +1350,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     { title: "Optimizations", items: [
       optItem("rules"),
       optItem("graph"),
-      { kind: "toggle", label: "Native Data", title: "Compute catalog numbers, lists, and booleans on recognised native values directly.", checked: () => nativeAllOn(), run: () => { const next = !nativeAllOn(); for (const k of NATIVE_KEYS) setOpt(k, next); } },
+      { kind: "toggle", label: "Primitives", title: "Compute catalog numbers, lists, and booleans on recognised native values directly.", checked: () => nativeAllOn(), run: () => { const next = !nativeAllOn(); for (const k of NATIVE_KEYS) setOpt(k, next); } },
       optItem("wasm"),
     ] },
   ];
@@ -1328,7 +1369,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     ...readout.modes(), // { view?, type? }
     expand: expandAll || undefined,
     page: hotbar.page,
-    transport: reduce.mode,
+    transport: reduce.mode === "max" ? "ff" : reduce.mode, // permalink has no "max" slot (yet) — record it as ff
   });
 
   /** Restore a tree's accompanying display modes (the inverse of currentModes). */
@@ -1729,4 +1770,56 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       },
     };
   }
+
+  // ---- console playground (always on): parse + evaluate combinator / Barker expressions ----
+  // Turbo = the fast-rules graph reducer (evalShared with fast=true); reads the NF back to a native
+  // value (int / list / bool) when it can, else shows the raw combinator normal form.
+  const evalTurbo = (node: Node): string => {
+    const nf = evalShared(node, 1_000_000, true).term;
+    const v = read(nf);
+    return v ? render(v) : sexp(nf);
+  };
+  // Run a parse/eval, but return a clean "⚠ …" string on bad input instead of throwing an
+  // uncaught error into the console (with an optional format hint for the expected notation).
+  const tryStr = (f: () => string, hint?: string): string => {
+    try {
+      return f();
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      return hint ? `⚠ ${hint} — ${m}` : `⚠ ${m}`;
+    }
+  };
+  // Accept both ordinary combinator notation (`S K K`, `(S (K I))` — exactly what `parse`/`barker`
+  // print, so their output feeds straight back into `eval`) AND the internal egg form (`(@ f x)`).
+  const readExpr = (s: string): Node => (s.includes("(@") ? fromEgg(s) : parseComb(s));
+  const EXPR = "expects a combinator expression, e.g. S K K  (or egg (@ f x))";
+  const BITS = "expects Barker bit-code (1=ι, 0<fn><arg>), e.g. 011";
+  const consoleApi = {
+    /** Parse a combinator expression (`S K K` / `(S (K I))`, or egg `(@ f x)`) → its term (s-expr). */
+    parse: (expr: string): string => tryStr(() => sexp(readExpr(expr)), EXPR),
+    /** Parse Barker bit-code (`1` = ι, `0 <fn> <arg>` = app) → its term (s-expr). */
+    barker: (bits: string): string => tryStr(() => sexp(decode(bits)), BITS),
+    /** Parse an expression (combinator or egg) and evaluate it to NF with Turbo → value or raw NF.
+     *  Accepts what `parse`/`barker` return, so e.g. `eval(parse("(@ S K)"))` round-trips. */
+    eval: (expr: string): string => tryStr(() => evalTurbo(readExpr(expr)), EXPR),
+    /** Parse Barker bit-code and evaluate it with Turbo → value or raw NF. */
+    evalBarker: (bits: string): string => tryStr(() => evalTurbo(decode(bits)), BITS),
+    /** Reprint this help. */
+    help: (): void => printConsoleHelp(),
+  };
+  function printConsoleHelp(): void {
+    console.log(
+      "%ccombinate console API — window.combinate",
+      "font-weight:bold",
+      "\n  .eval(\"S K K K\")         parse + evaluate (Turbo) → native value, or raw NF" +
+        "\n  .parse(\"S (K I)\")        parse a combinator expr (or egg (@ f x)) → term" +
+        "\n  .barker(\"011\")           parse Barker bit-code (1=ι, 0<fn><arg>=app) → term" +
+        "\n  .evalBarker(\"011\")       parse + evaluate Barker bit-code" +
+        "\n  .help()                   this message" +
+        "\n  eval accepts what parse/barker return — e.g. eval(parse(\"(@ S K)\")).",
+    );
+  }
+  (globalThis as Record<string, unknown>).combinate = consoleApi;
+  console.log("%cWelcome to combinate!", "font-size:14px;font-weight:bold");
+  printConsoleHelp();
 }
