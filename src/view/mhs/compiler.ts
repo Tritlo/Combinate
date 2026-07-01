@@ -6,7 +6,8 @@
  *    pruned dump (a vendored asset) — no wasm, the reliable cold-start.
  *  - **live** (best-effort): a stock MicroHs blob in a Web Worker batch-compiles
  *    free-typed source to a `-ddump-combinator` dump. Gated on the vendored blob
- *    (`scripts/vendor-wasm.sh`); a fresh worker per compile keeps it stateless.
+ *    (the `vendor-assets` GitHub Release, fetched by CI); a fresh worker per compile
+ *    keeps it stateless.
  *
  * The dump → ι tree step is the same pure `dumpToTree` for both.
  */
