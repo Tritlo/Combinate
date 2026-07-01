@@ -61,11 +61,9 @@ function injectStyles(): void {
 .qt-iolabel { font-size: 11px; opacity: 0.6; }
 .qt-ioform { margin-top: 3px; font-size: 12px; line-height: 1.45; max-height: 4.4em; overflow-y: auto; word-break: break-word;
   color: color-mix(in srgb, var(--qt-ink) 75%, var(--qt-gold)); }
-/* Tablet band: hide the tracker — the read-out drops beneath the (expanded) bar stack there, no room
-   for it too. On phones (≤600) the bars collapse to a gear, so the tracker comes back, sitting just
-   below the gear (the read-out then stacks beneath it). */
-@media (min-width: 601px) and (max-width: 1100px) { .qt-root { display: none !important; } }
-@media (max-width: 600px) { .qt-root { top: 88px; width: min(320px, calc(100vw - 24px)); } }
+/* Hidden on small screens (≤1100): the read-out drops beneath the bars, and phones use the collapsed
+   Controls card — no room for the tracker. !important beats the inline display the JS toggles. */
+@media (max-width: 1100px) { .qt-root { display: none !important; } }
 `;
   const style = document.createElement("style");
   style.textContent = css;
@@ -109,8 +107,6 @@ export class QuestTracker {
   private collapsed = false;
   private hintShown = false; // reveal the current stage's hint (reset when the stage advances)
   private lastStageId: string | null = null;
-  /** Fired after every re-render so the shell can restack phone overlays below this card. */
-  onLayout: (() => void) | undefined;
 
   constructor(private readonly deps: TrackerDeps) {
     injectStyles();
@@ -154,10 +150,7 @@ export class QuestTracker {
     this.root.style.display = visible ? "block" : "none";
     this.collapseBtn.textContent = this.collapsed ? "▸" : "▾";
     this.body.style.display = this.collapsed ? "none" : "block";
-    if (!visible || !stage || !loc) {
-      this.onLayout?.();
-      return;
-    }
+    if (!visible || !stage || !loc) return;
     if (stage.id !== this.lastStageId) {
       this.lastStageId = stage.id;
       this.hintShown = false; // a new stage — hide the hint again
@@ -178,13 +171,6 @@ export class QuestTracker {
       kids.push(wrap);
     }
     this.body.replaceChildren(...kids);
-    this.onLayout?.();
-  }
-
-  /** The card's bottom edge in viewport px, or 0 when hidden — for stacking the read-out below it. */
-  bottom(): number {
-    if (getComputedStyle(this.root).display === "none") return 0;
-    return this.root.getBoundingClientRect().bottom;
   }
 
   /** A compact "Show hint" toggle that reveals the current stage's hint — the same `stage.hint`
