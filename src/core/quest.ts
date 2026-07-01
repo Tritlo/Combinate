@@ -14,6 +14,7 @@ import { type Node } from "./term";
 import { CATALOG } from "./catalog";
 import { SKIQ_CHAPTERS } from "./skiq/data";
 import { makeGoal, isSupported, type Puzzle } from "./skiq/engine";
+import { SOLUTIONS } from "./skiq/solutions";
 
 /** One stage of the quest: a goal to satisfy by building a tree, wrapped in story. */
 export interface QuestStage {
@@ -25,6 +26,9 @@ export interface QuestStage {
   intro: string[];
   /** Spoiler hint (HTML), shown on demand; absent when the puzzle has none. */
   hint?: string;
+  /** A recorded solution source (SKI-Quest notation) from the answer key, revealed in the review of a
+   *  solved stage; absent when none is on file. See {@link import("./skiq/solutions").SOLUTIONS}. */
+  solution?: string;
   /** Does this built (settled) tree solve the stage? */
   goal: (built: Node) => boolean;
   /** Combinator symbol to reveal (discover) when solved — only catalog birds. */
@@ -89,6 +93,7 @@ function toStage(p: Puzzle): QuestStage {
     name: p.name,
     intro: asLines(p.intro),
     hint: p.hint ?? HINT_OVERRIDES[p.id],
+    solution: SOLUTIONS[p.id],
     goal: makeGoal(p),
     unlock: p.unlock && CATALOG_SYMS.has(p.unlock) ? p.unlock : undefined,
   };
