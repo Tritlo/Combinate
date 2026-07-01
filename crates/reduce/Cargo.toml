@@ -2,7 +2,7 @@
 name = "reduce"
 version = "0.1.0"
 edition = "2021"
-description = "flat-arena raw combinator reducer (ι/S/K/I + def-unfold) — wasm fast-path for skip-to-NF on the default pure-ι reduction"
+description = "wasm combinator reducer (the \"Turbo\" engine) — a resident call-by-need graph reducer with native kernels + catalog rules, plus the one-shot raw reducer kept as the cross-check oracle"
 license = "MIT"
 
 [lib]

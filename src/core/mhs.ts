@@ -35,7 +35,7 @@ import { named } from "./catalog";
 import { step } from "./reduce";
 
 // ---------------------------------------------------------------------------
-// Parse tree: a binary application tree with string leaves (Iota.hs `Tm`).
+// Parse tree: a binary application tree with string leaves.
 
 type Tm = { tag: "lf"; s: string } | { tag: "ap"; a: Tm; b: Tm };
 const lf = (s: string): Tm => ({ tag: "lf", s });
@@ -158,7 +158,7 @@ function occurs(x: string, t: Tm): boolean {
   return t.tag === "lf" ? t.s === x : occurs(x, t.a) || occurs(x, t.b);
 }
 
-/** Naive bracket abstraction `\x. t` over a leaf variable (Iota.hs `absTm`). */
+/** Naive bracket abstraction `\x. t` over a leaf variable. */
 function absTm(x: string, t: Tm): Tm {
   if (t.tag === "lf") return t.s === x ? lf("I") : ap(lf("K"), t);
   return ap(ap(lf("S"), absTm(x, t.a)), absTm(x, t.b));
@@ -205,9 +205,10 @@ function inline(defs: Map<string, string>, root: string): Tm {
 // ---------------------------------------------------------------------------
 // The basis: each combinator's arity, S/K/I definition, and the Combinate
 // catalog symbol it displays as (chosen so a same-meaning bird reduces correctly
-// in optimize mode too). ALGEBRA is verbatim from Iota.hs `algebraDefs`.
+// in optimize mode too). ALGEBRA gives each basis combinator's canonical S/K/I
+// expansion, matching MicroHs's own compiler output.
 
-/** S/K/I expansions of the non-atomic basis combinators (Iota.hs `algebraDefs`). */
+/** S/K/I expansions of the non-atomic basis combinators. */
 const ALGEBRA: Record<string, string> = {
   B: "S (K S) K",
   C: "S (B B S) (K K)",
@@ -246,8 +247,8 @@ const SYM: Record<string, string> = { U: "T", P: "V", J: "N", O: "cons", "S'": "
 const isAtomicComb = (s: string): boolean => s === "S" || s === "K" || s === "I";
 const isBasis = (s: string): boolean => isAtomicComb(s) || s in ALGEBRA;
 
-/** Build the pure S/K/I term a basis combinator expands to (Iota.hs `combSK`),
- *  recursively inlining references in `ALGEBRA` down to S/K/I leaves. */
+/** Build the pure S/K/I term a basis combinator expands to, recursively
+ *  inlining references in `ALGEBRA` down to S/K/I leaves. */
 function expandSki(name: string): Node {
   if (isAtomicComb(name)) return comb(name);
   const def = ALGEBRA[name];

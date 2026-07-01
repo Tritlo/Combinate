@@ -1,8 +1,9 @@
 /**
  * Shared goal predicates over a built tree — "does it behave as combinator X /
- * reduce to value V / map these inputs to those outputs?" — used by both the Golf
- * challenges and the Quest. The behavioural probe + the Scott value matchers, in
- * one place (pure; no DOM/Pixi).
+ * reduce to value V / map these inputs to those outputs?" — used by the Golf
+ * challenges (the Quest has its own goal predicate, skiq/engine.ts's makeGoal).
+ * The behavioural probe + the Scott value matchers, in one place (pure; no
+ * DOM/Pixi).
  */
 import { type Node, app } from "./term";
 import { probe } from "./probe";
@@ -51,7 +52,7 @@ export const outList = (ks: number[]) => (nf: Node): boolean => {
 
 /** Goal: applied to each case's inputs, the tree reduces to the wanted output.
  *  Reduced by the **graph** reducer (sharing) so recursive functions stay feasible;
- *  `budget` bounds it — pass a small one for cheap quest checks run on every settle. */
+ *  `FN_BUDGET` bounds it. */
 export function fn(cases: Array<{ in: Node[]; out: (nf: Node) => boolean }>): (built: Node) => boolean {
   return (built) =>
     cases.every((c) => {

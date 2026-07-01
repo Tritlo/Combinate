@@ -856,7 +856,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   /** Wipe all persisted player progress — quest stage + tracker, discovered combinators, and
    *  user-defined combinators (the `Store`'s `definitions`) — behind a confirm, then reload for a
    *  clean slate (the simplest correct reset). Prefix-matched so a future store-key version bump
-   *  still clears. */
+   *  still clears. Known gap: under `?store=duckdb` definitions live in DuckDB, not localStorage,
+   *  so they survive this reset. */
   function resetProgression(): void {
     if (!confirm("Reset all progress? This permanently clears your quest, discovered combinators, and custom combinators.")) return;
     for (const k of Object.keys(localStorage)) {
