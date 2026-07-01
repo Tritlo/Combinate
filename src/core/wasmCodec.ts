@@ -78,9 +78,16 @@ export interface Encoded {
 export function encode(term: Node, opts?: NativeOpts, fast = false): Encoded {
   // ---- close over every combinator reachable from the term and (transitively) from each
   // combinator's def AND (in fast mode) its rule template, resolving each sym's trees once. ----
+  // A non-catalog combinator (a MicroHs-compiled program's basis combinators — C'/K2/K3/K4/C'B)
+  // isn't in the catalog, but carries its own SKI `def` + `arity` on the node (mhs.ts `basisNode`).
+  // Capture those so wasm can def-unfold them too, exactly as the TS reducer does via `fn.def` —
+  // otherwise they'd be inert primitives and no compiled program could reduce.
+  const nodeInfo = new Map<Sym, { def: Node | null; arity: number }>();
   const collectCombs = (n: Node, into: Set<Sym>): void => {
-    if (n.kind === "comb") into.add(n.sym);
-    else if (n.kind === "app") {
+    if (n.kind === "comb") {
+      into.add(n.sym);
+      if (!LAW.has(n.sym) && !nodeInfo.has(n.sym)) nodeInfo.set(n.sym, { def: n.def ?? null, arity: n.arity ?? 1 });
+    } else if (n.kind === "app") {
       collectCombs(n.fn, into);
       collectCombs(n.arg, into);
     }
@@ -107,7 +114,7 @@ export function encode(term: Node, opts?: NativeOpts, fast = false): Encoded {
   while (queue.length) {
     const sym = queue.shift()!;
     if (defTree.has(sym)) continue;
-    const def = LAW.get(sym)?.def?.() ?? null; // S/K/I (+ unknown) → no def (primitive)
+    const def = LAW.get(sym)?.def?.() ?? nodeInfo.get(sym)?.def ?? null; // catalog def, else a basis comb's inline SKI def, else primitive
     defTree.set(sym, def); // mark visited before collecting, so a self-referential rule is fine
     if (def) {
       const more = new Set<Sym>();
@@ -229,7 +236,7 @@ export function encode(term: Node, opts?: NativeOpts, fast = false): Encoded {
   const sbase = HEADER + nodes.length;
   for (let id = 0; id < symCount; id++) {
     const law = LAW.get(symName[id]);
-    out[sbase + id * 4] = law?.arity ?? 1;
+    out[sbase + id * 4] = law?.arity ?? nodeInfo.get(symName[id])?.arity ?? 1; // catalog arity, else the basis comb's arity
     out[sbase + id * 4 + 1] = defRoot[id];
     out[sbase + id * 4 + 2] = KERNEL_KIND[symName[id]] ?? 0; // number-kernel kind, or 0
     out[sbase + id * 4 + 3] = ruleRoot[id]; // fast-mode rule template root, or -1
