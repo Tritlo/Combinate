@@ -38,14 +38,23 @@ function injectStyles(): void {
   stylesInjected = true;
   const css = `
 .lc-root { position: fixed; top: 52px; right: 16px; z-index: 41; display: flex; flex-direction: column;
-  align-items: flex-end; gap: 6px; font-family: ${MONO}; }
-.lc-row { display: flex; gap: 8px; align-items: stretch; }
+  align-items: stretch; gap: 6px; font-family: ${MONO}; }
+.lc-row { display: flex; gap: 8px; align-items: stretch; justify-content: space-between; }
 .lc-seg { display: flex; border: 1px solid var(--lc-ink); background: var(--lc-ink); box-shadow: 2px 2px 0 rgba(0,0,0,0.6); }
 .lc-btn { font-family: ${MONO}; font-size: 11px; line-height: 1; padding: 4px 9px; border: none; background: transparent;
   color: var(--lc-paper); cursor: pointer; white-space: nowrap; letter-spacing: 0.02em; transition: background 0.14s, color 0.14s; }
 .lc-btn + .lc-btn { border-left: 1px solid color-mix(in srgb, var(--lc-paper) 30%, transparent); }
 .lc-btn.on { background: var(--lc-paper); color: var(--lc-ink); font-weight: 700; }
 .lc-btn:not(.on):hover { background: color-mix(in srgb, var(--lc-paper) 18%, transparent); }
+/* Phone: the stack collapses to a gear (top-right); tapping it opens the stack as a System-1 popover
+   panel where the bars would be — above the tracked-quest + read-out. A backdrop closes it. */
+.lc-gear { display: none; position: fixed; top: 52px; right: 16px; z-index: 42; width: 34px; height: 28px;
+  align-items: center; justify-content: center; border: 1px solid var(--lc-ink); background: var(--lc-ink);
+  color: var(--lc-paper); box-shadow: 2px 2px 0 rgba(0,0,0,0.6); cursor: pointer; font-size: 15px; padding: 0; }
+.lc-backdrop { display: none; position: fixed; inset: 0; z-index: 44; background: rgba(0,0,0,0.28); }
+.lc-root.lc-phone { display: none; top: 52px; left: 8px; right: 8px; z-index: 45; background: var(--lc-paper);
+  border: 1px solid var(--lc-ink); box-shadow: 3px 3px 0 rgba(0,0,0,0.6); padding: 9px; }
+.lc-root.lc-phone.lc-open { display: flex; }
 `;
   const style = document.createElement("style");
   style.textContent = css;
@@ -86,6 +95,10 @@ export class LayoutControls {
   private readonly layoutBtns = new Map<LayoutKey, HTMLButtonElement>();
   private readonly bIota: HTMLButtonElement;
   private readonly optBtns = new Map<OptCell, HTMLButtonElement>();
+  private readonly gear = document.createElement("button");
+  private readonly backdrop = document.createElement("div");
+  private phone = false;
+  private open = false;
 
   constructor(private readonly deps: LayoutControlsDeps) {
     injectStyles();
@@ -131,8 +144,22 @@ export class LayoutControls {
     }
 
     this.root.append(row1, row2);
-    document.body.append(this.root);
+
+    // Phone: a gear that toggles this stack as a popover, with a click-catching backdrop.
+    this.gear.className = "lc-gear";
+    this.gear.textContent = "\u2699\uFE0E"; // ⚙ pinned to monochrome (text-presentation selector)
+    this.gear.title = "Settings";
+    this.gear.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      this.setOpen(!this.open);
+    });
+    this.backdrop.className = "lc-backdrop";
+    this.backdrop.addEventListener("pointerdown", () => this.setOpen(false));
+
+    document.body.append(this.root, this.gear, this.backdrop);
     onThemeChange(() => this.applyPalette());
+    window.addEventListener("resize", () => this.syncPhone());
+    this.syncPhone();
     this.refresh();
   }
 
@@ -141,6 +168,30 @@ export class LayoutControls {
   private act(change: () => void): void {
     change();
     this.refresh();
+  }
+
+  /** Track the phone breakpoint: below it the stack collapses behind the gear. */
+  private syncPhone(): void {
+    const phone = window.innerWidth <= 600;
+    if (phone !== this.phone) {
+      this.phone = phone;
+      if (!phone) this.open = false;
+    }
+    this.root.classList.toggle("lc-phone", phone);
+    this.renderPhone();
+  }
+
+  private setOpen(open: boolean): void {
+    this.open = open;
+    this.renderPhone();
+  }
+
+  /** Show the popover + backdrop when open on a phone; the gear only when closed. */
+  private renderPhone(): void {
+    const panelOpen = this.phone && this.open;
+    this.root.classList.toggle("lc-open", panelOpen);
+    this.gear.style.display = this.phone && !this.open ? "flex" : "none";
+    this.backdrop.style.display = panelOpen ? "block" : "none";
   }
 
   /** Re-read the shell's state and repaint the selected cells. */
@@ -156,7 +207,8 @@ export class LayoutControls {
 
   private applyPalette(): void {
     const p = PALETTE[currentMode()];
-    this.root.style.setProperty("--lc-paper", p.paper);
-    this.root.style.setProperty("--lc-ink", p.ink);
+    // On <body> so the gear + backdrop (siblings of .lc-root, not descendants) inherit them too.
+    document.body.style.setProperty("--lc-paper", p.paper);
+    document.body.style.setProperty("--lc-ink", p.ink);
   }
 }

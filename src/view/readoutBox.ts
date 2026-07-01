@@ -122,6 +122,12 @@ export class ReadoutBox {
     this.paintTitle();
   }
 
+  /** Override the fixed `top` (used on phones to stack this below the tracked-quest card); pass null
+   *  to restore the CSS-driven position. */
+  setTop(px: number | null): void {
+    this.root.style.top = px === null ? "" : `${px}px`;
+  }
+
   /** Toggle the full (wrapping, scrollable) view — the whole expression instead of one scrolling line. */
   toggleExpand(): void {
     this.expanded = !this.expanded;
