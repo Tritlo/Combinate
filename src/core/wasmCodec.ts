@@ -7,6 +7,13 @@
  * from each combinator's `def`), so wasm can unfold them with no catalog knowledge of its
  * own — the rules come entirely from `catalog.ts`'s `def()`. S/K/I (and the ι rule's fresh
  * S/K) are primitives wasm handles directly; their symIds are passed in the header.
+ *
+ * FAST (rules) mode (ADR: Turbo honours the rules setting): when `fast` is set, each catalog
+ * combinator that carries a `rule` also ships a **rule template** — its `rule` applied to
+ * placeholder args `$warg0…` — as an immutable-prefix subtree (`ruleRoot`). The wasm graph
+ * engine then reduces a saturated combinator by instantiating that template (cloning it with
+ * each placeholder replaced by the shared actual arg) in ONE step, mirroring `reduce.ts`'s
+ * `redexAt` fast path, instead of def-unfolding the Y/SKI recursion and grinding.
  */
 import { type Node, type Sym, comb, freeVar, app } from "./term";
 import { CATALOG, named } from "./catalog";
@@ -16,9 +23,19 @@ const TAG_IOTA = 0;
 const TAG_COMB = 1;
 const TAG_FREE = 2;
 const TAG_APP = 3;
+// tag 4 (IND) is wasm-internal only. Rule-template placeholder: substitute the i-th actual
+// argument during instantiation (a = the arg index). Only appears inside a `ruleRoot` subtree.
+const TAG_ARG = 5;
 
 const LAW = new Map(CATALOG.map((l) => [l.sym, l] as const));
 const isCatalog = (sym: Sym): boolean => LAW.has(sym);
+
+// Rule-template placeholder free-var names ($warg0, $warg1, …). The rule closures never mint
+// free vars of their own (their inner λ-binders are bracket-abstracted away), so the only
+// $warg-named leaves in a template are the args we substitute — detected + re-tagged on emit.
+const ARG_PREFIX = "$warg";
+const argVar = (i: number): Node => freeVar(`${ARG_PREFIX}${i}`);
+const ARG_RE = /^\$warg(\d+)$/;
 
 // Kernel kinds (1-based) the wasm GraphSession dispatches — number ops 1-10 (native.ts
 // NUM_OPS order), list ops 11-13, bool ops 14-16. The kernel *logic* is ported once in Rust
@@ -45,6 +62,7 @@ const KERNEL_KIND: Record<string, number> = {
 const NATIVE_NUMBERS = 1;
 const NATIVE_LISTS = 2;
 const NATIVE_BOOLS = 4;
+const FAST_RULES = 8; // fast (rule-based) reduction — instantiate ruleRoot templates, not def-unfold
 
 /** The flat encoding plus the maps needed to decode the wasm result back to `Node`. */
 export interface Encoded {
@@ -54,10 +72,12 @@ export interface Encoded {
 }
 
 /** Encode a term into the wasm wire format (see `crates/reduce/src/lib.rs`). `opts` enables
- *  the wasm number kernels (clean Scott arithmetic) when the native-numbers toggle is on. */
-export function encode(term: Node, opts?: NativeOpts): Encoded {
-  // ---- close over every combinator reachable from the term and (transitively) from
-  // each combinator's def, resolving each sym's def tree once. ----
+ *  the wasm number kernels (clean Scott arithmetic) when the native-numbers toggle is on;
+ *  `fast` ships the catalog rule templates so the graph engine reduces named combinators by
+ *  their law in one step (rule-based reduction) instead of def-unfolding. */
+export function encode(term: Node, opts?: NativeOpts, fast = false): Encoded {
+  // ---- close over every combinator reachable from the term and (transitively) from each
+  // combinator's def AND (in fast mode) its rule template, resolving each sym's trees once. ----
   const collectCombs = (n: Node, into: Set<Sym>): void => {
     if (n.kind === "comb") into.add(n.sym);
     else if (n.kind === "app") {
@@ -65,7 +85,15 @@ export function encode(term: Node, opts?: NativeOpts): Encoded {
       collectCombs(n.arg, into);
     }
   };
+  // A sym's rule template: its `rule` applied to placeholder args (`$warg0…`), or null if it
+  // has no rule (I/K/S/ι — built-in — or an undiscovered comb). Only used in fast mode.
+  const ruleTemplate = (sym: Sym): Node | null => {
+    const law = LAW.get(sym);
+    if (!law?.rule) return null;
+    return law.rule(Array.from({ length: law.arity }, (_, i) => argVar(i)));
+  };
   const defTree = new Map<Sym, Node | null>();
+  const ruleTree = new Map<Sym, Node | null>();
   const queue: Sym[] = ["S", "K", "I"]; // primitives + the ι rule's fresh S/K
   // The kernels emit canonical Scott values built from these constructors, so they must be in
   // the closure (get symIds) even if the term doesn't mention them. (I = True's K I; cons for
@@ -80,11 +108,23 @@ export function encode(term: Node, opts?: NativeOpts): Encoded {
     const sym = queue.shift()!;
     if (defTree.has(sym)) continue;
     const def = LAW.get(sym)?.def?.() ?? null; // S/K/I (+ unknown) → no def (primitive)
-    defTree.set(sym, def);
+    defTree.set(sym, def); // mark visited before collecting, so a self-referential rule is fine
     if (def) {
       const more = new Set<Sym>();
       collectCombs(def, more);
       for (const s of more) if (!defTree.has(s)) queue.push(s);
+    }
+    // In fast mode a rule template pulls its own combinators into the closure (e.g. `plusRule`
+    // references Succ + (+)), recursively — so every sym the graph engine can instantiate to is
+    // interned and emitted with a def-unfold fallback of its own.
+    if (fast) {
+      const rt = ruleTemplate(sym);
+      ruleTree.set(sym, rt);
+      if (rt) {
+        const more = new Set<Sym>();
+        collectCombs(rt, more);
+        for (const s of more) if (!defTree.has(s)) queue.push(s);
+      }
     }
   }
 
@@ -120,6 +160,12 @@ export function encode(term: Node, opts?: NativeOpts): Encoded {
         return i;
       }
       case "free": {
+        const arg = ARG_RE.exec(n.name); // a rule-template placeholder → substitute the arg on the wasm side
+        if (arg) {
+          const i = nodes.length / 3;
+          nodes.push(TAG_ARG, Number(arg[1]), 0);
+          return i;
+        }
         let fid = freeId.get(n.name);
         if (fid === undefined) {
           fid = freeName.length;
@@ -141,14 +187,22 @@ export function encode(term: Node, opts?: NativeOpts): Encoded {
   };
 
   const defRoot = new Array<number>(symName.length).fill(-1);
-  // emit def trees FIRST (in symId order, so the sym table can reference their roots) —
-  // they form an immutable prefix [0, defLen) that a resident session never compacts, so
-  // def_root indices stay valid for the life of the reduction. The term follows.
+  const ruleRoot = new Array<number>(symName.length).fill(-1);
+  // emit def trees FIRST (in symId order, so the sym table can reference their roots), then the
+  // rule templates (fast mode) — together they form an immutable prefix [0, defLen) that a
+  // resident session never compacts, so def_root / rule_root indices stay valid for the life of
+  // the reduction. The term follows.
   for (let id = 0; id < symName.length; id++) {
     const def = defTree.get(symName[id]) ?? null;
     if (def) defRoot[id] = emit(def);
   }
-  const defLen = nodes.length / 3; // boundary: nodes [0, defLen) are the def prefix
+  if (fast) {
+    for (let id = 0; id < symName.length; id++) {
+      const rt = ruleTree.get(symName[id]) ?? null;
+      if (rt) ruleRoot[id] = emit(rt);
+    }
+  }
+  const defLen = nodes.length / 3; // boundary: nodes [0, defLen) are the def + rule-template prefix
   const root = emit(term);
 
   // ---- assemble: header + nodes + sym table ----
@@ -156,7 +210,7 @@ export function encode(term: Node, opts?: NativeOpts): Encoded {
   const HEADER = 13;
   const nodeCount = nodes.length / 3;
   const symCount = symName.length;
-  const out = new Int32Array(HEADER + nodes.length + symCount * 3);
+  const out = new Int32Array(HEADER + nodes.length + symCount * 4);
   out[0] = root;
   out[1] = symId.get("S")!;
   out[2] = symId.get("K")!;
@@ -168,15 +222,17 @@ export function encode(term: Node, opts?: NativeOpts): Encoded {
   out[8] = symId.get("LT") ?? -1;
   out[9] = symId.get("EQ") ?? -1;
   out[10] = symId.get("GT") ?? -1;
-  out[11] = (opts?.numbers ? NATIVE_NUMBERS : 0) | (opts?.lists ? NATIVE_LISTS : 0) | (opts?.booleans ? NATIVE_BOOLS : 0);
+  out[11] =
+    (opts?.numbers ? NATIVE_NUMBERS : 0) | (opts?.lists ? NATIVE_LISTS : 0) | (opts?.booleans ? NATIVE_BOOLS : 0) | (fast ? FAST_RULES : 0);
   out[12] = symId.get("cons") ?? -1;
   out.set(nodes, HEADER);
   const sbase = HEADER + nodes.length;
   for (let id = 0; id < symCount; id++) {
     const law = LAW.get(symName[id]);
-    out[sbase + id * 3] = law?.arity ?? 1;
-    out[sbase + id * 3 + 1] = defRoot[id];
-    out[sbase + id * 3 + 2] = KERNEL_KIND[symName[id]] ?? 0; // number-kernel kind, or 0
+    out[sbase + id * 4] = law?.arity ?? 1;
+    out[sbase + id * 4 + 1] = defRoot[id];
+    out[sbase + id * 4 + 2] = KERNEL_KIND[symName[id]] ?? 0; // number-kernel kind, or 0
+    out[sbase + id * 4 + 3] = ruleRoot[id]; // fast-mode rule template root, or -1
   }
   return { data: out, symName, freeName };
 }
