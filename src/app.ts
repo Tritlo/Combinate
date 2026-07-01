@@ -924,7 +924,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     location.reload();
   }
 
-  // ---- 3D "packed sphere" view (ADR 18): a lazy Three.js render of the focused term ----
+  // ---- 3D "packed sphere" view (ADR 20): a lazy Three.js render of the focused term ----
   // The whole subsystem lives in SphereController: it owns the view3D flag, the Sphere3D renderer +
   // its Pixi-composited sprite (a layer between `world` and `hud`), orbit/momentum state, and the
   // orbit ticker. The shell forwards raw input, supplies the display term / 3D layout / toasts, and
@@ -1649,7 +1649,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
         // spawn a term from an egg s-expression and focus it (drives the read-out)
         spawn: (s: string) => sexp(spawnTree(fromEgg(s), window.innerWidth / 2, window.innerHeight / 2).node),
       },
-      // wasm turbo reducer (ADR 15): load + drive a resident session to NF, for tests.
+      // wasm turbo reducer (ADR 16): load + drive a resident session to NF, for tests.
       wasm: {
         load: async () => !!(await loadWasmReducer()),
         ready: () => wasmReady(),

@@ -98,7 +98,7 @@ separate Church abstract-interpreter lands. Native values v1 helps the main sand
 Haskell-compiled programs, not raw-combinator Church terms.
 
 ## 11: Kernels / FFI
-[docs/adr/0009-kernels.md](adr/0009-kernels.md) — **Accepted** (Codex consensus).
+[docs/adr/0011-kernels.md](adr/0011-kernels.md) — **Accepted** (Codex consensus).
 
 A MicroHs-style mechanism binding a named combinator to a native JS "kernel"
 (primitive op), generalising native values into one registry + reducer hook. **Pure
@@ -317,10 +317,25 @@ Rejected: a root-cursor on the free canvas (d-pad nav across zoomed/overlapping 
 exact ergonomics trap), an RPN stack (feels like a calculator, loses the buckets-on-screen
 fantasy), a modal builder panel (hides the canvas, breaks the watch-it-reduce loop); X/Y for
 apply (named buttons don't encode the fn=left/arg=right spatial split the bumpers do).
-## 18: 3D "packed sphere" view — static Three.js visualization (`viz-3d`)
+## 18: O(changed) incremental H-tree reflow (`deeper-perf`)
+[docs/adr/0018-incremental-reflow.md](adr/0018-incremental-reflow.md) — **Accepted.**
 
-(Number 17 is reserved by the game-controls branch.) Designed with the Magi council (Codex +
-Grok, consensus).
+A reducing H-tree reflows each step in O(changed), not O(n): the layout freezes its arm scale
+(`L0`) across a reduction and patches only the changed subtree, so a big tree animates step-by-step
+instead of snapping to a full recompute. Powers the live incremental view (retained edge geometry,
+`applyPatch`; see `tree.ts`/`edgeBuffer.ts`/`layout.ts`).
+
+## 19: Turbo honours the rules setting (wasm + rules + native + sharing)
+[docs/adr/0019-turbo-honours-rules.md](adr/0019-turbo-honours-rules.md) — **Accepted.**
+
+The wasm resident reducer (ADR 16) forwards the current Rules/Native options over the wire, so
+`wasm + rules + native + sharing` is the fastest reduction tier — fewest steps (rules), no blow-up
+(sharing), fast wall-clock (wasm). Rule/kernel *logic* stays in TS; the crate only instantiates
+templates. See `crates/reduce/README.md` + the `check:reduce-wasm` parity oracle.
+
+## 20: 3D "packed sphere" view — static Three.js visualization (`viz-3d`)
+
+Designed with the Magi council (Codex + Grok, consensus).
 
 **Problem.** We want an ambitious 3D way to *look at* a term — a "packed sphere", the 3D
 generalization of the 2D radial view (root at centre, depth → radius, leaves spread around the

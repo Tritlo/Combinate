@@ -1,5 +1,5 @@
 /**
- * The 3D "packed sphere" view (ADR 18) — a lazy Three.js renderer for the focused term. It
+ * The 3D "packed sphere" view (ADR 20) — a lazy Three.js renderer for the focused term. It
  * renders a 3D layout (layoutHTree3D / layoutSphere) as instanced spheres + coloured edges into its OWN off-DOM
  * canvas; the owner draws that canvas as a Pixi texture sprite so the Pixi HUD composites on
  * top (compositing "A", Magi-consensus — no separate overlay covering the HUD). Re-renders on
@@ -38,7 +38,7 @@ const MORPH_CAP = 6000;
 // ~20 fps this never bites (deltaMS < 50); below it the morph plays in slight slow-motion instead of
 // teleporting. The reduction loop paces to the morph, so a slower morph just means a slower step.
 const MORPH_MAX_DT = 50;
-const EDGE_OPACITY = 0.85; // edges more opaque than before so the fn/arg cue reads (ADR 0010 follow-up)
+const EDGE_OPACITY = 0.85; // edges more opaque than before so the fn/arg cue reads (ADR 20 follow-up)
 const DASH_SIZE = 16; // arg (right) edges are DASHED, fn (left) solid — the 3D echo of the 2D solid/dashed legend
 const GAP_SIZE = 11; // (layout shells are ~92 units apart, so ~3 dashes per edge)
 
@@ -76,7 +76,7 @@ interface Morph {
   duration: number;
 }
 
-// Lazily-loaded Three module (WebGL — see ADR 18; WebGPU was dropped as not worth the
+// Lazily-loaded Three module (WebGL — see ADR 20; WebGPU was dropped as not worth the
 // maintenance/portability cost for this static scene).
 let THREE: typeof T | null = null;
 async function loadThree(): Promise<void> {

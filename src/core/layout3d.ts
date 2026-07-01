@@ -1,5 +1,5 @@
 /**
- * The 3D "packed sphere" layout (ADR 18) — a pure 3D generalization of {@link layoutRadial}.
+ * The 3D "packed sphere" layout (ADR 20) — a pure 3D generalization of {@link layoutRadial}.
  * No DOM/Pixi/Three here (functional core, ADR 0001): term → node positions in 3-space, which
  * the Three.js view renders.
  *

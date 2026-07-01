@@ -1,5 +1,5 @@
 /**
- * SphereController — owns the whole 3D "packed sphere" subsystem (ADR 18), extracted from app.ts.
+ * SphereController — owns the whole 3D "packed sphere" subsystem (ADR 20), extracted from app.ts.
  *
  * It holds all 3D state (the {@link Sphere3D} renderer, its Pixi-composited sprite/texture, the
  * `active` flag, orbit-drag + release-momentum + held-rotate state, and the per-frame orbit ticker)
@@ -7,7 +7,7 @@
  * plumbing and calls these methods only while 3D is active — so this module stays free of any
  * Pixi-event handling or input-context knowledge.
  *
- * Compositing "A" (ADR 18): Three renders to its own off-DOM canvas, drawn as a Pixi texture sprite
+ * Compositing "A" (ADR 20): Three renders to its own off-DOM canvas, drawn as a Pixi texture sprite
  * in a layer between `world` and `hud`, so the Pixi HUD composites on top. Entering is async (Three
  * is dynamic-imported on first use); a generation token drops a stale `show()` result if the view is
  * exited / re-entered before it resolves.
