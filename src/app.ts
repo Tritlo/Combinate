@@ -23,12 +23,13 @@ import { layoutAuto, layoutRadial, layoutTopDown, type LayoutFn } from "./core/l
 import { recognizeDeep, fromEgg, toEgg } from "./core/refold";
 import { read, render, type Ty } from "./core/types";
 import { inferType } from "./core/infer";
-import { defineCombinator, findSubtree, isNameTaken, replaceSubtree, validateName } from "./core/authoring";
+import { defineCombinator, defineRule, findSubtree, isNameTaken, parseRule, replaceSubtree, validateName } from "./core/authoring";
 import { TreeView, dashedSegment } from "./view/tree";
 import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
 import { Zoo } from "./view/zoo";
 import { MhsPanel } from "./view/mhs/panel";
+import { AddRule } from "./view/addRule";
 import { ReadoutLens } from "./view/readoutLens";
 import { ReadoutBox } from "./view/readoutBox";
 import { loadWasmReducer, wasmReady, WasmSession } from "./view/wasmReducer";
@@ -305,6 +306,20 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     readout.invalidate(); // a newly-authored combinator can appear named in the read-out
     paintRail();
     return law;
+  }
+
+  // Reveal a freshly-authored *rule* combinator (Add Rule): mark it discovered and
+  // refresh the hotbar/Zoo so it shows. `defineRule` already pushed the law + RULES
+  // entry; this is the shell-side reveal (no egg persistence — rules don't serialize).
+  function revealRule(name: string): void {
+    discovered.add(name);
+    authoredNames.add(name);
+    saveDiscovered();
+    hotbar.refresh();
+    hotbar.reveal(name);
+    zoo.rebuild();
+    readout.invalidate();
+    paintRail();
   }
 
   // Collapse the selected subtree into a freshly-named block, in place. Shared by the dev-seam
@@ -1082,6 +1097,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // now just refreshes the open pull-down's checkmarks. ----
   const about = new About();
   const help = new Help();
+  const addRule = new AddRule({ reveal: revealRule, toast: (m) => toast.show(m) });
 
   // ---- controls (ADR 17): keyboard/controller play via a bucket tray + hand, always live in 2D.
   // The visuals adapt to the active input device; "Show controls" (default on) gates the hints. ----
@@ -1236,42 +1252,42 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const nativeAllOn = (): boolean => NATIVE_KEYS.every((k) => isOpt(k));
   const menus: Menu[] = [
     { title: "ι", apple: true, items: [
-      { kind: "action", label: "How to play…", run: () => help.open() },
-      { kind: "action", label: "About Combinate…", run: () => about.open() },
+      { kind: "action", label: "How to play…", title: "The basics: drag ι, snap trees, watch them reduce.", run: () => help.open() },
+      { kind: "action", label: "About Combinate…", title: "What this is, and credits.", run: () => about.open() },
     ] },
     { title: "File", items: [
-      { kind: "action", label: "Compile Haskell…", run: () => mhsPanel.open() },
-      { kind: "action", label: "Share link", run: () => shareFocused() },
+      { kind: "toggle", label: "Quest", title: "Your guided path — discover each bird in turn.", checked: () => quest.isOpen, run: () => quest.toggle() },
+      { kind: "toggle", label: "Zoo", title: "Browse the combinators you've discovered.", checked: () => zoo.isOpen, run: () => zoo.toggle() },
+      { kind: "toggle", label: "Golf", title: "Timed challenges: hit a target in the fewest ι.", checked: () => challenges.isOpen, run: () => challenges.toggle() },
       { kind: "sep" },
-      { kind: "toggle", label: "Quest", checked: () => quest.isOpen, run: () => quest.toggle() },
-      { kind: "toggle", label: "Zoo", checked: () => zoo.isOpen, run: () => zoo.toggle() },
-      { kind: "toggle", label: "Golf challenges", checked: () => challenges.isOpen, run: () => challenges.toggle() },
+      { kind: "action", label: "Compile Haskell…", title: "Compile a Haskell expression into a combinator tree.", run: () => mhsPanel.open() },
+      { kind: "action", label: "Share link", title: "Copy a permalink to the current canvas.", run: () => shareFocused() },
     ] },
     { title: "Edit", items: [
-      { kind: "action", label: "Clear canvas", run: () => clearCanvas() },
-      { kind: "action", label: "Unlock all combinators", run: () => unlockAll() },
-      // TODO: "Add Rule" item wired separately
+      { kind: "action", label: "Clear canvas", title: "Remove every tree from the canvas.", run: () => clearCanvas() },
+      { kind: "action", label: "Unlock all combinators", title: "Reveal every combinator in the hotbar and Zoo.", run: () => unlockAll() },
+      { kind: "action", label: "Add Rule…", title: "Add a custom one-step rewrite rule, e.g. W f x = f x x.", run: () => addRule.open() },
       { kind: "sep" },
-      { kind: "action", label: "Reset Progression", run: () => resetProgression() },
+      { kind: "action", label: "Reset Progression", title: "Wipe your quest, discovered combinators, and named combinators.", run: () => resetProgression() },
     ] },
     { title: "View", items: [
-      { kind: "radio", label: "Auto layout", on: () => layoutFn === layoutAuto, run: () => setLayoutMode(layoutAuto) },
-      { kind: "radio", label: "Top-down layout", on: () => layoutFn === layoutTopDown, run: () => setLayoutMode(layoutTopDown) },
-      { kind: "radio", label: "Radial layout", on: () => layoutFn === layoutRadial, run: () => setLayoutMode(layoutRadial) },
-      { kind: "toggle", label: "3D", checked: () => view3D, run: () => toggleView3D() },
+      { kind: "radio", label: "Auto layout", title: "Lay trees out automatically.", on: () => layoutFn === layoutAuto, run: () => setLayoutMode(layoutAuto) },
+      { kind: "radio", label: "Top-down layout", title: "Lay trees out strictly top-down.", on: () => layoutFn === layoutTopDown, run: () => setLayoutMode(layoutTopDown) },
+      { kind: "radio", label: "Radial layout", title: "Lay trees out radially.", on: () => layoutFn === layoutRadial, run: () => setLayoutMode(layoutRadial) },
+      { kind: "toggle", label: "3D", title: "View the focused term as a packed sphere.", checked: () => view3D, run: () => toggleView3D() },
       { kind: "sep" },
-      { kind: "toggle", label: "Expand ι-trees", checked: () => expandAll, run: () => toggleExpand() },
-      { kind: "toggle", label: "Type lens", checked: () => readout.isTypeOn, run: () => readout.toggleType() },
-      { kind: "radio", label: "Read-out: combinators", on: () => readout.view === "ski", run: () => readoutBox.setView("ski") },
-      { kind: "radio", label: "Read-out: named + native", on: () => readout.view === "named", run: () => readoutBox.setView("named") },
-      { kind: "radio", label: "Read-out: Barker (0/1)", on: () => readout.view === "barker", run: () => readoutBox.setView("barker") },
+      { kind: "toggle", label: "Expand ι-trees", title: "Show every combinator expanded to raw ι.", checked: () => expandAll, run: () => toggleExpand() },
+      { kind: "toggle", label: "Type lens", title: "Annotate the read-out with inferred types.", checked: () => readout.isTypeOn, run: () => readout.toggleType() },
+      { kind: "radio", label: "Read-out: combinators", title: "Show the top read-out as raw SKI / ι.", on: () => readout.view === "ski", run: () => readoutBox.setView("ski") },
+      { kind: "radio", label: "Read-out: named + native", title: "Show discovered birds and native values.", on: () => readout.view === "named", run: () => readoutBox.setView("named") },
+      { kind: "radio", label: "Read-out: Barker (0/1)", title: "Show the term as Barker bit-code.", on: () => readout.view === "barker", run: () => readoutBox.setView("barker") },
       { kind: "sep" },
-      { kind: "toggle", label: "Dark mode", checked: () => currentMode() === "dark", run: () => toggleMode() },
-      { kind: "toggle", label: "Color (4096)", checked: () => colorOn(), run: () => toggleColor() },
+      { kind: "toggle", label: "Dark mode", title: "Switch to the dark palette.", checked: () => currentMode() === "dark", run: () => toggleMode() },
+      { kind: "toggle", label: "Color (4096)", title: "Enable the 4096-colour palette.", checked: () => colorOn(), run: () => toggleColor() },
       { kind: "sep" },
-      { kind: "toggle", label: "Track Quest", checked: () => !quest.done && !questTracker.isHidden, run: () => { questTracker.setHidden(!questTracker.isHidden); paintRail(); } },
-      { kind: "toggle", label: "Show controls", checked: () => showControls, run: () => setShowControls(!showControls) },
-      { kind: "toggle", label: "FPS counter", checked: () => fpsOn, run: () => toggleFps() },
+      { kind: "toggle", label: "Track Quest", title: "Show the quest-tracker panel.", checked: () => !quest.done && !questTracker.isHidden, run: () => { questTracker.setHidden(!questTracker.isHidden); paintRail(); } },
+      { kind: "toggle", label: "Show controls", title: "Show the on-screen control hints.", checked: () => showControls, run: () => setShowControls(!showControls) },
+      { kind: "toggle", label: "FPS counter", title: "Show the frame-rate counter.", checked: () => fpsOn, run: () => toggleFps() },
     ] },
     { title: "Optimizations", items: [
       optItem("rules"),
@@ -1615,6 +1631,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
           register(name, fromEgg(egg));
           return null;
         },
+        // add a one-step rule combinator from `name args = body` (returns an error or null)
+        rule: (input: string): string | null => {
+          const r = parseRule(input);
+          if ("error" in r) return r.error;
+          defineRule(r.name, r.args, r.body, r.lawText);
+          revealRule(r.name);
+          return null;
+        },
+        openRule: () => addRule.open(), // open the Add Rule modal (for screenshots / driving the form)
         defs: () => CATALOG.filter((l) => l.userDefined).map((l) => l.sym),
       },
       refold: {
