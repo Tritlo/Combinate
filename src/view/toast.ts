@@ -24,6 +24,7 @@ export class Toast {
     // System-1 chrome: paper panel, square ink border, a hard drop shadow, ink text (no accent colour).
     const t = new Text({ text, style: { fontFamily: "monospace", fontSize: 18, fill: theme.text } });
     t.anchor.set(0.5);
+    t.roundPixels = true; // snap to whole pixels — a fractional centre (odd text width / window) blurs the glyphs
     const w = t.width + 40;
     const h = t.height + 20;
     const shadow = new Graphics().rect(-w / 2 + 3, -h / 2 + 3, w, h).fill({ color: 0x000000, alpha: 0.2 });
@@ -40,8 +41,8 @@ export class Toast {
 
   /** Centre horizontally for the current screen size. */
   layout(): void {
-    this.container.x = window.innerWidth / 2;
-    this.container.y = this.baseY;
+    this.container.x = Math.round(window.innerWidth / 2);
+    this.container.y = Math.round(this.baseY);
   }
 
   private advance(deltaMS: number): void {
@@ -63,6 +64,6 @@ export class Toast {
       alpha = 1 - (this.elapsed - IN - HOLD) / OUT;
     }
     this.container.alpha = alpha;
-    this.container.y = this.baseY + dy;
+    this.container.y = Math.round(this.baseY + dy);
   }
 }

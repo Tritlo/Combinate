@@ -77,7 +77,10 @@ function bracket(name: string, t: Node): Node {
   return app(app(S(), bracket(name, a.fn)), bracket(name, a.arg)); // [x](M N) = S [x]M [x]N
 }
 const VARS = ["x", "y", "z", "w", "v", "u"];
-function lam(arity: number, body: (v: Node[]) => Node): Node {
+/** Bracket-abstract a λ-body over `arity` fresh variables `x y z …` into a closed
+ *  S/K/I term — the standard algorithm + η. Used to derive each bird's `def` from
+ *  its law, and (exported) to give a player-authored rule its ι/SKI fallback. */
+export function lam(arity: number, body: (v: Node[]) => Node): Node {
   const names = VARS.slice(0, arity);
   let t = body(names.map(freeVar));
   for (let i = names.length - 1; i >= 0; i--) t = bracket(names[i], t);

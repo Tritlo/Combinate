@@ -8,6 +8,7 @@
 import { Container, Graphics, Rectangle, Text, type Ticker, type FederatedPointerEvent } from "pixi.js";
 import { theme, onThemeChange } from "./theme";
 import { type ReductionController } from "./reduction";
+import { type Sound } from "./sound";
 
 const TBTN = 26; // button-cell pitch
 type TKind = "pause" | "step" | "play" | "ff";
@@ -25,15 +26,32 @@ export class TransportBar {
   private readonly container = new Container();
   private readonly rateText = new Text({ text: "paused", style: { fontFamily: "monospace", fontSize: 12, fill: theme.textDim } });
   private readonly buttons: { kind: TKind; box: Graphics; glyph: Graphics }[];
+  // ♪ sound toggle (struck/dimmed when muted), left of the transport cluster.
+  private readonly soundGlyph = new Text({ text: "♪", style: { fontFamily: "monospace", fontSize: 15, fill: theme.text } });
+  private readonly soundStrike = new Graphics();
   // rate read-out: an EMA of contractions/sec, sampled ~3×/s off the Pixi ticker.
   private rateAccum = 0;
   private lastTotal = 0;
   private redPerSec = 0;
 
-  constructor(hud: Container, ticker: Ticker, private readonly reduce: ReductionController) {
+  constructor(hud: Container, ticker: Ticker, private readonly reduce: ReductionController, private readonly sound: Sound) {
     hud.addChild(this.container);
     this.rateText.anchor.set(1, 0.5);
     this.container.addChild(this.rateText);
+    // ♪ sound toggle: its own cell one pitch left of Pause (at -4·TBTN).
+    this.soundGlyph.anchor.set(0.5);
+    const soundCell = new Container();
+    soundCell.position.set(-4 * TBTN, 0);
+    soundCell.eventMode = "static";
+    soundCell.cursor = "pointer";
+    soundCell.hitArea = new Rectangle(-TBTN / 2, -13, TBTN, 26);
+    soundCell.addChild(this.soundGlyph, this.soundStrike);
+    soundCell.on("pointerdown", (e: FederatedPointerEvent) => {
+      e.stopPropagation();
+      this.sound.toggle();
+      this.paintSound();
+    });
+    this.container.addChild(soundCell);
     // Four buttons, laid out leftward from the corner: pause(-78) step(-52) play(-26) ff(0).
     this.buttons = (["pause", "step", "play", "ff"] as const).map((kind, i) => {
       const cont = new Container();
@@ -67,12 +85,21 @@ export class TransportBar {
       drawTGlyph(b.glyph, b.kind, active ? theme.iota : b.kind === "step" ? theme.text : theme.textDim);
     }
     this.rateText.style.fill = theme.textDim;
+    this.paintSound();
+  }
+
+  /** Recolour the ♪ button for the current mute state: dimmed + struck through when off. */
+  private paintSound(): void {
+    const on = this.sound.enabled;
+    this.soundGlyph.style.fill = on ? theme.text : theme.textDim;
+    this.soundStrike.clear();
+    if (!on) this.soundStrike.moveTo(-8, 8).lineTo(8, -8).stroke({ width: 1.5, color: theme.textDim });
   }
 
   /** Re-anchor to the top-right corner (on resize). */
   place(): void {
     this.container.position.set(window.innerWidth - 18, 34);
-    this.rateText.position.set(-3 * TBTN - 22, 0); // just left of the Pause button
+    this.rateText.position.set(-4 * TBTN - 22, 0); // just left of the ♪ sound button
   }
 
   private tickRate(deltaMS: number): void {
