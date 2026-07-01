@@ -15,8 +15,11 @@ trees; golf; etc.
 - `npm run dev` — vite dev server (http://localhost:5173).
 - `npm run build` — `tsc --noEmit && vite build` → `dist/`.
 - `npm run typecheck` — `tsc --noEmit`. Run before finishing.
-- `npm run build:wasm` — gen rules from the catalog, then `wasm-pack build` the
-  `crates/refold` crate → `crates/refold/pkg/` (built from source, never committed).
+- `npm run build:wasm` — gen rules from the catalog, then `wasm-pack build` both Rust
+  crates (`crates/refold` re-folder + `crates/reduce` Turbo reducer) → `crates/*/pkg/`
+  (built from source, never committed).
+- `npm run check:reduce-wasm` — build the reduce crate (nodejs) + cross-check it against
+  the TS reducer (the parity oracle); the closest thing to a test suite.
 - No unit-test runner. Verify with throwaway `playwright-core` scripts against the
   dev server (use the `__combinate` dev seam in `app.ts`). `e2e.local.mjs` is the
   live-compile seam harness (git-ignored). Don't commit tests unless asked.
@@ -39,6 +42,8 @@ trees; golf; etc.
 - **`src/store/`** — a `Store` port; `LocalStore` (default) + `DuckdbStore`
   (`?store=duckdb`, lazy, DuckDB-WASM from the jsDelivr CDN).
 - **`crates/refold/`** — Rust → wasm re-folder (egg), built in CI from source.
+- **`crates/reduce/`** — Rust → wasm combinator reducer, the "Turbo" engine (a call-by-need
+  graph reducer with native kernels + catalog rules, ADR 16/19); built in CI from source.
 - **`src/splash.ts`** boot splash; **`src/vendorUrl.ts`** base-aware URLs for vendored
   public assets.
 
@@ -56,13 +61,13 @@ trees; golf; etc.
 ## Deploy & vendored assets — IMPORTANT
 
 Pushing `main` triggers `.github/workflows/deploy.yml` → build + deploy to GitHub
-Pages (private repo, custom domain **github.mpg.is/Combinate/**, a `/Combinate/`
-subpath).
+Pages (private repo, custom domain **combinate.app**, served at the domain root).
 
-- **Base-aware URLs.** vite `base: "./"`. Runtime-fetched public assets (the vendored
-  wasm/blobs/font) must go through `src/vendorUrl.ts` — a bare `/vendor/...` resolves
-  against the origin root and **404s on the `/Combinate/` subpath**. The live-compile
-  worker has no `document`, so it receives the blob's absolute URL via `postMessage`.
+- **Base-aware URLs.** vite `base: "./"` (relative). Runtime-fetched public assets (the
+  vendored wasm/blobs/font) must go through `src/vendorUrl.ts`, not a bare `/vendor/...` —
+  keeping them base-relative so the app stays portable (it deployed on a `/Combinate/`
+  subpath historically). The live-compile worker has no `document`, so it receives the
+  blob's absolute URL via `postMessage`.
 - **`public/vendor/` is git-ignored.** The runtime assets we host are on the
   **`vendor-assets` GitHub Release**, fetched by CI (`gh release download`, authed by
   the workflow's `GITHUB_TOKEN` / `contents: read`):
