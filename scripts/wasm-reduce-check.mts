@@ -377,9 +377,45 @@ for (const o of [{}, { numbers: true, lists: true, booleans: true }]) {
   fcheck("quicksort [4,2,5,1,3]", app(qsort(), list([nat(4), nat(2), nat(5), nat(1), nat(3)])), o);
 }
 
+// ---- end-to-end: the vendored MicroHs example dumps (real compiled programs — the recursion
+// combinators + basis plumbing that dominate the Turbo grind). Skipped unless the dumps are
+// vendored locally (public/vendor/mhs/examples/*.comb is git-ignored). The graph engine in fast
+// mode + native must reduce each to the SAME normal form as the TS fast path. ----
+let ePass = 0;
+let eFail = 0;
+let eSkip = 0;
+const EX_DIR = "public/vendor/mhs/examples";
+if (fs.existsSync(EX_DIR)) {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { dumpToTree } = require("../src/core/mhs") as typeof import("../src/core/mhs");
+  const ALLN: NativeOpts = { numbers: true, lists: true, booleans: true };
+  for (const name of ["fac", "sum", "filter", "quicksort", "arith", "rev", "inc", "lt"]) {
+    const path = `${EX_DIR}/${name}.comb`;
+    if (!fs.existsSync(path)) {
+      eSkip++;
+      continue;
+    }
+    const r = dumpToTree(fs.readFileSync(path, "utf8"), "Ex.out");
+    if ("error" in r) {
+      eSkip++;
+      continue;
+    }
+    const ts = normalize(r.tree, 5_000_000, true, ALLN);
+    const g = graphKernelNF(r.tree, 3_000_000, ALLN, true);
+    if (ts.done && g.done && struct(g.term) === struct(ts.term)) ePass++;
+    else {
+      eFail++;
+      if (fails.length < 24) fails.push(`example ${name}: TS(${ts.done})=${struct(ts.term).slice(0, 30)} | GRAPH+fast(${g.done})=${struct(g.term).slice(0, 30)}`);
+    }
+  }
+} else {
+  eSkip = -1; // not vendored here
+}
+
 console.log(`wasm-reduce cross-check: ${pass} pass, ${fail} fail, ${skip} skipped(divergent)`);
 console.log(`session invariance: ${sPass} pass, ${sFail} fail`);
 console.log(`graph kernels (number+list+bool): ${kPass} pass, ${kFail} fail`);
 console.log(`graph FAST rules (rules & rules+native): ${fPass} pass, ${fFail} fail, ${fSkip} skipped(divergent)`);
+console.log(`MicroHs example dumps (fast+native, end-to-end): ${ePass} pass, ${eFail} fail${eSkip === -1 ? " (dumps not vendored — skipped)" : `, ${eSkip} skipped`}`);
 for (const f of fails) console.log(`  FAIL ${f}`);
-process.exit(fail === 0 && sFail === 0 && kFail === 0 && fFail === 0 ? 0 : 1);
+process.exit(fail === 0 && sFail === 0 && kFail === 0 && fFail === 0 && eFail === 0 ? 0 : 1);
