@@ -37,7 +37,8 @@ const MAX_NAT = 4096;
 
 // ---- writers: a native value → its EXACT canonical Scott tree (must match what the
 // pure catalog rule produces, or the round-trip breaks). ----
-/** The Scott Peano numeral `Succ^k Z` (Z = K). */
+/** The Scott Peano numeral `Succ^k Z` (Z = K). Shared with goals.ts (`nat`) and
+ *  mhs.ts, which build the identical tree for a Church-free Scott value. */
 export function natTree(k: number): Node {
   let t: Node = named("K");
   for (let i = 0; i < k; i++) t = app(named("Succ"), t);

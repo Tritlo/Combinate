@@ -8,8 +8,7 @@
 import { type Law, iotaTreeOf, countIotas, META } from "../core/catalog";
 import { type Node } from "../core/term";
 import { layoutHTree } from "../core/layout";
-import { currentMode, type Mode } from "./theme";
-import { vendorUrl } from "../vendorUrl";
+import { currentMode, type Mode, MONO, PAPER, INK, ensureFont } from "./theme";
 
 /** Draw a term's ι-tree onto a 2D canvas (the discovery card's picture — reliable everywhere, no
  *  WebGL). Colours come from the per-mode {@link Viewport} palette so the picture tracks light/dark
@@ -66,8 +65,8 @@ const HOLD_MS = 3000; // how long the card holds before fading (toast-like)
 const FADE_MS = 500;
 
 const PALETTE: Record<Mode, Record<string, string>> = {
-  light: { paper: "#ffffff", ink: "#000000", shadow: "rgba(0,0,0,0.85)", gold: "#8a6300" },
-  dark: { paper: "#07090d", ink: "#f0f3f6", shadow: "rgba(0,0,0,0.85)", gold: "#f0b72f" },
+  light: { paper: PAPER.light, ink: INK.light, shadow: "rgba(0,0,0,0.85)", gold: "#8a6300" },
+  dark: { paper: PAPER.dark, ink: INK.dark, shadow: "rgba(0,0,0,0.85)", gold: "#f0b72f" },
 };
 
 // The ι-tree picture viewport (the .disco-3d box) — its own per-mode palette so the picture tracks
@@ -79,14 +78,12 @@ const VIEWPORT: Record<Mode, Viewport> = {
   light: { bg: "#eef0f2", edge: "#5a5a5a", iota: "#8a6300", app: "#a0a6ae", leaf: "#1a1d22" },
   dark: { bg: "#12141c", edge: "#9aa3b2", iota: "#f0b72f", app: "#5b6270", leaf: "#cdd2dc" },
 };
-const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
-
 let injected = false;
 function inject(): void {
   if (injected) return;
   injected = true;
+  ensureFont();
   const css = `
-@font-face { font-family: 'IoskeleyMono'; src: url('${vendorUrl("vendor/fonts/IoskeleyMono-Regular.woff2")}') format('woff2'); font-display: swap; }
 .disco-root { position: fixed; top: 360px; right: 16px; width: 248px; z-index: 39; font-family: ${MONO};
   opacity: 0; transform: translateY(10px); transition: opacity ${FADE_MS}ms ease, transform ${FADE_MS}ms ease; }
 .disco-root.disco-in { opacity: 1; transform: none; }

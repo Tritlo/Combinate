@@ -1,5 +1,8 @@
 # Incremental reflow plan (deeper-perf)
 
+> **Status: SHIPPED** as . Kept as the design record; see
+>  for the accepted decision.
+
 Goal: make the per-step tree reflow **O(changed)**, not O(n), by exploiting that a reduction step
 leaves ~93% of nodes unchanged (the reducer already preserves their ids). Drafted with the Magi
 council (Codex).

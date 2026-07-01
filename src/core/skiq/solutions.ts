@@ -17,7 +17,7 @@ export const SOLUTIONS: Record<string, string> = {
   "prologue-a": "ι I", // A (Scott true)
   "prologue-k": "ι A", // K
   "prologue-s": "ι K", // S
-  // — reverse-engineered this session —
+  // — point-free one-offs: permuted identity, if/plan-first, kernel-assisted gcd —
   // Identity but later: `B C C a b = C(C a) b` is a normal form (a, b never merged),
   // and `B C C a b c → C(C a) b c → C a c b → a b c`. (η-long `λabc.abc`/`I` diverge.)
   BzhFzwua: "B C C",
@@ -74,7 +74,7 @@ export const SOLUTIONS: Record<string, string> = {
   ifb4SqXX: "V=u->v->s->s u v; add=m->n->f->x->m f(n f x); one=f->x->f x; n -> n (p -> V (p (K I)) (add (p K) (p (K I)))) (V (K I) one) K", // fibonacci
   JrSTFmW9: "V=u->v->s->s u v; n -> n (p -> p (r -> g -> g (V (S B r) (K I)) (V r K))) (V (K I) (K I)) K", // n/2
   Rpc0i8ff: "double=n->f->x->n f(n f x); Y (self -> z -> z (b -> rest -> K (b (S B (double (self rest))) (double (self rest)))) (K I))", // little-endian binary → numeral
-  // — restricted-basis combinatory-completeness builds + lazy fixed points (with Codex) —
+  // — restricted-basis combinatory-completeness builds + lazy fixed points —
   "2LpsCjKe": "W (B ((B W) (C B)))", // U a b = b(a a b), from B,C,K,I,W
   fGRC4aUm: "C (K ((B C) (W C)))", // a d a c, from B,C,K,I,W
   SDFiIPyt: "B (B W) (B B C)", // S, from B,C,I,K,W

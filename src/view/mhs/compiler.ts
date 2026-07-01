@@ -19,7 +19,7 @@ import { vendorUrl } from "../../vendorUrl";
 // the worker needs for importScripts (it has no document to resolve against).
 const exampleUrl = (name: string): string => vendorUrl(`vendor/mhs/examples/${name}.comb`);
 const cacheUrl = (): string => vendorUrl("vendor/mhs/base.mhscache");
-export const blobUrl = (): string => vendorUrl("vendor/mhs/mhs-batch.js");
+const blobUrl = (): string => vendorUrl("vendor/mhs/mhs-batch.js");
 
 /** Fetch a curated example's pre-compiled (pruned) combinator dump. */
 export async function exampleDump(name: string): Promise<string> {

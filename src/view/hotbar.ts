@@ -1,7 +1,7 @@
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text, type Ticker } from "pixi.js";
 import { type Node } from "../core/term";
 import { PAGES, CATALOG } from "../core/catalog";
-import { theme, currentMode } from "./theme";
+import { theme, paperInk } from "./theme";
 import { tween } from "./anim";
 
 /** Each combinator's defining law, keyed by symbol — the hover tooltip's text. */
@@ -13,11 +13,6 @@ const MARGIN = 80; // keep the row clear of the screen edges
 const ARROW = 28; // width of a ‹ / › page button
 const PAD = 14; // palette-window inner padding
 const NARROW = 560; // phone layout: smaller tabs + tighter margins
-
-/** Mono black-and-white chrome for the palette window, matching the menu bar. */
-function mono(): { paper: number; ink: number } {
-  return currentMode() === "dark" ? { paper: 0x07090d, ink: 0xf0f3f6 } : { paper: 0xffffff, ink: 0x000000 };
-}
 
 /**
  * The hotbar (§8.1), bottom-centre — styled as an early-Photoshop tool palette: a
@@ -159,7 +154,7 @@ export class Hotbar {
     this.frame.clear();
     for (const c of this.tabBar.removeChildren()) c.destroy({ children: true });
     for (const c of this.slotRow.removeChildren()) c.destroy({ children: true });
-    const { paper, ink } = mono();
+    const { paper, ink } = paperInk();
     const yB = window.innerHeight - 50; // bottom row centre
     const yT = yB - (SLOT + GAP); // top row centre
     const mid = (yB + yT) / 2;
@@ -259,7 +254,7 @@ export class Hotbar {
   }
 
   private slot(sym: string, cx: number, cy: number): Container {
-    const { paper, ink } = mono();
+    const { paper, ink } = paperInk();
     const glyphColor = sym === "ι" ? theme.iota : theme.node; // ι gold; other combinators ink (mono) / accent (colour) — kept one colour for text-on-cell contrast
     const v = new Container() as Container & { sym: string };
     v.sym = sym;
@@ -296,7 +291,7 @@ export class Hotbar {
 
   /** Float the law tooltip just above the hovered cell (System-1 white box). */
   private showTip(sym: string, cx: number, cy: number): void {
-    const { paper, ink } = mono();
+    const { paper, ink } = paperInk();
     this.tipText.text = this.tipFor(sym);
     this.tipText.style.fill = ink;
     const padX = 10;
@@ -323,7 +318,7 @@ export class Hotbar {
 
   private arrow(label: string, cx: number, cy: number, enabled: boolean, onClick: () => void): Container {
     const c = new Container();
-    const t = new Text({ text: label, style: { fontFamily: "monospace", fontSize: 26, fill: mono().ink } });
+    const t = new Text({ text: label, style: { fontFamily: "monospace", fontSize: 26, fill: paperInk().ink } });
     t.anchor.set(0.5);
     c.addChild(t);
     c.position.set(cx, cy);

@@ -43,11 +43,6 @@ class Ctx {
     }
     return t;
   }
-  /** Fully resolve, recursing into function types. */
-  deep(t: T): T {
-    const r = this.resolve(t);
-    return r.k === "fn" ? fn(this.deep(r.a), this.deep(r.b)) : r;
-  }
   private occurs(id: number, t: T): boolean {
     t = this.resolve(t);
     return t.k === "v" ? t.id === id : this.occurs(id, t.a) || this.occurs(id, t.b);

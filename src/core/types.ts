@@ -39,7 +39,7 @@ export type Val =
   | { t: "str"; cs: number[] }
   | { t: "comb"; sexp: string };
 
-const MAX_DEPTH = 8; // nesting guard, matches value.ts
+const MAX_DEPTH = 8; // nesting guard
 
 /** The data type a value carries, for propagating across homogeneous list
  *  siblings; null for `pair`/`comb`, which have no forceable bare form. */
