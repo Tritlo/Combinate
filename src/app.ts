@@ -21,7 +21,7 @@ import { CATALOG, type Law, expandDisplay } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutAuto, layoutRadial, layoutHTree, layoutTopDown, type LayoutFn } from "./core/layout";
 import { layoutHTree3D, layoutSphere } from "./core/layout3d";
-import { recognizeDeep, fromEgg, toEgg } from "./core/refold";
+import { recognizeDeep, fromEgg, parseComb, toEgg } from "./core/refold";
 import { read, render, type Ty } from "./core/types";
 import { inferType } from "./core/infer";
 import { defineCombinator, defineRule, findSubtree, isNameTaken, parseRule, replaceSubtree, validateName } from "./core/authoring";
@@ -1703,15 +1703,19 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       return hint ? `⚠ ${hint} — ${m}` : `⚠ ${m}`;
     }
   };
-  const EGG = "expects egg notation, e.g. (@ (@ S K) K)";
+  // Accept both ordinary combinator notation (`S K K`, `(S (K I))` — exactly what `parse`/`barker`
+  // print, so their output feeds straight back into `eval`) AND the internal egg form (`(@ f x)`).
+  const readExpr = (s: string): Node => (s.includes("(@") ? fromEgg(s) : parseComb(s));
+  const EXPR = "expects a combinator expression, e.g. S K K  (or egg (@ f x))";
   const BITS = "expects Barker bit-code (1=ι, 0<fn><arg>), e.g. 011";
   const consoleApi = {
-    /** Parse a combinator expression in egg notation `(@ f x)` → its term (s-expr echoed back). */
-    parse: (egg: string): string => tryStr(() => sexp(fromEgg(egg)), EGG),
+    /** Parse a combinator expression (`S K K` / `(S (K I))`, or egg `(@ f x)`) → its term (s-expr). */
+    parse: (expr: string): string => tryStr(() => sexp(readExpr(expr)), EXPR),
     /** Parse Barker bit-code (`1` = ι, `0 <fn> <arg>` = app) → its term (s-expr). */
     barker: (bits: string): string => tryStr(() => sexp(decode(bits)), BITS),
-    /** Parse an egg expression and evaluate it to normal form with Turbo → value or raw NF. */
-    eval: (egg: string): string => tryStr(() => evalTurbo(fromEgg(egg)), EGG),
+    /** Parse an expression (combinator or egg) and evaluate it to NF with Turbo → value or raw NF.
+     *  Accepts what `parse`/`barker` return, so e.g. `eval(parse("(@ S K)"))` round-trips. */
+    eval: (expr: string): string => tryStr(() => evalTurbo(readExpr(expr)), EXPR),
     /** Parse Barker bit-code and evaluate it with Turbo → value or raw NF. */
     evalBarker: (bits: string): string => tryStr(() => evalTurbo(decode(bits)), BITS),
     /** Reprint this help. */
@@ -1721,11 +1725,12 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     console.log(
       "%ccombinate console API — window.combinate",
       "font-weight:bold",
-      "\n  .eval(\"(@ (@ S K) K)\")   parse + evaluate (Turbo) → native value, or raw NF" +
-        "\n  .parse(\"(@ S K)\")        parse egg notation `(@ f x)` → term" +
+      "\n  .eval(\"S K K K\")         parse + evaluate (Turbo) → native value, or raw NF" +
+        "\n  .parse(\"S (K I)\")        parse a combinator expr (or egg (@ f x)) → term" +
         "\n  .barker(\"011\")           parse Barker bit-code (1=ι, 0<fn><arg>=app) → term" +
         "\n  .evalBarker(\"011\")       parse + evaluate Barker bit-code" +
-        "\n  .help()                   this message",
+        "\n  .help()                   this message" +
+        "\n  eval accepts what parse/barker return — e.g. eval(parse(\"(@ S K)\")).",
     );
   }
   (globalThis as Record<string, unknown>).combinate = consoleApi;
