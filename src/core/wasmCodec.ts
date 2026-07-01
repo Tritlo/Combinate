@@ -15,7 +15,7 @@
  * each placeholder replaced by the shared actual arg) in ONE step, mirroring `reduce.ts`'s
  * `redexAt` fast path, instead of def-unfolding the Y/SKI recursion and grinding.
  */
-import { type Node, type Sym, comb, freeVar, app } from "./term";
+import { type Node, type Sym, comb, freeVar, app, iota } from "./term";
 import { CATALOG, named } from "./catalog";
 import { type NativeOpts } from "./native";
 
@@ -265,7 +265,7 @@ export function decode(result: Int32Array, symName: string[], freeName: string[]
   const leaf = (i: number): Node => {
     const o = base + i * 3;
     const tag = result[o];
-    if (tag === TAG_IOTA) return { id: 0, kind: "iota" } as Node;
+    if (tag === TAG_IOTA) return iota();
     if (tag === TAG_COMB) {
       const sym = symName[result[o + 1]];
       return isCatalog(sym) ? named(sym) : comb(sym);
