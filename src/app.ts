@@ -51,7 +51,6 @@ import { ContextMenu } from "./view/contextMenu";
 import { NameKeyboard } from "./view/nameKeyboard";
 import { GamepadController } from "./view/gamepad";
 import { Sphere3D, NODE_CAP, preloadSphere3D } from "./view/sphere3d";
-import { spherePreview } from "./view/spherePreview";
 import { HintBar } from "./view/hints";
 import { DiscoveryCard } from "./view/discovery";
 import { type Context, type Intent, intentForKey } from "./view/keymap";
@@ -998,9 +997,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     momVx = Math.abs(momVx) < 0.05 ? 0 : momVx * MOM_DECAY;
     momVy = Math.abs(momVy) < 0.05 ? 0 : momVy * MOM_DECAY;
   });
-  // Drive the pooled Zoo preview's spin from Pixi's ticker (not its own rAF) so the Three-canvas
-  // mutation and the Pixi texture upload share a frame — a private rAF left the texture stale.
-  pixi.ticker.add((tk: { deltaMS: number }) => spherePreview.tick(tk.deltaMS));
   let view3D = false;
   // The term the 3D view renders: the same EXPANDED display the 2D tree shows (undiscovered S/K/I
   // as ι-trees, and every combinator when "Expand ι-trees" is on), so 3D follows that setting.
