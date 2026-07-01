@@ -69,6 +69,7 @@ const radiusOf = (kind: Node["kind"]): number => (kind === "comb" ? 15 : kind ==
  *  shared texture to this kind's radius, and a lazily-created text glyph (only
  *  present below {@link GLYPH_MAX}). */
 interface NodeVis {
+  id: NodeId;
   particle: Particle;
   baseScale: number;
   glyphSpec: { text: string; color: number; size: number } | null;
@@ -383,18 +384,20 @@ export class TreeView {
     done?.();
   }
 
-  /** Write a node's transform onto its particle (disc) and glyph: position, alpha,
-   *  and the tween scale `s` (the disc scales by baseScale × s; the glyph by s). */
+  /** Write a node's transform onto its particle (disc) and glyph: position, alpha, the tween scale
+   *  `s`, and the layout's optional per-node glyph-scale (H-tree shrinks deep nodes toward their
+   *  arm). Disc & glyph both scale by `s × nodeScale`. */
   private place(vis: NodeVis, x: number, y: number, alpha: number, s: number): void {
     const p = vis.particle;
+    const ns = this.lay.scale?.get(vis.id) ?? 1;
     p.x = x;
     p.y = y;
     p.alpha = alpha;
-    p.scaleX = p.scaleY = vis.baseScale * s;
+    p.scaleX = p.scaleY = vis.baseScale * s * ns;
     if (vis.glyph) {
       vis.glyph.position.set(x, y);
       vis.glyph.alpha = alpha;
-      vis.glyph.scale.set(s);
+      vis.glyph.scale.set(s * ns);
     }
   }
 
@@ -556,7 +559,7 @@ export class TreeView {
     const spec = visSpec(n);
     const particle = new Particle({ texture: nodeTexture(), anchorX: 0.5, anchorY: 0.5, tint: spec.tint });
     this.particles.addParticle(particle);
-    return { particle, baseScale: spec.radius / TEX_R, glyphSpec: spec.glyph, glyph: null };
+    return { id: n.id, particle, baseScale: spec.radius / TEX_R, glyphSpec: spec.glyph, glyph: null };
   }
 
   // Show text glyphs only below GLYPH_MAX nodes (LOD): create the ones now needed,
