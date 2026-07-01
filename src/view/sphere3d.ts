@@ -1,6 +1,6 @@
 /**
  * The 3D "packed sphere" view (ADR 18) — a lazy Three.js renderer for the focused term. It
- * renders {@link layoutSphere} as instanced spheres + coloured edges into its OWN off-DOM
+ * renders a 3D layout (layoutHTree3D / layoutSphere) as instanced spheres + coloured edges into its OWN off-DOM
  * canvas; the owner draws that canvas as a Pixi texture sprite so the Pixi HUD composites on
  * top (compositing "A", Magi-consensus — no separate overlay covering the HUD). Re-renders on
  * demand (term / theme / resize / orbit) and animates reduction steps via {@link animateTo} +
@@ -13,7 +13,7 @@
  */
 import type * as T from "three";
 import { type Node } from "../core/term";
-import { layoutSphere, layoutHTree3D, type Layout3Fn } from "../core/layout3d";
+import { layoutHTree3D, type Layout3Fn } from "../core/layout3d";
 import { theme, combinatorColor, edgeTierColor } from "./theme";
 
 /** Beyond this node count the static scene gets heavy to build/draw — the app preflights this
