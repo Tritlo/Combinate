@@ -1,8 +1,11 @@
-//! Flat-arena raw combinator reducer — a wasm fast-path that mirrors `reduce.ts` in its
-//! NON-fast (default "plain pure-ι") mode EXACTLY: the only rules are ι/I/K/S plus
-//! definition-unfold for saturated named combinators. NO catalog rules, NO native kernels
-//! — those stay the TS reducer's job (the semantic oracle). The def trees are supplied by
-//! TS (`catalog.ts`'s `def()`), so there is zero rule duplication here.
+//! Flat-arena raw combinator reducer — a wasm fast-path that mirrors `reduce.ts`. In its
+//! NON-fast (default "plain pure-ι") mode the only rules are ι/I/K/S plus definition-unfold
+//! for saturated named combinators. The graph engine additionally does native KERNELS (clean
+//! Scott arithmetic / lists / booleans) and, in FAST mode, RULE-based reduction: a saturated
+//! named combinator reduces by its catalog `rule` (the law, in one step) instead of
+//! def-unfolding the Y/SKI recursion. All of def trees, kernel gates, and rule templates are
+//! supplied by TS (`catalog.ts`), so there is zero rule duplication here — the engine just
+//! instantiates a template it was handed (the same mechanism as def-unfold).
 //!
 //! Used for skip-to-NF (and value-read of) big raw constructions, where the TS persistent
 //! tree reducer is allocation/GC-bound; the arena bump-allocates with no GC. The NF is
@@ -12,9 +15,12 @@
 //!   [0] root node index
 //!   [1] symId of S   [2] symId of K   [3] symId of I   (-1 if absent)
 //!   [4] node count N   [5] sym count M   [6] def-prefix length (nodes[0..defLen) are the
-//!       immutable def trees, emitted before the term — a resident session never compacts them)
+//!       immutable def trees + rule templates, emitted before the term — never compacted)
+//!   [7..10] symIds of Succ/LT/EQ/GT   [11] flags (1=numbers 2=lists 4=bools 8=fast/rules)
+//!   [12] symId of cons
 //!   then N nodes × 3:  [tag, a, b]   tag 0=IOTA 1=COMB(a=symId) 2=FREE(a=freeId) 3=APP(a=fn,b=arg)
-//!   then M syms × 2:   [arity, defRoot]   defRoot = -1 when the comb has no def (a primitive)
+//!                                    5=ARG(a=argIndex) — a rule-template placeholder
+//!   then M syms × 4:   [arity, defRoot, kernelKind, ruleRoot]   defRoot/ruleRoot = -1 if absent
 //! Output:
 //!   [0] done(0/1)   [1] steps   [2] root index   [3] node count N'
 //!   then N' nodes × 3 (same node layout; same symIds / freeIds — TS maps them back)
@@ -25,6 +31,9 @@ const TAG_IOTA: i32 = 0;
 const TAG_COMB: i32 = 1;
 const TAG_FREE: i32 = 2;
 const TAG_APP: i32 = 3;
+// tag 4 (IND) is the graph engine's indirection cell (see below). tag 5 is a rule-template
+// placeholder: on instantiation, substitute the `a`-th actual argument. Only lives in the prefix.
+const TAG_ARG: i32 = 5;
 
 #[derive(Clone, Copy)]
 struct Node {
@@ -36,7 +45,8 @@ struct Node {
 struct Sym {
     arity: i32,
     def_root: i32,
-    kernel: i32, // number-kernel kind (1=(+) … 10=compare), or 0 if not a kernel op
+    kernel: i32,    // number-kernel kind (1=(+) … 10=compare), or 0 if not a kernel op
+    rule_root: i32, // fast-mode rule template root (index into the def prefix), or -1
 }
 
 // Constructor symIds + the native-kernel gates, parsed from the wire header. Lets the graph
@@ -64,8 +74,12 @@ struct Reducer {
     sym_k: i32,
     sym_i: i32,
     kern: Kernels,
-    /// Length of the immutable def-tree prefix `nodes[0..def_len)` — `compact` preserves it
-    /// so every `Sym::def_root` stays valid for the life of the reduction.
+    /// Fast (rule-based) reduction: reduce a saturated named combinator by its `rule_root`
+    /// template rather than def-unfolding. Read by the graph engine; the persistent reducer
+    /// (the non-fast oracle-mirror) ignores it.
+    fast: bool,
+    /// Length of the immutable def-tree + rule-template prefix `nodes[0..def_len)` — `compact`
+    /// preserves it so every `Sym::def_root` / `Sym::rule_root` stays valid for the reduction.
     def_len: usize,
 }
 
@@ -90,6 +104,7 @@ impl Reducer {
             lists: flags & 2 != 0,
             bools: flags & 4 != 0,
         };
+        let fast = flags & 8 != 0;
         let mut nodes = Vec::with_capacity(n + extra_capacity);
         let base = 13;
         for j in 0..n {
@@ -99,10 +114,10 @@ impl Reducer {
         let mut syms = Vec::with_capacity(m);
         let sbase = base + n * 3;
         for j in 0..m {
-            let o = sbase + j * 3;
-            syms.push(Sym { arity: data[o], def_root: data[o + 1], kernel: data[o + 2] });
+            let o = sbase + j * 4;
+            syms.push(Sym { arity: data[o], def_root: data[o + 1], kernel: data[o + 2], rule_root: data[o + 3] });
         }
-        (Reducer { nodes, syms, sym_s, sym_k, sym_i, kern, def_len }, root)
+        (Reducer { nodes, syms, sym_s, sym_k, sym_i, kern, fast, def_len }, root)
     }
 
     /// Reclaim garbage: rebuild the working region `nodes[def_len..)` from the live term,
@@ -392,13 +407,14 @@ struct Graph {
     sym_k: i32,
     sym_i: i32,
     kern: Kernels,
+    fast: bool,
     def_len: usize,
 }
 
 impl Graph {
     fn from_wire(data: &[i32]) -> (Graph, i32) {
         let (r, root) = Reducer::from_wire(data, 1 << 16);
-        (Graph { nodes: r.nodes, syms: r.syms, sym_s: r.sym_s, sym_k: r.sym_k, sym_i: r.sym_i, kern: r.kern, def_len: r.def_len }, root)
+        (Graph { nodes: r.nodes, syms: r.syms, sym_s: r.sym_s, sym_k: r.sym_k, sym_i: r.sym_i, kern: r.kern, fast: r.fast, def_len: r.def_len }, root)
     }
 
     #[inline]
@@ -437,6 +453,25 @@ impl Graph {
             self.app(f, x)
         } else {
             self.push(n.tag, n.a, n.b)
+        }
+    }
+
+    /// Instantiate a rule template (a subtree in the immutable prefix) into the working region:
+    /// a fresh graph copy with each `TAG_ARG(i)` placeholder replaced by the (shared) i-th actual
+    /// argument cell. The graph analogue of applying a catalog `rule` to real args — laziness +
+    /// sharing fall out of referencing the arg cells by index (no clone). Templates are small
+    /// (hand-written laws) and live in `nodes[0..def_len)`, so the recursion is bounded and the
+    /// pushes (which only grow the working region) never invalidate the indices being read.
+    fn instantiate_rule(&mut self, root: i32, args: &[i32]) -> i32 {
+        let n = self.nodes[root as usize];
+        match n.tag {
+            TAG_ARG => args[n.a as usize],
+            TAG_APP => {
+                let f = self.instantiate_rule(n.a, args);
+                let x = self.instantiate_rule(n.b, args);
+                self.app(f, x)
+            }
+            _ => self.push(n.tag, n.a, n.b),
         }
     }
 
@@ -814,6 +849,23 @@ impl Graph {
                         self.set_ind(spine[m - arity], res); // the saturated (op …) redex
                         return true;
                     }
+                }
+            }
+            // Fast (rule-based) reduction: a saturated named combinator reduces by its catalog
+            // `rule` template in ONE step (mirrors reduce.ts's `redexAt` fast path) — instantiate
+            // it with the actual args (shared) over the saturated (sym …) redex, rather than
+            // def-unfolding the Y/SKI recursion. On a kernel miss above we land here, matching the
+            // TS `kernel.run(core) ?? RULES(core)` fallback. Off (or no rule) → def-unfold below.
+            if self.fast {
+                let rule_root = self.syms[sym as usize].rule_root;
+                if rule_root >= 0 {
+                    let mut argv: Vec<i32> = Vec::with_capacity(arity);
+                    for j in 0..arity {
+                        argv.push(self.arg_of(spine[m - 1 - j]));
+                    }
+                    let inst = self.instantiate_rule(rule_root, &argv);
+                    self.set_ind(spine[m - arity], inst);
+                    return true;
                 }
             }
             let def_root = self.syms[sym as usize].def_root;
