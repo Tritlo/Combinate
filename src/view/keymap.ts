@@ -26,7 +26,14 @@ export type Intent =
   | "applyFn"
   | "applyArg"
   | "cancel"
+  | "context"
   | "speed"
+  | "transportPause"
+  | "transportStep"
+  | "transportPlay"
+  | "transportFf"
+  | "transportPrev"
+  | "transportNext"
   | "enterInspect"
   // inspect (3D orbit)
   | "rotLeft"
@@ -36,9 +43,7 @@ export type Intent =
   | "zoomIn"
   | "zoomOut"
   | "recenter"
-  | "exitInspect"
-  // global
-  | "toggleBuild";
+  | "exitInspect";
 
 // ---- keyboard: per-context key → intent ----
 interface KeyBind {
@@ -47,25 +52,27 @@ interface KeyBind {
   keys: string[];
 }
 const KEY_BINDS: KeyBind[] = [
-  { context: "global", intent: "toggleBuild", keys: ["tab"] },
   // Build
-  { context: "build", intent: "moveLeft", keys: ["arrowleft", "a"] },
-  { context: "build", intent: "moveRight", keys: ["arrowright", "d"] },
-  { context: "build", intent: "moveUp", keys: ["arrowup", "w"] },
-  { context: "build", intent: "moveDown", keys: ["arrowdown", "s"] },
+  { context: "build", intent: "moveLeft", keys: ["arrowleft"] },
+  { context: "build", intent: "moveRight", keys: ["arrowright"] },
+  { context: "build", intent: "moveUp", keys: ["arrowup"] },
+  { context: "build", intent: "moveDown", keys: ["arrowdown"] },
   { context: "build", intent: "pagePrev", keys: ["["] },
   { context: "build", intent: "pageNext", keys: ["]"] },
   { context: "build", intent: "pickPlace", keys: [" ", "enter"] },
-  { context: "build", intent: "applyFn", keys: ["q"] },
-  { context: "build", intent: "applyArg", keys: ["e"] },
   { context: "build", intent: "cancel", keys: ["escape"] },
-  { context: "build", intent: "speed", keys: ["0", "1", "2", "3", "4"] },
+  { context: "build", intent: "context", keys: ["m"] }, // M = open the Delete/Copy menu on the focused bucket
+  // 1-4 = the transport (Pause / Step / Play / Fast-forward); the gamepad Select still cycles speed.
+  { context: "build", intent: "transportPause", keys: ["1"] },
+  { context: "build", intent: "transportStep", keys: ["2"] },
+  { context: "build", intent: "transportPlay", keys: ["3"] },
+  { context: "build", intent: "transportFf", keys: ["4"] },
   { context: "build", intent: "enterInspect", keys: ["v"] },
   // Inspect
-  { context: "inspect", intent: "rotLeft", keys: ["arrowleft", "a"] },
-  { context: "inspect", intent: "rotRight", keys: ["arrowright", "d"] },
-  { context: "inspect", intent: "rotUp", keys: ["arrowup", "w"] },
-  { context: "inspect", intent: "rotDown", keys: ["arrowdown", "s"] },
+  { context: "inspect", intent: "rotLeft", keys: ["arrowleft"] },
+  { context: "inspect", intent: "rotRight", keys: ["arrowright"] },
+  { context: "inspect", intent: "rotUp", keys: ["arrowup"] },
+  { context: "inspect", intent: "rotDown", keys: ["arrowdown"] },
   { context: "inspect", intent: "zoomIn", keys: ["=", "+"] },
   { context: "inspect", intent: "zoomOut", keys: ["-", "_"] },
   { context: "inspect", intent: "recenter", keys: ["r"] },
@@ -84,7 +91,7 @@ export function intentForKey(context: Context, key: string): Intent | null {
 // ---- gamepad: W3C standard button index → intent, per context (analog handled separately) ----
 export const PAD_BUTTON = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, SELECT: 8, START: 9, R3: 11, DUP: 12, DDOWN: 13, DLEFT: 14, DRIGHT: 15 };
 const PAD_BINDS: Record<Context | "global", Partial<Record<number, Intent>>> = {
-  global: { [PAD_BUTTON.START]: "toggleBuild" },
+  global: {},
   build: {
     [PAD_BUTTON.DLEFT]: "moveLeft",
     [PAD_BUTTON.DRIGHT]: "moveRight",
@@ -92,9 +99,10 @@ const PAD_BINDS: Record<Context | "global", Partial<Record<number, Intent>>> = {
     [PAD_BUTTON.DDOWN]: "moveDown",
     [PAD_BUTTON.A]: "pickPlace",
     [PAD_BUTTON.B]: "cancel",
-    [PAD_BUTTON.LB]: "applyFn",
-    [PAD_BUTTON.RB]: "applyArg",
+    [PAD_BUTTON.X]: "context", // open the Delete/Copy menu on the focused bucket
     [PAD_BUTTON.Y]: "enterInspect",
+    [PAD_BUTTON.LB]: "transportPrev", // step the transport toward Pause
+    [PAD_BUTTON.RB]: "transportNext", // step the transport toward Fast-forward
     [PAD_BUTTON.SELECT]: "speed",
   },
   inspect: {
@@ -120,11 +128,10 @@ export interface Hint {
 }
 export const HINTS: Record<Context, Hint[]> = {
   build: [
-    { label: "Move", kbd: "↑↓←→", pad: "✚" },
-    { label: "Pick / place", kbd: "Space", pad: "Ⓐ" },
-    { label: "Apply fn", kbd: "Q", pad: "LB" },
-    { label: "Apply arg", kbd: "E", pad: "RB" },
-    { label: "Cancel", kbd: "Esc", pad: "Ⓑ" },
+    { label: "Move", kbd: "←→", pad: "✚" },
+    { label: "Pick up / Place", kbd: "Space", pad: "Ⓐ" },
+    { label: "Drop", kbd: "Esc", pad: "Ⓑ" },
+    { label: "Menu", kbd: "M", pad: "Ⓧ" },
     { label: "3D", kbd: "V", pad: "Ⓨ" },
   ],
   inspect: [
