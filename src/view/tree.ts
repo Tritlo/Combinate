@@ -293,7 +293,10 @@ export class TreeView {
       const existing = this.objs.get(id);
       if (existing) {
         const f = from.get(id)!;
-        this.anims.push(mkAnim(id, existing, f.x, f.y, target.x, target.y, 1, 1, 1, 1));
+        // Diff: a persisting node whose position is unchanged is already placed — skip its anim so a
+        // step only touches the nodes that MOVED (a huge term keeps ~93% of its nodes put per step,
+        // so this avoids re-placing + re-uploading ~13k unchanged particles every contraction).
+        if (f.x !== target.x || f.y !== target.y) this.anims.push(mkAnim(id, existing, f.x, f.y, target.x, target.y, 1, 1, 1, 1));
       } else {
         const vis = this.makeVis(n);
         this.place(vis, target.x, target.y, 0, 0.3);
@@ -481,6 +484,12 @@ export class TreeView {
   private drawEdges(): void {
     this.edges.clear();
     const v = this.viewRect();
+    // LOD: skip edges shorter than ~1.4px on screen. A huge tree framed to fit zooms so far out that its
+    // deep (geometrically shrinking) arms are sub-pixel — drawing thousands of invisible segments is the
+    // dominant per-step cost. `minLen2` is the squared local length threshold at the current zoom; 0 (no
+    // camera) draws everything.
+    const cam = this.getCamera?.();
+    const minLen2 = cam ? (1.4 / (cam.scale || 1)) ** 2 : 0;
     // Style = fn (left) solid, arg (right) dashed. Small trees always dash. A big tree draws SOLID
     // while it's being redrawn rapidly (a running reduction jump-cuts a step every few ms — dashing
     // thousands of edges per step is slow) and DASHED once it settles: this draw follows a quiet gap,
@@ -497,6 +506,8 @@ export class TreeView {
         if (e.depth % 2 !== parity) continue;
         const p = e.pv.particle;
         const rp = e.rv.particle;
+        const adx = p.x - rp.x, ady = p.y - rp.y;
+        if (adx * adx + ady * ady < minLen2) continue; // LOD: sub-pixel edge
         if (!v || overlaps(p, rp, v)) {
           if (dash) dashedSegment(this.edges, p.x, p.y, rp.x, rp.y); // argument edge: dashed
           else this.edges.moveTo(p.x, p.y).lineTo(rp.x, rp.y);
@@ -509,6 +520,8 @@ export class TreeView {
         if (e.depth % 2 !== parity) continue;
         const p = e.pv.particle;
         const lp = e.lv.particle;
+        const fdx = p.x - lp.x, fdy = p.y - lp.y;
+        if (fdx * fdx + fdy * fdy < minLen2) continue; // LOD: sub-pixel edge
         if (!v || overlaps(p, lp, v)) this.edges.moveTo(p.x, p.y).lineTo(lp.x, lp.y); // function edge: solid
       }
       this.edges.stroke({ width: 3, color: edgeTierColor(parity) });
