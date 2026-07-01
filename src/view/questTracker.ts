@@ -6,8 +6,8 @@
  * location/done`. System-1 chrome to match the modals (the shared base is ADR 12).
  * Default visible until the quest is finished; the user's hide + collapse prefs persist.
  */
-import { currentMode, onThemeChange, type Mode } from "./theme";
-import { vendorUrl } from "../vendorUrl";
+import { currentMode, onThemeChange, type Mode, MONO, PAPER, INK, ensureFont } from "./theme";
+import { MENUBAR_HEIGHT } from "./menubar";
 import { type QuestStage, type QuestLocation } from "../core/quest";
 import { CHAPTERS } from "../core/quest";
 import { CATALOG, iotaTreeOf } from "../core/catalog";
@@ -22,19 +22,18 @@ export interface TrackerDeps {
 }
 
 const PALETTE: Record<Mode, Record<string, string>> = {
-  light: { paper: "#ffffff", ink: "#000000", shadow: "rgba(0,0,0,0.85)", gold: "#8a6300" },
-  dark: { paper: "#07090d", ink: "#f0f3f6", shadow: "rgba(0,0,0,0.85)", gold: "#f0b72f" },
+  light: { paper: PAPER.light, ink: INK.light, shadow: "rgba(0,0,0,0.85)", gold: "#8a6300" },
+  dark: { paper: PAPER.dark, ink: INK.dark, shadow: "rgba(0,0,0,0.85)", gold: "#f0b72f" },
 };
-const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
 const STORE_KEY = "combinate:quest:tracker:v1";
 
 let stylesInjected = false;
 function injectStyles(): void {
   if (stylesInjected) return;
   stylesInjected = true;
+  ensureFont();
   const css = `
-@font-face { font-family: 'IoskeleyMono'; src: url('${vendorUrl("vendor/fonts/IoskeleyMono-Regular.woff2")}') format('woff2'); font-display: swap; }
-.qt-root { position: fixed; top: 112px; right: 16px; width: min(320px, calc(100vw - 32px)); z-index: 40;
+.qt-root { position: fixed; top: ${MENUBAR_HEIGHT + 106}px; right: 16px; width: min(320px, calc(100vw - 32px)); z-index: 40;
   font-family: ${MONO}; display: none; }
 .qt-card { background: var(--qt-paper); color: var(--qt-ink); border: 1px solid var(--qt-ink);
   box-shadow: 2px 2px 0 var(--qt-shadow); }

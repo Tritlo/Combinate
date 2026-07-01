@@ -3,6 +3,7 @@ import { CATALOG, countIotas, iotaTreeOf, type Law, META, PAGES } from "../core/
 import { iota, type Node, type NodeId } from "../core/term";
 import { layoutHTree } from "../core/layout";
 import { theme, edgeTierColor } from "./theme";
+import { wirePanelChrome, placeCard } from "./pixiPanel";
 
 const LIST_W = 248;
 const LIST_TOP = 88; // list/detail start below the title + tab row
@@ -175,30 +176,19 @@ export class Zoo {
 
   // ---- the overlay panel ----
   private buildPanel(): void {
-    this.backdrop.eventMode = "static";
-    this.backdrop.on("pointerdown", () => this.close());
-    this.card.eventMode = "static";
-    this.card.on("pointerdown", (e: FederatedPointerEvent) => e.stopPropagation());
-    // wheel on the panel (ancestor of the list) scrolls the entry list
-    this.panel.eventMode = "static";
-    this.panel.on("wheel", (e: { deltaY: number }) => {
-      const max = Math.max(0, this.listH - this.viewH());
-      this.listScroll = Math.round(Math.min(max, Math.max(0, this.listScroll + e.deltaY))); // whole-pixel scroll keeps text crisp
-      this.listView.position.set(this.cardX + 16, this.cardY + LIST_TOP - this.listScroll);
-    });
-
-    const x = new Text({ text: "✕", style: { fontFamily: "monospace", fontSize: 20, fill: theme.textDim } });
-    x.anchor.set(0.5);
-    this.closeBtn.addChild(x);
-    this.closeBtn.eventMode = "static";
-    this.closeBtn.cursor = "pointer";
-    this.closeBtn.hitArea = new Rectangle(-16, -16, 32, 32);
-    this.closeBtn.on("pointerdown", (e: FederatedPointerEvent) => {
-      e.stopPropagation();
-      this.close();
-    });
-
-    this.listView.mask = this.listMask;
+    wirePanelChrome(
+      { panel: this.panel, backdrop: this.backdrop, card: this.card, closeBtn: this.closeBtn, listView: this.listView, listMask: this.listMask },
+      () => this.close(),
+      {
+        get: () => this.listScroll,
+        set: (v) => {
+          this.listScroll = v;
+          this.listView.position.set(this.cardX + 16, this.cardY + LIST_TOP - v);
+        },
+        listH: () => this.listH,
+        viewH: () => this.viewH(),
+      },
+    );
     this.panel.addChild(this.backdrop, this.card, this.title, this.tabBar, this.closeBtn, this.listMask, this.listView, this.detail);
     this.placePanel();
   }
@@ -231,15 +221,10 @@ export class Zoo {
     const h = Math.min(660, window.innerHeight - 24);
     this.cardW = w;
     this.cardH = h;
-    // Round to whole pixels so text isn't rendered on a sub-pixel offset (blurry):
-    // every element is positioned relative to the card origin.
-    this.cardX = Math.round((window.innerWidth - w) / 2);
-    this.cardY = Math.round((window.innerHeight - h) / 2);
     this.narrow = w < 560;
-    this.backdrop.clear().rect(0, 0, window.innerWidth, window.innerHeight).fill({ color: theme.backdrop, alpha: theme.backdropAlpha });
-    this.card.clear().roundRect(this.cardX, this.cardY, w, h, 14).fill({ color: theme.panel }).stroke({ width: 2, color: theme.border });
-    this.title.position.set(this.cardX + 24, this.cardY + 18);
-    this.closeBtn.position.set(this.cardX + w - 28, this.cardY + 28);
+    const { x, y } = placeCard({ backdrop: this.backdrop, card: this.card, title: this.title, closeBtn: this.closeBtn }, w, h);
+    this.cardX = x;
+    this.cardY = y;
     this.listMask.clear().rect(this.cardX + 16, this.cardY + LIST_TOP, this.listW, this.viewH()).fill({ color: 0xffffff });
     this.listScroll = 0;
     this.listView.position.set(this.cardX + 16, this.cardY + LIST_TOP);

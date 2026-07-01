@@ -1,15 +1,15 @@
 /**
  * Gamepad input (ADR 17), designed with the Magi council (consensus). A third input producer
- * parallel to mouse + keyboard. Polled every frame even in the free canvas, so a pad is always
- * detectable (Start enters Build, Y enters 3D) and the hints can flip to pad glyphs the moment
- * it's used. The Gamepad API is poll-based, so we sample `navigator.getGamepads()` fresh every
- * Pixi-ticker frame (never cache the snapshot), edge-detect the discrete buttons (with keyboard-
- * style time-based auto-repeat for the d-pad) and read the sticks/triggers as analog — then drive
- * intents per the active context ({@link intentForPad}) through a thin sink on app.ts. The button
- * → intent map lives in `keymap.ts` (the single source); only the edge/repeat/analog semantics
- * live here. Connection events are only discovery/toast hints; the poll loop is the source of
- * truth (Chrome withholds pads until first input). Every real action calls `sink.note()` so the
- * device tracker switches the hints to gamepad glyphs (last-input-wins).
+ * parallel to mouse + keyboard. Polled every frame so a pad is always detectable (Y enters/exits
+ * 3D) and the hints can flip to pad glyphs the moment it's used. The Gamepad API is poll-based,
+ * so we sample `navigator.getGamepads()` fresh every Pixi-ticker frame (never cache the snapshot),
+ * edge-detect the discrete buttons (with keyboard-style time-based auto-repeat for the d-pad) and
+ * read the sticks/triggers as analog — then drive intents per the active context
+ * ({@link intentForPad}) through a thin sink on app.ts. The button → intent map lives in
+ * `keymap.ts` (the single source); only the edge/repeat/analog semantics live here. Connection
+ * events are only discovery/toast hints; the poll loop is the source of truth (Chrome withholds
+ * pads until first input). Every real action calls `sink.note()` so the device tracker switches
+ * the hints to gamepad glyphs (last-input-wins).
  */
 import { type Ticker } from "pixi.js";
 import { type Context, type Intent, intentForPad, PAD_BUTTON as BTN } from "./keymap";
@@ -27,13 +27,12 @@ const REPEAT_RATE = 110; // ms between auto-repeats
 const MAX_DT = 50; // clamp a frame delta (a hidden-tab resume yields a huge one → no input storm / camera fly-off)
 
 // Buttons that fire once per press (edge); the d-pad (12-15) auto-repeats and is handled separately.
-const EDGE_BUTTONS = [BTN.A, BTN.B, BTN.X, BTN.Y, BTN.LB, BTN.RB, BTN.SELECT, BTN.START, BTN.R3];
+const EDGE_BUTTONS = [BTN.A, BTN.B, BTN.X, BTN.Y, BTN.LB, BTN.RB, BTN.SELECT, BTN.R3];
 const DPAD = [BTN.DUP, BTN.DDOWN, BTN.DLEFT, BTN.DRIGHT];
 
 /** What the gamepad drives — the app routes each by the active context. Analog values are the
  *  deadzone-rescaled stick vector ([-1,1]) + the frame dt; the sink owns the rate/sign per use. */
 export interface GamepadSink {
-  enabled: () => boolean; // a context owns the discrete input (not "free")
   context: () => Context; // which context — picks the button→intent map
   dispatch: (intent: Intent) => void; // a discrete intent, routed per context
   leftStick: (sx: number, sy: number, dt: number) => void; // inspect: orbit
@@ -92,10 +91,6 @@ export class GamepadController {
   }
 
   private poll(dtMs: number): void {
-    if (!this.sink.enabled()) {
-      this.prev = [];
-      return; // no context owns the input — don't even touch the Gamepad API
-    }
     const dt = Math.min(dtMs, MAX_DT) / 1000;
     this.clock += Math.min(dtMs, MAX_DT);
     const pad = this.pick();

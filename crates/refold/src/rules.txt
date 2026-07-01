@@ -4,10 +4,32 @@
 # ι unfolding (not a catalog law).
 iota | (@ iota ?a) | (@ (@ ?a S) K)
 
-add_law | (@ (@ (@ (@ add ?a) ?b) ?c) ?d) | (@ (@ ?a ?c) (@ (@ ?b ?c) ?d))
-add_def | (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ S (@ K K)))) | add
-sub_law | (@ (@ sub ?a) ?b) | (@ (@ ?b (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ (@ S (@ K S)) K)) (@ K (@ (@ S (@ K (@ S (@ K (@ S I))))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ K (@ S I))) K))))))))) (@ K (@ K K)))))) (@ K (@ K (@ K I))))) ?a)
-sub_def | (@ (@ S (@ K (@ S (@ (@ S I) (@ K (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ (@ S (@ K S)) K)) (@ K (@ (@ S (@ K (@ S (@ K (@ S I))))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ K (@ S I))) K))))))))) (@ K (@ K K)))))) (@ K (@ K (@ K I))))))))) K) | sub
+add_law | (@ (@ add ?a) ?b) | ?$norec_(+)
+add_def | (@ (@ (@ (@ (@ S (@ K S)) K) (@ (@ S I) I)) (@ (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ S (@ K S)) K)) (@ (@ S I) I))) (@ (@ S (@ K (@ S S))) (@ (@ S (@ K K)) (@ (@ S (@ K (@ S (@ K (@ S (@ K (@ (@ S (@ K K)) (@ (@ S (@ K (@ S I))) K)))))))) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) S))) (@ K K)))))) | add
+sub_law | (@ (@ sub ?a) ?b) | ?$norec_(-)
+sub_def | (@ (@ (@ (@ (@ S (@ K S)) K) (@ (@ S I) I)) (@ (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ S (@ K S)) K)) (@ (@ S I) I))) (@ (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ K (@ S I))) K))))) (@ (@ S (@ K (@ S (@ K K)))) (@ S (@ K (@ S (@ K (@ (@ S (@ (@ S I) (@ K K))) (@ K I))))))))) | sub
+(*)_law | (@ (@ (*) ?a) ?b) | ?$norec_(*)
+(*)_def | (@ (@ (@ (@ (@ S (@ K S)) K) (@ (@ S I) I)) (@ (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ S (@ K S)) K)) (@ (@ S I) I))) (@ (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S I) (@ K K))))))) (@ (@ S (@ K K)) (@ (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ (@ (@ (@ S (@ K S)) K) (@ (@ S I) I)) (@ (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ S (@ K S)) K)) (@ (@ S I) I))) (@ (@ S (@ K (@ S S))) (@ (@ S (@ K K)) (@ (@ S (@ K (@ S (@ K (@ S (@ K (@ (@ S (@ K K)) (@ (@ S (@ K (@ S I))) K)))))))) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) S))) (@ K K))))))))))) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) S))) (@ K K)))))) | (*)
+(==)_law | (@ (@ (==) ?a) ?b) | ?$norec_(==)
+(==)_def | (@ (@ (@ (@ (@ S (@ K S)) K) (@ (@ S I) I)) (@ (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ S (@ K S)) K)) (@ (@ S I) I))) (@ (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ (@ S (@ K S)) K)) (@ K (@ (@ S (@ (@ S I) (@ K (@ K I)))) (@ K (@ K K))))))))) (@ (@ S (@ K K)) (@ (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S I) (@ K K))))))) K)))) | (==)
+(/=)_law | (@ (@ (/=) ?a) ?b) | ?$norec_(/=)
+(/=)_def | (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ (@ S (@ K S)) (@ (@ (@ (@ (@ S (@ K S)) K) (@ (@ S I) I)) (@ (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ S (@ K S)) K)) (@ (@ S I) I))) (@ (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ (@ S (@ K S)) K)) (@ K (@ (@ S (@ (@ S I) (@ K (@ K I)))) (@ K (@ K K))))))))) (@ (@ S (@ K K)) (@ (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S I) (@ K K))))))) K)))))) (@ K (@ K (@ K I)))))) (@ K (@ K K))) | (/=)
+(<)_law | (@ (@ (<) ?a) ?b) | ?$norec_(<)
+(<)_def | (@ (@ (@ (@ (@ S (@ K S)) K) (@ (@ S I) I)) (@ (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ S (@ K S)) K)) (@ (@ S I) I))) (@ (@ S (@ K (@ S (@ K (@ S (@ (@ S I) (@ K K))))))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S I) (@ K (@ K I)))))))) (@ (@ S (@ K K)) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) S))) (@ K K))))))) | (<)
+(<=)_law | (@ (@ (<=) ?a) ?b) | ?$norec_(<=)
+(<=)_def | (@ (@ (@ (@ (@ S (@ K S)) K) (@ (@ S I) I)) (@ (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ S (@ K S)) K)) (@ (@ S I) I))) (@ (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S I) (@ K (@ K I)))))))) (@ (@ S (@ K K)) (@ (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S I) (@ K K))))))) K)))) | (<=)
+(>)_law | (@ (@ (>) ?a) ?b) | ?$norec_(>)
+(>)_def | (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ (@ (@ (@ S (@ K S)) K) (@ (@ S I) I)) (@ (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ S (@ K S)) K)) (@ (@ S I) I))) (@ (@ S (@ K (@ S (@ K (@ S (@ (@ S I) (@ K K))))))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S I) (@ K (@ K I)))))))) (@ (@ S (@ K K)) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) S))) (@ K K)))))))) | (>)
+(>=)_law | (@ (@ (>=) ?a) ?b) | ?$norec_(>=)
+(>=)_def | (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ (@ (@ (@ S (@ K S)) K) (@ (@ S I) I)) (@ (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ S (@ K S)) K)) (@ (@ S I) I))) (@ (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S I) (@ K (@ K I)))))))) (@ (@ S (@ K K)) (@ (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S I) (@ K K))))))) K))))) | (>=)
+compare_law | (@ (@ compare ?a) ?b) | ?$norec_compare
+compare_def | (@ (@ (@ (@ (@ S (@ K S)) K) (@ (@ S I) I)) (@ (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ S (@ K S)) K)) (@ (@ S I) I))) (@ (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ (@ S (@ K S)) K)) (@ K (@ (@ S (@ (@ S I) (@ K (@ K K)))) (@ K (@ K (@ (@ S (@ K K)) K)))))))))) (@ (@ S (@ K K)) (@ (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S I) (@ K (@ K (@ K I))))))))) K)))) | compare
+LT_law | (@ (@ (@ LT ?a) ?b) ?c) | ?a
+LT_def | (@ (@ S (@ K K)) K) | LT
+EQ_law | (@ (@ (@ EQ ?a) ?b) ?c) | ?b
+EQ_def | (@ K K) | EQ
+GT_law | (@ (@ (@ GT ?a) ?b) ?c) | ?c
+GT_def | (@ K (@ K I)) | GT
 A_law | (@ (@ A ?a) ?b) | ?b
 A_def | (@ K I) | A
 B_law | (@ (@ (@ B ?a) ?b) ?c) | (@ ?a (@ ?b ?c))
@@ -44,8 +66,8 @@ N_law | (@ (@ (@ N ?a) ?b) ?c) | (@ ?c ?a)
 N_def | (@ (@ S (@ K K)) (@ (@ S (@ K (@ S I))) K)) | N
 O_law | (@ (@ O ?a) ?b) | (@ ?b (@ ?a ?b))
 O_def | (@ S I) | O
-Pred_law | (@ (@ (@ Pred ?a) ?b) ?c) | (@ (@ (@ ?a (@ (@ S (@ K (@ S I))) (@ (@ S (@ K K)) (@ (@ S I) (@ K ?b))))) (@ K ?c)) I)
-Pred_def | (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ (@ S (@ K S)) K)) (@ K (@ (@ S (@ K (@ S (@ K (@ S I))))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ K (@ S I))) K))))))))) (@ K (@ K K)))))) (@ K (@ K (@ K I)))) | Pred
+Pred_law | (@ Pred ?a) | (@ (@ ?a K) I)
+Pred_def | (@ (@ S (@ (@ S I) (@ K K))) (@ K I)) | Pred
 Q_law | (@ (@ (@ Q ?a) ?b) ?c) | (@ ?b (@ ?a ?c))
 Q_def | (@ (@ S (@ K (@ S (@ (@ S (@ K S)) K)))) K) | Q
 Q1_law | (@ (@ (@ Q1 ?a) ?b) ?c) | (@ ?a (@ ?c ?b))
@@ -59,8 +81,8 @@ Q4_def | (@ (@ S (@ K (@ S (@ K (@ S I))))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S
 R_law | (@ (@ (@ R ?a) ?b) ?c) | (@ (@ ?b ?c) ?a)
 R_def | (@ (@ S (@ K (@ S S))) (@ (@ S (@ K K)) K)) | R
 S_law | (@ (@ (@ S ?a) ?b) ?c) | (@ (@ ?a ?c) (@ ?b ?c))
-Succ_law | (@ (@ (@ Succ ?a) ?b) ?c) | (@ ?b (@ (@ ?a ?b) ?c))
-Succ_def | (@ S (@ (@ S (@ K S)) K)) | Succ
+Succ_law | (@ (@ (@ Succ ?a) ?b) ?c) | (@ ?c ?a)
+Succ_def | (@ (@ S (@ K K)) (@ (@ S (@ K (@ S I))) K)) | Succ
 T_law | (@ (@ T ?a) ?b) | (@ ?b ?a)
 T_def | (@ (@ S (@ K (@ S I))) K) | T
 U_law | (@ (@ U ?a) ?b) | (@ ?b (@ (@ ?a ?a) ?b))
@@ -71,22 +93,28 @@ W_law | (@ (@ W ?a) ?b) | (@ (@ ?a ?b) ?b)
 W_def | (@ (@ S S) (@ K I)) | W
 X_law | (@ (@ X ?a) ?b) | (@ (@ ?a ?b) ?a)
 X_def | (@ (@ S S) K) | X
-cons_law | (@ (@ (@ (@ cons ?a) ?b) ?c) ?d) | (@ (@ ?c ?a) (@ (@ ?b ?c) ?d))
-cons_def | (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ K (@ S I))) K)))) | cons
-head_law | (@ head ?a) | (@ (@ ?a K) (@ K I))
-head_def | (@ (@ S (@ (@ S I) (@ K K))) (@ K (@ K I))) | head
-append_law | (@ (@ append ?a) ?b) | (@ (@ ?a (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ K (@ S I))) K))))) ?b)
-append_def | (@ (@ S I) (@ K (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ K (@ S I))) K)))))) | append
-concat_law | (@ concat ?a) | (@ (@ ?a (@ (@ S I) (@ K (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ K (@ S I))) K))))))) (@ K I))
-concat_def | (@ (@ S (@ (@ S I) (@ K (@ (@ S I) (@ K (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ K (@ S I))) K))))))))) (@ K (@ K I))) | concat
-map_law | (@ (@ map ?a) ?b) | (@ (@ ?b (@ (@ S (@ K (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ K (@ S I))) K)))))) ?a)) (@ K I))
-map_def | (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K (@ S I))) (@ (@ S (@ K K)) (@ S (@ K (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ K (@ S I))) K)))))))))) (@ K (@ K (@ K I)))) | map
-null_law | (@ null ?a) | (@ (@ ?a (@ K (@ K (@ K I)))) K)
-null_def | (@ (@ S (@ (@ S I) (@ K (@ K (@ K (@ K I)))))) (@ K K)) | null
-uncons_law | (@ uncons ?a) | (@ (@ S (@ (@ S I) (@ K (@ (@ ?a K) (@ K I))))) (@ K (@ (@ (@ ?a (@ (@ S (@ K (@ S (@ (@ S (@ K (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K S)) (@ (@ S (@ K (@ S I))) K))))) (@ K K)))) (@ (@ S I) (@ K (@ K I))))))) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ K (@ S I))) K))))))) (@ K (@ (@ S I) (@ K (@ K I))))))) (@ (@ S (@ (@ S I) (@ K (@ K I)))) (@ K (@ K I)))) K)))
-uncons_def | (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K (@ S I))) (@ (@ S (@ K K)) (@ (@ S (@ (@ S I) (@ K K))) (@ K (@ K I))))))) (@ (@ S (@ K K)) (@ (@ S (@ (@ S (@ (@ S I) (@ K (@ (@ S (@ K (@ S (@ (@ S (@ K (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K S)) (@ (@ S (@ K (@ S I))) K))))) (@ K K)))) (@ (@ S I) (@ K (@ K I))))))) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ K (@ S I))) K))))))) (@ K (@ (@ S I) (@ K (@ K I))))))))) (@ K (@ (@ S (@ (@ S I) (@ K (@ K I)))) (@ K (@ K I)))))) (@ K K)))) | uncons
-tail_law | (@ tail ?a) | (@ (@ (@ ?a (@ (@ S (@ K (@ S (@ (@ S (@ K (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K S)) (@ (@ S (@ K (@ S I))) K))))) (@ K K)))) (@ (@ S I) (@ K (@ K I))))))) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ K (@ S I))) K))))))) (@ K (@ (@ S I) (@ K (@ K I))))))) (@ (@ S (@ (@ S I) (@ K (@ K I)))) (@ K (@ K I)))) K)
-tail_def | (@ (@ S (@ (@ S (@ (@ S I) (@ K (@ (@ S (@ K (@ S (@ (@ S (@ K (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K S)) (@ (@ S (@ K (@ S I))) K))))) (@ K K)))) (@ (@ S I) (@ K (@ K I))))))) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ K (@ S I))) K))))))) (@ K (@ (@ S I) (@ K (@ K I))))))))) (@ K (@ (@ S (@ (@ S I) (@ K (@ K I)))) (@ K (@ K I)))))) (@ K K)) | tail
+not_law | (@ not ?a) | (@ (@ ?a (@ K I)) K)
+not_def | (@ (@ S (@ (@ S I) (@ K (@ K I)))) (@ K K)) | not
+and_law | (@ (@ and ?a) ?b) | (@ (@ ?a K) ?b)
+and_def | (@ (@ S I) (@ K K)) | and
+or_law | (@ (@ or ?a) ?b) | (@ (@ ?a ?b) (@ K I))
+or_def | (@ (@ S S) (@ K (@ K (@ K I)))) | or
+cons_law | (@ (@ (@ (@ cons ?a) ?b) ?c) ?d) | (@ (@ ?d ?a) ?b)
+cons_def | (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K S)) (@ (@ S (@ K (@ S I))) K))))) (@ K K))) | cons
+head_law | (@ head ?a) | (@ (@ ?a K) K)
+head_def | (@ (@ S (@ (@ S I) (@ K K))) (@ K K)) | head
+append_law | (@ (@ append ?a) ?b) | ?$norec_<>
+append_def | (@ (@ (@ (@ (@ S (@ K S)) K) (@ (@ S I) I)) (@ (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ S (@ K S)) K)) (@ (@ S I) I))) (@ (@ S (@ K (@ S S))) (@ (@ S (@ K K)) (@ (@ S (@ K (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K S)) (@ (@ S (@ K (@ S I))) K))))) (@ K K)))))))))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) S))) (@ K K))))))) | append
+concat_law | (@ concat ?a) | ?$norec_concat
+concat_def | (@ (@ (@ (@ (@ S (@ K S)) K) (@ (@ S I) I)) (@ (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ S (@ K S)) K)) (@ (@ S I) I))) (@ (@ S (@ K (@ S (@ (@ S I) (@ K K))))) (@ (@ S (@ K K)) (@ (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ (@ (@ (@ S (@ K S)) K) (@ (@ S I) I)) (@ (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ S (@ K S)) K)) (@ (@ S I) I))) (@ (@ S (@ K (@ S S))) (@ (@ S (@ K K)) (@ (@ S (@ K (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K S)) (@ (@ S (@ K (@ S I))) K))))) (@ K K)))))))))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) S))) (@ K K)))))))))))) K)))) | concat
+map_law | (@ (@ map ?a) ?b) | ?$norec_map
+map_def | (@ (@ (@ (@ (@ S (@ K S)) K) (@ (@ S I) I)) (@ (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ S (@ K S)) K)) (@ (@ S I) I))) (@ (@ S (@ K (@ S (@ K (@ S (@ (@ S I) (@ K K))))))) (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ K (@ S (@ (@ S (@ K S)) (@ (@ S (@ K (@ S (@ K S)))) (@ (@ S (@ K (@ S (@ K K)))) (@ S (@ K (@ (@ S (@ K (@ S (@ K K)))) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K S)) (@ (@ S (@ K (@ S I))) K))))) (@ K K))))))))))) (@ S (@ K K)))))) | map
+null_law | (@ null ?a) | (@ (@ ?a (@ K I)) (@ K (@ K K)))
+null_def | (@ (@ S (@ (@ S I) (@ K (@ K I)))) (@ K (@ K (@ K K)))) | null
+uncons_law | (@ uncons ?a) | (@ (@ ?a (@ (@ (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K S)) (@ (@ S (@ K (@ S I))) K))))) (@ K K)) K) K)) (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K S)) (@ (@ S (@ K (@ S I))) K))))) (@ K K)))
+uncons_def | (@ (@ S (@ (@ S I) (@ K (@ (@ (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K S)) (@ (@ S (@ K (@ S I))) K))))) (@ K K)) K) K)))) (@ K (@ (@ S (@ (@ S (@ K S)) (@ (@ S (@ K K)) (@ (@ S (@ K S)) (@ (@ S (@ K (@ S I))) K))))) (@ K K)))) | uncons
+tail_law | (@ tail ?a) | (@ (@ ?a K) (@ K I))
+tail_def | (@ (@ S (@ (@ S I) (@ K K))) (@ K (@ K I))) | tail
 Y_def | (@ (@ (@ (@ S (@ K S)) K) (@ (@ S I) I)) (@ (@ (@ (@ S (@ (@ S (@ K (@ (@ S (@ K S)) K))) S)) (@ K K)) (@ (@ S (@ K S)) K)) (@ (@ S I) I))) | Y
 Z_law | (@ (@ (@ Z ?a) ?b) ?c) | (@ ?a ?b)
 Z_def | (@ S (@ K K)) | Z

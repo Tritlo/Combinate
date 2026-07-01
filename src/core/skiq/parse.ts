@@ -19,7 +19,7 @@
  * combinator, otherwise a free variable. Lambdas compile to SKI by the standard
  * bracket abstraction, so the whole language lands in ι/S/K/app/free.
  */
-import { type Node, app, comb, freeVar, freshId } from "../term";
+import { type Node, app, comb, cloneTerm, freeVar, freshId } from "../term";
 import { CATALOG, named } from "../catalog";
 import { kernelArity } from "../kernels";
 import { bracket, church } from "../church";
@@ -89,17 +89,6 @@ class P {
   }
 }
 
-/** Deep-copy with fresh ids, so a scope term reused N times in one expression
- *  doesn't share node ids (the reducer keys substitutions by id). */
-export function cloneFresh(n: Node): Node {
-  switch (n.kind) {
-    case "iota": return { ...n, id: freshId() };
-    case "comb": return { ...n, id: freshId(), def: n.def ? cloneFresh(n.def) : undefined };
-    case "free": return { ...n, id: freshId() };
-    case "app": return app(cloneFresh(n.fn), cloneFresh(n.arg));
-  }
-}
-
 /** Clone a term, moving its free variables into a reserved namespace — so the
  *  term you are *building* (which may itself mention a free `x`) can't be confused
  *  with a case's argument `x`. SKI Quest treats `K x` as NOT the identity for
@@ -134,7 +123,7 @@ function compile(ast: Ast, scope: Scope, bound: Set<string>): Node {
     case "id": {
       if (bound.has(ast.v)) return freeVar(ast.v);
       const got = scope(ast.v);
-      if (got) return cloneFresh(got);
+      if (got) return cloneTerm(got);
       if (COMB_SYMS.has(ast.v)) return named(ast.v);
       const ka = kernelArity(ast.v); // a kernel-only primitive (e.g. Church `cmod`, ADR 11)
       if (ka !== undefined) return comb(ast.v, undefined, ka);

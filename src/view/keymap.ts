@@ -23,8 +23,6 @@ export type Intent =
   | "pagePrev"
   | "pageNext"
   | "pickPlace"
-  | "applyFn"
-  | "applyArg"
   | "cancel"
   | "context"
   | "speed"
@@ -47,7 +45,7 @@ export type Intent =
 
 // ---- keyboard: per-context key → intent ----
 interface KeyBind {
-  context: Context | "global";
+  context: Context;
   intent: Intent;
   keys: string[];
 }
@@ -82,16 +80,15 @@ const KEY_BINDS: KeyBind[] = [
 const KEY_MAP = new Map<string, Intent>(); // `${context}:${key}` → intent
 for (const b of KEY_BINDS) for (const k of b.keys) KEY_MAP.set(`${b.context}:${k}`, b.intent);
 
-/** The intent a key fires in `context` (a global binding wins), or null. */
+/** The intent a key fires in `context`, or null. */
 export function intentForKey(context: Context, key: string): Intent | null {
   const k = key.toLowerCase();
-  return KEY_MAP.get(`global:${k}`) ?? KEY_MAP.get(`${context}:${k}`) ?? null;
+  return KEY_MAP.get(`${context}:${k}`) ?? null;
 }
 
 // ---- gamepad: W3C standard button index → intent, per context (analog handled separately) ----
 export const PAD_BUTTON = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, SELECT: 8, START: 9, R3: 11, DUP: 12, DDOWN: 13, DLEFT: 14, DRIGHT: 15 };
-const PAD_BINDS: Record<Context | "global", Partial<Record<number, Intent>>> = {
-  global: {},
+const PAD_BINDS: Record<Context, Partial<Record<number, Intent>>> = {
   build: {
     [PAD_BUTTON.DLEFT]: "moveLeft",
     [PAD_BUTTON.DRIGHT]: "moveRight",
@@ -115,9 +112,9 @@ const PAD_BINDS: Record<Context | "global", Partial<Record<number, Intent>>> = {
     [PAD_BUTTON.R3]: "recenter",
   },
 };
-/** The intent a gamepad button fires in `context` (a global binding wins), or null. */
+/** The intent a gamepad button fires in `context`, or null. */
 export function intentForPad(context: Context, button: number): Intent | null {
-  return PAD_BINDS.global[button] ?? PAD_BINDS[context][button] ?? null;
+  return PAD_BINDS[context][button] ?? null;
 }
 
 // ---- contextual hints (curated per context; both glyphs, the active device picks one) ----

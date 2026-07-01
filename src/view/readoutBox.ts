@@ -7,8 +7,7 @@
  * expand state + chrome/persistence; the per-frame string comes from {@link ReadoutLens} via
  * {@link setText}. DOM (matches the quest tracker / discovery card chrome — the shared base is ADR 12).
  */
-import { currentMode, onThemeChange, type Mode } from "./theme";
-import { vendorUrl } from "../vendorUrl";
+import { currentMode, onThemeChange, type Mode, MONO, PAPER, INK, ensureFont } from "./theme";
 
 /** The read-out's view mode. `ski` is the default (combinators only, no look-ahead). */
 export type ReadoutView = "ski" | "named" | "barker";
@@ -17,10 +16,9 @@ const ORDER: ReadoutView[] = ["ski", "named", "barker"];
 const LABEL: Record<ReadoutView, string> = { ski: "combinators", named: "named + native", barker: "Barker · 0/1" };
 
 const PALETTE: Record<Mode, Record<string, string>> = {
-  light: { paper: "#ffffff", ink: "#000000", shadow: "rgba(0,0,0,0.85)" },
-  dark: { paper: "#07090d", ink: "#f0f3f6", shadow: "rgba(0,0,0,0.85)" },
+  light: { paper: PAPER.light, ink: INK.light, shadow: "rgba(0,0,0,0.85)" },
+  dark: { paper: PAPER.dark, ink: INK.dark, shadow: "rgba(0,0,0,0.85)" },
 };
-const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
 const STORE_KEY = "combinate:readout:view:v1";
 const EXPAND_KEY = "combinate:readout:expanded:v1";
 
@@ -28,8 +26,8 @@ let stylesInjected = false;
 function injectStyles(): void {
   if (stylesInjected) return;
   stylesInjected = true;
+  ensureFont();
   const css = `
-@font-face { font-family: 'IoskeleyMono'; src: url('${vendorUrl("vendor/fonts/IoskeleyMono-Regular.woff2")}') format('woff2'); font-display: swap; }
 .ro-root { position: fixed; top: 30px; left: 50%; transform: translateX(-50%); z-index: 36;
   font-family: ${MONO}; width: min(620px, calc(100vw - 24px)); display: none; }
 .ro-card { background: var(--ro-paper); color: var(--ro-ink); border: 1px solid var(--ro-ink);

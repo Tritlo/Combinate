@@ -100,7 +100,7 @@ export function parseComb(s: string): Node {
 /** Readability weight — a proxy for the Rust extractor's cost, used to keep a
  *  re-folding only when it is genuinely simpler than the input: raw ι is dear,
  *  the S/K/I primitives less so, named birds and free vars cheap. */
-export function weight(n: Node): number {
+function weight(n: Node): number {
   switch (n.kind) {
     case "iota":
       return 100;

@@ -36,7 +36,7 @@ mean, devoid of implementation detail. Architecture decisions live in `docs/adr/
 - **Optimize mode** — an opt-in reading of *reduction itself*: reduce named
   combinators by their rule rather than grinding everything down to raw ι/SKI.
 
-## Roadmap terms
+## Sharing, golf, and authoring
 
 - **Permalink** — a shareable encoding of a tree + active modes; the link *is* the
   state. The unit of sharing.
@@ -57,3 +57,25 @@ mean, devoid of implementation detail. Architecture decisions live in `docs/adr/
   Everything else (`IO`, FFI, `Float`) is the **primitive wall** — no ι form.
 - **The wow** — typing a real Haskell program and watching it compile to ι and
   reduce, live, in the sandbox.
+
+## Quest, kernels, and performance
+
+- **Quest / SKI-Quest** — Combinate's main game: a chapter/stage progression of
+  little SKI-expression puzzles (adapted, with permission, from Konstantin
+  Uvarin's SKI-Quest), run on Combinate's own reducer.
+- **Kernel** — a named combinator bound to a pure native JS fast path (ADR 11):
+  same input/output contract as reducing the combinator's law, but computed
+  directly instead of grinding through the rewrite. Native values (below) are
+  built-in kernels.
+- **Native values / "Primitives"** — an opt-in reducer peephole (ADR 10): when a
+  saturated named op (`(+)`, `<>`, `not`, …) is applied to recognised values,
+  compute the result natively and emit the canonical Scott tree, instead of the
+  full structural reduction. Labelled **Primitives** in the UI.
+- **Turbo** — the resident wasm reduction engine (`crates/reduce`, ADR 16/19): a
+  call-by-need graph reducer with native kernels + catalog rules, for reducing big
+  trees (e.g. compiled Haskell programs) in about a second instead of minutes.
+- **The 3D sphere view** — a secondary, read-only 3D visualization (packed-sphere
+  layout, ADR 21) of the focused tree; the core experience stays 2D.
+- **H-tree layout** — a compact 2D/3D layout for big trees: a nested square (or
+  cubic) antenna whose arms shrink with depth, laid out incrementally in
+  O(changed) per reduction step (ADR 18).

@@ -1,29 +1,13 @@
-import { type Node, type NodeId, app, comb, iota, freeVar, exceedsNodes } from "./term";
+import { type Node, type NodeId, app, comb, cloneTermDeep, exceedsNodes } from "./term";
 import { RULES } from "./catalog";
 import { kernelFor, type NativeOpts } from "./kernels";
-
-/** Deep-copy a term with fresh ids — used to duplicate the shared argument in
- * the S rule so every node in the result has a unique id (the view keys layout
- * and animation by id; sharing one node in two places would collapse them). */
-function clone(n: Node): Node {
-  switch (n.kind) {
-    case "iota":
-      return iota();
-    case "comb":
-      return comb(n.sym, n.def ? clone(n.def) : undefined, n.arity);
-    case "free":
-      return freeVar(n.name);
-    case "app":
-      return app(clone(n.fn), clone(n.arg));
-  }
-}
 
 /** Make every node id unique: clone any subtree whose id was already seen. An
  * optimize-mode rule may reuse an argument term twice (e.g. `(+)` threads `n`
  * into both branches); the first use keeps its ids (persists/glides in the view),
  * later uses become fresh copies — the same convention as the S rule's clone. */
 function dedupIds(n: Node, seen: Set<NodeId>): Node {
-  if (seen.has(n.id)) return clone(n);
+  if (seen.has(n.id)) return cloneTermDeep(n);
   seen.add(n.id);
   if (n.kind === "app") {
     const fn = dedupIds(n.fn, seen);
@@ -40,11 +24,6 @@ function reapplyExtras(core: Node, args: Node[], from: number): Node {
   return core;
 }
 
-/** Apply a catalog `rule` to the first `k` (its arity) of `args`, re-applying any extras. */
-function applyRule(rule: (args: Node[]) => Node, args: Node[], k: number): Node {
-  return reapplyExtras(rule(args.slice(0, k)), args, k);
-}
-
 /** The next redex in normal order: the rule it fires (`sym`) and a thunk that
  *  builds its contractum. `build` is the *only* allocating part — finding the
  *  redex (and reading `sym`) never mints ids, so {@link firingRule} can name the
@@ -58,7 +37,7 @@ interface Redex {
 /**
  * Find the leftmost-outermost redex of `n`, or `null` if it is in normal form.
  * The single dispatch behind both {@link step} and {@link firingRule}. Mirrors
- * the reducer in `../MicroHs/iota/Check.hs`:
+ * the ι/SKI reduction rules:
  *
  * ```
  * ι x      → x S K
@@ -70,19 +49,18 @@ interface Redex {
  * Structural app nodes above the contracted redex keep their id (so the view can
  * later tween persisting subtrees, §6.3); freshly built contracta get new ids.
  *
- * `argsAbove` is how many arguments this node is already applied to in the
- * enclosing spine; a collapsed named combinator (A, cons, …) only unfolds its
+ * (Internally, a collapsed named combinator (A, cons, …) only unfolds its
  * definition once it is *saturated* (applied to its full arity), so a partial
  * application like `(cons A)` stays a clean named node instead of dissolving
- * into its ι-tree early.
+ * into its ι-tree early — tracked by `redexAtGo`'s `argsAbove` recursion param.)
  *
  * `fast` enables optimize mode: a saturated named combinator reduces by its
  * catalog `rule` (the law / Scott recursion) in ONE step, instead of unfolding
  * its SKI def and grinding ι/S/K/I. Off by default — raw SKI reduction (and
  * everything not in `RULES`: I/K/S/ι, undiscovered combinators) is unchanged.
  */
-export function redexAt(n: Node, argsAbove = 0, fast = false, native?: NativeOpts): Redex | null {
-  return redexAtGo(n, argsAbove, fast, native, false);
+export function redexAt(n: Node, fast = false, native?: NativeOpts): Redex | null {
+  return redexAtGo(n, 0, fast, native, false);
 }
 
 /** A mutable accumulator the search fills in so a caller can locate the redex without a second
@@ -149,7 +127,7 @@ function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts
       const rule = fast ? RULES[head.sym] : undefined;
       if (rule && args.length >= k) {
         if (trace) trace.oldRedex = n;
-        return { sym: head.sym, build: () => dedupIds(applyRule(rule, args, k), new Set()) };
+        return { sym: head.sym, build: () => dedupIds(reapplyExtras(rule(args.slice(0, k)), args, k), new Set()) };
       }
     }
   }
@@ -180,7 +158,7 @@ function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts
     if (trace) trace.oldRedex = n;
     // z is duplicated: keep the original ids on the left (persist), fresh-clone
     // the right copy (the "copy" the view grows out of the source, §6.3).
-    return { sym: "S", build: () => app(app(x, z), app(y, clone(z))) };
+    return { sym: "S", build: () => app(app(x, z), app(y, cloneTermDeep(z))) };
   }
   // A collapsed named combinator with no built-in rule (A, X, cons, …) in head
   // position: unfold its definition so it can reduce like its ι-tree — but only
@@ -189,7 +167,7 @@ function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts
   if (fn.kind === "comb" && fn.def && argsAbove + 1 >= (fn.arity ?? 1)) {
     const def = fn.def;
     if (trace) trace.oldRedex = n;
-    return { sym: fn.sym, build: () => app(clone(def), arg) };
+    return { sym: fn.sym, build: () => app(cloneTermDeep(def), arg) };
   }
 
   // No rule fires at the root: recurse left spine first (one more arg above),
@@ -209,8 +187,8 @@ function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts
 
 /** One normal-order (leftmost-outermost) reduction step, or `null` if `n` is
  *  already in normal form. See {@link redexAt} for the rules. */
-export function step(n: Node, argsAbove = 0, fast = false, native?: NativeOpts): Node | null {
-  return redexAt(n, argsAbove, fast, native)?.build() ?? null;
+export function step(n: Node, fast = false, native?: NativeOpts): Node | null {
+  return redexAt(n, fast, native)?.build() ?? null;
 }
 
 /**
@@ -273,7 +251,7 @@ export function normalize(n: Node, cap = 10_000, fast = false, native?: NativeOp
     // in few steps (the S rule clones). Checked every 32 steps so the cost is amortised; the
     // caller (e.g. the value matchers) bails to "not a value" instead of freezing/OOMing.
     if (maxNodes && (steps & 31) === 0 && exceedsNodes(cur, maxNodes)) return { term: cur, steps, done: false };
-    const next = step(cur, 0, fast, native);
+    const next = step(cur, fast, native);
     if (!next) return { term: cur, steps, done: true };
     cur = next;
   }
@@ -287,6 +265,6 @@ export function normalize(n: Node, cap = 10_000, fast = false, native?: NativeOp
  * sonification layer (PLAN.md Phase A / ADR 0005) can pick a tone per reduction
  * without allocating.
  */
-export function firingRule(n: Node, fast = false, argsAbove = 0, native?: NativeOpts): string | null {
-  return redexAt(n, argsAbove, fast, native)?.sym ?? null;
+export function firingRule(n: Node, fast = false, native?: NativeOpts): string | null {
+  return redexAt(n, fast, native)?.sym ?? null;
 }

@@ -32,6 +32,10 @@ trees) — **GPU/geometry-bound, not JS-math-bound**, so wasm position math woul
 
 ## Built + verified, then SHELVED (consensus with Codex)
 
+> **Superseded by ADR 16** — the visibly-slow path this section says to wait for showed up
+> (big MicroHaskell programs), and the wasm reducer got wired as the "Turbo" engine. This
+> section is kept as the historical rationale for shelving v1.
+
 The narrow wasm reducer was **built and verified**, then deliberately **not wired** — the
 end-to-end win doesn't justify the surface.
 

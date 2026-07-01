@@ -32,8 +32,8 @@ Keep it terse and honest — short enough that people actually read it.
 
 ---
 
-<!-- New mini-ADRs below. Fill these in (brainstorm the design with Codex) as the
-     work in TODO.md lands. Keep each to 1-3 short paragraphs. -->
+<!-- New mini-ADRs below. Fill these in (brainstorm the design with Codex) as
+     work lands. Keep each to 1-3 short paragraphs. -->
 
 ## 9: Optimization settings modal
 **Status:** Accepted (Codex consensus).
@@ -205,6 +205,8 @@ kernels + graph sharing. Kept as a documented, cross-checked capability (`crates
 `src/core/wasmCodec.ts`, `npm run check:reduce-wasm`); revisit only for a visibly-slow
 (>100 ms) raw-reduction path. Full rationale + numbers: `docs/perf-spike-findings.md`.
 **(Superseded by ADR 16 — the visibly-slow path appeared: big MicroHaskell programs.)**
+
+## 15: never assigned
 
 ## 16: Turbo — wasm resident reduction for big trees
 **Status:** Accepted (Codex consensus).
@@ -466,3 +468,10 @@ own off-DOM canvas → `Texture.from` sprite → `source.update()` per render). 
 dominates continuous-rotation frame time. If/when that happens, build it behind a sealed
 `ZeroCopySphereLayer` with SwiftShader smoke tests + pinned Three/Pixi versions — a targeted
 change, not a speculative one.
+
+## 21: The 3D view is a secondary feature, not the headline
+[docs/adr/0021-3d-is-a-secondary-feature.md](adr/0021-3d-is-a-secondary-feature.md) — **Accepted.**
+
+The packed-sphere 3D view stays exploratory, not the headline: DOM-mounted WebGL wasn't reliable
+enough in real browsers to be load-bearing, so the zoo/discovery card default to 2D and the
+full-screen 3D view is where 3D lives.

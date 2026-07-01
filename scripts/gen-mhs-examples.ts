@@ -13,8 +13,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Node, app } from "../src/core/term";
-import { named } from "../src/core/catalog";
+import { type Node } from "../src/core/term";
 import { dumpToTree, parseDump } from "../src/core/mhs";
 import { step } from "../src/core/reduce";
 import { read, render, type Ty } from "../src/core/types";
@@ -49,15 +48,13 @@ const reduceTo = (n: Node, hint: Ty): string => {
   let cur = n;
   for (let i = 0; i < 120000; i++) {
     if (i % 128 === 0 && exceeds(cur, 90000)) return "<blow-up: too big to reduce without sharing>";
-    const nx = step(cur, 0, true);
+    const nx = step(cur, true);
     if (!nx) break;
     cur = nx;
   }
   const v = read(cur, hint);
   return v ? render(v) : "<no value>";
 };
-const num = (k: number): Node => { let t = named("K"); for (let i = 0; i < k; i++) t = app(named("Succ"), t); return t; };
-
 for (const ex of EXAMPLES) {
   const dir = mkdtempSync(join(tmpdir(), "mhsex-"));
   writeFileSync(join(dir, "Ex.hs"), ex.source);
@@ -80,9 +77,8 @@ for (const ex of EXAMPLES) {
     console.log(`✗ ${ex.name}: rejected — ${res.error}`);
     continue;
   }
-  const start = ex.arg === undefined ? res.tree : app(res.tree, num(ex.arg));
   const t0 = Date.now();
-  const value = reduceTo(start, ex.read);
+  const value = reduceTo(res.tree, ex.read);
   writeFileSync(join(OUT, `${ex.name}.comb`), pruned);
   console.log(`✓ ${ex.name}: ${pruned.split("\n").length - 1} defs, ${(pruned.length / 1024).toFixed(1)}KB, value=${value} (${Date.now() - t0}ms)`);
 }

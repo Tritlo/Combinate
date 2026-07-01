@@ -15,7 +15,7 @@
 import { type Node } from "./term";
 import { type NativeOpts, NUM_OPS, LIST_OPS, BOOL_OPS, numberOp, listOp, boolOp } from "./native";
 import { normalize } from "./reduce";
-import { matchChurch, churchNum } from "./church";
+import { matchChurch, church } from "./church";
 
 export type { NativeOpts };
 
@@ -33,7 +33,7 @@ export interface Kernel {
 const KERNELS = new Map<string, Kernel>();
 
 /** Bind a named combinator to a pure native kernel. */
-export function registerKernel(sym: string, kernel: Kernel): void {
+function registerKernel(sym: string, kernel: Kernel): void {
   KERNELS.set(sym, kernel);
 }
 
@@ -71,6 +71,6 @@ registerKernel("cmod", {
     if (b === null) return null;
     const m = b === 0 ? a : a % b; // total: `a mod 0 = a` (the gcd answer never hits it; avoids a stuck term)
     if (m > MAX_CHURCH) return null;
-    return churchNum(m);
+    return church(m);
   },
 });

@@ -9,6 +9,8 @@
  * The `theme` object is mutated in place and every view reads `theme.*` at render
  * time, so a re-render (hotbar/zoo/tree refresh) repaints in the active scheme.
  */
+import { vendorUrl } from "../vendorUrl";
+
 export interface Theme {
   bg: number; // canvas (paper)
   panel: number; // cards, slots, toast
@@ -88,7 +90,7 @@ export function edgeTierColor(depth: number): number {
 }
 
 /** The OS preference, defaulting to dark when unavailable. */
-export function systemMode(): Mode {
+function systemMode(): Mode {
   return typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
 }
 
@@ -166,7 +168,7 @@ function apply(): void {
 }
 
 /** Switch mode explicitly (a manual toggle pins the choice over OS changes). */
-export function setMode(m: Mode): void {
+function setMode(m: Mode): void {
   userOverride = true;
   mode = m;
   apply();
@@ -199,4 +201,31 @@ export function initTheme(): void {
 /** Register a callback to run after every theme change (for a full re-render). */
 export function onThemeChange(cb: () => void): void {
   listeners.push(cb);
+}
+
+// ---- Shared DOM/Pixi chrome: the mono font stack, the once-injected IoskeleyMono @font-face, and
+// the tricolor paper/ink pair, which every System-1 overlay (menu bar, modals, quest, hotbar, …)
+// used to redeclare on its own. The pair is fixed mono chrome — independent of Colour mode, unlike
+// theme.bg/theme.border above. ----
+export const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
+
+/** The tricolor paper/ink pair as CSS hex strings, for a DOM overlay's own palette record. */
+export const PAPER: Record<Mode, string> = { light: "#ffffff", dark: "#07090d" };
+export const INK: Record<Mode, string> = { light: "#000000", dark: "#f0f3f6" };
+
+/** {@link PAPER}/{@link INK} as 24-bit ints, for Pixi chrome that's always mono regardless of
+ *  Colour mode (the hotbar / hint-bar tooltip). */
+export function paperInk(): { paper: number; ink: number } {
+  return mode === "dark" ? { paper: 0x07090d, ink: 0xf0f3f6 } : { paper: 0xffffff, ink: 0x000000 };
+}
+
+let fontInjected = false;
+/** Inject the IoskeleyMono `@font-face` once (idempotent) — call from any overlay's own
+ *  once-injected stylesheet before using {@link MONO}. */
+export function ensureFont(): void {
+  if (fontInjected) return;
+  fontInjected = true;
+  const style = document.createElement("style");
+  style.textContent = `@font-face { font-family: 'IoskeleyMono'; src: url('${vendorUrl("vendor/fonts/IoskeleyMono-Regular.woff2")}') format('woff2'); font-display: swap; }`;
+  document.head.appendChild(style);
 }

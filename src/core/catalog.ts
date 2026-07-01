@@ -1,4 +1,5 @@
 import { type Node, type NodeId, app, comb, decode, freeVar, iotaTreeFrom } from "./term";
+import { bracket } from "./church";
 
 /**
  * Canonical ι-tree bit-codes (§4) for the combinators that can appear transient
@@ -57,25 +58,8 @@ const C = (): Node => app(app(S(), app(app(S(), app(K(), B())), S())), app(K(), 
 const M = (): Node => app(app(S(), I()), I()); // S I I = ω
 
 // ---- bracket abstraction: compile a λ-body over named vars to a closed SKI term
-// (the standard algorithm + η). Lets each bird's `def` be derived from its law,
-// so it is correct by construction. ----
-function occurs(name: string, n: Node): boolean {
-  switch (n.kind) {
-    case "free":
-      return n.name === name;
-    case "app":
-      return occurs(name, n.fn) || occurs(name, n.arg);
-    default:
-      return false;
-  }
-}
-function bracket(name: string, t: Node): Node {
-  if (t.kind === "free" && t.name === name) return I(); // [x] x = I
-  if (!occurs(name, t)) return app(K(), t); // [x] t = K t   (x ∉ t)
-  const a = t as Extract<Node, { kind: "app" }>;
-  if (a.arg.kind === "free" && a.arg.name === name && !occurs(name, a.fn)) return a.fn; // η
-  return app(app(S(), bracket(name, a.fn)), bracket(name, a.arg)); // [x](M N) = S [x]M [x]N
-}
+// (the standard algorithm + η, shared with church.ts). Lets each bird's `def` be
+// derived from its law, so it is correct by construction. ----
 const VARS = ["x", "y", "z", "w", "v", "u"];
 /** Bracket-abstract a λ-body over `arity` fresh variables `x y z …` into a closed
  *  S/K/I term — the standard algorithm + η. Used to derive each bird's `def` from
@@ -279,7 +263,7 @@ export const CATALOG: Law[] = [
     args: (v) => [app(K(), v[0])],
     reference: (v) => v[0],
     rule: yRule,
-    def: () => app(app(B(), M()), app(app(C(), B()), M())), // B M (C B M)
+    def: Yc, // B M (C B M) — the same fixed-point combinator recDef folds recursive birds over
   },
   bird("Z", "Z x y z = x y", 3, (v) => app(v[0], v[1])), // Zebra Finch (drops its 3rd arg, = B K)
   bird("Z2", "Z2 x y z w = x y z", 4, (v) => app(app(v[0], v[1]), v[2])), // Zebra Dove (= B Z)
@@ -392,7 +376,7 @@ export const META: Record<string, Meta> = {
 
 /** A combinator as it appears on a page: its symbol, an optional topic alias
  *  (e.g. "True" for K) and a one-line note on the role it plays there. */
-export interface PageEntry {
+interface PageEntry {
   sym: string;
   alias?: string;
   role?: string;

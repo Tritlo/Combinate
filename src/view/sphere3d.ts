@@ -8,8 +8,8 @@
  * echo of TreeView.animateTo), each render firing {@link onFrame} so the owner re-uploads. The camera is a small
  * orbit driven by the host's Pixi pointer events ({@link orbit} / {@link zoomBy}) — no
  * OrbitControls, since the canvas isn't in the DOM. Three is dynamic-imported on first entry
- * (the lazy-heavy pattern); WebGL by default, WebGPU when the optimization is on (it auto-falls-
- * back to WebGL2), so headless/CI stays on WebGL.
+ * (the lazy-heavy pattern); WebGL only — WebGPU was dropped as not worth the maintenance/
+ * portability cost for this static scene, so headless/CI stays on WebGL.
  */
 import type * as T from "three";
 import { type Node } from "../core/term";
@@ -41,6 +41,8 @@ const MORPH_MAX_DT = 50;
 const EDGE_OPACITY = 0.85; // edges more opaque than before so the fn/arg cue reads (ADR 20 follow-up)
 const DASH_SIZE = 16; // arg (right) edges are DASHED, fn (left) solid — the 3D echo of the 2D solid/dashed legend
 const GAP_SIZE = 11; // (layout shells are ~92 units apart, so ~3 dashes per edge)
+const FRAME_MARGIN = 1.6; // camera pull-back factor when framing (smaller = the ball fills more of the view)
+const FRAME_FLOOR = 120; // min framing radius (keeps a tiny tree from clipping)
 
 type Pos3 = { x: number; y: number; z: number };
 // One node's tween across a reduction step: instance slot, from→to position, base radius, scale 0/1.
@@ -127,9 +129,6 @@ export class Sphere3D {
   lastBuildMs = 0;
   lastDrawMs = 0; // wall-clock of the last orbit render + texture re-upload (the per-frame cost)
   lastMorphFrameMs = 0; // CPU cost of the last advanceMorph frame (matrices + edge rewrite + dash recompute), excl. the GPU draw — the metric the MORPH_CAP is tuned against
-  bg: number | null = null; // scene background override (the preview matches its box); null = theme.bg
-  frameMargin = 1.6; // camera pull-back factor when framing (smaller = the ball fills more of the view)
-  frameFloor = 120; // min framing radius (keeps a tiny tree from clipping; the preview lowers it to fill its box)
   drawCount = 0; // renders since boot (dev seam: confirms the morph render loop actually advanced)
   private layout3: Layout3Fn = layoutHTree3D; // the active 3D layout (cubic H-tree by default; sphere via setLayout3 for radial)
   private lastPos = new Map<number, Pos3>(); // currently-displayed node positions — the next morph's `from`
@@ -190,7 +189,7 @@ export class Sphere3D {
     this.morph = null; // an external rebuild (theme / Expand / discovery / settle) supersedes any in-flight morph; its group is disposed below
     if (!this.on || !THREE || !this.scene) return;
     const three = THREE;
-    this.scene.background = new three.Color(this.bg ?? theme.bg);
+    this.scene.background = new three.Color(theme.bg);
     if (this.content) {
       this.disposeGroup(this.content);
       this.scene.remove(this.content);
@@ -556,10 +555,10 @@ export class Sphere3D {
   // Frame the whole ball: pull the camera back so a sphere of `radius` fills the view.
   private frame(radius: number): void {
     if (!this.camera) return;
-    const r = Math.max(radius, this.frameFloor);
+    const r = Math.max(radius, FRAME_FLOOR);
     this.lastRadius = radius;
     this.target = { x: 0, y: 0, z: 0 }; // re-centre the look-at on the ball
-    this.rad = (r * this.frameMargin) / Math.tan((this.camera.fov * Math.PI) / 360);
+    this.rad = (r * FRAME_MARGIN) / Math.tan((this.camera.fov * Math.PI) / 360);
     this.az = 0.6;
     this.pol = 1.05;
     this.camera.near = Math.max(0.1, this.rad / 1000);

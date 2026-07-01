@@ -37,6 +37,14 @@ Copyright (c) 2013–2023 Mathew Groves, Chad Engler. <https://pixijs.com>
 Bundled as the rendering engine. Full text:
 [`licenses/Pixi.js-MIT.txt`](licenses/Pixi.js-MIT.txt).
 
+### Three.js — MIT
+
+Copyright © 2010–2026 three.js authors. <https://threejs.org>
+
+Bundled (lazy-loaded on first 3D entry) as the renderer for the 3D "packed
+sphere" view. Full text:
+[`licenses/Three.js-MIT.txt`](licenses/Three.js-MIT.txt).
+
 ### IoskeleyMono — SIL Open Font License 1.1
 
 Copyright (c) 2025 Ahmed Hatem. <https://github.com/ahatem/IoskeleyMono>

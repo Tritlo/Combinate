@@ -24,14 +24,6 @@ const write = (k: string, v: unknown): void => {
 };
 
 export class LocalStore implements Store {
-  async getDiscovered(): Promise<string[]> {
-    return read<string[]>("discovered", []);
-  }
-  async addDiscovered(sym: string): Promise<void> {
-    const s = new Set(read<string[]>("discovered", []));
-    s.add(sym);
-    write("discovered", [...s]);
-  }
   async getDefinitions(): Promise<Definition[]> {
     return read<Definition[]>("definitions", []);
   }

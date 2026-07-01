@@ -1,5 +1,10 @@
 # iota-render — an interactive iota combinator sandbox
 
+> **Status: HISTORICAL.** The original build spec (phases 0-3). MicroHs-via-WASM (§11) is no
+> longer a later phase — it's a submodule now, and live in-browser compile shipped in v8
+> (ADR 0007). Kept for the ι-cycle/sandbox semantics it still documents; not maintained
+> against later features.
+
 A drag-and-drop game for building, reducing, and **discovering** combinators out of a
 single primitive: **ι (iota)**. You start with nothing but ι in a Minecraft-style
 hotbar, drag copies onto a canvas, snap them together into application trees, reduce

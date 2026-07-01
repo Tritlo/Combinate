@@ -1,11 +1,11 @@
-# 20. The 3D view is a secondary feature, not the headline
+# 21. The 3D view is a secondary feature, not the headline
 
-The packed-sphere 3D view (plan 06) is a fun, exploratory feature — **not the end goal**. It is
+The packed-sphere 3D view is a fun, exploratory feature — **not the end goal**. It is
 brittle: DOM-mounted WebGL didn't render reliably in real browsers (the discovery card had to drop
 to a 2D drawing), and the per-step reduction morph caps at 600 nodes. So we constrain 3D to the
 dedicated full-screen 3D view; the **zoo creature picture and the discovery card default to 2D**
-(the zoo keeps an opt-in 3D toggle). The core experience stays 2D, where it is robust. Keep 3D lean;
-don't make anything load-bearing depend on it.
+(the zoo's opt-in 3D toggle was later removed — 2D only, there). The core experience stays 2D,
+where it is robust. Keep 3D lean; don't make anything load-bearing depend on it.
 
 ## Left/right in 3D
 

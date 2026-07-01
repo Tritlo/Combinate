@@ -75,7 +75,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // pixels (e.g. 3× on iPhones, ~2.25× the work) aren't perceptible but cost fps.
   await pixi.init({ background: theme.bg, resizeTo: window, antialias: true, resolution: Math.min(window.devicePixelRatio || 1, 2), autoDensity: true });
   document.body.appendChild(pixi.canvas);
-  onStep("renderer"); // splash step 1/3
+  onStep("renderer"); // splash step 1/4
 
   const world = new Container();
   const ghostLayer = new Container();
@@ -175,7 +175,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       /* malformed stored definition — drop it */
     }
   }
-  onStep("catalog"); // splash step 2/3
+  onStep("catalog"); // splash step 2/4
 
   // The read-out lens (ADR 12): the focused tree's live expression in the read-out box, with the
   // cyclable views + the orthogonal type badge. Owns the lens state, `exprOf`, and the per-frame
@@ -191,7 +191,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   });
   void readout.ensureRefolder(true); // load the re-folder wasm at boot (no lazy load); quiet — a missing wasm just keeps the behavioural fallback
 
-  // Layout: top-down by default; T toggles the radial view (§5.1).
+  // Layout: auto by default (§5.1); the other layouts are reachable via the View menu or
+  // toggleLayout() (the __combinate.toggleLayout dev seam) — no key is bound to either.
   let layoutFn: LayoutFn = layoutAuto;
   let layoutControls: LayoutControls | undefined; // the top-right toggle bar (wired once the shell is built)
 
@@ -208,7 +209,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   window.addEventListener("keydown", unlockAudio, { once: true });
   const zoo = new Zoo(isDiscovered, (sym) => sound.play(sym)); // added to the HUD last (below) so it overlays everything
 
-  // Reveal every combinator at once (the "U" cheat key + the Zoo unlock).
+  // Reveal every combinator at once (the Edit-menu "Unlock All Combinators" item + the dev seam).
   function unlockAll(): void {
     for (const law of CATALOG) discovered.add(law.sym);
     saveDiscovered();
@@ -287,7 +288,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
 
   // Register a freshly-authored combinator: append it to the catalog, persist it,
-  // reveal it in the hotbar, and seed the Zoo. Shared by Define and Abstract.
+  // reveal it in the hotbar, and seed the Zoo. Used by Define.
   function register(name: string, body: Node): Law {
     const law = defineCombinator(name, body);
     discovered.add(name);
@@ -374,9 +375,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       // reschedules the focus via onOptChange.
       if (!isOpt("rules")) {
         setOpt("rules", true);
-        setOpt("nativeNumbers", true);
-        setOpt("nativeLists", true);
-        setOpt("nativeBooleans", true);
+        setAllNative(true);
         return "Rule-based + native reduction";
       }
       if (!isOpt("graph")) { setOpt("graph", true); return "Graph reduction"; }
@@ -824,7 +823,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     fitStage();
     hotbar.layout();
     placeLegend();
-    transportBar.place();
     positionPhoneOverlays();
     placeFps();
     toast.layout();
@@ -857,7 +855,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   /** Wipe all persisted player progress — quest stage + tracker, discovered combinators, and
    *  user-defined combinators (the `Store`'s `definitions`) — behind a confirm, then reload for a
    *  clean slate (the simplest correct reset). Prefix-matched so a future store-key version bump
-   *  still clears. */
+   *  still clears. Known gap: under `?store=duckdb` definitions live in DuckDB, not localStorage,
+   *  so they survive this reset. */
   function resetProgression(): void {
     if (!confirm("Reset all progress? This permanently clears your quest, discovered combinators, and custom combinators.")) return;
     for (const k of Object.keys(localStorage)) {
@@ -898,7 +897,11 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
     layoutControls?.refresh();
   };
-  // T cycles auto → top-down → radial → H-tree → auto.
+  // The active layout's name (layoutControls' toggle bar + the dev seam's mode()).
+  const layoutName = (): "auto" | "topdown" | "radial" | "htree" =>
+    layoutFn === layoutAuto ? "auto" : layoutFn === layoutTopDown ? "topdown" : layoutFn === layoutRadial ? "radial" : "htree";
+  // Cycles auto → top-down → radial → H-tree → auto. No key is bound to this — reachable only
+  // via the __combinate.toggleLayout dev seam.
   function toggleLayout(): void {
     setLayoutMode(
       layoutFn === layoutAuto
@@ -1008,25 +1011,28 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   hintBar.setShowControls(showControls);
   syncControls();
   updateHints();
+  // The three native-value opts presented as one toggle: on iff all three are on; flips all three.
+  // Declared here (not just before the Optimizations menu) because LayoutControls' "Primitives"
+  // cell reads it immediately on construction, below.
+  const NATIVE_KEYS = ["nativeNumbers", "nativeLists", "nativeBooleans"] as const;
+  const nativeAllOn = (): boolean => NATIVE_KEYS.every((k) => isOpt(k));
+  const setAllNative = (on: boolean): void => {
+    for (const k of NATIVE_KEYS) setOpt(k, on);
+  };
   // The top-right layout toggle bar (under the transport): [2D|3D], [Top-Down|Radial|H-tree], [Auto].
   layoutControls = new LayoutControls({
     is3D: () => sphere.active(),
     set3D: (on) => {
       if (on !== sphere.active()) sphere.toggle();
     },
-    layout: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutTopDown ? "topdown" : layoutFn === layoutRadial ? "radial" : "htree"),
+    layout: () => layoutName(),
     setLayout: (k) => setLayoutMode(k === "auto" ? layoutAuto : k === "topdown" ? layoutTopDown : k === "radial" ? layoutRadial : layoutHTree),
     iotaTree: () => expandAll,
     toggleIotaTree: () => toggleExpand(),
-    opt: (k) =>
-      k === "primitives" ? isOpt("nativeNumbers") && isOpt("nativeLists") && isOpt("nativeBooleans") : k === "turbo" ? isOpt("wasm") : isOpt(k),
+    opt: (k) => (k === "primitives" ? nativeAllOn() : k === "turbo" ? isOpt("wasm") : isOpt(k)),
     toggleOpt: (k) => {
-      if (k === "primitives") {
-        const next = !(isOpt("nativeNumbers") && isOpt("nativeLists") && isOpt("nativeBooleans"));
-        setOpt("nativeNumbers", next);
-        setOpt("nativeLists", next);
-        setOpt("nativeBooleans", next);
-      } else if (k === "turbo") setOpt("wasm", !isOpt("wasm"));
+      if (k === "primitives") setAllNative(!nativeAllOn());
+      else if (k === "turbo") setOpt("wasm", !isOpt("wasm"));
       else setOpt(k, !isOpt(k)); // rules | graph
     },
     transportEl: transportBar.el, // hosted inside the Controls card on phones
@@ -1042,8 +1048,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   positionPhoneOverlays();
   // Gamepad: a third input producer (polled from the ticker), routed by the active context.
   new GamepadController(pixi.ticker, {
-    // Always poll: the pad is always live (2D Build / 3D Inspect); Y enters/exits 3D either way.
-    enabled: () => true,
     context: () => (sphere.active() ? "inspect" : "build"),
     dispatch: (i) => dispatchPadIntent(i),
     leftStick: (sx, sy, dt) => {
@@ -1138,9 +1142,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const s = OPT_SETTINGS.find((o) => o.key === key)!;
     return { kind: "toggle", label: s.label, title: s.desc, checked: () => isOpt(key), run: () => setOpt(key, !isOpt(key)) };
   };
-  // The three native-value opts presented as one toggle: on iff all three are on; flips all three.
-  const NATIVE_KEYS = ["nativeNumbers", "nativeLists", "nativeBooleans"] as const;
-  const nativeAllOn = (): boolean => NATIVE_KEYS.every((k) => isOpt(k));
   const menus: Menu[] = [
     { title: "ι", apple: true, items: [
       { kind: "action", label: "How to Play…", title: "The basics: drag ι, snap trees, watch them reduce.", run: () => help.open() },
@@ -1184,7 +1185,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     { title: "Optimizations", items: [
       optItem("rules"),
       optItem("graph"),
-      { kind: "toggle", label: "Primitives", title: "Compute catalog numbers, lists, and booleans on recognised native values directly.", checked: () => nativeAllOn(), run: () => { const next = !nativeAllOn(); for (const k of NATIVE_KEYS) setOpt(k, next); } },
+      { kind: "toggle", label: "Primitives", title: "Compute catalog numbers, lists, and booleans on recognised native values directly.", checked: () => nativeAllOn(), run: () => setAllNative(!nativeAllOn()) },
       optItem("wasm"),
     ] },
   ];
@@ -1449,9 +1450,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     c.addChild(l1, l2, l3);
   }
 
-  // The re-folding lens wasm loads lazily on first entry to the "named + native" read-out view
-  // (an opt-in lens now), so there's no startup fetch here; the behavioural-only re-folder bridges
-  // until the egg stage arrives.
+  // The re-folding lens wasm is already loading (readout.ensureRefolder(true), fired at boot above);
+  // the behavioural-only re-folder bridges until it's ready.
   if (isOpt("wasm")) void loadWasmReducer(); // persisted Turbo → warm the wasm so the first reduction uses it
   void preloadSphere3D(); // warm the Three.js chunk so the first 3D view is instant
   onStep("lenses"); // splash step 3/4
@@ -1481,7 +1481,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       discovered: () => [...discovered],
       discover: (sym: string) => { const l = CATALOG.find((x) => x.sym === sym); if (l) discover(l); }, // dev seam: fire the discovery flow (card + chirp)
       place: (sym: string, x: number, y: number) => spawnTree(spawnFor(sym), x, y).rootWorld, // dev seam: place a (non-reducing) combinator tree at a screen point (drag/snap harness)
-      mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : layoutFn === layoutHTree ? "htree" : "topdown"),
+      mode: () => layoutName(),
       toggleLayout: () => toggleLayout(),
       view3d: { on: () => sphere.active(), toggle: () => sphere.toggle(), info: () => sphere.info(), morph: () => sphere.debugMorph() },
       transport: { mode: () => reduce.mode, set: (m: string) => reduce.setTransport(m as Transport), cycle: () => reduce.cycleTransport(), step: () => reduce.stepOnce() },

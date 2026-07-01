@@ -3,8 +3,8 @@
 **Status:** accepted
 
 The app reduces terms to raw SKI/ι normal forms that are unreadable. We add a
-**re-folder** that recovers a named reading (`S (K S) K → B`). Per PLAN.md it is
-a general re-sugarer, not just a value reader.
+**re-folder** that recovers a named reading (`S (K S) K → B`) — a general
+re-sugarer, not just a value reader.
 
 **Decision.** Build it as a Rust crate (`crates/refold/`) using the `egg`
 e-graph library, compiled to WASM, rather than hand-rolling an e-graph in TS.

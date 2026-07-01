@@ -37,9 +37,10 @@ render Scott numerals as glyphs/strings.
   (`nix/build-wasm.sh`, "route 2" — see *Live compile* below). Functional and
   verified, but **slow** (~1–2 min: it recompiles the Prelude from embedded source
   each time). The gallery is the instant path.
-- **Vendoring (ADR 0008-adjacent):** `scripts/vendor-wasm.sh` copies the DuckDB
-  engine + the MicroHs blob into `public/vendor/` (git-ignored); served from our own
-  origin, CDN-swappable later.
+- **Vendoring (ADR 0008-adjacent):** the MicroHs blob is built + vendored into
+  `public/vendor/` (git-ignored) and hosted on the `vendor-assets` GitHub Release,
+  fetched by CI (`scripts/vendor-wasm.sh` since removed; see CLAUDE.md's
+  vendor-assets flow); DuckDB is loaded from the jsDelivr CDN instead, unvendored.
 
 **Graph sharing — resolved (v7.0).** The sandbox reducer cloned rather than shared,
 making Scott `×`-recursion exponential (`fac 4+` blew up). An opt-in `graph` toggle
