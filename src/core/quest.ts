@@ -54,12 +54,41 @@ function blurbOf(intro: string | string[]): string {
   return stop > 0 ? text.slice(0, stop + 1) : text.slice(0, 160);
 }
 
+/** Combinate-authored hints for SKI-Quest stages that shipped without one, keyed by puzzle id
+ *  (chapters 2–4 so far). Each is a nudge toward the approach — not the term — matching the voice +
+ *  spoiler level of the puzzles' own hints; the Prologue keeps the tutorial-level spoilers. */
+const HINT_OVERRIDES: Record<string, string> = {
+  // Ch 2 · Baby steps
+  UZdEyeiN: "This is composition; make S's left branch ignore the extra x.", // Join em!
+  DADG8des: "Reuse the Join em shape twice: first h into g, then into f.", // Join em harder
+  VbnUGtfn: "Use S: one branch keeps f, the other supplies the fixed x.", // Feeding a birdie
+  T89a9q7G: "Peel off the ignored arguments with K until an I is waiting.", // May the force be with you
+  "4LmjXm1E": "Use S so y reaches f, while K keeps x fixed.", // Between the rock and a hard place
+  hiwf2WWz: "Let M make the first double; the other branch leaves x alone.", // Triplication
+  fvQITKZd: "Use S to duplicate y: one copy acts, the other feeds x.", // A parliament of owls
+  // Ch 3 · Swing, swing!
+  zhxYRTMO: "Keep x aside with K, then let the next argument call it.", // Mirror image
+  LAhD47Yg: "After x arrives, let S feed the next argument to both x and I.", // What you like, do once more!
+  cKg6FHW9: "Hide M behind K, so x x waits for the second argument.", // K forte
+  WiTB9Xy0: "Compose T one level deeper: make y z before swinging x behind.", // Round Robin
+  Qq7dQfBW: "Build x z first, then use T to place y after it.", // Éminence grise (Cardinal)
+  glGifOC9: "Compose Cardinal with Thrush: first swap, then flip the last pair.", // Double patience (Vireo)
+  WhYIkSJR: "Use V to put d before a and b, then append c.", // The trident of Poseidon
+  // Ch 4 · The BCKW forest
+  EERaTEWg: "W needs two identical inputs; feed it a K.", // Where am I? (build I)
+  DZgmxmiQ: "One B builds z t; another feeds that result to x y.", // Dove
+  "2LpsCjKe": "W can duplicate a; then route b as both caller and final argument.", // The Turing bird
+  fGRC4aUm: "Discard b, swap d before c, and duplicate a at the front.", // ADAC
+  NPQ1PIwx: "Duplicate c: one copy builds b c, the other feeds a.", // Can't think of a name
+  SDFiIPyt: "W duplicates z; B builds the two branches, C fixes their order.", // The way back home (build S)
+};
+
 function toStage(p: Puzzle): QuestStage {
   return {
     id: p.id,
     name: p.name,
     intro: asLines(p.intro),
-    hint: p.hint,
+    hint: p.hint ?? HINT_OVERRIDES[p.id],
     goal: makeGoal(p),
     unlock: p.unlock && CATALOG_SYMS.has(p.unlock) ? p.unlock : undefined,
   };
