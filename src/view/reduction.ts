@@ -32,11 +32,12 @@ const HEAVY_TS_BUDGET_MS = 6; // wall-clock spent building contractions per batc
 // budget; the step cap keeps churn perceptible yet far faster than one tween/step.
 const INCR_BUDGET_MS = 6;
 const INCR_MAX_STEPS = 400; // steps per reflow (× speed level)
-// Ceiling on the LIVE-rendered incremental tree. A raw term can balloon without bound (quicksort
-// clones via S); past this it is too big to redraw every frame even incrementally, so it hands back
-// to the background path (reduce undrawn, reflow when small) — the frozen snapshot stays on screen.
-// Above HEAVY_RENDER_CAP so trees in the 2.5k–8k band still render live.
-const INCR_RENDER_CAP = 8000;
+// Ceiling on the LIVE-rendered incremental tree (LOGICAL nodes; display expansion of S/K/I roughly
+// doubles the drawn particle count). A raw term can balloon without bound (quicksort clones via S);
+// past this it is too big to redraw every frame even incrementally — the per-frame particle/edge
+// upload is O(rendered) — so it hands back to the background path (reduce undrawn, reflow when small)
+// and the frozen snapshot stays on screen. Above HEAVY_RENDER_CAP so the 2.5k–4k band still renders live.
+const INCR_RENDER_CAP = 4000;
 // A raw (unshared) reduction can balloon without bound (quicksort duplicates subterms via the S rule);
 // once a single contraction would deep-clone a term this big, ONE `build()` blocks a frame. Past this,
 // pause cleanly ("try Graph/Turbo", which share and don't clone) rather than freeze on a giant copy.
