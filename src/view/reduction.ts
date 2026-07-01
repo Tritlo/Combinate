@@ -530,7 +530,6 @@ export class ReductionController {
     let node = tree.node;
     let sym: string | null = null;
     let nf = false;
-    let ballooned = false;
     let stepped = 0;
     const maxSteps = INCR_MAX_STEPS * this.mult;
     const start = performance.now();
@@ -539,10 +538,6 @@ export class ReductionController {
         tree.commitIncremental();
         this.autoPause(`won't settle after ${a.steps} steps — try Graph reduction (Optimizations menu)`);
         return;
-      }
-      if (exceedsNodes(node, BALLOON_CAP)) {
-        ballooned = true;
-        break;
       }
       const patch = stepWithPatch(node, 0, fast, native);
       if (!patch) {
@@ -578,10 +573,8 @@ export class ReductionController {
     }
     tree.commitIncremental();
     this.deps.tickSound(sym); // one tone per batch (a heavy term can't sonify every contraction)
-    if (ballooned) {
-      this.autoPause("term is ballooning — try Graph reduction or Turbo (Optimizations menu)");
-      return;
-    }
+    // No balloon check here: a contraction past INCR_RENDER_CAP hands off to stepHeavyTs (above), which
+    // owns the single balloon→escalate ladder — long before the (far larger) BALLOON_CAP is reachable.
     if (nf) {
       this.finishNormalForm(tree, a);
       return;
