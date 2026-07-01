@@ -149,31 +149,17 @@ export function countNodes(root: Node): number {
  * the shrink stays below 1/√2 sibling subtrees never overlap, so no subtree-spacing pass is needed.
  * The initial arm scales with the node count (bigger terms start with a longer arm). Root at (0, 0).
  */
-/** Shortest arm target (px). A hair longer than a combinator node's diameter (~30), so the deepest
- *  arms never shrink under the glyphs — the "shortest line looks unnatural next to the node" fix.
- *  Also the arm at which a node's glyph reaches full size (below it, the node shrinks with the arm). */
+/** The arm length (px) at which a node's glyph reaches full size; where arms are shorter (deep in the
+ *  tree) the node shrinks WITH its arm, so a short arm never looks unnatural next to the glyph. */
 export const HTREE_MIN_ARM = 42;
 /** Floor on the per-node glyph scale so a very deep tip never vanishes entirely. */
 export const HTREE_MIN_NODE_SCALE = 0.28;
 
 export function layoutHTree(root: Node): Layout {
-  // Deepest application (first-visit, DAG-safe) — the arm shrink bottoms out here.
-  const seen = new Set<NodeId>();
-  let maxAppDepth = 0;
-  const measure = (n: Node, d: number): void => {
-    if (seen.has(n.id)) return;
-    seen.add(n.id);
-    if (n.kind === "app") {
-      maxAppDepth = Math.max(maxAppDepth, d);
-      measure(n.fn, d + 1);
-      measure(n.arg, d + 1);
-    }
-  };
-  measure(root, 0);
-  // Scale the initial arm so the SHORTEST arm (at the deepest application) lands near HTREE_MIN_ARM
-  // regardless of depth — this ratio is invariant under camera zoom, since nodes scale with the
-  // world. Clamped so a huge tree still frames and a shallow one isn't blown up.
-  const L0 = Math.min(4000, Math.max(180, HTREE_MIN_ARM / HTREE_SHRINK ** maxAppDepth));
+  // Modest initial arm, scaled by node count — the tree stays COMPACT (no giant span / zoom-out).
+  // Deep tips are kept legible by shrinking the NODES to their arm (the `scale` map below), NOT by
+  // inflating L0, so we make our peace with tiny-but-proportional deep detail.
+  const L0 = 80 + 40 * Math.log2(countNodes(root) + 2);
   const pos = new Map<NodeId, Pos>();
   const scale = new Map<NodeId, number>();
   const place = (node: Node, x: number, y: number, depth: number): void => {
