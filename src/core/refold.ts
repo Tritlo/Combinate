@@ -37,7 +37,9 @@ export function toEgg(n: Node): string {
 function leaf(atom: string): Node {
   if (atom === "iota") return iota();
   const sym = tokToSym(atom);
-  const law = LAW.get(sym);
+  // `LAW` is a load-time snapshot; fall back to the live catalog so player-authored
+  // combinators (Add Rule / Define, pushed at runtime) round-trip as named nodes.
+  const law = LAW.get(sym) ?? CATALOG.find((l) => l.sym === sym);
   if (law) return comb(sym, law.def?.(), law.arity);
   return freeVar(atom);
 }

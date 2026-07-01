@@ -348,7 +348,7 @@ export class ReductionController {
     // Non-termination guard. Graph mode shares, so it does far fewer, far cheaper steps and
     // can finish reductions the tree reducer can't (fac-scale) — give it a much higher ceiling.
     if (a.steps >= (share ? GRAPH_STEP_CAP : STEP_CAP)) {
-      this.autoPause(share ? `no normal form after ${a.steps} steps` : `won't settle after ${a.steps} steps — try Graph reduction (Reduce menu)`);
+      this.autoPause(share ? `no normal form after ${a.steps} steps` : `won't settle after ${a.steps} steps — try Graph reduction (Optimizations menu)`);
       return;
     }
 

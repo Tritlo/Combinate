@@ -41,6 +41,24 @@ export const app = (fn: Node, arg: Node): Node => ({ id: freshId(), kind: "app",
  * behavioural probe (§7.1) to test what a term does to fresh arguments. */
 export const freeVar = (name: string): Node => ({ id: freshId(), kind: "free", name });
 
+/**
+ * Deep-copy a term, minting a FRESH id for every node so the copy is fully independent of the
+ * original (the Copy action duplicates a subtree this way). A combinator's `def` body — an
+ * immutable display-only ι-expansion — is shared, not re-minted.
+ */
+export function cloneTerm(n: Node): Node {
+  switch (n.kind) {
+    case "iota":
+      return iota();
+    case "comb":
+      return comb(n.sym, n.def, n.arity);
+    case "free":
+      return freeVar(n.name);
+    case "app":
+      return app(cloneTerm(n.fn), cloneTerm(n.arg));
+  }
+}
+
 /** Parse Barker prefix bit-code (§3.2: `1` = ι, `0 <fn> <arg>` = app) into a term. */
 export function decode(code: string): Node {
   let i = 0;
