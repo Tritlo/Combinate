@@ -1480,6 +1480,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       roots: () => trees.map((t) => t.rootWorld),
       discovered: () => [...discovered],
       discover: (sym: string) => { const l = CATALOG.find((x) => x.sym === sym); if (l) discover(l); }, // dev seam: fire the discovery flow (card + chirp)
+      place: (sym: string, x: number, y: number) => spawnTree(spawnFor(sym), x, y).rootWorld, // dev seam: place a (non-reducing) combinator tree at a screen point (drag/snap harness)
       mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : layoutFn === layoutHTree ? "htree" : "topdown"),
       toggleLayout: () => toggleLayout(),
       view3d: { on: () => sphere.active(), toggle: () => sphere.toggle(), info: () => sphere.info(), morph: () => sphere.debugMorph() },
