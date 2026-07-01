@@ -368,7 +368,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     getShare: () => shareMode,
     getNative: () => nativeOpts(),
     getTurbo: () => isOpt("wasm"),
-    makeSession: (term) => (wasmReady() ? new WasmSession(term, nativeOpts()) : null),
+    makeSession: (term) => (wasmReady() ? new WasmSession(term, nativeOpts(), fastMode) : null), // Turbo honours rules (fast) + native
     focusedLive: () => (focus && trees.includes(focus) ? focus : null),
     settle: (tree) => settle(tree),
     onNormalForm: (source) => {
@@ -1272,6 +1272,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (key === "rules") {
       fastMode = isOpt("rules");
       reduce.invalidateGraphers(); // graphers bake `fast` at construction
+      reduce.invalidateSessions(); // a wasm session bakes `fast` too → rebuild it under the new mode
       if (focus) reduce.schedule(focus); // reschedule → reset the step count + re-estimate in the new mode (consistent bar)
     } else if (key === "graph") {
       shareMode = isOpt("graph");
