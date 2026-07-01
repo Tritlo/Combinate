@@ -9,6 +9,7 @@
  * System-1 chrome throughout: an ink track, the selected cell a paper slider.
  */
 import { currentMode, onThemeChange, type Mode, MONO, PAPER, INK } from "./theme";
+import { MENUBAR_HEIGHT } from "./menubar";
 
 /** The layout the view row picks between — the three explicit ones plus Auto. */
 export type LayoutKey = "auto" | "topdown" | "radial" | "htree";
@@ -41,7 +42,7 @@ function injectStyles(): void {
   if (stylesInjected) return;
   stylesInjected = true;
   const css = `
-.lc-root { position: fixed; top: 52px; right: 16px; z-index: 41; font-family: ${MONO}; }
+.lc-root { position: fixed; top: ${MENUBAR_HEIGHT + 46}px; right: 16px; z-index: 41; font-family: ${MONO}; }
 .lc-title { display: none; }
 .lc-body { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
 .lc-row { display: flex; gap: 8px; align-items: stretch; }
@@ -61,11 +62,9 @@ function injectStyles(): void {
 .lc-root.lc-phone .lc-title span { flex: 1; }
 .lc-root.lc-phone .lc-body { padding: 9px; gap: 8px; }
 .lc-root.lc-phone.lc-collapsed .lc-body { display: none; }
-/* Host the transport (speed controls) in the card: static, and its segments/cells grow to fill the
-   row with the same uniform 8px gaps as the toggle rows. */
+/* Host the transport (speed controls) in the card: static, full width (its segments/cells already
+   grow to fill — see transportBar.ts — with the same uniform 8px gaps as the toggle rows). */
 .lc-root.lc-phone .tp-root { position: static; box-shadow: none; width: 100%; }
-.lc-root.lc-phone .tp-seg, .lc-root.lc-phone .tp-rate { flex: 1 1 auto; }
-.lc-root.lc-phone .tp-cell { flex: 1 1 0; width: auto; }
 `;
   const style = document.createElement("style");
   style.textContent = css;
@@ -174,6 +173,7 @@ export class LayoutControls {
     onThemeChange(() => this.applyPalette());
     window.addEventListener("resize", () => this.syncPhone());
     this.syncPhone();
+    void document.fonts.ready.then(() => this.syncPhone()); // re-measure once the webfont swaps in (font-display: swap)
     this.refresh();
   }
 
@@ -194,6 +194,10 @@ export class LayoutControls {
     }
     this.root.classList.toggle("lc-phone", phone);
     this.renderCollapse();
+    // Desktop: match the transport bar's width to ours, so the whole top-right stack shares a left
+    // edge (its segments/cells grow to fill — see transportBar.ts). Phone: let the `.lc-phone .tp-root`
+    // CSS (width: 100%) take over instead.
+    this.deps.transportEl.style.width = phone ? "" : `${this.root.getBoundingClientRect().width}px`;
   }
 
   private toggleCollapsed(): void {

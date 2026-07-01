@@ -7,6 +7,7 @@
  * Default visible until the quest is finished; the user's hide + collapse prefs persist.
  */
 import { currentMode, onThemeChange, type Mode, MONO, PAPER, INK, ensureFont } from "./theme";
+import { MENUBAR_HEIGHT } from "./menubar";
 import { type QuestStage, type QuestLocation } from "../core/quest";
 import { CHAPTERS } from "../core/quest";
 import { CATALOG, iotaTreeOf } from "../core/catalog";
@@ -32,7 +33,7 @@ function injectStyles(): void {
   stylesInjected = true;
   ensureFont();
   const css = `
-.qt-root { position: fixed; top: 112px; right: 16px; width: min(320px, calc(100vw - 32px)); z-index: 40;
+.qt-root { position: fixed; top: ${MENUBAR_HEIGHT + 106}px; right: 16px; width: min(320px, calc(100vw - 32px)); z-index: 40;
   font-family: ${MONO}; display: none; }
 .qt-card { background: var(--qt-paper); color: var(--qt-ink); border: 1px solid var(--qt-ink);
   box-shadow: 2px 2px 0 var(--qt-shadow); }

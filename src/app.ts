@@ -1011,6 +1011,14 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   hintBar.setShowControls(showControls);
   syncControls();
   updateHints();
+  // The three native-value opts presented as one toggle: on iff all three are on; flips all three.
+  // Declared here (not just before the Optimizations menu) because LayoutControls' "Primitives"
+  // cell reads it immediately on construction, below.
+  const NATIVE_KEYS = ["nativeNumbers", "nativeLists", "nativeBooleans"] as const;
+  const nativeAllOn = (): boolean => NATIVE_KEYS.every((k) => isOpt(k));
+  const setAllNative = (on: boolean): void => {
+    for (const k of NATIVE_KEYS) setOpt(k, on);
+  };
   // The top-right layout toggle bar (under the transport): [2D|3D], [Top-Down|Radial|H-tree], [Auto].
   layoutControls = new LayoutControls({
     is3D: () => sphere.active(),
@@ -1133,12 +1141,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const optItem = (key: OptKey): MenuItem => {
     const s = OPT_SETTINGS.find((o) => o.key === key)!;
     return { kind: "toggle", label: s.label, title: s.desc, checked: () => isOpt(key), run: () => setOpt(key, !isOpt(key)) };
-  };
-  // The three native-value opts presented as one toggle: on iff all three are on; flips all three.
-  const NATIVE_KEYS = ["nativeNumbers", "nativeLists", "nativeBooleans"] as const;
-  const nativeAllOn = (): boolean => NATIVE_KEYS.every((k) => isOpt(k));
-  const setAllNative = (on: boolean): void => {
-    for (const k of NATIVE_KEYS) setOpt(k, on);
   };
   const menus: Menu[] = [
     { title: "ι", apple: true, items: [
