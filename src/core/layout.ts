@@ -18,12 +18,9 @@ export interface Layout {
    *  this to shrink nodes toward their local arm so they don't overwhelm the structure; a node
    *  without an entry (or a layout that omits the map) renders at full size. */
   scale?: Map<NodeId, number>;
-  /** Optional per-node depth (app-nesting from the root). The H-tree fills it so the incremental
-   *  reflow can re-place a subtree from its anchor depth and tier its edges (depth % 2) without a
-   *  full walk; other layouts omit it. */
-  depth?: Map<NodeId, number>;
   /** The H-tree arm scale used (px). The view caches this and passes it back while a tree reduces, so a
-   *  changing max depth doesn't rescale the whole layout every step (see {@link layoutHTree}'s `frozen`). */
+   *  changing max depth doesn't rescale the whole layout every step (see {@link layoutHTree}'s `frozen`);
+   *  it also flags a layout as an H-tree (the incremental-reflow eligibility marker). */
   l0?: number;
   width: number;
   height: number;
@@ -173,18 +170,17 @@ export function layoutHTree(root: Node, frozen?: { l0?: number }): Layout {
   const L0 = frozen?.l0 ?? (80 + 40 * Math.log2(countNodes(root) + 2));
   const pos = new Map<NodeId, Pos>();
   const scale = new Map<NodeId, number>();
-  const depth = new Map<NodeId, number>();
-  placeHTree(root, 0, 0, 0, L0, pos, scale, depth);
-  return { pos, scale, depth, l0: L0, ...bounds(pos) };
+  placeHTree(root, 0, 0, 0, L0, pos, scale);
+  return { pos, scale, l0: L0, ...bounds(pos) };
 }
 
 /** The H-tree placement recursion, shared by {@link layoutHTree} and {@link layoutHTreeSubtree} so
  *  the incremental reflow re-places a subtree with the exact same geometry as a full relayout. Fills
  *  `pos` / `scale` / `depthOut` for `node` and its descendants, hung from (`x`, `y`) at `d`. */
-function placeHTree(node: Node, x: number, y: number, d: number, L0: number, pos: Map<NodeId, Pos>, scale: Map<NodeId, number>, depthOut: Map<NodeId, number>): void {
+function placeHTree(node: Node, x: number, y: number, d: number, L0: number, pos: Map<NodeId, Pos>, scale: Map<NodeId, number>, depthOut?: Map<NodeId, number>): void {
   if (pos.has(node.id)) return; // DAG (graph mode): position each shared node once — a no-op on a tree
   pos.set(node.id, { x, y });
-  depthOut.set(node.id, d);
+  depthOut?.set(node.id, d); // only layoutHTreeSubtree needs the depth map back (edge tiering); full layout skips it
   // Shrink a node toward its shortest adjacent arm so it never overwhelms the structure (the "grey
   // blob" on big/clamped trees): full-size while arms are long, scaling down once an arm drops
   // below a node's span. Only bites when L0 clamps — small trees keep full-size nodes.
@@ -223,6 +219,9 @@ export const COMPACT_SPAN = 1400;
  *  path-local, so a big reducing tree reflows in O(changed) per step; it threads the frozen arm scale so
  *  a node-count change mid-reduction doesn't rescale everything (deeper-perf, ADR 18). */
 export function layoutAuto(root: Node, frozen?: { l0?: number }): Layout {
+  // A frozen arm scale means the tree is already an H-tree mid-reduction — stay H-tree and skip the O(n)
+  // top-down probe on every full recompute. A fresh tree (no frozen l0) probes to pick a layout.
+  if (frozen?.l0 !== undefined) return layoutHTree(root, frozen);
   const td = layoutTopDown(root);
   return td.width > COMPACT_SPAN || td.height > COMPACT_SPAN ? layoutHTree(root, frozen) : td;
 }

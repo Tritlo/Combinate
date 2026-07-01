@@ -221,6 +221,7 @@ export class TreeView {
       this.anims.push(mkAnim(id, vis, vis.particle.x, vis.particle.y, target.x, target.y, 1, 1, 1, 1));
     }
     this.lay = newLay;
+    this.indexEdges(); // an incremental reduction may have changed the topology without touching edgeList — rebuild for the Graphics path
     this.updateHitArea();
     this.elapsed = 0;
     this.duration = LAYOUT_MS;
@@ -386,7 +387,7 @@ export class TreeView {
    *  controller additionally withholds it in graph/DAG mode (sharing conflicts with path-local
    *  layout). */
   canIncremental(): boolean {
-    return this.lay.l0 !== undefined && this.lay.depth !== undefined && this.objs.size >= INCR_MIN;
+    return this.lay.l0 !== undefined && this.objs.size >= INCR_MIN;
   }
 
   /** Enter incremental mode, loading the resident edge buffer from the current tree (O(n), once).
@@ -431,7 +432,6 @@ export class TreeView {
     const newNodes = collectNodes(newDisp);
     const pos = this.lay.pos;
     const scale = this.lay.scale!;
-    const depth = this.lay.depth!;
     const eb = this.edgeBuffer!;
 
     // Removed display nodes (in old, gone in new): drop the particle, cache entry, and incident edges.
@@ -444,7 +444,6 @@ export class TreeView {
       }
       pos.delete(id);
       scale.delete(id);
-      depth.delete(id);
       if (n.kind === "app") {
         eb.remove(edgeKey(id, 0));
         eb.remove(edgeKey(id, 1));
@@ -455,7 +454,6 @@ export class TreeView {
       const p = sub.pos.get(id)!;
       pos.set(id, p);
       scale.set(id, sub.scale.get(id) ?? 1);
-      depth.set(id, sub.depth.get(id)!);
       let vis = this.objs.get(id);
       if (!vis) {
         vis = this.makeVis(n);

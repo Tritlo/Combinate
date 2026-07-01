@@ -106,11 +106,6 @@ export class EdgeBuffer {
     this.slotOf.delete(key);
   }
 
-  /** True if the edge is currently present. */
-  has(key: number): boolean {
-    return this.slotOf.has(key);
-  }
-
   /** Upload the tiers whose slots changed since the last commit. */
   commit(): void {
     for (const t of this.tiers) {
