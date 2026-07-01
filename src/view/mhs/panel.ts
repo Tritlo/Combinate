@@ -15,8 +15,7 @@ import type { Ty } from "../../core/types";
 import { EXAMPLES, type Example } from "./examples";
 import { exampleDump, liveCompile, toTree } from "./compiler";
 import { highlightHaskell, HL_DARK, HL_LIGHT } from "./highlight";
-import { currentMode, onThemeChange, type Mode } from "../theme";
-import { vendorUrl } from "../../vendorUrl";
+import { currentMode, onThemeChange, type Mode, ensureFont } from "../theme";
 
 /** GitHub-flavoured panel palette (chrome + the code surface), per mode. */
 const PALETTE: Record<Mode, Record<string, string>> = {
@@ -34,17 +33,13 @@ const PALETTE: Record<Mode, Record<string, string>> = {
 
 const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
-/** Inject the panel stylesheet + the IoskeleyMono @font-face once. */
+/** Inject the panel stylesheet once (the IoskeleyMono @font-face is shared, via {@link ensureFont}). */
 let stylesInjected = false;
 function injectStyles(): void {
   if (stylesInjected) return;
   stylesInjected = true;
+  ensureFont();
   const css = `
-@font-face {
-  font-family: 'IoskeleyMono';
-  src: url('${vendorUrl("vendor/fonts/IoskeleyMono-Regular.woff2")}') format('woff2');
-  font-display: swap;
-}
 .mhs-root { position: fixed; inset: 0; z-index: 50; display: none; align-items: center; justify-content: center;
   background: var(--mhs-backdrop); font-family: ${MONO}; }
 .mhs-card { display: flex; flex-direction: column; width: min(880px, 94vw); height: min(580px, 90vh);

@@ -10,6 +10,7 @@ import { probe } from "./probe";
 import { CATALOG, named, type Law } from "./catalog";
 import { evalShared } from "./graph";
 import { matchNumeral, matchList, matchBool } from "./value";
+import { natTree } from "./native";
 
 const LAW_BY_SYM = new Map(CATALOG.map((l) => [l.sym, l] as const));
 
@@ -33,11 +34,8 @@ export const reducesToList = (nums: number[]) => (n: Node): boolean => {
 // = K, Succ = S, cons, True = A) and read the output. Several cases pin behaviour
 // so you can't hard-code one answer. ----
 const FN_BUDGET = 120_000; // bounds a real computation (a compact sort needs ~1.3k steps)
-export const nat = (k: number): Node => {
-  let t: Node = named("K");
-  for (let i = 0; i < k; i++) t = app(named("Succ"), t);
-  return t;
-};
+/** The Scott Peano numeral `Succ^k Z` (Z = K) — re-exported under the golf/quest name. */
+export const nat = natTree;
 export const nil = (): Node => named("K");
 export const list = (ks: number[]): Node => ks.reduceRight<Node>((acc, k) => app(app(named("cons"), nat(k)), acc), nil());
 export const tru = (): Node => named("A");

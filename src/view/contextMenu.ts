@@ -5,7 +5,7 @@
  * {@link move} walks the highlight, {@link choose} runs the highlighted item, {@link cancel}
  * dismisses. Styled to match the menu bar (mono, hard 1px border, box-shadow; inverts for dark).
  */
-import { currentMode, onThemeChange, type Mode } from "./theme";
+import { currentMode, onThemeChange, type Mode, MONO, PAPER, INK } from "./theme";
 
 /** One row in the popup: a label and the action it runs when chosen. */
 export interface ContextItem {
@@ -14,10 +14,9 @@ export interface ContextItem {
 }
 
 const PALETTE: Record<Mode, { bg: string; fg: string; line: string; shadow: string }> = {
-  light: { bg: "#ffffff", fg: "#000000", line: "#000000", shadow: "rgba(0,0,0,0.85)" },
-  dark: { bg: "#07090d", fg: "#f0f3f6", line: "#f0f3f6", shadow: "rgba(0,0,0,0.85)" },
+  light: { bg: PAPER.light, fg: INK.light, line: "#000000", shadow: "rgba(0,0,0,0.85)" },
+  dark: { bg: PAPER.dark, fg: INK.dark, line: "#f0f3f6", shadow: "rgba(0,0,0,0.85)" },
 };
-const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
 
 let stylesInjected = false;
 function injectStyles(): void {

@@ -71,6 +71,9 @@ const FINISH_PROBE_MAX = 150; // skip the catalog/quest/golf probes on a normal 
 
 export type Transport = "play" | "pause" | "ff" | "max";
 
+/** The playback modes the transport bar shows, slowest → fastest (Step is a separate action). */
+export const TRANSPORT_MODES: Transport[] = ["pause", "play", "ff", "max"];
+
 // `source` is the tree as the player built/edited it (captured on release), before
 // reduction mutates it — the golf metric + challenge target score the source, not its NF.
 // `stash` is the next raw-TS contractum, precomputed while a 3D morph plays (pipeline depth 1) so the
@@ -677,11 +680,6 @@ export class ReductionController {
   /** The current transport mode (read by the bar + permalink + dev seam). */
   get mode(): Transport {
     return this.transport;
-  }
-
-  /** The playback modes the transport bar shows, slowest → fastest (Step is a separate action). */
-  transportModes(): Transport[] {
-    return ["pause", "play", "ff", "max"];
   }
 
   /** Total contractions across all live trees (the reduction-rate read-out + dev seam). */

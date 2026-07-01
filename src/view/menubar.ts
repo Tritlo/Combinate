@@ -13,8 +13,7 @@
  * highlight within the dropdown (skipping separators), {@link choose} runs the
  * highlighted item, {@link close} dismisses.
  */
-import { currentMode, onThemeChange, type Mode } from "./theme";
-import { vendorUrl } from "../vendorUrl";
+import { currentMode, onThemeChange, type Mode, MONO, PAPER, INK, ensureFont } from "./theme";
 
 /** One entry in a pull-down. `toggle` shows a ✓ when on; `radio` a • for the
  *  selected option of a group; `action` just runs; `sep` is a divider. `title`
@@ -33,19 +32,18 @@ export interface Menu {
 }
 
 const PALETTE: Record<Mode, Record<string, string>> = {
-  light: { bg: "#ffffff", fg: "#000000", line: "#000000", shadow: "rgba(0,0,0,0.85)" },
-  dark: { bg: "#07090d", fg: "#f0f3f6", line: "#f0f3f6", shadow: "rgba(0,0,0,0.85)" },
+  light: { bg: PAPER.light, fg: INK.light, line: "#000000", shadow: "rgba(0,0,0,0.85)" },
+  dark: { bg: PAPER.dark, fg: INK.dark, line: "#f0f3f6", shadow: "rgba(0,0,0,0.85)" },
 };
 
-const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
 const NARROW = 560; // below this width, collapse the menus into one ι menu
 
 let stylesInjected = false;
 function injectStyles(): void {
   if (stylesInjected) return;
   stylesInjected = true;
+  ensureFont();
   const css = `
-@font-face { font-family: 'IoskeleyMono'; src: url('${vendorUrl("vendor/fonts/IoskeleyMono-Regular.woff2")}') format('woff2'); font-display: swap; }
 .mb-bar { position: fixed; top: 0; left: 0; right: 0; height: 22px; z-index: 40; display: flex; align-items: stretch;
   background: var(--mb-bg); color: var(--mb-fg); border-bottom: 1px solid var(--mb-line);
   font-family: ${MONO}; font-size: 14px; line-height: 1; user-select: none; -webkit-user-select: none; }

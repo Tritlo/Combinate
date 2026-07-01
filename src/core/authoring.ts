@@ -11,23 +11,8 @@
  * slot to a dedicated "Custom" page — the rest of the app (hotbar, Zoo, reducer,
  * read-out) then treats it like any other bird.
  */
-import { type Node, type NodeId, app, comb, freeVar, iota } from "./term";
+import { type Node, type NodeId, app, comb, cloneTermDeep, freeVar, iota } from "./term";
 import { CATALOG, PAGES, RULES, lam, type Law, type PageDef } from "./catalog";
-
-/** Deep-copy a term with fresh ids, so each spawn of a user combinator's def
- *  gets distinct nodes (the view keys layout/animation by id). */
-function clone(n: Node): Node {
-  switch (n.kind) {
-    case "iota":
-      return iota();
-    case "comb":
-      return comb(n.sym, n.def ? clone(n.def) : undefined, n.arity);
-    case "free":
-      return freeVar(n.name);
-    case "app":
-      return app(clone(n.fn), clone(n.arg));
-  }
-}
 
 /** The subtree rooted at `id` within `root`, or null if there is no such node. */
 export function findSubtree(root: Node, id: NodeId): Node | null {
@@ -86,7 +71,7 @@ export function defineCombinator(name: string, def: Node): Law {
     lawText: `${name} — authored`,
     arity: 1,
     reference: () => freeVar(`$user_${name}`), // never used (probe skips userDefined)
-    def: () => clone(def),
+    def: () => cloneTermDeep(def),
     userDefined: true,
   };
   CATALOG.push(law);

@@ -16,6 +16,7 @@ import { encodePermalink, decodePermalink } from "../core/permalink";
 import { CHALLENGES, iotaCost, type Challenge } from "../core/challenges";
 import type { Store, Best, LeaderEntry } from "../store/port";
 import { theme } from "./theme";
+import { wirePanelChrome, placeCard } from "./pixiPanel";
 
 const HANDLE_KEY = "combinate:v1:handle";
 
@@ -190,30 +191,19 @@ export class ChallengePanel {
 
   // ---- the overlay panel ------------------------------------------------
   private buildPanel(): void {
-    this.backdrop.eventMode = "static";
-    this.backdrop.on("pointerdown", () => this.close());
-    this.card.eventMode = "static";
-    this.card.on("pointerdown", (e: FederatedPointerEvent) => e.stopPropagation());
-    // wheel anywhere on the panel scrolls the challenge list
-    this.panel.eventMode = "static";
-    this.panel.on("wheel", (e: { deltaY: number }) => {
-      const max = Math.max(0, this.listH - this.viewH());
-      this.listScroll = Math.round(Math.min(max, Math.max(0, this.listScroll + e.deltaY))); // whole-pixel scroll keeps text crisp
-      this.placeList();
-    });
-
-    const x = new Text({ text: "✕", style: { fontFamily: "monospace", fontSize: 20, fill: theme.textDim } });
-    x.anchor.set(0.5);
-    this.closeBtn.addChild(x);
-    this.closeBtn.eventMode = "static";
-    this.closeBtn.cursor = "pointer";
-    this.closeBtn.hitArea = new Rectangle(-16, -16, 32, 32);
-    this.closeBtn.on("pointerdown", (e: FederatedPointerEvent) => {
-      e.stopPropagation();
-      this.close();
-    });
-
-    this.listView.mask = this.listMask;
+    wirePanelChrome(
+      { panel: this.panel, backdrop: this.backdrop, card: this.card, closeBtn: this.closeBtn, listView: this.listView, listMask: this.listMask },
+      () => this.close(),
+      {
+        get: () => this.listScroll,
+        set: (v) => {
+          this.listScroll = v;
+          this.placeList();
+        },
+        listH: () => this.listH,
+        viewH: () => this.viewH(),
+      },
+    );
     this.panel.addChild(this.backdrop, this.card, this.title, this.closeBtn, this.listMask, this.listView, this.detail);
     this.placePanel();
   }
@@ -223,15 +213,9 @@ export class ChallengePanel {
     const h = Math.min(600, window.innerHeight - 24);
     this.cardW = w;
     this.cardH = h;
-    // Round the origin to whole pixels: text drawn at a sub-pixel x/y samples its
-    // glyph atlas off-grid and goes soft (the Zoo does the same). Everything else
-    // is positioned relative to these, so this keeps the whole panel crisp.
-    this.cardX = Math.round((window.innerWidth - w) / 2);
-    this.cardY = Math.round((window.innerHeight - h) / 2);
-    this.backdrop.clear().rect(0, 0, window.innerWidth, window.innerHeight).fill({ color: theme.backdrop, alpha: theme.backdropAlpha });
-    this.card.clear().roundRect(this.cardX, this.cardY, w, h, 14).fill({ color: theme.panel }).stroke({ width: 2, color: theme.border });
-    this.title.position.set(this.cardX + 24, this.cardY + 18);
-    this.closeBtn.position.set(this.cardX + w - 28, this.cardY + 28);
+    const { x, y } = placeCard({ backdrop: this.backdrop, card: this.card, title: this.title, closeBtn: this.closeBtn }, w, h);
+    this.cardX = x;
+    this.cardY = y;
     this.listMask.clear().rect(this.cardX + 16, this.cardY + LIST_TOP, LIST_W, this.viewH()).fill({ color: 0xffffff });
     this.placeList();
   }

@@ -10,15 +10,14 @@
  * paper-on-ink (idle) and ink-on-paper (selected) so the active mode is always legible.
  */
 import { type Ticker } from "pixi.js";
-import { currentMode, onThemeChange, type Mode } from "./theme";
-import { type ReductionController, type Transport } from "./reduction";
+import { currentMode, onThemeChange, type Mode, MONO, PAPER, INK } from "./theme";
+import { type ReductionController, type Transport, TRANSPORT_MODES } from "./reduction";
 import { type Sound } from "./sound";
 
 const PALETTE: Record<Mode, { paper: string; ink: string }> = {
-  light: { paper: "#ffffff", ink: "#000000" },
-  dark: { paper: "#07090d", ink: "#f0f3f6" },
+  light: { paper: PAPER.light, ink: INK.light },
+  dark: { paper: PAPER.dark, ink: INK.dark },
 };
-const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
 const CELL = 30; // segment cell width (px) — the slider steps by this, so every cell is CELL wide
 
 let stylesInjected = false;
@@ -89,7 +88,7 @@ export class TransportBar {
 
   constructor(ticker: Ticker, private readonly reduce: ReductionController, private readonly snd: Sound) {
     injectStyles();
-    this.modes = reduce.transportModes();
+    this.modes = TRANSPORT_MODES;
     this.root.className = "tp-root";
     this.applyPalette();
 

@@ -3,7 +3,7 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #010409;
+  background: var(--sp-bg, #010409);
   font-family: monospace;
   /* iOS: don't let the page scroll/bounce or re-flow text, and route all
      touch gestures to the canvas (so our pan/pinch work, not Safari's). */

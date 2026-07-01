@@ -6,21 +6,19 @@
  * AddRule) keep their own content + store logic + body CSS (their own prefix) so a chrome
  * fix lands here once. Zoo/Golf (Pixi) and the GitHub-styled MhsPanel deliberately don't use this.
  */
-import { currentMode, onThemeChange, type Mode } from "./theme";
-import { vendorUrl } from "../vendorUrl";
+import { currentMode, onThemeChange, type Mode, MONO, PAPER, INK, ensureFont } from "./theme";
 
 const PALETTE: Record<Mode, Record<string, string>> = {
-  light: { paper: "#ffffff", ink: "#000000", backdrop: "rgba(27,31,36,0.5)", shadow: "rgba(0,0,0,0.85)" },
-  dark: { paper: "#07090d", ink: "#f0f3f6", backdrop: "rgba(1,4,9,0.6)", shadow: "rgba(0,0,0,0.85)" },
+  light: { paper: PAPER.light, ink: INK.light, backdrop: "rgba(27,31,36,0.5)", shadow: "rgba(0,0,0,0.85)" },
+  dark: { paper: PAPER.dark, ink: INK.dark, backdrop: "rgba(1,4,9,0.6)", shadow: "rgba(0,0,0,0.85)" },
 };
-const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
 
 let chromeInjected = false;
 function injectChrome(): void {
   if (chromeInjected) return;
   chromeInjected = true;
+  ensureFont();
   const css = `
-@font-face { font-family: 'IoskeleyMono'; src: url('${vendorUrl("vendor/fonts/IoskeleyMono-Regular.woff2")}') format('woff2'); font-display: swap; }
 .md-root { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center;
   background: var(--md-backdrop); font-family: ${MONO}; }
 .md-card { width: var(--md-width, min(460px, 92vw)); max-height: 86vh; display: flex; flex-direction: column;
