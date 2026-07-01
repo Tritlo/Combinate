@@ -8,7 +8,7 @@ import {
   Text,
   Texture,
 } from "pixi.js";
-import { app as mkApp, cloneTerm, comb, decode, exceedsNodes, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
+import { app as mkApp, cloneTerm, comb, decode, exceedsNodes, freeVar, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
 import { evalShared } from "./core/graph";
 import { encodePermalink, decodePermalink, type Modes } from "./core/permalink";
 import { LocalStore } from "./store/local";
@@ -367,7 +367,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     getShare: () => shareMode,
     getNative: () => nativeOpts(),
     getTurbo: () => isOpt("wasm"),
-    makeSession: (term) => (wasmReady() ? new WasmSession(term, nativeOpts()) : null),
+    makeSession: (term) => (wasmReady() ? new WasmSession(term, nativeOpts(), fastMode) : null), // Turbo honours rules (fast) + native
     focusedLive: () => (focus && trees.includes(focus) ? focus : null),
     settle: (tree) => settle(tree),
     onNormalForm: (source) => {
@@ -376,16 +376,23 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     },
     tickSound: (sym) => sound.tick(sym),
     notify: (msg) => toast.show(msg),
+    escalateOnBalloon: () => {
+      // A ballooning reduction escalates one tier — raw → rules+native (reduce by law + native value ops,
+      // the cheapest mode per benchmarks) → graph (call-by-need sharing, which never clones). setOpt
+      // reschedules the focus via onOptChange.
+      if (!isOpt("rules")) {
+        setOpt("rules", true);
+        setOpt("nativeNumbers", true);
+        setOpt("nativeLists", true);
+        setOpt("nativeBooleans", true);
+        return "Rule-based + native reduction";
+      }
+      if (!isOpt("graph")) { setOpt("graph", true); return "Graph reduction"; }
+      return null;
+    },
     onTransportChange: () => {
       paintRail();
       transportBar.paint();
-    },
-    onBalloon: (tree) => {
-      // Ballooning raw/optimize term → switch to graph reduction (call-by-need sharing → no blow-up),
-      // silently. setOpt mirrors into shareMode via onOptChange (which reschedules `focus`); also
-      // reschedule THIS tree in case it isn't the focused one.
-      setOpt("graph", true);
-      reduce.schedule(tree);
     },
     morph3D: (tree, node, dur) => morphFocused3D(tree, node, dur),
     settleMorph3D: () => sphere3d.settleMorph(),
@@ -531,9 +538,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const mhsPanel = new MhsPanel(
     (tree, read) => {
       // Reduce under the user's current settings (no auto-enabling optimizations — Turbo / native
-      // numbers stay opt-in via the Optimizations menu). Compiled programs get big, so lay out radially +
-      // zoom to fit; the progress bar shows how the reduction is going.
-      setLayoutMode(layoutRadial);
+      // numbers stay opt-in via the Optimizations menu). Compiled programs get big, so lay out as an
+      // H-tree (path-local → incremental O(changed) reflow, ADR 18) + zoom to fit; the progress bar
+      // shows how the reduction is going.
+      setLayoutMode(layoutHTree);
       const view = spawnTree(tree, window.innerWidth / 2, window.innerHeight / 2);
       if (read) hotbar.selectPage(TY_PAGE[read]);
       fitTree(view);
@@ -1278,6 +1286,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (key === "rules") {
       fastMode = isOpt("rules");
       reduce.invalidateGraphers(); // graphers bake `fast` at construction
+      reduce.invalidateSessions(); // a wasm session bakes `fast` too → rebuild it under the new mode
       if (focus) reduce.schedule(focus); // reschedule → reset the step count + re-estimate in the new mode (consistent bar)
     } else if (key === "graph") {
       shareMode = isOpt("graph");
@@ -1666,6 +1675,45 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       autoSteps: () => reduce.totalSteps(),
       est: () => ({ ...reduce.estimate, shown: reduce.focusedSteps() }),
       run: () => { if (focus) reduce.schedule(focus); },
+      incrParity: () => (focus ? focus.debugLayoutParity() : null), // dev seam: incremental-layout parity vs a full recompute
+      incrActive: () => (focus ? focus.canIncremental() : false),
+      // Dev seam: isolate applyPatch cost vs tree size for a FIXED small change (clause-2 O(changed)
+      // proof). Builds an inert H-tree of ~2^(depth+1) free-var nodes, then alternates a 1↔3-node swap
+      // at a fixed deep anchor, timing only applyPatch. Off-canvas (never rendered), destroyed after.
+      benchIncr: (depth: number, iters: number): { size: number; avgApplyUs: number; fullLayoutUs: number } | { error: string } => {
+        const count = (n: Node): number => { let c = 0; const s = [n]; while (s.length) { const m = s.pop()!; c++; if (m.kind === "app") s.push(m.fn, m.arg); } return c; };
+        const buildBal = (d: number): Node => (d <= 0 ? freeVar("x") : mkApp(buildBal(d - 1), buildBal(d - 1)));
+        const splice = (r: Node, path: number[], sub: Node, i = 0): Node => (i === path.length ? sub : r.kind !== "app" ? sub : path[i] === 0 ? { ...r, fn: splice(r.fn, path, sub, i + 1) } : { ...r, arg: splice(r.arg, path, sub, i + 1) });
+        const root0 = buildBal(depth);
+        const P: number[] = [];
+        { let n = root0; while (n.kind === "app") { P.push(0); n = n.fn; } } // leftmost-leaf path
+        const subA = freeVar("A");
+        const subB = mkApp(freeVar("B"), freeVar("C"));
+        let cur = splice(root0, P, subA);
+        const size = count(cur);
+        const view = new TreeView(cur, -1e6, -1e6, pixi.ticker, isDiscovered, layoutHTree, () => false, cameraTransform);
+        if (!view.beginIncremental()) { view.destroy(); return { error: "not eligible for incremental" }; }
+        let curSub = subA;
+        let otherSub: Node = subB;
+        let t = 0;
+        for (let i = 0; i < iters; i++) {
+          const root = splice(cur, P, otherSub);
+          const patch = { root, sym: "bench", path: P, oldRedex: curSub, replacement: otherSub };
+          const s = performance.now();
+          view.applyPatch(patch);
+          t += performance.now() - s;
+          cur = root;
+          [curSub, otherSub] = [otherSub, curSub];
+        }
+        view.commitIncremental();
+        view.destroy();
+        // For contrast: the O(n) full-layout recompute the old path did every step.
+        const fl0 = performance.now();
+        const reps = 20;
+        for (let i = 0; i < reps; i++) layoutHTree(cur, { l0: undefined });
+        const fullLayoutUs = ((performance.now() - fl0) / reps) * 1000;
+        return { size, avgApplyUs: (t / iters) * 1000, fullLayoutUs };
+      },
       spawn: (s: string) => { spawnTreeWorld(fromEgg(s), 0, 0); }, // dev seam: drop a reducing tree from an s-expr
       fit: () => { if (focus) fitTree(focus); }, // dev seam: frame the focused tree to the viewport
 

@@ -1,8 +1,10 @@
 import { Container, Graphics, ParticleContainer, Particle, Rectangle, Text, Texture, type Ticker } from "pixi.js";
 import { type Node, type NodeId, IOTA_ID_SPAN } from "../core/term";
 import { expandDisplay } from "../core/catalog";
-import { type Layout, type LayoutFn } from "../core/layout";
+import { type Layout, type LayoutFn, layoutHTreeSubtree } from "../core/layout";
+import { type StepPatch } from "../core/reduce";
 import { theme, combinatorColor, glyphOn, edgeTierColor } from "./theme";
+import { EdgeBuffer, edgeKey } from "./edgeBuffer";
 import { tween } from "./anim";
 
 const LAYOUT_MS = 360; // duration of the layout-toggle reflow
@@ -20,6 +22,10 @@ const HEAVY = 600;
 // reduction stopped / the tree is being inspected (the Expand ι-tree view). Keeps fac-scale playback
 // fast (solid while stepping) without permanently dropping the function/argument dash cue.
 const SETTLE_DASH_MS = 200;
+// At/above this node count an H-tree tree reduces through the incremental applyPatch path (retained
+// edge buffer + O(changed) reflow) rather than the full-recompute animateTo. Matches the jump-cut
+// threshold, so any tree big enough to jump-cut also updates incrementally when it is an H-tree.
+const INCR_MIN = 600;
 // Radius of the shared white circle texture all node particles are drawn from; a
 // node of radius r renders at scale r / TEX_R, tinted by its kind.
 const TEX_R = 32;
@@ -114,7 +120,15 @@ export class TreeView {
   node: Node; // the logical term (used for reduction)
   private display: Node; // node with undiscovered S/K/I expanded to their ι-trees
   private lay: Layout;
+  // The H-tree arm scale, frozen while the tree reduces so a max-depth change doesn't rescale every node
+  // (undefined for non-H-tree layouts). Re-fit on a fresh tree / layout switch / discovery.
+  private frozenL0: number | undefined;
   private readonly objs = new Map<NodeId, NodeVis>();
+  // Recycled particle pool. Pixi's ParticleContainer.removeParticle is O(n) (indexOf + splice), which
+  // is death on the incremental path (many small removals over a big tree). So a removed node's
+  // particle is parked (alpha 0, off-screen) and reused for the next fresh node — removal is O(1) and
+  // the batch never shrinks below its high-water mark. Cleared whenever the container is bulk-reset.
+  private readonly recycled: Particle[] = [];
   // Parent→child edges with the resolved NodeVis of each endpoint cached at index
   // time, so the per-frame edge draw is pure array iteration — no `objs` Map lookups
   // (3 per edge per frame on the animation hot path).
@@ -129,6 +143,11 @@ export class TreeView {
   private ticking = false;
   private cancelPop: (() => void) | null = null; // the pop-in tween's canceller — stopped on destroy so it can't tick a freed container
   private readonly tick = (t: Ticker): void => this.advance(t.deltaMS);
+  // Heavy incremental H-tree renderer (deeper-perf, ADR 18): resident edge geometry + an O(changed)
+  // applyPatch. Active only for a big H-tree tree reducing on the raw/optimize path; small trees, non-H
+  // layouts, graph/DAG, and any display-expansion change stay on the Graphics animateTo path.
+  private edgeBuffer: EdgeBuffer | null = null;
+  private incMode = false;
 
   constructor(
     node: Node,
@@ -148,6 +167,7 @@ export class TreeView {
     this.node = node;
     this.display = this.expand(node);
     this.lay = this.layoutFn(this.display);
+    this.frozenL0 = this.lay.l0; // (re-)fit the H-tree arm scale
     this.particles.eventMode = "none";
     this.glyphs.eventMode = "none";
     this.container.addChild(this.edges, this.rootMark, this.particles, this.glyphs);
@@ -172,30 +192,36 @@ export class TreeView {
     this.cancelPop = null;
     clearTimeout(this.settleDashTimer); // a pending settle-dash redraw must not touch a freed container
     this.stopTicker();
+    this.edgeBuffer?.destroy();
     this.container.destroy({ children: true });
   }
 
   /** Rebuild the display — call after a discovery so newly-known combinators
    * reveal their symbol (and stop being shown as their ι-tree). */
   refresh(): void {
+    this.exitIncremental(); // display expansion may change (discovery / Expand toggle) → full recompute
     if (this.ticking) this.finish();
     this.display = this.expand(this.node);
     this.lay = this.layoutFn(this.display);
+    this.frozenL0 = this.lay.l0; // (re-)fit the H-tree arm scale
     this.rebuild();
   }
 
   /** Switch the layout algorithm, animating every node to its new position. */
   setLayout(fn: LayoutFn): void {
+    this.exitIncremental(); // a layout switch re-fits everything → back to the Graphics path
     this.layoutFn = fn;
     this.onDone = null;
     this.finish();
     const newLay = fn(this.display);
+    this.frozenL0 = newLay.l0; // layout switch → re-fit the arm scale
     this.anims = [];
     for (const [id, vis] of this.objs) {
       const target = newLay.pos.get(id)!;
       this.anims.push(mkAnim(id, vis, vis.particle.x, vis.particle.y, target.x, target.y, 1, 1, 1, 1));
     }
     this.lay = newLay;
+    this.indexEdges(); // an incremental reduction may have changed the topology without touching edgeList — rebuild for the Graphics path
     this.updateHitArea();
     this.elapsed = 0;
     this.duration = LAYOUT_MS;
@@ -249,6 +275,7 @@ export class TreeView {
    * positions (§6.2): shared subtrees glide from where they were, the new
    * application node grows in. Coordinates are world-container space. */
   animateAttachFrom(fromWorld: Map<NodeId, { x: number; y: number }>, duration: number): void {
+    this.exitIncremental();
     this.onDone = null;
     this.finish();
     const base = this.container.position;
@@ -276,6 +303,7 @@ export class TreeView {
   /** Animate a one-step reduction to `node`; `onDone` fires on natural finish.
    *  Persisting nodes glide, fresh nodes grow in, dropped nodes fade out. */
   animateTo(node: Node, duration: number, onDone: () => void): void {
+    this.exitIncremental(); // full recompute — resyncs from any partial incremental state, back to Graphics
     this.onDone = null;
     this.finish(); // settle any prior tween (without firing its callback)
 
@@ -283,7 +311,7 @@ export class TreeView {
     for (const [id, vis] of this.objs) from.set(id, { x: vis.particle.x, y: vis.particle.y });
 
     const newDisplay = this.expand(node);
-    const newLay = this.layoutFn(newDisplay);
+    const newLay = this.layoutFn(newDisplay, { l0: this.frozenL0 }); // freeze the H-tree arm scale across the step
     const newNodes = collectNodes(newDisplay);
     this.anims = [];
 
@@ -352,6 +380,182 @@ export class TreeView {
     this.finish();
   }
 
+  // ---- Heavy incremental H-tree path (deeper-perf, ADR 18) ----
+
+  /** Eligible for the O(changed) incremental path? True only for a big H-tree tree (`l0`/`depth`
+   *  set) drawn as a plain tree — small trees and non-H layouts stay on {@link animateTo}; the
+   *  controller additionally withholds it in graph/DAG mode (sharing conflicts with path-local
+   *  layout). */
+  canIncremental(): boolean {
+    return this.lay.l0 !== undefined && this.objs.size >= INCR_MIN;
+  }
+
+  /** Enter incremental mode, loading the resident edge buffer from the current tree (O(n), once).
+   *  No-op if already in it; returns false (staying on the Graphics path) if the tree isn't eligible.
+   *  The caller then batches {@link applyPatch} calls and finishes with {@link commitIncremental}. */
+  beginIncremental(): boolean {
+    if (this.incMode) return true;
+    if (!this.canIncremental()) return false;
+    this.finish(); // settle any tween; the incremental path jump-cuts each step (no per-frame tween)
+    if (!this.edgeBuffer) {
+      this.edgeBuffer = new EdgeBuffer();
+      this.container.addChildAt(this.edgeBuffer.container, 1); // above the Graphics edges (idx 0), under the nodes
+    }
+    this.edgeBuffer.refreshTheme();
+    this.edges.clear();
+    this.edges.visible = false;
+    this.edgeBuffer.container.visible = true;
+    this.rebuildEdgeBuffer();
+    this.incMode = true;
+    return true;
+  }
+
+  /**
+   * Apply one reduction step incrementally: re-place ONLY the replacement subtree from its unchanged
+   * anchor + depth, move only the particles that actually moved, and remove/upsert only the incident
+   * edges — O(changed), not O(n). Must be inside {@link beginIncremental}; the caller batches several
+   * per frame then calls {@link commitIncremental} once. Returns false on a stale cache so the caller
+   * can fall back to a full {@link animateTo}.
+   */
+  applyPatch(patch: StepPatch): boolean {
+    if (!this.incMode) return false;
+    const l0 = this.frozenL0;
+    if (l0 === undefined) return false;
+    const oldDisp = this.expand(patch.oldRedex);
+    const anchor = this.lay.pos.get(oldDisp.id);
+    if (!anchor) return false; // cache miss → let the caller do a full recompute
+    const newDisp = this.expand(patch.replacement);
+    const anchorDepth = patch.path.length;
+    const sub = layoutHTreeSubtree(newDisp, anchor.x, anchor.y, anchorDepth, l0);
+
+    const oldNodes = collectNodes(oldDisp);
+    const newNodes = collectNodes(newDisp);
+    const pos = this.lay.pos;
+    const scale = this.lay.scale!;
+    const eb = this.edgeBuffer!;
+
+    // Removed display nodes (in old, gone in new): drop the particle, cache entry, and incident edges.
+    for (const [id, n] of oldNodes) {
+      if (newNodes.has(id)) continue;
+      const vis = this.objs.get(id);
+      if (vis) {
+        this.objs.delete(id);
+        this.recycle(vis);
+      }
+      pos.delete(id);
+      scale.delete(id);
+      if (n.kind === "app") {
+        eb.remove(edgeKey(id, 0));
+        eb.remove(edgeKey(id, 1));
+      }
+    }
+    // New + moved display nodes: refresh the cache and jump-cut the particle to its final place.
+    for (const [id, n] of newNodes) {
+      const p = sub.pos.get(id)!;
+      pos.set(id, p);
+      scale.set(id, sub.scale.get(id) ?? 1);
+      let vis = this.objs.get(id);
+      if (!vis) {
+        vis = this.makeVis(n);
+        this.objs.set(id, vis);
+      }
+      this.place(vis, p.x, p.y, 1, 1); // place() reads the scale we just set
+      this.extendBounds(p.x, p.y);
+    }
+    // Upsert the edges of every app node in the new subtree — covers fresh structure AND
+    // moved-but-preserved subtrees (whose ids persist but whose positions/tier changed). Tint an app
+    // child by its incoming tier, matching indexEdges.
+    for (const [id, n] of newNodes) {
+      if (n.kind !== "app") continue;
+      const p = sub.pos.get(id)!;
+      const d = sub.depth.get(id)!;
+      const tier = (d % 2) as 0 | 1;
+      const fp = pos.get(n.fn.id)!;
+      const ap = pos.get(n.arg.id)!;
+      eb.set(edgeKey(id, 0), tier, p.x, p.y, fp.x, fp.y);
+      eb.set(edgeKey(id, 1), tier, p.x, p.y, ap.x, ap.y);
+      const childTint = edgeTierColor(d);
+      if (n.fn.kind === "app") this.objs.get(n.fn.id)!.particle.tint = childTint;
+      if (n.arg.kind === "app") this.objs.get(n.arg.id)!.particle.tint = childTint;
+    }
+    // The subtree root's own tint follows its incoming (unchanged spine) edge; the whole-tree root has
+    // none, so it stays ink. Splice the new subtree into `display` along the (app-only) path so it
+    // stays a valid tree for the root mark / picking — O(path), not O(n).
+    if (patch.path.length === 0) {
+      const rv = this.objs.get(newDisp.id);
+      if (rv) rv.particle.tint = theme.text;
+    } else if (newDisp.kind === "app") {
+      const rv = this.objs.get(newDisp.id);
+      if (rv) rv.particle.tint = edgeTierColor(anchorDepth);
+    }
+    this.display = spliceDisplay(this.display, patch.path, newDisp);
+    this.node = patch.root;
+    return true;
+  }
+
+  /** DEV/test seam: does the incrementally-maintained layout match a full recompute of the current
+   *  term? All zero ⇒ the O(changed) path landed every node exactly where a full relayout would. */
+  debugLayoutParity(): { total: number; mismatched: number; missing: number; extra: number } {
+    const full = this.layoutFn(this.expand(this.node), { l0: this.frozenL0 });
+    let mismatched = 0;
+    let missing = 0;
+    for (const [id, p] of full.pos) {
+      const cur = this.lay.pos.get(id);
+      if (!cur) missing++;
+      else if (Math.abs(cur.x - p.x) > 0.01 || Math.abs(cur.y - p.y) > 0.01) mismatched++;
+    }
+    let extra = 0;
+    for (const id of this.objs.keys()) if (!full.pos.has(id)) extra++;
+    return { total: full.pos.size, mismatched, missing, extra };
+  }
+
+  /** Flush a batch of {@link applyPatch} calls: upload the changed edge slots and resync the root mark
+   *  + hit area (bounds grew incrementally as patches landed; an exact refit waits for the next full
+   *  relayout / settle). */
+  commitIncremental(): void {
+    if (!this.incMode || !this.edgeBuffer) return;
+    this.edgeBuffer.commit();
+    this.updateHitArea();
+    this.placeRootMark();
+  }
+
+  /** Leave incremental mode: hide the edge buffer and hand rendering back to the Graphics path (which
+   *  the following full recompute repaints). Called by every full-recompute entry point. */
+  private exitIncremental(): void {
+    if (!this.incMode) return;
+    this.incMode = false;
+    this.edges.visible = true;
+    if (this.edgeBuffer) this.edgeBuffer.container.visible = false;
+  }
+
+  // One O(n) load of the resident edge buffer from the current display topology — on entering
+  // incremental mode. Reuses the cached edgeList (endpoints + tier depth) so it is a single pass.
+  private rebuildEdgeBuffer(): void {
+    const eb = this.edgeBuffer!;
+    eb.clear();
+    for (const e of this.edgeList) {
+      const tier = (e.depth % 2) as 0 | 1;
+      const p = e.pv.particle;
+      const l = e.lv.particle;
+      const r = e.rv.particle;
+      eb.set(edgeKey(e.pv.id, 0), tier, p.x, p.y, l.x, l.y);
+      eb.set(edgeKey(e.pv.id, 1), tier, p.x, p.y, r.x, r.y);
+    }
+    eb.commit();
+  }
+
+  // Grow the cached layout bounds to include a point (incremental reflow only ever adds points; an
+  // exact refit — which also shrinks — happens on the next full relayout).
+  private extendBounds(x: number, y: number): void {
+    const l = this.lay;
+    if (x < l.minX) l.minX = x;
+    if (x > l.maxX) l.maxX = x;
+    if (y < l.minY) l.minY = y;
+    if (y > l.maxY) l.maxY = y;
+    l.width = l.maxX - l.minX;
+    l.height = l.maxY - l.minY;
+  }
+
   private advance(deltaMS: number): void {
     this.elapsed += deltaMS;
     const t = this.duration > 0 ? Math.min(1, this.elapsed / this.duration) : 1;
@@ -372,8 +576,7 @@ export class TreeView {
     for (const a of this.anims) {
       if (a.remove) {
         this.objs.delete(a.id);
-        this.particles.removeParticle(a.vis.particle);
-        a.vis.glyph?.destroy();
+        this.recycle(a.vis);
       } else {
         this.place(a.vis, a.toX, a.toY, a.toA, a.toS);
       }
@@ -429,6 +632,7 @@ export class TreeView {
   private rebuild(): void {
     this.rootMarkKind = null; // force a root-halo redraw (rebuild runs on theme/display change)
     this.particles.removeParticles();
+    this.recycled.length = 0; // the pool's particles were just removed from the batch — drop the stale refs
     for (const g of this.glyphs.removeChildren()) g.destroy();
     this.objs.clear();
     for (const [id, n] of collectNodes(this.display)) {
@@ -570,9 +774,28 @@ export class TreeView {
   // contains discovered combinators (undiscovered S/K/I are expanded to ι-trees).
   private makeVis(n: Node): NodeVis {
     const spec = visSpec(n);
-    const particle = new Particle({ texture: nodeTexture(), anchorX: 0.5, anchorY: 0.5, tint: spec.tint });
-    this.particles.addParticle(particle);
+    const particle = this.recycled.pop() ?? this.addParticle();
+    particle.tint = spec.tint;
+    particle.alpha = 1;
     return { id: n.id, particle, baseScale: spec.radius / TEX_R, glyphSpec: spec.glyph, glyph: null };
+  }
+
+  // A fresh particle added to the instanced batch (all share the one disc texture + centre anchor).
+  private addParticle(): Particle {
+    const particle = new Particle({ texture: nodeTexture(), anchorX: 0.5, anchorY: 0.5 });
+    this.particles.addParticle(particle);
+    return particle;
+  }
+
+  // Retire a node's render record: destroy its glyph and park its particle (invisible, off-screen) in
+  // the recycle pool for reuse — never the O(n) removeParticle.
+  private recycle(vis: NodeVis): void {
+    vis.glyph?.destroy();
+    const p = vis.particle;
+    p.alpha = 0;
+    p.scaleX = p.scaleY = 0;
+    p.x = p.y = -1e6;
+    this.recycled.push(p);
   }
 
   // Show text glyphs only below GLYPH_MAX nodes (LOD): create the ones now needed,
@@ -655,6 +878,15 @@ function mkAnim(
   remove = false,
 ): Anim {
   return { id, vis, fromX, fromY, toX, toY, fromA, toA, fromS, toS, remove };
+}
+
+/** Replace the subtree at `path` (`0` = fn, `1` = arg) with `sub`, rebuilding only the spine above it
+ *  (which keeps its ids, so its nodes don't move). O(path) — used to keep `display` a valid tree after
+ *  an incremental patch without a full O(n) re-expand. The path descends app nodes only. */
+function spliceDisplay(root: Node, path: number[], sub: Node, i = 0): Node {
+  if (i === path.length) return sub;
+  if (root.kind !== "app") return sub; // unreachable: the path only goes through app nodes
+  return path[i] === 0 ? { ...root, fn: spliceDisplay(root.fn, path, sub, i + 1) } : { ...root, arg: spliceDisplay(root.arg, path, sub, i + 1) };
 }
 
 function collectNodes(n: Node, m = new Map<NodeId, Node>()): Map<NodeId, Node> {

@@ -85,12 +85,25 @@ export function redexAt(n: Node, argsAbove = 0, fast = false, native?: NativeOpt
   return redexAtGo(n, argsAbove, fast, native, false);
 }
 
+/** A mutable accumulator the search fills in so a caller can locate the redex without a second
+ *  traversal: {@link Trace.path} is the sequence of `0` (fn) / `1` (arg) descents from the root to
+ *  the redex node, and {@link Trace.oldRedex} is that node (the pre-step subtree). Only
+ *  {@link stepWithPatch} passes one; every other entry point leaves it undefined (zero overhead). */
+interface Trace {
+  path: number[];
+  oldRedex?: Node;
+}
+
 // `headChecked` skips the (kernel/rule) head scan when descending the *function* spine:
 // the head comb is unchanged there, so if it didn't fire with N args it can't with N-1.
 // The built-in ι/I/K/S/def handlers stay outside this scan and still run every level, so
 // a deep head still fires. This turns scanning a settled D-deep spine to normal form from
 // O(D²) (re-collecting the spine each level) into O(D) — the value-read/NF-check hotspot.
-function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts | undefined, headChecked: boolean): Redex | null {
+//
+// `trace` (optional): when present, the base case that fires records `oldRedex = n` and the descent
+// pushes/pops its direction onto `path`, so {@link stepWithPatch} learns the redex location as a
+// by-product of the one search — see {@link Trace}. Passing it never changes what fires.
+function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts | undefined, headChecked: boolean, trace?: Trace): Redex | null {
   if (n.kind !== "app") return null;
 
   // optimize / native mode: reduce the leftmost-outermost *named* head redex — by a
@@ -118,6 +131,7 @@ function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts
         const core = args.slice(0, ka); // a kernel only ever sees exactly its arity; the reducer reapplies extras
         if (RULES[head.sym]) {
           // Has a catalog-rule fallback (native value ops): cheap discovery, match in build.
+          if (trace) trace.oldRedex = n;
           return { sym: head.sym, build: () => dedupIds(reapplyExtras(kernel.run(core) ?? RULES[head.sym](core), args, ka), new Set()) };
         }
         // Kernel-only primitive (e.g. Church `cmod`): no rule to fall back to, so the
@@ -127,10 +141,14 @@ function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts
         // SKIQ source), so `firingRule`/app probes never hit them. A future kernel-only
         // primitive wanting cheap discovery should ship a catalog `def` fallback.
         const res = kernel.run(core);
-        if (res) return { sym: head.sym, build: () => dedupIds(reapplyExtras(res, args, ka), new Set()) };
+        if (res) {
+          if (trace) trace.oldRedex = n;
+          return { sym: head.sym, build: () => dedupIds(reapplyExtras(res, args, ka), new Set()) };
+        }
       }
       const rule = fast ? RULES[head.sym] : undefined;
       if (rule && args.length >= k) {
+        if (trace) trace.oldRedex = n;
         return { sym: head.sym, build: () => dedupIds(applyRule(rule, args, k), new Set()) };
       }
     }
@@ -139,12 +157,19 @@ function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts
   const { fn, arg } = n;
 
   // ι x → x S K
-  if (fn.kind === "iota") return { sym: "ι", build: () => app(app(arg, comb("S")), comb("K")) };
+  if (fn.kind === "iota") {
+    if (trace) trace.oldRedex = n;
+    return { sym: "ι", build: () => app(app(arg, comb("S")), comb("K")) };
+  }
   // I x → x
-  if (fn.kind === "comb" && fn.sym === "I") return { sym: "I", build: () => arg };
+  if (fn.kind === "comb" && fn.sym === "I") {
+    if (trace) trace.oldRedex = n;
+    return { sym: "I", build: () => arg };
+  }
   // K x y → x          (n = ((K x) y),    so fn = (K x))
   if (fn.kind === "app" && fn.fn.kind === "comb" && fn.fn.sym === "K") {
     const x = fn.arg;
+    if (trace) trace.oldRedex = n;
     return { sym: "K", build: () => x };
   }
   // S x y z → x z (y z) (n = (((S x) y) z), so fn = ((S x) y))
@@ -152,6 +177,7 @@ function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts
     const x = fn.fn.arg;
     const y = fn.arg;
     const z = arg;
+    if (trace) trace.oldRedex = n;
     // z is duplicated: keep the original ids on the left (persist), fresh-clone
     // the right copy (the "copy" the view grows out of the source, §6.3).
     return { sym: "S", build: () => app(app(x, z), app(y, clone(z))) };
@@ -162,17 +188,22 @@ function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts
   // old eager behaviour, if unknown).
   if (fn.kind === "comb" && fn.def && argsAbove + 1 >= (fn.arity ?? 1)) {
     const def = fn.def;
+    if (trace) trace.oldRedex = n;
     return { sym: fn.sym, build: () => app(clone(def), arg) };
   }
 
   // No rule fires at the root: recurse left spine first (one more arg above),
   // then the argument (a fresh spine). Context apps keep their id (`{ ...n }`). The
   // function spine shares this head, so skip its head scan (`headChecked`); the argument
-  // is a fresh spine, so its head must be scanned.
-  const f = redexAtGo(fn, argsAbove + 1, fast, native, true);
+  // is a fresh spine, so its head must be scanned. `trace` records the descent direction
+  // (0 = fn, 1 = arg) and un-does it on a dead branch, so on return `path` is the redex's location.
+  if (trace) trace.path.push(0);
+  const f = redexAtGo(fn, argsAbove + 1, fast, native, true, trace);
   if (f) return { sym: f.sym, build: () => ({ ...n, fn: f.build() }) };
-  const a = redexAtGo(arg, 0, fast, native, false);
+  if (trace) trace.path[trace.path.length - 1] = 1;
+  const a = redexAtGo(arg, 0, fast, native, false, trace);
   if (a) return { sym: a.sym, build: () => ({ ...n, arg: a.build() }) };
+  if (trace) trace.path.pop();
   return null;
 }
 
@@ -180,6 +211,45 @@ function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts
  *  already in normal form. See {@link redexAt} for the rules. */
 export function step(n: Node, argsAbove = 0, fast = false, native?: NativeOpts): Node | null {
   return redexAt(n, argsAbove, fast, native)?.build() ?? null;
+}
+
+/**
+ * A structural description of one reduction step, for the incremental view (deeper-perf, ADR 18):
+ * the whole new `root`, the rule that fired (`sym`), and — the point of it — WHERE it fired.
+ * `path` locates the contracted node from the root (`0` = fn, `1` = arg); `oldRedex` is the subtree
+ * there BEFORE the step and `replacement` the contractum that took its place. Everything outside
+ * `oldRedex`↔`replacement` is untouched (the spine above keeps its ids and, under a frozen H-tree
+ * arm, its positions), so the view can reflow just the changed neighbourhood instead of the whole
+ * tree. `replacement` is the live subtree inside `root` (same ids), so no second `build()` runs.
+ */
+export interface StepPatch {
+  root: Node;
+  sym: string;
+  path: number[];
+  oldRedex: Node;
+  replacement: Node;
+}
+
+/**
+ * One reduction step as a {@link StepPatch}, or `null` if `n` is in normal form. Same
+ * leftmost-outermost redex and same contractum as {@link step} — it just also reports the redex
+ * location, gathered as a by-product of the one search (see {@link Trace}), so it costs no extra
+ * traversal. The view derives its dirty id-set from `oldRedex` + `replacement` AFTER `expandDisplay`
+ * (undiscovered-combinator expansion is a view concern, kept out of core).
+ */
+export function stepWithPatch(n: Node, argsAbove = 0, fast = false, native?: NativeOpts): StepPatch | null {
+  const trace: Trace = { path: [] };
+  const redex = redexAtGo(n, argsAbove, fast, native, false, trace);
+  if (!redex || !trace.oldRedex) return null;
+  const root = redex.build();
+  // Follow the recorded path down the freshly-built root to the contractum — the same object that
+  // build() placed there, so its ids match the tree the view will render.
+  let replacement = root;
+  for (const d of trace.path) {
+    if (replacement.kind !== "app") break; // unreachable: the path only descends through app nodes
+    replacement = d === 0 ? replacement.fn : replacement.arg;
+  }
+  return { root, sym: redex.sym, path: trace.path, oldRedex: trace.oldRedex, replacement };
 }
 
 /** The result of running a term toward normal form. */
