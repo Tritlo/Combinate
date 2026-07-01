@@ -15,6 +15,7 @@ import type * as T from "three";
 import { type Node } from "../core/term";
 import { layoutHTree3D, type Layout3Fn } from "../core/layout3d";
 import { theme, combinatorColor, edgeTierColor } from "./theme";
+import { easeInOut } from "./anim";
 
 /** Beyond this node count the static scene gets heavy to build/draw — the app preflights this
  *  (iteratively, deep-safe) before entering 3D. */
@@ -351,7 +352,7 @@ export class Sphere3D {
     const t0 = performance.now();
     m.elapsed += Math.min(dtMS, MORPH_MAX_DT); // clamp so a frame hitch can't snap the tween to its end
     const t = Math.min(1, m.elapsed / m.duration);
-    const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2; // easeInOut
+    const e = easeInOut(t);
     const M = new three.Matrix4();
     m.curPos.clear();
     for (const a of m.anims) {
@@ -421,7 +422,7 @@ export class Sphere3D {
     const m = this.morph;
     if (!m) return { active: false, t: 1, drawCount: this.drawCount, survivors: 0, entering: 0, exiting: 0, enterScale: 0, exitScale: 0 };
     const t = Math.min(1, m.elapsed / m.duration);
-    const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+    const e = easeInOut(t);
     let survivors = 0;
     let entering = 0;
     let exiting = 0;
