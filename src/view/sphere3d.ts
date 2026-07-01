@@ -13,7 +13,7 @@
  */
 import type * as T from "three";
 import { type Node } from "../core/term";
-import { layoutSphere } from "../core/layout3d";
+import { layoutSphere, type Layout3Fn } from "../core/layout3d";
 import { theme, combinatorColor, edgeTierColor } from "./theme";
 
 /** Beyond this node count the static scene gets heavy to build/draw — the app preflights this
@@ -130,6 +130,7 @@ export class Sphere3D {
   frameMargin = 1.6; // camera pull-back factor when framing (smaller = the ball fills more of the view)
   frameFloor = 120; // min framing radius (keeps a tiny tree from clipping; the preview lowers it to fill its box)
   drawCount = 0; // renders since boot (dev seam: confirms the morph render loop actually advanced)
+  private layout3: Layout3Fn = layoutSphere; // the active 3D layout (sphere by default; H-tree via setLayout3)
   private lastPos = new Map<number, Pos3>(); // currently-displayed node positions — the next morph's `from`
   private lastNodes = new Map<number, Node>(); // currently-displayed nodes (to colour/size dropped nodes)
   private lastDepth = new Map<number, number>(); // currently-displayed node depths (app nodes take their incoming-edge tier)
@@ -204,7 +205,7 @@ export class Sphere3D {
       return;
     }
     const t0 = performance.now();
-    const { pos, radius } = layoutSphere(node);
+    const { pos, radius } = this.layout3(node);
     this.lastCount = pos.size;
     this.lastCapped = pos.size > NODE_CAP;
     if (this.lastCapped) {
@@ -272,7 +273,7 @@ export class Sphere3D {
       this.lastNodes = this.collect(this.morph.node);
       this.morph = null;
     }
-    const { pos: newPos } = layoutSphere(node);
+    const { pos: newPos } = this.layout3(node);
     const ids = new Set<number>([...this.lastPos.keys(), ...newPos.keys()]);
     if (this.lastPos.size === 0 || ids.size > MORPH_CAP) {
       this.update(node, true); // nothing to glide from, or too big to tween — snap to the steady scene
@@ -392,6 +393,17 @@ export class Sphere3D {
   /** Whether a reduction-step morph is currently playing (the host drives {@link advanceMorph}). */
   get morphing(): boolean {
     return this.morph !== null;
+  }
+
+  /** Swap the 3D layout algorithm (sphere ↔ H-tree). Drops any in-flight morph and the last scene so
+   *  the next {@link update} lays the tree out fresh in the new layout (no cross-layout tween). */
+  setLayout3(fn: Layout3Fn): void {
+    if (this.layout3 === fn) return;
+    this.layout3 = fn;
+    this.morph = null;
+    this.lastPos = new Map();
+    this.lastNodes = new Map();
+    this.lastDepth = new Map();
   }
 
   /** Snap an in-flight morph to its settled term — the host calls this when the 2D reducer is paused
