@@ -1260,7 +1260,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "toggle", label: "Zoo", title: "Browse the combinators you've discovered.", checked: () => zoo.isOpen, run: () => zoo.toggle() },
       { kind: "toggle", label: "Golf", title: "Timed challenges: hit a target in the fewest ι.", checked: () => challenges.isOpen, run: () => challenges.toggle() },
       { kind: "sep" },
-      { kind: "action", label: "Compile Haskell…", title: "Compile a Haskell expression into a combinator tree.", run: () => mhsPanel.open() },
+      { kind: "action", label: "Compile Haskell…", title: "Compile a Haskell expression into a combinator tree, using Micro Haskell.", run: () => mhsPanel.open() },
       { kind: "action", label: "Share link", title: "Copy a permalink to the current canvas.", run: () => shareFocused() },
     ] },
     { title: "Edit", items: [
