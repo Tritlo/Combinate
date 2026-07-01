@@ -1,11 +1,12 @@
 /**
  * The top-right control stack (under the transport): two System-1 sliding-toggle rows.
- *   Row 1 (view): a [2D | 3D] switch, a [Auto | Top-Down | Radial | H-Tree] layout selector, and a
- *     [ι] iota-tree toggle (draw every combinator expanded to raw ι).
- *   Row 2 (optimizations): independent [Rules] [Graph] [Primitives] [Turbo] toggles.
- * A thin DOM view over the shell's layout / 3D / expand / optimization state: the shell owns the
- * state and injects getters + setters, and calls {@link LayoutControls.refresh} whenever it changes
- * (from here, the menus, T, or a pad). System-1 chrome — an ink track, the selected cell a paper slider.
+ *   Row 1 (view): a [2D | 3D] switch + a [Auto | Top-Down | Radial | H-Tree] layout selector.
+ *   Row 2: a [ι] iota-tree toggle + independent [Rules] [Graph] [Primitives] [Turbo] optimizations.
+ * A thin DOM view over the shell's layout / 3D / expand / optimization state.
+ *
+ * On phones (≤600) the whole thing — plus the transport (speed controls), reparented in — collapses
+ * into a single "Controls" card with a title bar + collapse caret, styled like the quest tracker.
+ * System-1 chrome throughout: an ink track, the selected cell a paper slider.
  */
 import { currentMode, onThemeChange, type Mode } from "./theme";
 
@@ -24,6 +25,8 @@ export interface LayoutControlsDeps {
   toggleIotaTree: () => void;
   opt: (k: OptCell) => boolean;
   toggleOpt: (k: OptCell) => void;
+  /** The transport bar's root — hosted inside the Controls card on phones. */
+  transportEl: HTMLElement;
 }
 
 const PALETTE: Record<Mode, { paper: string; ink: string }> = {
@@ -31,14 +34,17 @@ const PALETTE: Record<Mode, { paper: string; ink: string }> = {
   dark: { paper: "#07090d", ink: "#f0f3f6" },
 };
 const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
+const STORE_KEY = "combinate:controls:collapsed:v1";
+const PHONE = 600;
 
 let stylesInjected = false;
 function injectStyles(): void {
   if (stylesInjected) return;
   stylesInjected = true;
   const css = `
-.lc-root { position: fixed; top: 52px; right: 16px; z-index: 41; display: flex; flex-direction: column;
-  align-items: stretch; gap: 6px; font-family: ${MONO}; }
+.lc-root { position: fixed; top: 52px; right: 16px; z-index: 41; font-family: ${MONO}; }
+.lc-title { display: none; }
+.lc-body { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
 .lc-row { display: flex; gap: 8px; align-items: stretch; justify-content: space-between; }
 .lc-seg { display: flex; border: 1px solid var(--lc-ink); background: var(--lc-ink); box-shadow: 2px 2px 0 rgba(0,0,0,0.6); }
 .lc-btn { font-family: ${MONO}; font-size: 11px; line-height: 1; padding: 4px 9px; border: none; background: transparent;
@@ -46,15 +52,15 @@ function injectStyles(): void {
 .lc-btn + .lc-btn { border-left: 1px solid color-mix(in srgb, var(--lc-paper) 30%, transparent); }
 .lc-btn.on { background: var(--lc-paper); color: var(--lc-ink); font-weight: 700; }
 .lc-btn:not(.on):hover { background: color-mix(in srgb, var(--lc-paper) 18%, transparent); }
-/* Phone: the stack collapses to a gear (top-right); tapping it opens the stack as a System-1 popover
-   panel where the bars would be — above the tracked-quest + read-out. A backdrop closes it. */
-.lc-gear { display: none; position: fixed; top: 52px; right: 16px; z-index: 42; width: 34px; height: 28px;
-  align-items: center; justify-content: center; border: 1px solid var(--lc-ink); background: var(--lc-ink);
-  color: var(--lc-paper); box-shadow: 2px 2px 0 rgba(0,0,0,0.6); cursor: pointer; font-size: 15px; padding: 0; }
-.lc-backdrop { display: none; position: fixed; inset: 0; z-index: 44; background: rgba(0,0,0,0.28); }
-.lc-root.lc-phone { display: none; top: 52px; left: 8px; right: 8px; z-index: 45; background: var(--lc-paper);
-  border: 1px solid var(--lc-ink); box-shadow: 3px 3px 0 rgba(0,0,0,0.6); padding: 9px; }
-.lc-root.lc-phone.lc-open { display: flex; }
+/* Phone: a collapsible Controls card (title + body) hosting the transport + the toggle rows. */
+.lc-root.lc-phone { top: 26px; left: 8px; right: 8px; background: var(--lc-paper); border: 1px solid var(--lc-ink);
+  box-shadow: 3px 3px 0 rgba(0,0,0,0.6); }
+.lc-root.lc-phone .lc-title { display: flex; align-items: center; gap: 8px; padding: 3px 9px; background: var(--lc-ink);
+  color: var(--lc-paper); cursor: pointer; user-select: none; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+.lc-root.lc-phone .lc-title span { flex: 1; }
+.lc-root.lc-phone .lc-body { padding: 9px; gap: 8px; }
+.lc-root.lc-phone.lc-collapsed .lc-body { display: none; }
+.lc-root.lc-phone .tp-root { position: static; box-shadow: none; }
 `;
   const style = document.createElement("style");
   style.textContent = css;
@@ -90,20 +96,35 @@ const OPTS: { key: OptCell; label: string; title: string }[] = [
 
 export class LayoutControls {
   private readonly root = document.createElement("div");
+  private readonly title = document.createElement("div");
+  private readonly caret = document.createElement("span");
+  private readonly body = document.createElement("div");
   private readonly b2d: HTMLButtonElement;
   private readonly b3d: HTMLButtonElement;
   private readonly layoutBtns = new Map<LayoutKey, HTMLButtonElement>();
   private readonly bIota: HTMLButtonElement;
   private readonly optBtns = new Map<OptCell, HTMLButtonElement>();
-  private readonly gear = document.createElement("button");
-  private readonly backdrop = document.createElement("div");
   private phone = false;
-  private open = false;
+  private collapsed = false;
+  /** Fired when the card's height changes (collapse / breakpoint) so the shell can restack the read-out. */
+  onLayout: (() => void) | undefined;
 
   constructor(private readonly deps: LayoutControlsDeps) {
     injectStyles();
     this.root.className = "lc-root";
     this.applyPalette();
+    this.load();
+
+    // Title bar (phone only) — collapses the card, quest-tracker style.
+    this.title.className = "lc-title";
+    this.caret.textContent = "▾";
+    const label = document.createElement("span");
+    label.textContent = "Controls";
+    this.title.append(this.caret, label);
+    this.title.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      this.toggleCollapsed();
+    });
 
     // — Row 1: view —
     const dim = document.createElement("div");
@@ -114,8 +135,8 @@ export class LayoutControls {
 
     const laySeg = document.createElement("div");
     laySeg.className = "lc-seg";
-    for (const { key, label, title } of LAYOUTS) {
-      const b = cell(label, title, () => this.act(() => this.deps.setLayout(key)));
+    for (const { key, label: l, title } of LAYOUTS) {
+      const b = cell(l, title, () => this.act(() => this.deps.setLayout(key)));
       this.layoutBtns.set(key, b);
       laySeg.append(b);
     }
@@ -124,9 +145,7 @@ export class LayoutControls {
     row1.className = "lc-row";
     row1.append(dim, laySeg);
 
-    // — Row 2: the [ι] iota-tree toggle + the optimizations. All independent (not mutually exclusive),
-    // so each is its own separated toggle rather than one joined segment. [ι] leads the row so the two
-    // rows balance optically (row 1 is the wide view segment). —
+    // — Row 2: the [ι] iota-tree toggle + the optimizations, all independent (separate toggles). —
     const row2 = document.createElement("div");
     row2.className = "lc-row";
     const iotaSeg = document.createElement("div");
@@ -134,64 +153,59 @@ export class LayoutControls {
     this.bIota = cell("ι", "Show every combinator expanded to its raw ι-tree", () => this.act(() => this.deps.toggleIotaTree()));
     iotaSeg.append(this.bIota);
     row2.append(iotaSeg);
-    for (const { key, label, title } of OPTS) {
+    for (const { key, label: l, title } of OPTS) {
       const seg = document.createElement("div");
       seg.className = "lc-seg";
-      const b = cell(label, title, () => this.act(() => this.deps.toggleOpt(key)));
+      const b = cell(l, title, () => this.act(() => this.deps.toggleOpt(key)));
       this.optBtns.set(key, b);
       seg.append(b);
       row2.append(seg);
     }
 
-    this.root.append(row1, row2);
-
-    // Phone: a gear that toggles this stack as a popover, with a click-catching backdrop.
-    this.gear.className = "lc-gear";
-    this.gear.textContent = "\u2699\uFE0E"; // ⚙ pinned to monochrome (text-presentation selector)
-    this.gear.title = "Settings";
-    this.gear.addEventListener("pointerdown", (e) => {
-      e.stopPropagation();
-      this.setOpen(!this.open);
-    });
-    this.backdrop.className = "lc-backdrop";
-    this.backdrop.addEventListener("pointerdown", () => this.setOpen(false));
-
-    document.body.append(this.root, this.gear, this.backdrop);
+    this.body.className = "lc-body";
+    this.body.append(row1, row2);
+    this.root.append(this.title, this.body);
+    document.body.append(this.root);
     onThemeChange(() => this.applyPalette());
     window.addEventListener("resize", () => this.syncPhone());
     this.syncPhone();
     this.refresh();
   }
 
-  /** Run a state change, then reflect it immediately (the shell also refreshes us, but this keeps
-   *  the bar snappy on click). */
+  /** Run a state change, then reflect it immediately (the shell also refreshes us). */
   private act(change: () => void): void {
     change();
     this.refresh();
   }
 
-  /** Track the phone breakpoint: below it the stack collapses behind the gear. */
+  /** Track the phone breakpoint: below it, host the transport in the card + show the title. */
   private syncPhone(): void {
-    const phone = window.innerWidth <= 600;
+    const phone = window.innerWidth <= PHONE;
     if (phone !== this.phone) {
       this.phone = phone;
-      if (!phone) this.open = false;
+      // Reparent the transport: into the card on phones, back out to <body> on wider screens.
+      if (phone) this.body.insertBefore(this.deps.transportEl, this.body.firstChild);
+      else document.body.append(this.deps.transportEl);
     }
     this.root.classList.toggle("lc-phone", phone);
-    this.renderPhone();
+    this.renderCollapse();
   }
 
-  private setOpen(open: boolean): void {
-    this.open = open;
-    this.renderPhone();
+  private toggleCollapsed(): void {
+    this.collapsed = !this.collapsed;
+    this.save();
+    this.renderCollapse();
   }
 
-  /** Show the popover + backdrop when open on a phone; the gear only when closed. */
-  private renderPhone(): void {
-    const panelOpen = this.phone && this.open;
-    this.root.classList.toggle("lc-open", panelOpen);
-    this.gear.style.display = this.phone && !this.open ? "flex" : "none";
-    this.backdrop.style.display = panelOpen ? "block" : "none";
+  private renderCollapse(): void {
+    this.caret.textContent = this.collapsed ? "▸" : "▾";
+    this.root.classList.toggle("lc-collapsed", this.collapsed);
+    this.onLayout?.();
+  }
+
+  /** The card's bottom edge in viewport px on phones (0 otherwise) — for stacking the read-out below it. */
+  mobileBottom(): number {
+    return this.phone ? this.root.getBoundingClientRect().bottom : 0;
   }
 
   /** Re-read the shell's state and repaint the selected cells. */
@@ -205,9 +219,23 @@ export class LayoutControls {
     for (const [key, b] of this.optBtns) b.classList.toggle("on", this.deps.opt(key));
   }
 
+  private load(): void {
+    try {
+      this.collapsed = localStorage.getItem(STORE_KEY) === "1";
+    } catch {
+      /* default expanded */
+    }
+  }
+  private save(): void {
+    try {
+      localStorage.setItem(STORE_KEY, this.collapsed ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }
+
   private applyPalette(): void {
     const p = PALETTE[currentMode()];
-    // On <body> so the gear + backdrop (siblings of .lc-root, not descendants) inherit them too.
     document.body.style.setProperty("--lc-paper", p.paper);
     document.body.style.setProperty("--lc-ink", p.ink);
   }

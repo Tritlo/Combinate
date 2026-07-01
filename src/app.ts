@@ -521,16 +521,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   quest.onAdvance(() => {
     questTracker.refresh(); // quest hints live in the tracker + the Quest window
   });
-  // Phone: the tracked quest sits below the (collapsed) settings gear, and the combinator read-out
-  // stacks beneath the tracker — whose height varies — so re-place the read-out on resize + whenever
-  // the tracker re-renders. On wider screens the read-out keeps its CSS-driven position.
-  const positionPhoneOverlays = (): void => {
-    if (window.innerWidth > 600) return readoutBox.setTop(null);
-    const b = questTracker.bottom(); // 0 when the tracker is hidden
-    readoutBox.setTop(b > 0 ? Math.round(b) + 8 : 88);
-  };
-  questTracker.onLayout = positionPhoneOverlays;
-  positionPhoneOverlays();
   hud.addChild(challenges.container); // overlays the hotbar, like the Zoo
 
   // Haskell → ι panel (ADR 0007): compile a curated or free-typed program (stock
@@ -1219,7 +1209,17 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       } else if (k === "turbo") setOpt("wasm", !isOpt("wasm"));
       else setOpt(k, !isOpt(k)); // rules | graph
     },
+    transportEl: transportBar.el, // hosted inside the Controls card on phones
   });
+  // Phone: the transport + toggles collapse into the Controls card, whose height varies (collapsed vs
+  // expanded), so stack the combinator read-out just beneath it. On wider screens it keeps its CSS spot.
+  const positionPhoneOverlays = (): void => {
+    if (window.innerWidth > 600) return readoutBox.setTop(null);
+    const b = layoutControls?.mobileBottom() ?? 0;
+    readoutBox.setTop(b > 0 ? Math.round(b) + 8 : 52);
+  };
+  if (layoutControls) layoutControls.onLayout = positionPhoneOverlays;
+  positionPhoneOverlays();
   // Gamepad: a third input producer (polled from the ticker), routed by the active context.
   new GamepadController(pixi.ticker, {
     // Always poll: the pad is always live (2D Build / 3D Inspect); Y enters/exits 3D either way.
