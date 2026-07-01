@@ -865,8 +865,12 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   pixi.canvas.addEventListener("pointerup", endPointer);
   pixi.canvas.addEventListener("pointercancel", endPointer);
 
-  // Top-left, just under the menu bar (the old description line is gone — it's in Help now).
-  const placeLegend = () => legend.position.set(16, 34);
+  // Top-left, just under the menu bar (the old description line is gone — it's in Help now). Hidden
+  // on phones, where the top-right control bars would sit on top of it (it's just an edge key).
+  const placeLegend = () => {
+    legend.position.set(16, 34);
+    legend.visible = window.innerWidth > 600;
+  };
   placeLegend();
   zoo.layout();
 

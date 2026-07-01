@@ -44,9 +44,13 @@ function injectStyles(): void {
 .ro-body { padding: 5px 9px; font-size: 16px; line-height: 1.4; white-space: nowrap;
   overflow-x: auto; overflow-y: hidden; user-select: text; }
 .ro-body.ro-wrap { white-space: pre-wrap; word-break: break-all; overflow-x: hidden; overflow-y: auto; max-height: 42vh; }
-/* Small screens: the centred read-out would collide with the top-right control bars, so drop it
-   BELOW the whole stack (transport + layout + optimizations rows end ~102px down). */
-@media (max-width: 1024px) { .ro-root { top: 116px; } }
+/* The centred read-out competes with the top-right control stack (and the top-left edge legend).
+   1101–1399px: narrow it — centred at width (100vw−780) fixes each margin at 390px, clearing both
+   the legend (left) and the bars/tracker (right) at every width. ≤1100px: drop it BELOW the whole
+   stack; the tracker hides at the same breakpoint. ≤600px: go full width (phone). */
+@media (min-width: 1101px) and (max-width: 1399px) { .ro-root { width: min(620px, calc(100vw - 780px)); } }
+@media (max-width: 1100px) { .ro-root { top: 116px; } }
+@media (max-width: 600px) { .ro-root { width: calc(100vw - 16px); } }
 @media (max-width: 560px) { .ro-body { font-size: 14px; } .ro-body.ro-wrap { max-height: 60vh; } }
 `;
   const style = document.createElement("style");

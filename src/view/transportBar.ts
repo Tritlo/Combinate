@@ -69,6 +69,14 @@ function segment(labels: string[]): { el: HTMLDivElement; cells: HTMLButtonEleme
 const STEP_GLYPH = "▶▮"; // play-to-bar: advance one step
 const GLYPH: Record<Transport, string> = { pause: "▮▮", play: "▶", ff: "▶▶", max: "▶▶▶" };
 
+/** Rate as compact SI so the display width stays stable as it grows: 3.0, 42, 999, 1.1K, 12K, 1.0M, … */
+function siRate(n: number): string {
+  if (n >= 1e6) return (n / 1e6).toFixed(n < 1e7 ? 1 : 0) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(n < 1e4 ? 1 : 0) + "K";
+  if (n >= 10) return n.toFixed(0);
+  return n.toFixed(1);
+}
+
 export class TransportBar {
   private readonly root = document.createElement("div");
   private readonly rateEl = document.createElement("div");
@@ -153,7 +161,7 @@ export class TransportBar {
     this.redPerSec = Math.max(0, this.redPerSec * 0.5 + ((total - this.lastTotal) / (this.rateAccum / 1000)) * 0.5);
     this.lastTotal = total;
     this.rateAccum = 0;
-    this.rateEl.textContent = this.reduce.mode === "pause" ? "paused" : `${this.redPerSec.toFixed(1)} red/s`;
+    this.rateEl.textContent = this.reduce.mode === "pause" ? "paused" : `${siRate(this.redPerSec)} red/s`;
   }
 
   private applyPalette(): void {

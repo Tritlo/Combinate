@@ -61,9 +61,9 @@ function injectStyles(): void {
 .qt-iolabel { font-size: 11px; opacity: 0.6; }
 .qt-ioform { margin-top: 3px; font-size: 12px; line-height: 1.45; max-height: 4.4em; overflow-y: auto; word-break: break-word;
   color: color-mix(in srgb, var(--qt-ink) 75%, var(--qt-gold)); }
-/* Small screens: hide the tracker (the read-out drops beneath the bars there — no room for it too).
-   !important beats the inline display the JS toggles. */
-@media (max-width: 1024px) { .qt-root { display: none !important; } }
+/* Small screens: hide the tracker (the read-out drops beneath the bars at this same breakpoint — no
+   room for it too). !important beats the inline display the JS toggles. */
+@media (max-width: 1100px) { .qt-root { display: none !important; } }
 `;
   const style = document.createElement("style");
   style.textContent = css;
