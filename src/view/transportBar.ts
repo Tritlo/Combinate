@@ -13,31 +13,32 @@ import { type Ticker } from "pixi.js";
 import { currentMode, onThemeChange, type Mode, MONO, PAPER, INK } from "./theme";
 import { type ReductionController, type Transport, TRANSPORT_MODES } from "./reduction";
 import { type Sound } from "./sound";
+import { MENUBAR_HEIGHT } from "./menubar";
 
 const PALETTE: Record<Mode, { paper: string; ink: string }> = {
   light: { paper: PAPER.light, ink: INK.light },
   dark: { paper: PAPER.dark, ink: INK.dark },
 };
-const CELL = 30; // segment cell width (px) — the slider steps by this, so every cell is CELL wide
+const TOP = MENUBAR_HEIGHT + 8; // clear of the menu bar, using its existing 8px spacing rhythm
 
 let stylesInjected = false;
 function injectStyles(): void {
   if (stylesInjected) return;
   stylesInjected = true;
   const css = `
-.tp-root { position: fixed; top: 14px; right: 16px; z-index: 41; display: flex; gap: 8px; align-items: center;
+.tp-root { position: fixed; top: ${TOP}px; right: 16px; z-index: 41; display: flex; gap: 8px; align-items: center;
   font-family: ${MONO}; }
-.tp-seg { position: relative; display: flex; border: 1px solid var(--tp-ink); background: var(--tp-ink);
-  box-shadow: 2px 2px 0 rgba(0,0,0,0.6); }
+.tp-seg { position: relative; display: flex; flex: 1 1 auto; border: 1px solid var(--tp-ink); background: var(--tp-ink);
+  box-shadow: 2px 2px 0 rgba(0,0,0,0.6); } /* grows to fill tp-root's width — matched to the layout bar's, see LayoutControls.syncPhone */
 .tp-slider { position: absolute; top: 0; bottom: 0; background: var(--tp-paper);
   transition: transform 0.15s ease; pointer-events: none; } /* width + transform are % (set in JS) so cells can grow */
-.tp-cell { position: relative; z-index: 1; width: ${CELL}px; height: 24px; border: none; background: transparent;
+.tp-cell { position: relative; z-index: 1; flex: 1 1 0; width: auto; height: 24px; border: none; background: transparent;
   color: var(--tp-paper); cursor: pointer; font-family: ${MONO}; font-size: 12px; line-height: 24px; padding: 0;
   display: flex; align-items: center; justify-content: center; letter-spacing: -1px; transition: color 0.15s ease, background 0.15s ease; }
 .tp-cell.on { color: var(--tp-ink); font-weight: 700; }
 .tp-cell.fill.on { background: var(--tp-paper); } /* single toggles fill (no sliding knob) */
 .tp-cell.muted { color: var(--tp-paper); opacity: 0.5; text-decoration: line-through; }
-.tp-rate { display: flex; align-items: center; justify-content: flex-end; height: 26px; min-width: 74px; padding: 0 9px;
+.tp-rate { display: flex; flex: 1 1 auto; align-items: center; justify-content: flex-end; height: 26px; min-width: 74px; padding: 0 9px;
   border: 1px solid var(--tp-ink); background: var(--tp-paper); color: var(--tp-ink); box-shadow: 2px 2px 0 rgba(0,0,0,0.6);
   font-family: ${MONO}; font-size: 11px; letter-spacing: 0.04em; white-space: nowrap; }
 `;
@@ -92,8 +93,10 @@ export class TransportBar {
     this.root.className = "tp-root";
     this.applyPalette();
 
-    // Sound: a single [♪] on/off toggle — fills when on, struck through when muted.
-    const soundSeg = segment(["♪"]);
+    // Sound: a single [♪] on/off toggle — fills when on, struck through when muted. The trailing
+    // U+FE0E forces text presentation (not a colour-emoji note, which some platforms substitute at
+    // this size — the same class of problem the solid geometric play/pause glyphs above dodge).
+    const soundSeg = segment(["♪︎"]);
     soundSeg.slider.remove();
     this.soundCell = soundSeg.cells[0];
     this.soundCell.classList.add("fill");

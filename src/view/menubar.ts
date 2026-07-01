@@ -37,6 +37,9 @@ const PALETTE: Record<Mode, Record<string, string>> = {
 };
 
 const NARROW = 560; // below this width, collapse the menus into one ι menu
+/** The bar's fixed height (px) — exported so the top-right control stack (transport / layout /
+ *  quest tracker) can anchor its own top offset below it instead of an independent magic number. */
+export const MENUBAR_HEIGHT = 22;
 
 let stylesInjected = false;
 function injectStyles(): void {
@@ -44,7 +47,7 @@ function injectStyles(): void {
   stylesInjected = true;
   ensureFont();
   const css = `
-.mb-bar { position: fixed; top: 0; left: 0; right: 0; height: 22px; z-index: 40; display: flex; align-items: stretch;
+.mb-bar { position: fixed; top: 0; left: 0; right: 0; height: ${MENUBAR_HEIGHT}px; z-index: 40; display: flex; align-items: stretch;
   background: var(--mb-bg); color: var(--mb-fg); border-bottom: 1px solid var(--mb-line);
   font-family: ${MONO}; font-size: 14px; line-height: 1; user-select: none; -webkit-user-select: none; }
 .mb-title { display: flex; align-items: center; padding: 0 11px; cursor: default; }
