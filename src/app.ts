@@ -50,6 +50,7 @@ import { GamepadController } from "./view/gamepad";
 import { preloadSphere3D } from "./view/sphere3d";
 import { SphereController } from "./view/sphereController";
 import { Camera } from "./view/camera";
+import { DragController } from "./view/dragController";
 import { HintBar } from "./view/hints";
 import { DiscoveryCard } from "./view/discovery";
 import { type Context, type Intent, intentForKey } from "./view/keymap";
@@ -59,16 +60,9 @@ const PAD_ORBIT = 320; // 3D orbit: px-equivalent/sec at full left-stick deflect
 const PAD_PAN = 1100; // build camera pan: world-px/sec at full right-stick deflection
 const PAD_PAN3D = 600; // 3D pan: px-equivalent/sec at full right-stick deflection
 const PAD_ROT_STEP = 22; // 3D orbit: px-equivalent per gamepad d-pad step
-const SNAP_R = 72; // world-space snap radius between two tree root anchors (~1.3·XS)
 const COLLAPSE_MS = 340; // morph from a recognised normal form into its named node
 const ATTACH_MS = 280; // glide two trees together when snapped
 const DELETE_MS = 240; // fade out a right-clicked subtree
-
-type Drag =
-  | { kind: "tree"; tree: TreeView; offX: number; offY: number }
-  | { kind: "spawn"; tree: TreeView }
-  | { kind: "pan"; startX: number; startY: number; worldX: number; worldY: number }
-  | null;
 
 /** Wire the functional core to a Pixi scene: hotbar → spawn, drag → move/snap,
  * auto-reduce on idle (cancelled on touch), plus a pannable/zoomable camera
@@ -102,8 +96,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   ghostLayer.addChild(ghost, ghostLabel);
 
   const trees: TreeView[] = [];
-  let drag: Drag = null;
-  let snapTarget: TreeView | null = null;
+  // The pointer-drag FSM (carry a tree / camera pan / snap-to-apply). Owns `drag` + `snapTarget`;
+  // the shell gates it (never called while 3D or a pinch is active) and commits its drop outcomes.
+  const drag = new DragController({ camera, trees: () => trees, drawGhost, clearGhost });
   let focus: TreeView | null = null; // the tree whose expression is shown up top
   // Active touch points (by id) + the previous pinch frame, for two-finger zoom.
   const pointers = new Map<number, { x: number; y: number }>();
@@ -486,11 +481,11 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   };
   const hotbar = new Hotbar(
     (node, e) => {
-      if (drag) return; // already carrying — put it down first
+      if (drag.active()) return; // already carrying — put it down first
       if (sound.enabled) sound.play(headSym(node)); // grabbing a combinator off the hotbar plays its tone
       const t = spawnTree(node, e.global.x, e.global.y);
       t.container.eventMode = "none"; // passive while carried
-      drag = { kind: "spawn", tree: t };
+      drag.carry(t);
     },
     pixi.ticker,
     isDiscovered,
@@ -557,19 +552,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       paintRail();
       return;
     }
-    if (drag && drag.kind !== "pan") return putDown(tree); // already carrying → this click drops it onto this tree (apply)
+    if (drag.carrying()) return commitDrop(tree); // already carrying → this click drops it onto this tree (apply)
     focus = tree;
     reduce.cancel(tree); // touching a tree freezes it (§6.4)
     gameInput?.detach(tree); // grabbing a bucket tree with the mouse releases its slot (ADR 17)
-    const w = camera.screenToWorld(e.global.x, e.global.y);
     world.addChild(tree.container); // bring to front
     tree.container.eventMode = "none"; // passive while carried, so the next click reaches what's underneath
-    drag = {
-      kind: "tree",
-      tree,
-      offX: tree.container.position.x - w.x,
-      offY: tree.container.position.y - w.y,
-    };
+    drag.grab(tree, e.global.x, e.global.y);
   }
 
   // Right-click a node to open a Delete/Copy menu on its subtree (the deepest node under the cursor).
@@ -602,26 +591,23 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   /** Deep-clone a node's subtree (fresh ids) and PICK THE COPY UP — like a fresh hotbar grab, it
    *  follows the cursor and the next click places it (drop free, or snap-apply onto a tree). */
   function copyNode(tree: TreeView, id: NodeId, sx: number, sy: number): void {
-    if (drag) return; // already carrying — ignore (defensive; the menu shouldn't open mid-carry)
+    if (drag.active()) return; // already carrying — ignore (defensive; the menu shouldn't open mid-carry)
     const sub = findSubtree(tree.node, id);
     if (!sub) return;
     const t = spawnTree(cloneTerm(sub), sx, sy);
     t.container.eventMode = "none"; // passive while carried, so the placing click reaches what's underneath
-    drag = { kind: "spawn", tree: t };
+    drag.carry(t);
   }
 
-  /** Put the carried tree down — the second click of the carry model. Apply it to `target` (or the
-   *  snap-highlighted tree) — commitSnap picks fn vs arg by the carried root's side (left = fn) — else
-   *  drop it free where it sits and it begins reducing. */
-  function putDown(target?: TreeView): void {
-    if (!drag || drag.kind === "pan") return;
-    const tree = drag.tree;
-    tree.container.eventMode = "static"; // restore interactivity now it's placed
-    const tgt = target ?? snapTarget;
-    if (tgt && tgt !== tree) commitSnap(tree, tgt);
-    else reduce.schedule(tree); // free placement → reduces where it was dropped
-    clearGhost();
-    drag = null;
+  /** Commit a DragController drop: snap-apply onto `target`/the snap target (commitSnap picks fn vs
+   *  arg by the carried root's side, left = fn), else let the freely-placed tree reduce where it sits. */
+  function commitDrop(target?: TreeView): void {
+    const o = drag.drop(target);
+    if (o.kind === "snapApply") commitSnap(o.dragged, o.target);
+    else if (o.kind === "dropFree") {
+      o.tree.container.eventMode = "static"; // restore interactivity now it's placed
+      reduce.schedule(o.tree); // free placement → reduces where it was dropped
+    }
   }
 
   pixi.stage.on("pointerdown", (e: FederatedPointerEvent) => {
@@ -632,14 +618,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       return;
     }
     if (pinch || e.button !== 0) return; // pinching, or a right-click (the menu)
-    if (drag) { if (drag.kind !== "pan") putDown(); return; } // carrying → drop it here (free, or snap if near a tree)
-    drag = {
-      kind: "pan",
-      startX: e.global.x,
-      startY: e.global.y,
-      worldX: camera.transform().x,
-      worldY: camera.transform().y,
-    };
+    if (drag.active()) { if (drag.carrying()) commitDrop(); return; } // carrying → drop it here (free, or snap if near a tree)
+    drag.beginPan(e.global.x, e.global.y);
   });
 
   pixi.stage.on("globalpointermove", (e: FederatedPointerEvent) => {
@@ -647,42 +627,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       sphere.dragTo(e.global.x, e.global.y);
       return;
     }
-    if (!drag) return;
-    if (drag.kind === "pan") {
-      camera.moveTo(drag.worldX + (e.global.x - drag.startX), drag.worldY + (e.global.y - drag.startY));
-      return;
-    }
-    const tree = drag.tree;
-    const w = camera.screenToWorld(e.global.x, e.global.y);
-    if (drag.kind === "tree") {
-      tree.container.position.set(w.x + drag.offX, w.y + drag.offY);
-    } else {
-      tree.container.position.set(w.x, w.y);
-    }
-    updateSnap(tree);
+    drag.moveTo(e.global.x, e.global.y); // no-op when idle; pans the camera or moves the carried tree + snap preview
   });
 
   const onUp = () => {
     sphere.endDrag(); // end a 3D drag (imparts release momentum); no-op in 2D
-    if (drag?.kind === "pan") drag = null; // end a camera pan; a carried tree keeps following until the next click
+    drag.endPan(); // end a camera pan; a carried tree keeps following until the next click
   };
   pixi.stage.on("pointerup", onUp);
   pixi.stage.on("pointerupoutside", onUp);
-
-  function updateSnap(dragged: TreeView): void {
-    let best: TreeView | null = null;
-    let bestDist = SNAP_R;
-    for (const other of trees) {
-      if (other === dragged) continue;
-      const d = Math.hypot(other.rootWorld.x - dragged.rootWorld.x, other.rootWorld.y - dragged.rootWorld.y);
-      if (d < bestDist) {
-        bestDist = d;
-        best = other;
-      }
-    }
-    snapTarget = best;
-    drawGhost(dragged, best);
-  }
 
   // Preview the application about to form, with the same fn/arg edge colours as
   // the committed result so you can see which side becomes the function.
@@ -707,7 +660,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   function clearGhost(): void {
     ghostLabel.visible = false;
     ghost.clear();
-    snapTarget = null;
   }
 
   // Forget + remove + destroy a tree (and release any bucket it filled, so game-mode slot
@@ -806,8 +758,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       return; // 3D: one finger pans (handled in move)
     }
     if (pointers.size === 2) {
-      clearGhost();
-      drag = null; // hand control to the pinch
+      drag.cancel(); // hand control to the pinch (also clears the snap ghost)
       pinch = pinchMetrics();
     }
   });
@@ -899,8 +850,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       t.destroy();
     }
     trees.length = 0;
-    clearGhost();
-    drag = null;
+    drag.cancel();
     focus = null;
   }
 
