@@ -2,10 +2,9 @@
  * The shared System-1 modal chrome (ADR 12). `Modal` owns *only* the window — the
  * paper/ink card, titlebar + close box, backdrop + ESC close, the once-injected
  * `@font-face`/stylesheet, light/dark palette, and the scroll fix — exposing a protected
- * `body` for subclasses to fill and an `onOpen()` refresh hook. `SettingsModal` is a thin
- * checkbox-list layer over it (Fluff/Optimize). Subclasses keep their own content + store
- * logic + body CSS (their own prefix) so a chrome fix lands here once. Zoo/Golf (Pixi)
- * and the GitHub-styled MhsPanel deliberately don't use this.
+ * `body` for subclasses to fill and an `onOpen()` refresh hook. Subclasses (Help/About/
+ * AddRule) keep their own content + store logic + body CSS (their own prefix) so a chrome
+ * fix lands here once. Zoo/Golf (Pixi) and the GitHub-styled MhsPanel deliberately don't use this.
  */
 import { currentMode, onThemeChange, type Mode } from "./theme";
 import { vendorUrl } from "../vendorUrl";
@@ -111,90 +110,3 @@ export class Modal {
   }
 }
 
-// ---- SettingsModal: a checkbox-list over Modal (Fluff/Optimize) ----
-
-export interface SettingRow {
-  key: string;
-  label: string;
-  desc: string;
-}
-
-export interface SettingsSpec extends Omit<ModalOpts, "title"> {
-  title: string;
-  rows: SettingRow[];
-  checked: (key: string) => boolean;
-  toggle: (key: string) => void;
-}
-
-let settingsInjected = false;
-function injectSettings(): void {
-  if (settingsInjected) return;
-  settingsInjected = true;
-  const css = `
-.ms-body { padding: 14px 18px 16px; font-size: 14px; }
-.ms-row { display: flex; align-items: flex-start; gap: 10px; padding: 7px 4px; cursor: pointer; user-select: none; }
-.ms-row:hover { background: color-mix(in srgb, var(--md-ink) 8%, transparent); }
-.ms-box { width: 15px; height: 15px; flex: 0 0 auto; margin-top: 1px; border: 1.5px solid var(--md-ink);
-  display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; line-height: 1; }
-.ms-label { font-weight: 600; }
-.ms-desc { opacity: 0.6; font-size: 12.5px; margin-top: 1px; }
-.ms-foot { display: flex; justify-content: flex-end; padding: 0 18px 16px; }
-.ms-done { font-family: ${MONO}; font-size: 13px; font-weight: 600; color: var(--md-paper); background: var(--md-ink);
-  border: 1px solid var(--md-ink); padding: 4px 16px; cursor: pointer; }
-`;
-  const style = document.createElement("style");
-  style.textContent = css;
-  document.head.appendChild(style);
-}
-
-export class SettingsModal extends Modal {
-  constructor(private readonly spec: SettingsSpec) {
-    super({ title: spec.title, width: spec.width, extraVars: spec.extraVars });
-    injectSettings();
-    this.body.classList.add("ms-body");
-    for (const r of spec.rows) this.body.append(this.row(r.key, r.label, r.desc));
-
-    const foot = document.createElement("div");
-    foot.className = "ms-foot";
-    const done = document.createElement("button");
-    done.className = "ms-done";
-    done.textContent = "Done";
-    done.addEventListener("pointerdown", () => this.close());
-    foot.append(done);
-    this.card.append(foot);
-    this.sync();
-  }
-
-  /** Reflect the store into the checkboxes. The owner subscribes its store's change event to this. */
-  sync(): void {
-    const mark = (on: boolean): string => (on ? "✓" : "");
-    for (const r of this.spec.rows) (this.body.querySelector(`.ms-box[data-key="${r.key}"]`) as HTMLElement).textContent = mark(this.spec.checked(r.key));
-  }
-
-  protected override onOpen(): void {
-    this.sync();
-  }
-
-  private row(key: string, labelText: string, descText: string): HTMLElement {
-    const row = document.createElement("div");
-    row.className = "ms-row";
-    const box = document.createElement("div");
-    box.className = "ms-box";
-    box.dataset.key = key;
-    const text = document.createElement("div");
-    const lab = document.createElement("div");
-    lab.className = "ms-label";
-    lab.textContent = labelText;
-    const desc = document.createElement("div");
-    desc.className = "ms-desc";
-    desc.textContent = descText;
-    text.append(lab, desc);
-    row.append(box, text);
-    row.addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      this.spec.toggle(key);
-      this.sync(); // immediate (the owner's change event also syncs; idempotent)
-    });
-    return row;
-  }
-}

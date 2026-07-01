@@ -1,4 +1,4 @@
-# 9. Kernels — pure native primitives bound to named combinators
+# 11. Kernels — pure native primitives bound to named combinators
 
 **Status:** Accepted (Codex consensus, TODO §5).
 

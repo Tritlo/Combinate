@@ -57,7 +57,7 @@ for (const sym of LIST_OPS) registerKernel(sym, { arity: sym === "concat" ? 1 : 
 for (const sym of BOOL_OPS) registerKernel(sym, { arity: sym === "not" ? 1 : 2, enabled: (o) => !!o.booleans, run: (a) => boolOp(sym, a) });
 
 // ---- a pure Church kernel: `cmod a b = a mod b` on Church numerals (always on). It
-// unblocks the SKIQ gcd (raw Church Euclid is over budget — ADR 9/10): the answer builds
+// unblocks the SKIQ gcd (raw Church Euclid is over budget — ADR 10/11): the answer builds
 // Euclid from `cmod` + Y. Match operands with a kernel-FREE reducer so it can't re-enter.
 const CHURCH_CAP = 60_000;
 const MAX_CHURCH = 4096; // cap materialised output like MAX_NAT (a Church numeral is also size ∝ value)

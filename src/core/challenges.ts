@@ -76,6 +76,3 @@ export const CHALLENGES: Challenge[] = [
   { id: "sort", title: "Sort", goal: "Build sort — order a list ascending  ([3,1,2] → [1,2,3]).", solved: fn([{ in: [list([3, 1, 2])], out: outList([1, 2, 3]) }, { in: [list([2, 1])], out: outList([1, 2]) }]), metric: iotaCost, metricLabel: "ι" },
   { id: "bsearch", title: "Binary search", goal: "Search a SORTED list for a key — return its 0-based index.", solved: fn([{ in: [nat(1), list([1, 2, 3, 4, 5])], out: outNat(0) }, { in: [nat(3), list([1, 2, 3, 4, 5])], out: outNat(2) }, { in: [nat(5), list([1, 2, 3, 4, 5])], out: outNat(4) }]), metric: iotaCost, metricLabel: "ι" },
 ];
-
-/** A challenge by id, or undefined. */
-export const challengeById = (id: string): Challenge | undefined => CHALLENGES.find((c) => c.id === id);

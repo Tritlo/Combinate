@@ -1,4 +1,4 @@
-# 0010. The 3D view is a secondary feature, not the headline
+# 20. The 3D view is a secondary feature, not the headline
 
 The packed-sphere 3D view (plan 06) is a fun, exploratory feature — **not the end goal**. It is
 brittle: DOM-mounted WebGL didn't render reliably in real browsers (the discovery card had to drop

@@ -2,6 +2,10 @@ import { type Ticker } from "pixi.js";
 
 const easeOut = (t: number): number => 1 - (1 - t) ** 3;
 
+/** Symmetric ease (quadratic in, quadratic out) for a 0→1 progress. Used by the 2D tree pop/move
+ *  and the 3D morph tweens so they share one curve. */
+export const easeInOut = (t: number): number => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
+
 /**
  * Drive `onUpdate(progress)` from 0→1 over `ms` on the Pixi ticker (eased), then
  * call `onDone`. Returns a cancel function. Used for HUD flourishes (toast fade,

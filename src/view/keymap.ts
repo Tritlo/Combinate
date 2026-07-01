@@ -141,9 +141,3 @@ export const HINTS: Record<Context, Hint[]> = {
     { label: "Exit", kbd: "Esc", pad: "Ⓑ" },
   ],
 };
-
-/** A key's printable glyph (Space, ↵, ←, …) for hints/reference. */
-export function keyGlyph(key: string): string {
-  const map: Record<string, string> = { " ": "Space", enter: "↵", escape: "Esc", arrowleft: "←", arrowright: "→", arrowup: "↑", arrowdown: "↓", tab: "Tab" };
-  return map[key] ?? key.toUpperCase();
-}

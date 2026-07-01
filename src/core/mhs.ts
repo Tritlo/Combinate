@@ -30,8 +30,8 @@
  * Worker adapter (`../view/mhs/`).
  */
 
-import { type Node, app, comb, decode } from "./term";
-import { IOTA_CODE, named } from "./catalog";
+import { type Node, app, comb } from "./term";
+import { named } from "./catalog";
 import { step } from "./reduce";
 
 // ---------------------------------------------------------------------------
@@ -442,28 +442,3 @@ export function dumpToTree(dump: string, root?: string): DumpResult {
   return { tree };
 }
 
-// ---------------------------------------------------------------------------
-// Tree → Barker bit-code (the pure-ι form), for the store / leaderboard path.
-
-/** Expand a tree to its pure ι form: S/K/I leaves become their canonical ι-trees,
- *  named catalog/basis combinators expand through their S/K/I definition. */
-function toIota(n: Node): Node {
-  switch (n.kind) {
-    case "comb":
-      if (IOTA_CODE[n.sym]) return decode(IOTA_CODE[n.sym]); // S/K/I
-      if (n.def) return toIota(n.def); // named combinator → expand its def
-      throw new Error(`mhs: cannot encode combinator ${n.sym} (no ι form)`);
-    case "app":
-      return app(toIota(n.fn), toIota(n.arg));
-    default:
-      throw new Error(`mhs: cannot encode ${n.kind} node as ι`);
-  }
-}
-
-const encodeIota = (n: Node): string => (n.kind === "app" ? "0" + encodeIota(n.fn) + encodeIota(n.arg) : "1");
-
-/** Barker bit-code (`1` = ι, `0 <fn> <arg>` = app) of a tree — the canonical
- *  pure-ι program, e.g. for leaderboard submission. */
-export function treeToBitcode(tree: Node): string {
-  return encodeIota(toIota(tree));
-}

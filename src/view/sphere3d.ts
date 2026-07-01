@@ -1,6 +1,6 @@
 /**
- * The 3D "packed sphere" view (ADR 18) — a lazy Three.js renderer for the focused term. It
- * renders {@link layoutSphere} as instanced spheres + coloured edges into its OWN off-DOM
+ * The 3D "packed sphere" view (ADR 20) — a lazy Three.js renderer for the focused term. It
+ * renders a 3D layout (layoutHTree3D / layoutSphere) as instanced spheres + coloured edges into its OWN off-DOM
  * canvas; the owner draws that canvas as a Pixi texture sprite so the Pixi HUD composites on
  * top (compositing "A", Magi-consensus — no separate overlay covering the HUD). Re-renders on
  * demand (term / theme / resize / orbit) and animates reduction steps via {@link animateTo} +
@@ -13,8 +13,9 @@
  */
 import type * as T from "three";
 import { type Node } from "../core/term";
-import { layoutSphere, layoutHTree3D, type Layout3Fn } from "../core/layout3d";
+import { layoutHTree3D, type Layout3Fn } from "../core/layout3d";
 import { theme, combinatorColor, edgeTierColor } from "./theme";
+import { easeInOut } from "./anim";
 
 /** Beyond this node count the static scene gets heavy to build/draw — the app preflights this
  *  (iteratively, deep-safe) before entering 3D. */
@@ -37,7 +38,7 @@ const MORPH_CAP = 6000;
 // ~20 fps this never bites (deltaMS < 50); below it the morph plays in slight slow-motion instead of
 // teleporting. The reduction loop paces to the morph, so a slower morph just means a slower step.
 const MORPH_MAX_DT = 50;
-const EDGE_OPACITY = 0.85; // edges more opaque than before so the fn/arg cue reads (ADR 0010 follow-up)
+const EDGE_OPACITY = 0.85; // edges more opaque than before so the fn/arg cue reads (ADR 20 follow-up)
 const DASH_SIZE = 16; // arg (right) edges are DASHED, fn (left) solid — the 3D echo of the 2D solid/dashed legend
 const GAP_SIZE = 11; // (layout shells are ~92 units apart, so ~3 dashes per edge)
 
@@ -75,7 +76,7 @@ interface Morph {
   duration: number;
 }
 
-// Lazily-loaded Three module (WebGL — see ADR 18; WebGPU was dropped as not worth the
+// Lazily-loaded Three module (WebGL — see ADR 20; WebGPU was dropped as not worth the
 // maintenance/portability cost for this static scene).
 let THREE: typeof T | null = null;
 async function loadThree(): Promise<void> {
@@ -351,7 +352,7 @@ export class Sphere3D {
     const t0 = performance.now();
     m.elapsed += Math.min(dtMS, MORPH_MAX_DT); // clamp so a frame hitch can't snap the tween to its end
     const t = Math.min(1, m.elapsed / m.duration);
-    const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2; // easeInOut
+    const e = easeInOut(t);
     const M = new three.Matrix4();
     m.curPos.clear();
     for (const a of m.anims) {
@@ -421,7 +422,7 @@ export class Sphere3D {
     const m = this.morph;
     if (!m) return { active: false, t: 1, drawCount: this.drawCount, survivors: 0, entering: 0, exiting: 0, enterScale: 0, exitScale: 0 };
     const t = Math.min(1, m.elapsed / m.duration);
-    const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+    const e = easeInOut(t);
     let survivors = 0;
     let entering = 0;
     let exiting = 0;
