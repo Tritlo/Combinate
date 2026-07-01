@@ -39,8 +39,6 @@ export interface ModalOpts {
   title: string;
   /** Card width override, e.g. `"min(540px, 92vw)"` (default 460px). */
   width?: string;
-  /** Extra `--md-*` CSS vars per mode (e.g. Quest's gold accent). */
-  extraVars?: Record<Mode, Record<string, string>>;
 }
 
 /** A System-1 modal window: chrome only. Fill `body`; override `onOpen` to refresh. */
@@ -50,7 +48,7 @@ export class Modal {
   protected readonly body = document.createElement("div");
   private readonly titleLabel = document.createElement("span");
 
-  constructor(private readonly opts: ModalOpts) {
+  constructor(opts: ModalOpts) {
     injectChrome();
     this.root.className = "md-root";
     this.card.className = "md-card";
@@ -96,9 +94,6 @@ export class Modal {
   }
   /** Refresh hook, run just before the modal shows. */
   protected onOpen(): void {}
-  protected setTitle(t: string): void {
-    this.titleLabel.textContent = t;
-  }
 
   private applyPalette(): void {
     const mode = currentMode();
@@ -106,7 +101,6 @@ export class Modal {
       for (const [k, v] of Object.entries(vars)) this.root.style.setProperty(`--md-${k}`, v);
     };
     set(PALETTE[mode]);
-    if (this.opts.extraVars) set(this.opts.extraVars[mode]);
   }
 }
 

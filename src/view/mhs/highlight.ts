@@ -7,7 +7,7 @@
  */
 export type TokKind = "comment" | "string" | "number" | "keyword" | "type" | "plain";
 
-export interface Tok {
+interface Tok {
   text: string;
   kind: TokKind;
 }
@@ -38,7 +38,7 @@ const isWordStart = (c: string): boolean => /[A-Za-z_]/.test(c);
 const isWord = (c: string): boolean => /[A-Za-z0-9_']/.test(c);
 
 /** Lex Haskell source into coloured tokens (adjacent uncoloured text is merged). */
-export function tokenizeHaskell(src: string): Tok[] {
+function tokenizeHaskell(src: string): Tok[] {
   const out: Tok[] = [];
   let plain = "";
   const flush = (): void => {

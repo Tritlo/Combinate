@@ -33,14 +33,6 @@ const scopeFor = (p: Puzzle): Scope => {
   return (name) => env.get(name) ?? null;
 };
 
-/** Supported puzzles deliberately left unsolved, with why. (gcd is now solved — ADR 11.) */
-const PENDING: Record<string, string> = {};
-
-const findName = (id: string): string => {
-  for (const ch of SKIQ_CHAPTERS) for (const p of ch.content) if (p.id === id) return p.name;
-  return id;
-};
-
 function passes(p: Puzzle): boolean {
   try {
     return makeGoal(p)(parseExpr(SOLUTIONS[p.id], scopeFor(p)));
@@ -62,7 +54,6 @@ for (const ch of SKIQ_CHAPTERS) {
       continue;
     }
     total++;
-    if (p.id in PENDING) continue;
     if (!(p.id in SOLUTIONS)) {
       uncovered.push(`${p.id}  ${p.name.replace(/<[^>]+>/g, "")}`);
       continue;
@@ -72,12 +63,10 @@ for (const ch of SKIQ_CHAPTERS) {
   }
 }
 
-const pending = Object.keys(PENDING).length;
 console.log(
   `answer key: ${solved}/${total} supported puzzles solved  ` +
-    `(${pending} pending-kernels, ${uncovered.length} uncovered, ${unsupported} unsupported · ${failures.length} REGRESSIONS)`,
+    `(${uncovered.length} uncovered, ${unsupported} unsupported · ${failures.length} REGRESSIONS)`,
 );
-for (const [id, why] of Object.entries(PENDING)) console.log(`  pending: ${id} ${findName(id).replace(/<[^>]+>/g, "")} — ${why}`);
 if (list && uncovered.length) console.log("uncovered:\n  " + uncovered.join("\n  "));
 if (failures.length) {
   console.error("\nREGRESSIONS — these recorded solutions no longer pass:\n  " + failures.join("\n  "));

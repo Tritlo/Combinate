@@ -392,7 +392,7 @@ export const META: Record<string, Meta> = {
 
 /** A combinator as it appears on a page: its symbol, an optional topic alias
  *  (e.g. "True" for K) and a one-line note on the role it plays there. */
-export interface PageEntry {
+interface PageEntry {
   sym: string;
   alias?: string;
   role?: string;

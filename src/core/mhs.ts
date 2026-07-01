@@ -426,7 +426,7 @@ export function dumpToTree(dump: string, root?: string): DumpResult {
     let conclusive = false;
     for (let i = 0; i < CHECK_STEPS; i++) {
       if (exceeds(cur, CHECK_SIZE)) break; // blow-up → inconclusive, accept
-      const nx = step(cur, 0, true);
+      const nx = step(cur, true);
       if (!nx) {
         conclusive = true; // reached normal form within budget
         break;

@@ -16,7 +16,7 @@ import { type Node, type NodeId } from "./term";
 import { countNodes, HTREE_SHRINK } from "./layout";
 
 /** A point in the 3D layout (root anchored at the origin). */
-export interface Pos3 {
+interface Pos3 {
   x: number;
   y: number;
   z: number;
@@ -32,7 +32,7 @@ export interface Layout3 {
 export type Layout3Fn = (root: Node) => Layout3;
 
 /** Radius added per depth level (the shell spacing). */
-export const RING3 = 92;
+const RING3 = 92;
 const SPREAD0 = 1.0; // root fan half-angle (radians, ~57°)
 const SPREAD_DECAY = 0.5; // how fast the fan narrows with depth (so deep subtrees don't overlap)
 const MAX_TILT = 1.2; // ~69° — cap a child's tilt well under 90° so a lopsided split never folds a child backward (and keeps the split axis from collapsing onto the growth axis)

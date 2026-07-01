@@ -31,7 +31,7 @@ export const reducesToList = (nums: number[]) => (n: Node): boolean => {
 // ---- function goals: apply the built tree to concrete Scott inputs (Z/nil/False
 // = K, Succ = S, cons, True = A) and read the output. Several cases pin behaviour
 // so you can't hard-code one answer. ----
-export const FN_BUDGET = 120_000; // bounds a real computation (a compact sort needs ~1.3k steps)
+const FN_BUDGET = 120_000; // bounds a real computation (a compact sort needs ~1.3k steps)
 export const nat = (k: number): Node => {
   let t: Node = named("K");
   for (let i = 0; i < k; i++) t = app(named("Succ"), t);
@@ -52,10 +52,10 @@ export const outList = (ks: number[]) => (nf: Node): boolean => {
 /** Goal: applied to each case's inputs, the tree reduces to the wanted output.
  *  Reduced by the **graph** reducer (sharing) so recursive functions stay feasible;
  *  `budget` bounds it — pass a small one for cheap quest checks run on every settle. */
-export function fn(cases: Array<{ in: Node[]; out: (nf: Node) => boolean }>, budget = FN_BUDGET): (built: Node) => boolean {
+export function fn(cases: Array<{ in: Node[]; out: (nf: Node) => boolean }>): (built: Node) => boolean {
   return (built) =>
     cases.every((c) => {
-      const r = evalShared(c.in.reduce((acc, a) => app(acc, a), built), budget, true);
+      const r = evalShared(c.in.reduce((acc, a) => app(acc, a), built), FN_BUDGET, true);
       return r.done && c.out(r.term);
     });
 }

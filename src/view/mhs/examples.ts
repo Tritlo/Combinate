@@ -24,8 +24,6 @@ export interface Example {
   root: string;
   /** The read-out lens for the result. */
   read: Ty;
-  /** If `root` is a function, the Scott numeral to apply (generator sanity-check only). */
-  arg?: number;
 }
 
 const mod = (body: string): string => `module Ex(out) where\n${body}\n`;

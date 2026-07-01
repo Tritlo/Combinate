@@ -154,9 +154,6 @@ export class TransportBar {
     this.soundCell.classList.toggle("muted", !on);
   }
 
-  /** CSS handles the fixed top-right position — kept as a no-op for the resize call site. */
-  place(): void {}
-
   /** The root element — so the mobile Controls card can host it (reparent) instead of the standalone bar. */
   get el(): HTMLElement {
     return this.root;

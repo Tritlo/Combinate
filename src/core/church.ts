@@ -1,8 +1,8 @@
 /**
  * Church numerals + bracket abstraction (ADR 11) — reducer-free, so the SKI-Quest parser,
  * the engine, and the Church kernels all share it without an import cycle (this module
- * imports only `term`). `bracket` is the standard λ→SKI compiler; `church`/`churchNum`
- * build `λf x. fⁿ x`; `matchChurch` reads one back by applying to two fresh markers and
+ * imports only `term`). `bracket` is the standard λ→SKI compiler; `church`
+ * builds `λf x. fⁿ x`; `matchChurch` reads one back by applying to two fresh markers and
  * counting — with the reducer injected, so a Church kernel can match its operands using a
  * kernel-free normalize and never re-enter itself.
  */
@@ -39,7 +39,6 @@ export function church(n: number): Node {
   for (let i = 0; i < n; i++) body = app(freeVar("f"), body);
   return bracket("f", bracket("x", body));
 }
-export const churchNum = church;
 
 /** Result shape of the injected normalize (a subset of `reduce.NormalizeResult`). */
 export type Normalized = { term: Node; done: boolean };

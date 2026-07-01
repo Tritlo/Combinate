@@ -203,7 +203,7 @@ export const CHAPTERS: QuestChapter[] = dedupeUnlocks([
 ]);
 
 /** All stages, flattened into play order. */
-export const QUEST: QuestStage[] = CHAPTERS.flatMap((c) => c.stages);
+const QUEST: QuestStage[] = CHAPTERS.flatMap((c) => c.stages);
 
 /** Where a global stage index sits — its chapter and position within it. */
 export interface QuestLocation {
@@ -215,7 +215,7 @@ export interface QuestLocation {
 }
 
 /** Resolve a global stage index to its chapter + offset (null once finished). */
-export function locate(stageIndex: number): QuestLocation | null {
+function locate(stageIndex: number): QuestLocation | null {
   let i = stageIndex;
   for (let c = 0; c < CHAPTERS.length; c++) {
     const ch = CHAPTERS[c];

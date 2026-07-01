@@ -1,10 +1,9 @@
 /**
- * Authoring (ADR 0006): the two player verbs for *building* your own combinators
- * rather than only discovering them — **Define** (name a tree you built) and
- * one-hole **Abstract** (pull a single leaf out as a hole and bracket-abstract
- * the tree over it). This module is the pure core of both: bracket abstraction,
- * leaf/subtree surgery, name validation, and registering a user combinator into
- * the shared catalog. The UI gesture + persistence live in the shell.
+ * Authoring (ADR 0006): the player verb for *building* your own combinators
+ * rather than only discovering them — **Define** (name a tree you built). This
+ * module is the pure core of it: leaf/subtree surgery, name validation, and
+ * registering a user combinator into the shared catalog. The UI gesture +
+ * persistence live in the shell.
  *
  * A user-defined combinator is the *same object as a discovery* (CONTEXT.md): a
  * named leaf backed by a tree. So `defineCombinator` appends an ordinary `Law` to
@@ -14,9 +13,6 @@
  */
 import { type Node, type NodeId, app, comb, freeVar, iota } from "./term";
 import { CATALOG, PAGES, RULES, lam, type Law, type PageDef } from "./catalog";
-
-/** The placeholder free variable a one-hole `Abstract` abstracts over. */
-export const HOLE = "_";
 
 /** Deep-copy a term with fresh ids, so each spawn of a user combinator's def
  *  gets distinct nodes (the view keys layout/animation by id). */
@@ -31,42 +27,6 @@ function clone(n: Node): Node {
     case "app":
       return app(clone(n.fn), clone(n.arg));
   }
-}
-
-/** Does the free variable `name` occur anywhere in `t`? */
-function occurs(name: string, n: Node): boolean {
-  switch (n.kind) {
-    case "free":
-      return n.name === name;
-    case "app":
-      return occurs(name, n.fn) || occurs(name, n.arg);
-    default:
-      return false;
-  }
-}
-
-/**
- * Bracket abstraction `[name] t`: the closed S/K/I term that, applied to a value
- * for `name`, reproduces `t` (so `([name]t) name = t`). The classic algorithm
- * with the η optimization — the same one `catalog.ts` uses to derive each bird's
- * `def` from its law:
- *
- * ```
- * [x] x        = I
- * [x] M        = K M            (x ∉ M)
- * [x] (M x)    = M             (η, x ∉ M)
- * [x] (M N)    = S [x]M [x]N
- * ```
- */
-export function bracketAbstract(name: string, t: Node): Node {
-  const S = (): Node => comb("S");
-  const K = (): Node => comb("K");
-  const I = (): Node => comb("I");
-  if (t.kind === "free" && t.name === name) return I();
-  if (!occurs(name, t)) return app(K(), t);
-  const a = t as Extract<Node, { kind: "app" }>;
-  if (a.arg.kind === "free" && a.arg.name === name && !occurs(name, a.fn)) return a.fn; // η
-  return app(app(S(), bracketAbstract(name, a.fn)), bracketAbstract(name, a.arg));
 }
 
 /** The subtree rooted at `id` within `root`, or null if there is no such node. */
@@ -89,7 +49,7 @@ export function replaceSubtree(root: Node, id: NodeId, repl: Node): Node {
 /** The hotbar/Zoo page holding user-authored combinators. Pushed onto the shared
  *  `PAGES` at load (so the Zoo snapshots it) and grown in place as the player
  *  Defines new blocks. */
-export const CUSTOM_PAGE: PageDef = { name: "Custom", entries: [] };
+const CUSTOM_PAGE: PageDef = { name: "Custom", entries: [] };
 PAGES.push(CUSTOM_PAGE);
 
 /** Is `name` already a catalog symbol (a built-in bird or a prior user comb)? */
@@ -116,8 +76,8 @@ export function validateName(name: string): string | null {
  * Register a user-defined combinator from its name and body tree: append it to
  * the catalog (so the whole app treats it like any other bird) and to the Custom
  * page (so it appears in the hotbar/Zoo). `arity` is 1 — a Defined block unfolds
- * its body as soon as it is applied, and a one-hole Abstract takes exactly one
- * argument. The probe skips `userDefined` laws (it is authored, not discovered).
+ * its body as soon as it is applied. The probe skips `userDefined` laws (it is
+ * authored, not discovered).
  * Returns the new `Law`. Caller should `validateName` first.
  */
 export function defineCombinator(name: string, def: Node): Law {

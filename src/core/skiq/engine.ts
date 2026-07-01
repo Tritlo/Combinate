@@ -31,16 +31,15 @@ const DIVERGE_CAP = 8000; // a lower bar for "non-terminating": a finite Church
 // settle and gets rejected, while a true fixpoint keeps growing and is accepted
 
 // ---- one case, as authored in the chapter JSON ----
-export type RawCase = unknown[]; // [e1, e2] | [{max?,canonize?,caps?}, e1, e2] | [{caps}, e1]
+type RawCase = unknown[]; // [e1, e2] | [{max?,canonize?,caps?}, e1, e2] | [{caps}, e1]
 
 /** One input the puzzle asks you to build (multi-input puzzles list several). */
-export interface InputSpec {
+interface InputSpec {
   name: string;
   note?: string;
   fancy?: string;
   lambdas?: boolean;
   allow?: string;
-  numbers?: boolean;
 }
 
 /** A quest puzzle, as carried verbatim in the vendored SKI-Quest chapter data. */
@@ -98,12 +97,12 @@ function canonEqual(n1: Node, n2: Node, maxSteps: number): boolean {
   let cur: Node | null = n1;
   for (let i = 0; i <= maxSteps && cur; i++) {
     seen.add(structKey(cur));
-    cur = step(cur, 0, true);
+    cur = step(cur, true);
   }
   cur = n2;
   for (let i = 0; i <= maxSteps && cur; i++) {
     if (seen.has(structKey(cur))) return true;
-    cur = step(cur, 0, true);
+    cur = step(cur, true);
   }
   return false;
 }

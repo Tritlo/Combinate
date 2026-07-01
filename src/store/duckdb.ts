@@ -18,7 +18,6 @@ interface Conn {
 }
 
 const SCHEMA = `
-  CREATE TABLE IF NOT EXISTS discovered(sym VARCHAR);
   CREATE TABLE IF NOT EXISTS definitions(name VARCHAR, egg VARCHAR);
   CREATE TABLE IF NOT EXISTS bests(challengeId VARCHAR, metric INTEGER, permalink VARCHAR);
   CREATE TABLE IF NOT EXISTS leaderboard(challengeId VARCHAR, bitcode VARCHAR, metric INTEGER, handle VARCHAR);
@@ -55,12 +54,6 @@ export class DuckdbStore implements Store {
     return (await (await this.conn()).query(sql)).toArray() as T[];
   }
 
-  async getDiscovered(): Promise<string[]> {
-    return (await this.rows<{ sym: string }>("SELECT sym FROM discovered")).map((r) => r.sym);
-  }
-  async addDiscovered(sym: string): Promise<void> {
-    await this.run("INSERT INTO discovered SELECT ? WHERE ? NOT IN (SELECT sym FROM discovered)", sym, sym);
-  }
   async getDefinitions(): Promise<Definition[]> {
     return this.rows<Definition>("SELECT name, egg FROM definitions");
   }

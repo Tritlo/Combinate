@@ -60,7 +60,7 @@ export class ReductionEstimator {
       const t0 = performance.now();
       while (performance.now() - t0 < CHUNK_MS) {
         if (gen !== this.gen) return; // belt-and-suspenders (the chunk is synchronous, but keep the contract)
-        const next = step(cur, 0, mode.fast, mode.native);
+        const next = step(cur, mode.fast, mode.native);
         if (!next) {
           this.state = { kind: "exact", total: steps }; // reached normal form — the exact count
           return;

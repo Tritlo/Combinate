@@ -161,10 +161,6 @@ export class GameInputController {
   // ---- the input sink (ADR 17): the same intents, plus analog pan/zoom + a speed cycle. These
   // ALWAYS act (they're only ever called in 2D); the `on` flag gates VISUALS, not actions — it
   // must, since the gamepad layer fires dispatch before note(), so `on` may still be stale here. ----
-  /** Fire a discrete intent (move/page/pick/apply/cancel). */
-  trigger(intent: Intent): void {
-    this.dispatch(intent, "");
-  }
   /** Pan the camera by a (world-space) delta — the right stick, magnitude-scaled. */
   panBy(dx: number, dy: number): void {
     this.scene.pan(dx, dy);
@@ -178,7 +174,8 @@ export class GameInputController {
     this.scene.setSpeed((this.scene.getSpeedLevel() + 1) % 5);
   }
 
-  private dispatch(intent: Intent, key: string): void {
+  /** Fire a discrete intent (move/page/pick/cancel). */
+  trigger(intent: Intent): void {
     // While holding, the inputs change meaning (ADR 17 redesign): ←/→ WALK the held term along the
     // strip (and flip the apply side on an occupied bucket), Space COMMITS it, Esc DROPS it, and ↑/↓
     // are ignored (no escaping back to the hotbar mid-carry). Empty-handed, they navigate as before.
@@ -212,14 +209,8 @@ export class GameInputController {
         return this.page(1);
       case "pickPlace":
         return this.pickPlace();
-      case "applyFn":
-        return this.apply(true);
-      case "applyArg":
-        return this.apply(false);
       case "cancel":
         return this.cancel();
-      case "speed":
-        return this.scene.setSpeed(parseInt(key, 10));
     }
   }
 
