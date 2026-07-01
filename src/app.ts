@@ -226,7 +226,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     zoo.refresh();
     readout.invalidate(); // the read-out's combinator-masking depends on the discovery set
     paintRail();
-    toast.show("all combinators unlocked");
   }
 
   // Reset progress (wired to the Quest modal's Reset button): forget the discovered
@@ -522,6 +521,16 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   quest.onAdvance(() => {
     questTracker.refresh(); // quest hints live in the tracker + the Quest window
   });
+  // Phone: the tracked quest sits below the (collapsed) settings gear, and the combinator read-out
+  // stacks beneath the tracker — whose height varies — so re-place the read-out on resize + whenever
+  // the tracker re-renders. On wider screens the read-out keeps its CSS-driven position.
+  const positionPhoneOverlays = (): void => {
+    if (window.innerWidth > 600) return readoutBox.setTop(null);
+    const b = questTracker.bottom(); // 0 when the tracker is hidden
+    readoutBox.setTop(b > 0 ? Math.round(b) + 8 : 88);
+  };
+  questTracker.onLayout = positionPhoneOverlays;
+  positionPhoneOverlays();
   hud.addChild(challenges.container); // overlays the hotbar, like the Zoo
 
   // Haskell → ι panel (ADR 0007): compile a curated or free-typed program (stock
@@ -895,6 +904,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     hotbar.layout();
     placeLegend();
     transportBar.place();
+    positionPhoneOverlays();
     placeFps();
     toast.layout();
     zoo.layout();
