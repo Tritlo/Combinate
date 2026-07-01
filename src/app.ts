@@ -8,7 +8,7 @@ import {
   Text,
   Texture,
 } from "pixi.js";
-import { app as mkApp, cloneTerm, comb, exceedsNodes, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
+import { app as mkApp, cloneTerm, comb, decode, exceedsNodes, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
 import { evalShared } from "./core/graph";
 import { encodePermalink, decodePermalink, type Modes } from "./core/permalink";
 import { LocalStore } from "./store/local";
@@ -571,7 +571,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     ctxMenu.show(sx, sy, [
       { label: "Name Combinator", run: () => nameCombinator(tree, id) },
       { label: "Delete", run: () => deleteNode(tree, id) },
-      { label: "Copy", run: () => copyNodeToCanvas(tree, id, sx, sy) },
+      { label: "Copy", run: () => copyNode(tree, id, sx, sy) },
     ]);
   }
 
@@ -588,13 +588,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
   }
 
-  /** Deep-clone a node's subtree (fresh ids) and spawn it as a new reducing tree, offset from the
-   *  click so the copy doesn't land under the original and stays grabbable. */
-  function copyNodeToCanvas(tree: TreeView, id: NodeId, sx: number, sy: number): void {
+  /** Deep-clone a node's subtree (fresh ids) and PICK THE COPY UP — like a fresh hotbar grab, it
+   *  follows the cursor and the next click places it (drop free, or snap-apply onto a tree). */
+  function copyNode(tree: TreeView, id: NodeId, sx: number, sy: number): void {
+    if (drag) return; // already carrying — ignore (defensive; the menu shouldn't open mid-carry)
     const sub = findSubtree(tree.node, id);
     if (!sub) return;
-    const w = screenToWorld(sx, sy);
-    spawnTreeWorld(cloneTerm(sub), w.x + 60, w.y + 60);
+    const t = spawnTree(cloneTerm(sub), sx, sy);
+    t.container.eventMode = "none"; // passive while carried, so the placing click reaches what's underneath
+    drag = { kind: "spawn", tree: t };
   }
 
   /** Put the carried tree down — the second click of the carry model. Apply it to `target` (or the
@@ -1682,4 +1684,39 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       },
     };
   }
+
+  // ---- console playground (always on): parse + evaluate combinator / Barker expressions ----
+  // Turbo = the fast-rules graph reducer (evalShared with fast=true); reads the NF back to a native
+  // value (int / list / bool) when it can, else shows the raw combinator normal form.
+  const evalTurbo = (node: Node): string => {
+    const nf = evalShared(node, 1_000_000, true).term;
+    const v = read(nf);
+    return v ? render(v) : sexp(nf);
+  };
+  const consoleApi = {
+    /** Parse a combinator expression in egg notation `(@ f x)` → its term (s-expr echoed back). */
+    parse: (egg: string): string => sexp(fromEgg(egg)),
+    /** Parse Barker bit-code (`1` = ι, `0 <fn> <arg>` = app) → its term (s-expr). */
+    barker: (bits: string): string => sexp(decode(bits)),
+    /** Parse an egg expression and evaluate it to normal form with Turbo → value or raw NF. */
+    eval: (egg: string): string => evalTurbo(fromEgg(egg)),
+    /** Parse Barker bit-code and evaluate it with Turbo → value or raw NF. */
+    evalBarker: (bits: string): string => evalTurbo(decode(bits)),
+    /** Reprint this help. */
+    help: (): void => printConsoleHelp(),
+  };
+  function printConsoleHelp(): void {
+    console.log(
+      "%ccombinate console API — window.combinate",
+      "font-weight:bold",
+      "\n  .eval(\"(@ (@ S K) K)\")   parse + evaluate (Turbo) → native value, or raw NF" +
+        "\n  .parse(\"(@ S K)\")        parse egg notation `(@ f x)` → term" +
+        "\n  .barker(\"010\")           parse Barker bit-code (1=ι, 0<fn><arg>=app) → term" +
+        "\n  .evalBarker(bits)         parse + evaluate Barker bit-code" +
+        "\n  .help()                   this message",
+    );
+  }
+  (globalThis as Record<string, unknown>).combinate = consoleApi;
+  console.log("%cWelcome to combinate!", "font-size:14px;font-weight:bold");
+  printConsoleHelp();
 }
