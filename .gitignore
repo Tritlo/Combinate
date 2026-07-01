@@ -1,4 +1,6 @@
-node_modules/
+# No trailing slash: also ignore the worktree symlink (a `node_modules` symlink
+# isn't matched by the dir pattern `node_modules/`). Same for the wasm pkg dirs below.
+node_modules
 dist/
 *.log
 
@@ -6,7 +8,7 @@ dist/
 # (and locally via `npm run build:wasm`), never committed — keeps the binary out
 # of git history / clones.
 crates/*/target/
-crates/refold/pkg/
+crates/refold/pkg
 .DS_Store
 src/_smoke.ts
 e2e.local.mjs
@@ -23,5 +25,5 @@ public/vendor/
 
 # wasm reduce capability — built from source, never committed (like refold)
 crates/reduce/target/
-crates/reduce/pkg-node/
-crates/reduce/pkg/
+crates/reduce/pkg-node
+crates/reduce/pkg
