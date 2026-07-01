@@ -30,8 +30,8 @@ function injectStyles(): void {
   font-family: ${MONO}; }
 .tp-seg { position: relative; display: flex; border: 1px solid var(--tp-ink); background: var(--tp-ink);
   box-shadow: 2px 2px 0 rgba(0,0,0,0.6); }
-.tp-slider { position: absolute; top: 0; bottom: 0; width: ${CELL}px; background: var(--tp-paper);
-  transition: transform 0.15s ease; pointer-events: none; }
+.tp-slider { position: absolute; top: 0; bottom: 0; background: var(--tp-paper);
+  transition: transform 0.15s ease; pointer-events: none; } /* width + transform are % (set in JS) so cells can grow */
 .tp-cell { position: relative; z-index: 1; width: ${CELL}px; height: 24px; border: none; background: transparent;
   color: var(--tp-paper); cursor: pointer; font-family: ${MONO}; font-size: 12px; line-height: 24px; padding: 0;
   display: flex; align-items: center; justify-content: center; letter-spacing: -1px; transition: color 0.15s ease, background 0.15s ease; }
@@ -114,8 +114,11 @@ export class TransportBar {
       this.reduce.stepOnce();
     });
 
-    // Speed: the segmented playback modes with a sliding paper knob on the active one.
+    // Speed: the segmented playback modes with a sliding paper knob on the active one. The knob is
+    // sized/positioned in % (1/N wide, translated by whole multiples) so the cells can grow to fill
+    // (e.g. inside the mobile Controls card) without the knob drifting off them.
     this.speed = segment(this.modes.map((m) => GLYPH[m]));
+    this.speed.slider.style.width = `${100 / this.modes.length}%`;
     this.modes.forEach((m, i) => {
       this.speed.cells[i].title =
         m === "max" ? "Max speed" : m === "ff" ? "Fast-forward (≈3/s)" : m === "play" ? "Play (≈1/s)" : "Pause";
@@ -144,7 +147,7 @@ export class TransportBar {
   paint(): void {
     const mode = this.reduce.mode;
     const i = Math.max(0, this.modes.indexOf(mode));
-    this.speed.slider.style.transform = `translateX(${i * CELL}px)`;
+    this.speed.slider.style.transform = `translateX(${i * 100}%)`;
     this.speed.cells.forEach((c, j) => c.classList.toggle("on", j === i));
     const on = this.snd.enabled;
     this.soundCell.classList.toggle("on", on);

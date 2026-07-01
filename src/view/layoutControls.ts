@@ -62,7 +62,11 @@ function injectStyles(): void {
 .lc-root.lc-phone .lc-title span { flex: 1; }
 .lc-root.lc-phone .lc-body { padding: 9px; gap: 8px; }
 .lc-root.lc-phone.lc-collapsed .lc-body { display: none; }
-.lc-root.lc-phone .tp-root { position: static; box-shadow: none; }
+/* Host the transport (speed controls) in the card: static, and its segments/cells grow to fill the
+   row with the same uniform 8px gaps as the toggle rows. */
+.lc-root.lc-phone .tp-root { position: static; box-shadow: none; width: 100%; }
+.lc-root.lc-phone .tp-seg, .lc-root.lc-phone .tp-rate { flex: 1 1 auto; }
+.lc-root.lc-phone .tp-cell { flex: 1 1 0; width: auto; }
 `;
   const style = document.createElement("style");
   style.textContent = css;
