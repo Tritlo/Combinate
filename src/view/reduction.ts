@@ -39,9 +39,12 @@ const INCR_MAX_STEPS = 400; // steps per reflow (× speed level)
 // and the frozen snapshot stays on screen. Above HEAVY_RENDER_CAP so the 2.5k–4k band still renders live.
 const INCR_RENDER_CAP = 4000;
 // A raw (unshared) reduction can balloon without bound (quicksort duplicates subterms via the S rule);
-// once a single contraction would deep-clone a term this big, ONE `build()` blocks a frame. Past this,
-// pause cleanly ("try Graph/Turbo", which share and don't clone) rather than freeze on a giant copy.
-const BALLOON_CAP = 30_000;
+// past this the term reduces UNDRAWN in the background (yielding), so the only frame risk is a single
+// giant `build()` clone. A quicksort cap sweep shows that stays sub-frame up to a few hundred k nodes and
+// only breaks near ~1–2M — so now that the incremental reflow means the huge intermediate isn't drawn,
+// raise the cap 8× (30k → 250k): quicksort reduces ~5× further, still no frame over 80ms. Past it, pause
+// cleanly ("try Graph/Turbo", which share and don't clone) instead of freezing on a giant copy.
+const BALLOON_CAP = 250_000;
 
 // ---- Turbo (wasm) playback: run many resident contractions per visible frame, so a big
 // raw tree reduces fast even when the renderer can't keep up with one tween per step. ----
