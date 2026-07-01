@@ -11,8 +11,7 @@ crates/*/target/
 crates/refold/pkg
 .DS_Store
 src/_smoke.ts
-e2e.local.mjs
-shots.local.mjs
+*.local.mjs
 2mamb.pdf
 .em_cache/
 # Vendored WASM/runtime assets — served from public/ but NOT committed (ADR
