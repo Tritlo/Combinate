@@ -5,7 +5,7 @@ import { type Layout, type LayoutFn, layoutHTreeSubtree } from "../core/layout";
 import { type StepPatch } from "../core/reduce";
 import { theme, combinatorColor, glyphOn, edgeTierColor } from "./theme";
 import { EdgeBuffer, edgeKey } from "./edgeBuffer";
-import { tween } from "./anim";
+import { tween, easeInOut } from "./anim";
 
 const LAYOUT_MS = 360; // duration of the layout-toggle reflow
 // Above this node count we drop the per-node text glyphs (you can't read them at
@@ -95,8 +95,6 @@ interface Anim {
   toS: number;
   remove: boolean;
 }
-
-const easeInOut = (t: number): number => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
 
 /**
  * Renders one connected term tree into a draggable Pixi container (§5.3). Nodes

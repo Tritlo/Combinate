@@ -83,27 +83,6 @@ export function replaceSubtree(root: Node, id: NodeId, repl: Node): Node {
   return root;
 }
 
-/**
- * one-hole **Abstract**: mark the *leaf* `id` as a hole and bracket-abstract the
- * whole tree over it, yielding a new combinator's body (a closed S/K/I term such
- * that `body hole = tree`). Returns null if `id` is an application node rather
- * than a leaf (only ONE leaf may be the hole — no multi-hole / lambda editor).
- */
-export function abstractLeaf(tree: Node, id: NodeId): Node | null {
-  let marked = false;
-  const go = (n: Node): Node => {
-    if (n.id === id) {
-      if (n.kind === "app") return n; // not a leaf — leave it; `marked` stays false
-      marked = true;
-      return freeVar(HOLE);
-    }
-    if (n.kind === "app") return { ...n, fn: go(n.fn), arg: go(n.arg) };
-    return n;
-  };
-  const holed = go(tree);
-  if (!marked) return null;
-  return bracketAbstract(HOLE, holed);
-}
 
 // ---- the namespace of user-defined combinators ----
 
