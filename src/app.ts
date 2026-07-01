@@ -201,7 +201,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   // Layout: top-down by default; T toggles the radial view (§5.1).
   let layoutFn: LayoutFn = layoutAuto;
-  let lastManualLayout: LayoutFn = layoutHTree; // the explicit layout to restore when Auto is toggled off
   let layoutControls: LayoutControls | undefined; // the top-right toggle bar (wired once the shell is built)
 
   // What a recognised tree collapses into: a single named node. I/K/S reduce by
@@ -382,6 +381,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       paintRail();
       transportBar.paint();
     },
+    onBalloon: (tree) => {
+      // Ballooning raw/optimize term → switch to graph reduction (call-by-need sharing → no blow-up),
+      // silently. setOpt mirrors into shareMode via onOptChange (which reschedules `focus`); also
+      // reschedule THIS tree in case it isn't the focused one.
+      setOpt("graph", true);
+      reduce.schedule(tree);
+    },
     morph3D: (tree, node, dur) => morphFocused3D(tree, node, dur),
     settleMorph3D: () => sphere3d.settleMorph(),
     is3DPacing: (tree) => view3D && tree === focus, // 3D hides the 2D view → pace this tree to its morph
@@ -390,7 +396,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   // Transport bar (top-right): rate read-out + Pause/Step/Play/FF — a thin view over the
   // ReductionController (extracted to view/transportBar.ts, ADR 12).
-  const transportBar = new TransportBar(hud, pixi.ticker, reduce, sound);
+  const transportBar = new TransportBar(pixi.ticker, reduce, sound);
 
   // Reduction progress bar (plan 02): a thin fill along the top edge of the hotbar box, showing how
   // far the focused tree's reduction has played vs the background same-mode total. Shown only when
@@ -1056,7 +1062,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // Set the layout for every tree (and trees spawned afterward). Picking a 2D layout leaves 3D.
   const setLayoutMode = (fn: LayoutFn): void => {
     if (view3D) toggleView3D(); // a 2D layout choice exits the 3D view
-    if (fn !== layoutAuto) lastManualLayout = fn; // remember the manual pick so the Auto toggle can restore it
     if (layoutFn !== fn) {
       layoutFn = fn;
       for (const t of trees) t.setLayout(fn);
@@ -1105,6 +1110,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     for (const t of trees) t.refresh();
     rerender3D(); // the 3D view follows the Expand setting too
     paintRail();
+    layoutControls?.refresh(); // the ι toggle in the control bar
   }
 
   // ---- top menu bar (System 1 Macintosh): the old left rail folded into
@@ -1184,10 +1190,21 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     set3D: (on) => {
       if (on !== view3D) toggleView3D();
     },
-    layoutKey: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutTopDown ? "topdown" : layoutFn === layoutRadial ? "radial" : "htree"),
-    setLayout: (k) => setLayoutMode(k === "topdown" ? layoutTopDown : k === "radial" ? layoutRadial : layoutHTree),
-    autoOn: () => layoutFn === layoutAuto,
-    toggleAuto: () => setLayoutMode(layoutFn === layoutAuto ? lastManualLayout : layoutAuto),
+    layout: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutTopDown ? "topdown" : layoutFn === layoutRadial ? "radial" : "htree"),
+    setLayout: (k) => setLayoutMode(k === "auto" ? layoutAuto : k === "topdown" ? layoutTopDown : k === "radial" ? layoutRadial : layoutHTree),
+    iotaTree: () => expandAll,
+    toggleIotaTree: () => toggleExpand(),
+    opt: (k) =>
+      k === "primitives" ? isOpt("nativeNumbers") && isOpt("nativeLists") && isOpt("nativeBooleans") : k === "turbo" ? isOpt("wasm") : isOpt(k),
+    toggleOpt: (k) => {
+      if (k === "primitives") {
+        const next = !(isOpt("nativeNumbers") && isOpt("nativeLists") && isOpt("nativeBooleans"));
+        setOpt("nativeNumbers", next);
+        setOpt("nativeLists", next);
+        setOpt("nativeBooleans", next);
+      } else if (k === "turbo") setOpt("wasm", !isOpt("wasm"));
+      else setOpt(k, !isOpt(k)); // rules | graph
+    },
   });
   // Gamepad: a third input producer (polled from the ticker), routed by the active context.
   new GamepadController(pixi.ticker, {
@@ -1250,7 +1267,17 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (focus) reduce.schedule(focus); // reschedule → reset the step count + re-estimate in the new mode (consistent bar)
     } else if (key === "graph") {
       shareMode = isOpt("graph");
-      if (focus) reduce.schedule(focus);
+      if (focus) {
+        // Graph snapshots read back as a shared DAG (stable ids). Turning graph OFF must drop that
+        // shared view — clone the current term to fresh ids so each occurrence draws separately —
+        // and rebuild the display, else the tree keeps rendering the DAG. (ON needs nothing:
+        // sharing only accrues as the graph reduces.)
+        if (!shareMode) {
+          focus.node = cloneTerm(focus.node);
+          focus.refresh();
+        }
+        reduce.schedule(focus);
+      }
     } else if (key === "wasm") {
       // Turbo toggled: preload the wasm (so the next reduction can use it), drop any stale
       // sessions, and re-decide turbo-vs-TS for the focused tree.
@@ -1269,6 +1296,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (focus) reduce.schedule(focus);
     }
     paintRail();
+    layoutControls?.refresh(); // the optimizations row reflects isOpt
   });
   // One Optimizations row for a single opt key (label + description from OPT_SETTINGS).
   const optItem = (key: OptKey): MenuItem => {
@@ -1321,7 +1349,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     { title: "Optimizations", items: [
       optItem("rules"),
       optItem("graph"),
-      { kind: "toggle", label: "Native Data", title: "Compute catalog numbers, lists, and booleans on recognised native values directly.", checked: () => nativeAllOn(), run: () => { const next = !nativeAllOn(); for (const k of NATIVE_KEYS) setOpt(k, next); } },
+      { kind: "toggle", label: "Primitives", title: "Compute catalog numbers, lists, and booleans on recognised native values directly.", checked: () => nativeAllOn(), run: () => { const next = !nativeAllOn(); for (const k of NATIVE_KEYS) setOpt(k, next); } },
       optItem("wasm"),
     ] },
   ];
@@ -1340,7 +1368,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     ...readout.modes(), // { view?, type? }
     expand: expandAll || undefined,
     page: hotbar.page,
-    transport: reduce.mode,
+    transport: reduce.mode === "max" ? "ff" : reduce.mode, // permalink has no "max" slot (yet) — record it as ff
   });
 
   /** Restore a tree's accompanying display modes (the inverse of currentModes). */
