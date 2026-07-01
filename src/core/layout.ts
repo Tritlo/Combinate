@@ -14,6 +14,10 @@ export interface Pos {
 export interface Layout {
   /** Node positions in local coordinates, with the root anchored at (0, 0). */
   pos: Map<NodeId, Pos>;
+  /** Optional per-node glyph-scale (0–1). A layout with a wide range of edge lengths (H-tree) uses
+   *  this to shrink nodes toward their local arm so they don't overwhelm the structure; a node
+   *  without an entry (or a layout that omits the map) renders at full size. */
+  scale?: Map<NodeId, number>;
   width: number;
   height: number;
   minX: number;
@@ -114,6 +118,84 @@ export function layoutRadial(root: Node): Layout {
     pos.set(id, { x: r * Math.cos(a), y: r * Math.sin(a) });
   }
   return { pos, ...bounds(pos) };
+}
+
+/** H-tree shrink factor. Held below 1/√2 ≈ 0.707, which keeps sibling subtrees from ever
+ *  overlapping — a subtree's extent along the split axis is `e·s²/(1−s²)`, which is `< e` exactly
+ *  when `s < 1/√2`, so the two children (placed `±e` apart) can't collide, for any tree shape. */
+export const HTREE_SHRINK = 0.68;
+
+/** Count distinct nodes (DAG-safe) — used to scale a layout's initial arm length. */
+export function countNodes(root: Node): number {
+  const seen = new Set<NodeId>();
+  const walk = (n: Node): void => {
+    if (seen.has(n.id)) return;
+    seen.add(n.id);
+    if (n.kind === "app") {
+      walk(n.fn);
+      walk(n.arg);
+    }
+  };
+  walk(root);
+  return seen.size;
+}
+
+/**
+ * H-tree layout: each application places its two children symmetrically offset from the node,
+ * ALTERNATING the split axis by depth — even depth splits horizontally (fn left, arg right), odd
+ * depth vertically (fn up, arg down). The arm length shrinks geometrically per level
+ * (`HTREE_SHRINK`), so the term draws as a nested "square antenna" whose edges get progressively
+ * shorter; a deep left spine becomes a shrinking staircase with the leaves fringing off it. Because
+ * the shrink stays below 1/√2 sibling subtrees never overlap, so no subtree-spacing pass is needed.
+ * The initial arm scales with the node count (bigger terms start with a longer arm). Root at (0, 0).
+ */
+/** Shortest arm target (px). A hair longer than a combinator node's diameter (~30), so the deepest
+ *  arms never shrink under the glyphs — the "shortest line looks unnatural next to the node" fix.
+ *  Also the arm at which a node's glyph reaches full size (below it, the node shrinks with the arm). */
+export const HTREE_MIN_ARM = 42;
+/** Floor on the per-node glyph scale so a very deep tip never vanishes entirely. */
+export const HTREE_MIN_NODE_SCALE = 0.28;
+
+export function layoutHTree(root: Node): Layout {
+  // Deepest application (first-visit, DAG-safe) — the arm shrink bottoms out here.
+  const seen = new Set<NodeId>();
+  let maxAppDepth = 0;
+  const measure = (n: Node, d: number): void => {
+    if (seen.has(n.id)) return;
+    seen.add(n.id);
+    if (n.kind === "app") {
+      maxAppDepth = Math.max(maxAppDepth, d);
+      measure(n.fn, d + 1);
+      measure(n.arg, d + 1);
+    }
+  };
+  measure(root, 0);
+  // Scale the initial arm so the SHORTEST arm (at the deepest application) lands near HTREE_MIN_ARM
+  // regardless of depth — this ratio is invariant under camera zoom, since nodes scale with the
+  // world. Clamped so a huge tree still frames and a shallow one isn't blown up.
+  const L0 = Math.min(4000, Math.max(180, HTREE_MIN_ARM / HTREE_SHRINK ** maxAppDepth));
+  const pos = new Map<NodeId, Pos>();
+  const scale = new Map<NodeId, number>();
+  const place = (node: Node, x: number, y: number, depth: number): void => {
+    if (pos.has(node.id)) return; // DAG (graph mode): position each shared node once — a no-op on a tree
+    pos.set(node.id, { x, y });
+    // Shrink a node toward its shortest adjacent arm so it never overwhelms the structure (the "grey
+    // blob" on big/clamped trees): full-size while arms are long, scaling down once an arm drops
+    // below a node's span. Only bites when L0 clamps — small trees keep full-size nodes.
+    const childArm = L0 * HTREE_SHRINK ** depth;
+    const minArm = node.kind === "app" ? childArm : L0 * HTREE_SHRINK ** Math.max(0, depth - 1); // leaf → its parent arm
+    scale.set(node.id, Math.max(HTREE_MIN_NODE_SCALE, Math.min(1, minArm / HTREE_MIN_ARM)));
+    if (node.kind !== "app") return;
+    if (depth % 2 === 0) {
+      place(node.fn, x - childArm, y, depth + 1); // fn → left
+      place(node.arg, x + childArm, y, depth + 1); // arg → right
+    } else {
+      place(node.fn, x, y - childArm, depth + 1); // fn → up
+      place(node.arg, x, y + childArm, depth + 1); // arg → down
+    }
+  };
+  place(root, 0, 0, 0);
+  return { pos, scale, ...bounds(pos) };
 }
 
 /** Past this top-down span (px) a tree is too wide/tall for a typical screen, so it gets

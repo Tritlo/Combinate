@@ -19,7 +19,8 @@ import { QuestTracker } from "./view/questTracker";
 import { Sound } from "./view/sound";
 import { CATALOG, type Law, expandDisplay } from "./core/catalog";
 import { recognize } from "./core/probe";
-import { layoutAuto, layoutRadial, layoutTopDown, type LayoutFn } from "./core/layout";
+import { layoutAuto, layoutRadial, layoutHTree, layoutTopDown, type LayoutFn } from "./core/layout";
+import { layoutHTree3D, layoutSphere } from "./core/layout3d";
 import { recognizeDeep, fromEgg, toEgg } from "./core/refold";
 import { read, render, type Ty } from "./core/types";
 import { inferType } from "./core/infer";
@@ -195,7 +196,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     onToggle: () => paintRail(),
     toast,
   });
-  void readout.ensureRefolder(); // load the re-folder wasm at boot (no lazy load) so normal-form re-folds are ready
+  void readout.ensureRefolder(true); // load the re-folder wasm at boot (no lazy load); quiet — a missing wasm just keeps the behavioural fallback
 
   // Layout: top-down by default; T toggles the radial view (§5.1).
   let layoutFn: LayoutFn = layoutAuto;
@@ -1024,6 +1025,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (!disp) return toast.show("focus a tree to view it in 3D");
     if (exceedsNodes(disp, NODE_CAP)) return toast.show(`tree too large for 3D (over ${NODE_CAP} nodes)`);
     view3D = true;
+    sphere3d.setLayout3(layoutFn === layoutHTree ? layoutHTree3D : layoutSphere); // 3D mirrors the 2D layout: H-tree → cubic H-tree, else the packed sphere
     syncControls(); // hide the build visuals (cursor off, un-fade) before the world hides
     tray.hide(); // and hide the held badge while inspecting
     world.visible = false;
@@ -1054,9 +1056,17 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     for (const t of trees) t.setLayout(fn);
     paintRail();
   };
-  // T cycles auto → top-down → radial → auto.
+  // T cycles auto → top-down → radial → H-tree → auto.
   function toggleLayout(): void {
-    setLayoutMode(layoutFn === layoutAuto ? layoutTopDown : layoutFn === layoutTopDown ? layoutRadial : layoutAuto);
+    setLayoutMode(
+      layoutFn === layoutAuto
+        ? layoutTopDown
+        : layoutFn === layoutTopDown
+          ? layoutRadial
+          : layoutFn === layoutRadial
+            ? layoutHTree
+            : layoutAuto,
+    );
   }
 
   /** Frame a tree to fill the viewport (zoom + centre) — from its layout bbox. */
@@ -1272,7 +1282,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "radio", label: "Auto Layout", title: "Lay trees out automatically.", on: () => layoutFn === layoutAuto, run: () => setLayoutMode(layoutAuto) },
       { kind: "radio", label: "Top-Down Layout", title: "Lay trees out strictly top-down.", on: () => layoutFn === layoutTopDown, run: () => setLayoutMode(layoutTopDown) },
       { kind: "radio", label: "Radial Layout", title: "Lay trees out radially.", on: () => layoutFn === layoutRadial, run: () => setLayoutMode(layoutRadial) },
-      { kind: "toggle", label: "3D", title: "View the tree in 3D.", checked: () => view3D, run: () => toggleView3D() },
+      { kind: "radio", label: "H-Tree Layout", title: "Lay trees out as a nested square antenna — alternating axes, arms shrinking with depth.", on: () => layoutFn === layoutHTree, run: () => setLayoutMode(layoutHTree) },
+      { kind: "toggle", label: "3D", title: "View the tree in 3D (mirrors the 2D layout — H-tree → cubic H-tree, else packed sphere).", checked: () => view3D, run: () => toggleView3D() },
       { kind: "sep" },
       { kind: "toggle", label: "Expand ι-Trees", title: "Show every combinator expanded to raw ι.", checked: () => expandAll, run: () => toggleExpand() },
       { kind: "toggle", label: "Type Lens", title: "Annotate the read-out with inferred types.", checked: () => readout.isTypeOn, run: () => readout.toggleType() },
@@ -1586,7 +1597,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       roots: () => trees.map((t) => t.rootWorld),
       discovered: () => [...discovered],
       discover: (sym: string) => { const l = CATALOG.find((x) => x.sym === sym); if (l) discover(l); }, // dev seam: fire the discovery flow (card + chirp)
-      mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : "topdown"),
+      mode: () => (layoutFn === layoutAuto ? "auto" : layoutFn === layoutRadial ? "radial" : layoutFn === layoutHTree ? "htree" : "topdown"),
       toggleLayout: () => toggleLayout(),
       view3d: { on: () => view3D, toggle: () => toggleView3D(), info: () => ({ count: sphere3d.lastCount, capped: sphere3d.lastCapped, buildMs: sphere3d.lastBuildMs, drawMs: sphere3d.lastDrawMs, morphMs: sphere3d.lastMorphFrameMs, az: sphere3d.azimuth, pan: sphere3d.panSum }), morph: () => sphere3d.debugMorph() },
       transport: { mode: () => reduce.mode, set: (m: string) => reduce.setTransport(m as Transport), cycle: () => reduce.cycleTransport(), step: () => reduce.stepOnce() },
@@ -1594,6 +1605,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       est: () => ({ ...reduce.estimate, shown: reduce.focusedSteps() }),
       run: () => { if (focus) reduce.schedule(focus); },
       spawn: (s: string) => { spawnTreeWorld(fromEgg(s), 0, 0); }, // dev seam: drop a reducing tree from an s-expr
+      fit: () => { if (focus) fitTree(focus); }, // dev seam: frame the focused tree to the viewport
 
       game: { active: () => gameInput.enabled, force: (b: boolean) => gameInput.setEnabled(b), state: () => gameInput.debugState, ctxOpen: () => ctxMenu.isOpen },
       fast: { on: () => isOpt("rules"), set: (b: boolean) => setOpt("rules", b) },
