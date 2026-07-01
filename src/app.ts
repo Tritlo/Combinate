@@ -45,7 +45,6 @@ import { Help } from "./view/help";
 import { withMotion } from "./view/motion";
 import { OPT_SETTINGS, isOpt, setOpt, onOptChange, type OptKey } from "./view/optimize";
 import { type NativeOpts } from "./core/native";
-import { BucketTray } from "./view/bucketTray";
 import { GameInputController } from "./view/gameInput";
 import { ContextMenu } from "./view/contextMenu";
 import { NameKeyboard } from "./view/nameKeyboard";
@@ -906,7 +905,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     toast.layout();
     zoo.layout();
     challenges.layout();
-    tray.layout();
     hintBar.place(window.innerWidth, hotbar.topEdge);
     if (view3D) {
       sphere3d.resize(window.innerWidth, window.innerHeight);
@@ -1046,7 +1044,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     view3D = true;
     sphere3d.setLayout3(layoutFn === layoutRadial ? layoutSphere : layoutHTree3D); // 3D defaults to the cubic H-tree; the packed sphere only for the explicit radial layout
     syncControls(); // hide the build visuals (cursor off, un-fade) before the world hides
-    tray.hide(); // and hide the held badge while inspecting
     world.visible = false;
     sphereLayer.visible = true;
     updateHints();
@@ -1129,11 +1126,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const help = new Help();
   const addRule = new AddRule({ reveal: revealRule, toast: (m) => toast.show(m) });
 
-  // ---- controls (ADR 17): keyboard/controller play via a bucket tray + hand, always live in 2D.
+  // ---- controls (ADR 17): keyboard/controller play via a hand cursor, always live in 2D.
   // The visuals adapt to the active input device; "Show controls" (default on) gates the hints. ----
   let showControls = localStorage.getItem("combinate.showControls") !== "0";
-  const tray = new BucketTray();
-  hud.addChild(tray.container);
   const hintBar = new HintBar();
   hud.addChild(hintBar.container);
   hintBar.place(window.innerWidth, hotbar.topEdge);
@@ -1168,7 +1163,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   };
   const gameInput = new GameInputController({
     hotbar,
-    tray,
     freshNode: spawnFor,
     labelOf: labelFor,
     bucketAnchor: (k) => ({ x: k * BUCKET_SPACING, y: 0 }), // an unbounded strip of world anchors
