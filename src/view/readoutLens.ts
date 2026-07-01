@@ -159,7 +159,9 @@ export class ReadoutLens {
 
   // Load the egg re-folder wasm and upgrade the behavioural pass to the full behavioural→egg pipeline.
   // Called eagerly at boot (no lazy load) so a normal-form re-fold + the dev seam are ready up front.
-  async ensureRefolder(): Promise<void> {
+  // `quiet` suppresses the fallback toast — the boot load passes it, since a missing wasm just leaves
+  // the graceful behavioural refolder and isn't something to nag the user about at startup.
+  async ensureRefolder(quiet = false): Promise<void> {
     if (this.refoldRaw || this.refolderLoading) return;
     this.refolderLoading = true;
     try {
@@ -169,7 +171,7 @@ export class ReadoutLens {
       this.refolder = makeRefolder(mod.refold);
       this.invalidate(); // re-render now the egg stage is live
     } catch {
-      this.deps.toast.show("re-folder: behavioural only (wasm unavailable)");
+      if (!quiet) this.deps.toast.show("re-folder: behavioural only (wasm unavailable)");
     } finally {
       this.refolderLoading = false;
     }

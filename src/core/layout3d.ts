@@ -13,6 +13,7 @@
  * the 2D layouts: a shared node is placed once, on first visit.
  */
 import { type Node, type NodeId } from "./term";
+import { countNodes, HTREE_SHRINK } from "./layout";
 
 /** A point in the 3D layout (root anchored at the origin). */
 export interface Pos3 {
@@ -26,6 +27,9 @@ export interface Layout3 {
   /** Distance from the origin to the farthest node — what the camera frames. */
   radius: number;
 }
+
+/** A 3D layout algorithm: term → node positions in 3-space. */
+export type Layout3Fn = (root: Node) => Layout3;
 
 /** Radius added per depth level (the shell spacing). */
 export const RING3 = 92;
@@ -99,5 +103,36 @@ export function layoutSphere(root: Node): Layout3 {
     place(n.arg, depth + 1, dirR, twist(side, dirR, GOLDEN));
   };
   place(root, 0, [0, 0, 1], [1, 0, 0]);
+  return { pos, radius };
+}
+
+/** The three split axes the 3D H-tree cycles through, one per depth level. */
+const AXES3: V[] = [
+  [1, 0, 0], // X — left / right
+  [0, 1, 0], // Y — up / down
+  [0, 0, 1], // Z — in / out
+];
+
+/**
+ * 3D H-tree: the volumetric generalization of {@link layoutHTree}. Each application places its two
+ * children symmetrically offset from the node, CYCLING the split axis by depth — X (left/right),
+ * then Y (up/down), then Z (in/out), then back to X … The arm shrinks geometrically per level
+ * (`HTREE_SHRINK` < 1/√2 ⇒ sibling subtrees never overlap), so the term fills a shrinking cubic
+ * lattice. Initial arm scales with the node count. Root at the origin.
+ */
+export function layoutHTree3D(root: Node): Layout3 {
+  const L0 = 70 + 34 * Math.log2(countNodes(root) + 2);
+  const pos = new Map<NodeId, Pos3>();
+  let radius = 0;
+  const place = (n: Node, p: V, depth: number): void => {
+    if (pos.has(n.id)) return; // DAG: position a shared node once, on first visit
+    pos.set(n.id, { x: p[0], y: p[1], z: p[2] });
+    radius = Math.max(radius, Math.hypot(p[0], p[1], p[2]));
+    if (n.kind !== "app") return;
+    const off = scale(AXES3[depth % 3], L0 * HTREE_SHRINK ** depth);
+    place(n.fn, add(p, scale(off, -1)), depth + 1); // fn → negative along the axis
+    place(n.arg, add(p, off), depth + 1); // arg → positive along the axis
+  };
+  place(root, [0, 0, 0], 0);
   return { pos, radius };
 }
