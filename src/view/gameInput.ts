@@ -15,7 +15,6 @@
  */
 import { app as mkApp, type Node } from "../core/term";
 import { type TreeView } from "./tree";
-import { type BucketTray } from "./bucketTray";
 import { type Hotbar } from "./hotbar";
 import { type Intent } from "./keymap";
 
@@ -24,7 +23,6 @@ const DIM = 0.3; // faded-neighbour opacity (the focused bucket stays at 1)
 /** The scene primitives the controller drives (provided by app.ts). */
 export interface GameScene {
   hotbar: Hotbar;
-  tray: BucketTray;
   /** A fresh term for a toolbar symbol (ι or a collapsed combinator). */
   freshNode: (sym: string) => Node;
   /** A short label for the held badge (the read-out's s-expression / value). */
@@ -98,7 +96,6 @@ export class GameInputController {
     this.applySide = "left";
     this.toZone("buckets");
     this.renderPreview();
-    this.render();
   }
 
   /** Game state for the dev seam / E2E (not used by the UI). */
@@ -130,7 +127,6 @@ export class GameInputController {
       this.applyFade(true); // restore full opacity when the keyboard/pad cursor leaves
       this.clearPreview(); // a device switch / 3D entry must never strand a preview ghost
     }
-    this.render(); // the held badge follows the hand (device-agnostic); 3D entry hides it explicitly
   }
 
   /** Pull every canvas tree not yet in a bucket into a fresh one (appended to the strip, left-to-right
@@ -157,7 +153,6 @@ export class GameInputController {
       if (t === tree) {
         t.container.alpha = 1; // it's leaving the faded-neighbour strip — restore full opacity
         this.buckets.delete(k);
-        if (this.on) this.render();
         return;
       }
     }
@@ -242,18 +237,15 @@ export class GameInputController {
       this.selected += d; // unbounded — arrowing past the end focuses a fresh empty bucket
       this.frameSelected();
     }
-    this.render();
   }
   private toZone(zone: "hotbar" | "buckets"): void {
     this.zone = zone;
     this.scene.hotbar.setGameCursor(zone === "hotbar" ? 0 : null);
     if (zone === "buckets") this.frameSelected();
-    this.render();
   }
   private page(d: number): void {
     this.scene.hotbar.cycleTab(d);
     if (this.zone !== "hotbar") this.toZone("hotbar");
-    else this.render();
   }
   // Frame the focused bucket (camera centres on it; neighbours peek faded) + refresh the fade.
   private frameSelected(): void {
@@ -299,7 +291,6 @@ export class GameInputController {
     this.applySide = "left";
     this.toZone("buckets"); // leave the hotbar to carry it over the strip
     this.renderPreview();
-    this.render();
   }
   private pickFromBucket(k: number): void {
     const t = this.buckets.get(k)!;
@@ -308,14 +299,12 @@ export class GameInputController {
     this.scene.removeTree(t);
     this.buckets.delete(k);
     this.renderPreview();
-    this.render();
   }
   private placeHand(k: number): void {
     const h = this.hand!;
     this.buckets.set(k, this.scene.spawnAt(h.node, this.scene.bucketAnchor(k)));
     this.hand = null;
     this.frameSelected();
-    this.render();
   }
 
   // ---- commit / drop the held term (Space / Esc WHILE HOLDING) ----
@@ -354,7 +343,6 @@ export class GameInputController {
     this.buckets.set(k, merged);
     this.hand = null;
     this.frameSelected();
-    this.render();
   }
 
   // ---- cancel (Esc / the B button): empty-handed it opens the menu; the held-hand restore is
@@ -367,14 +355,10 @@ export class GameInputController {
       // restore a term picked up from a bucket
       this.buckets.set(h.origin, this.scene.spawnAt(h.node, this.scene.bucketAnchor(h.origin)));
     }
-    this.render();
   }
 
   // ---- view sync: the HAND-gated held badge (device-agnostic; the faded strip is applied
   // separately, from navigation, in applyFade) ----
-  private render(): void {
-    this.scene.tray.hide(); // no "holding" badge — the greyed in-place preview is what shows the carry
-  }
   /** Focused bucket bright, the rest faded — the spatial cue. NAVIGATION-gated (called from
    *  {@link frameSelected}); `restore` = all bright (the keyboard/pad cursor left, or 3D entry). */
   private applyFade(restore = false): void {
