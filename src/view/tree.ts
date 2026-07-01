@@ -233,6 +233,17 @@ export class TreeView {
     return m;
   }
 
+  /** Dim every node NOT in `keep` (its disc + glyph) to `alpha`, leaving the kept nodes bright — used
+   *  by the build preview to grey only the newly-attached part while the already-placed tree stays at
+   *  full opacity. The preview tree is static (not animating) so this override sticks. */
+  dimExcept(keep: Set<NodeId>, alpha: number): void {
+    for (const [id, vis] of this.objs) {
+      const a = keep.has(id) ? 1 : alpha;
+      vis.particle.alpha = a;
+      if (vis.glyph) vis.glyph.alpha = a;
+    }
+  }
+
   /** Animate this freshly-built tree into place from the source trees' node
    * positions (§6.2): shared subtrees glide from where they were, the new
    * application node grows in. Coordinates are world-container space. */

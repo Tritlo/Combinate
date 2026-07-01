@@ -13,7 +13,7 @@
  * read-out) then treats it like any other bird.
  */
 import { type Node, type NodeId, app, comb, freeVar, iota } from "./term";
-import { CATALOG, PAGES, type Law, type PageDef } from "./catalog";
+import { CATALOG, PAGES, RULES, lam, type Law, type PageDef } from "./catalog";
 
 /** The placeholder free variable a one-hole `Abstract` abstracts over. */
 export const HOLE = "_";
@@ -151,6 +151,124 @@ export function defineCombinator(name: string, def: Node): Law {
     userDefined: true,
   };
   CATALOG.push(law);
+  CUSTOM_PAGE.entries.push({ sym: name });
+  return law;
+}
+
+// ---- "Add Rule": author a combinator from a rewrite rule `name args = body` ----
+
+/** A successfully parsed rewrite rule: the LHS name and binders, a builder that
+ *  produces the RHS body from the actual argument terms (`v[i]` for the i-th
+ *  binder), and the trimmed source text (reused verbatim as the law's display). */
+export interface ParsedRule {
+  name: string;
+  args: string[];
+  body: (v: Node[]) => Node;
+  lawText: string;
+}
+
+/** A v1 rule identifier: an ASCII letter then word characters (ι is handled
+ *  separately as a leaf). Operator-symbol birds like `(+)`/`<>` are out of scope. */
+const IDENT = /^[A-Za-z][A-Za-z0-9_]*$/;
+
+/**
+ * Parse a player's rewrite rule `name args = body` into a {@link ParsedRule}, or
+ * `{ error }` with a player-facing message. The LHS (left of the first `=`) is
+ * whitespace-split into the combinator name and its argument binders; the RHS is
+ * tokenized (identifiers + parens) and parsed as **left-associative application**
+ * with parens for grouping. Each RHS leaf maps to a builder: a binder → that
+ * argument (`v[i]`, binders shadowing catalog symbols), a catalog combinator →
+ * its collapsed named node, `ι` → a fresh iota; anything else is an error. The
+ * name must pass {@link validateName} and the binders must be distinct identifiers.
+ */
+export function parseRule(input: string): ParsedRule | { error: string } {
+  const eq = input.indexOf("=");
+  if (eq < 0) return { error: "rule needs an '=' (e.g. W f x = f x x)" };
+  const lhs = input.slice(0, eq).trim();
+  const rhs = input.slice(eq + 1).trim();
+
+  const lhsParts = lhs.split(/\s+/).filter(Boolean);
+  const name = lhsParts[0];
+  if (!name) return { error: "missing combinator name (left of '=')" };
+  const nameErr = validateName(name);
+  if (nameErr) return { error: nameErr };
+
+  const args = lhsParts.slice(1);
+  for (const a of args) {
+    if (!IDENT.test(a)) return { error: `invalid argument name: ${a}` };
+  }
+  if (new Set(args).size !== args.length) return { error: "arguments must be distinct" };
+
+  if (!rhs) return { error: "missing rule body (right of '=')" };
+
+  // A leaf resolves to a builder once, at parse time: a binder shadows everything,
+  // then ι, then a catalog combinator (rebuilt fresh each application so ids stay
+  // unique), else it's an unknown symbol.
+  const leaf = (t: string): ((v: Node[]) => Node) => {
+    const ai = args.indexOf(t);
+    if (ai >= 0) return (v) => v[ai];
+    if (t === "ι") return () => iota();
+    const law = CATALOG.find((l) => l.sym === t);
+    if (law) return () => comb(law.sym, law.def?.(), law.arity);
+    throw new Error(`unknown symbol: ${t}`);
+  };
+
+  const toks = rhs.replace(/\(/g, " ( ").replace(/\)/g, " ) ").trim().split(/\s+/).filter(Boolean);
+  let i = 0;
+  // expr := atom+   (left-associative application); atom := ident | '(' expr ')'
+  const parseAtom = (): ((v: Node[]) => Node) => {
+    const t = toks[i];
+    if (t === undefined) throw new Error("unexpected end of rule body");
+    if (t === ")") throw new Error("unexpected ')'");
+    if (t === "(") {
+      i++;
+      const e = parseExpr();
+      if (toks[i] !== ")") throw new Error("missing ')'");
+      i++;
+      return e;
+    }
+    i++;
+    return leaf(t);
+  };
+  const parseExpr = (): ((v: Node[]) => Node) => {
+    let left = parseAtom();
+    while (i < toks.length && toks[i] !== ")") {
+      const right = parseAtom();
+      const f = left;
+      left = (v) => app(f(v), right(v));
+    }
+    return left;
+  };
+
+  try {
+    const body = parseExpr();
+    if (i < toks.length) throw new Error(`unexpected '${toks[i]}'`);
+    return { name, args, body, lawText: input.trim() };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * Register a player-authored combinator from a parsed rewrite rule: append an
+ * ordinary {@link Law} to the catalog and a slot to the Custom page, and install
+ * its `rule` into the live {@link RULES} table so Rule-based reduction fires it in
+ * ONE step when saturated (`name a b … ⇒ body`). `def` is the bracket-abstracted
+ * ι/SKI fallback used when the optimization is off. The probe skips it
+ * (`userDefined`). Caller should {@link parseRule} (which validates) first.
+ */
+export function defineRule(name: string, args: string[], body: (v: Node[]) => Node, lawText: string): Law {
+  const law: Law = {
+    sym: name,
+    lawText,
+    arity: args.length,
+    reference: body, // unused for userDefined (the probe skips them), set for parity with bird()
+    rule: body,
+    def: () => lam(args.length, body),
+    userDefined: true,
+  };
+  CATALOG.push(law);
+  RULES[name] = body; // RULES is a load-time snapshot; runtime laws must opt in so `fast` reduction sees them
   CUSTOM_PAGE.entries.push({ sym: name });
   return law;
 }

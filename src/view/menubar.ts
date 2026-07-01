@@ -7,16 +7,22 @@
  * existing action callbacks). Click a title to drop its menu; hover the bar to
  * walk between open menus; checkmarks (✓) mark active toggles, bullets (•) the
  * selected option in a group; click outside or Esc to close.
+ *
+ * Fully keyboard/gamepad-navigable too (the host routes input while {@link isOpen}):
+ * {@link moveMenu} switches the open top-level menu, {@link moveItem} walks the
+ * highlight within the dropdown (skipping separators), {@link choose} runs the
+ * highlighted item, {@link close} dismisses.
  */
 import { currentMode, onThemeChange, type Mode } from "./theme";
 import { vendorUrl } from "../vendorUrl";
 
 /** One entry in a pull-down. `toggle` shows a ✓ when on; `radio` a • for the
- *  selected option of a group; `action` just runs; `sep` is a divider. */
+ *  selected option of a group; `action` just runs; `sep` is a divider. `title`
+ *  is an optional hover tooltip (the row's native `title` attribute). */
 export type MenuItem =
-  | { kind: "action"; label: string; run: () => void; accel?: string }
-  | { kind: "toggle"; label: string; checked: () => boolean; run: () => void; accel?: string }
-  | { kind: "radio"; label: string; on: () => boolean; run: () => void; accel?: string }
+  | { kind: "action"; label: string; run: () => void; accel?: string; title?: string }
+  | { kind: "toggle"; label: string; checked: () => boolean; run: () => void; accel?: string; title?: string }
+  | { kind: "radio"; label: string; on: () => boolean; run: () => void; accel?: string; title?: string }
   | { kind: "sep" };
 
 /** A pull-down: a bar title and its items. `apple` styles the ι menu. */
@@ -32,7 +38,7 @@ const PALETTE: Record<Mode, Record<string, string>> = {
 };
 
 const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
-const NARROW = 560; // below this width, collapse the six menus into one ι menu
+const NARROW = 560; // below this width, collapse the menus into one ι menu
 
 let stylesInjected = false;
 function injectStyles(): void {
@@ -51,11 +57,14 @@ function injectStyles(): void {
   font-family: ${MONO}; font-size: 14px; }
 .mb-header { padding: 5px 12px 2px; font-size: 11px; opacity: 0.5; letter-spacing: 0.05em; pointer-events: none; }
 .mb-item { position: relative; display: flex; justify-content: space-between; gap: 24px; padding: 2px 16px 2px 24px; white-space: nowrap; cursor: default; }
-.mb-item:hover { background: var(--mb-fg); color: var(--mb-bg); }
+.mb-item:hover, .mb-item.mb-active { background: var(--mb-fg); color: var(--mb-bg); }
 .mb-mark { position: absolute; left: 8px; }
 .mb-accel { opacity: 0.5; padding-left: 8px; }
-.mb-item:hover .mb-accel { opacity: 0.85; }
+.mb-item:hover .mb-accel, .mb-item.mb-active .mb-accel { opacity: 0.85; }
 .mb-sep { height: 0; margin: 3px 0; border-top: 1px solid var(--mb-line); opacity: 0.45; }
+.mb-tip { position: fixed; display: none; max-width: 300px; padding: 5px 9px; z-index: 61; pointer-events: none;
+  background: var(--mb-bg); color: var(--mb-fg); border: 1px solid var(--mb-line); box-shadow: 2px 2px 0 var(--mb-shadow);
+  font-family: ${MONO}; font-size: 12px; line-height: 1.45; white-space: normal; }
 `;
   const style = document.createElement("style");
   style.textContent = css;
@@ -65,9 +74,14 @@ function injectStyles(): void {
 export class MenuBar {
   private readonly bar = document.createElement("div");
   private readonly dropdown = document.createElement("div");
+  private readonly tip = document.createElement("div"); // a System-1 hover tooltip for items with a title
   private readonly titleEls: HTMLElement[] = [];
   private open: number | null = null;
-  private narrow = false; // collapsed (phone) layout: one ι menu instead of six titles
+  private narrow = false; // collapsed (phone) layout: one ι menu instead of the menu titles
+  // Keyboard/gamepad nav: the navigable rows of the open dropdown (separators excluded) and the
+  // highlighted one. Rebuilt on every render; the mouse shares this cursor (pointerenter updates it).
+  private navItems: { run: () => void; el: HTMLElement; title?: string }[] = [];
+  private activeItem = 0;
 
   constructor(private readonly menus: Menu[]) {
     injectStyles();
@@ -79,8 +93,10 @@ export class MenuBar {
 
     document.body.appendChild(this.bar);
     document.body.appendChild(this.dropdown);
+    this.tip.className = "mb-tip";
+    document.body.appendChild(this.tip);
     // Rebuild the bar when crossing the narrow/wide breakpoint (collapse the menus
-    // into one ι menu on phones, where six titles won't fit).
+    // into one ι menu on phones, where the titles won't fit).
     window.addEventListener("resize", () => {
       if (this.narrow !== window.innerWidth < NARROW) {
         this.close();
@@ -92,22 +108,12 @@ export class MenuBar {
     this.dropdown.addEventListener("pointerdown", (e) => e.stopPropagation());
     // Click anywhere off the bar/menu (titles + items stopPropagation) closes it.
     document.addEventListener("pointerdown", () => this.close());
-    // A dropped menu owns the keyboard: Esc closes it, and we swallow keys in the
-    // capture phase so the app's global shortcuts (r=clear, t=layout, …) don't fire
-    // underneath an open pull-down.
-    document.addEventListener(
-      "keydown",
-      (e) => {
-        if (this.open === null) return;
-        if (e.key === "Escape") this.close();
-        e.stopPropagation();
-      },
-      true,
-    );
+    // The keyboard/gamepad routing of an open menu lives in the host (app.ts), mirroring the
+    // context popup: it checks `isOpen` and drives moveMenu/moveItem/choose/close.
     onThemeChange(() => this.applyPalette());
   }
 
-  /** Build the bar titles for the current width: six menu titles when wide, a
+  /** Build the bar titles for the current width: the menu titles when wide, a
    *  single ι (that opens every command, grouped) when narrow. */
   private buildTitles(): void {
     for (const t of this.titleEls) t.remove();
@@ -146,9 +152,39 @@ export class MenuBar {
     else this.renderDropdown(this.open);
   }
 
-  /** Open the menu bar programmatically (Esc in game mode → "access the menu bar"). */
+  /** Open the menu bar programmatically (Esc in game mode → "access the menu bar"); highlights the
+   *  first menu and its first item. */
   openMenuBar(): void {
     this.openAt(0);
+  }
+
+  /** Whether a pull-down is currently open (the host gates keyboard/gamepad routing on this). */
+  get isOpen(): boolean {
+    return this.open !== null;
+  }
+
+  /** Switch the open top-level menu by `d` (wraps); resets the item highlight to the first. The
+   *  keyboard/gamepad ←/→. No-op when collapsed (the phone layout has a single ι menu). */
+  moveMenu(d: number): void {
+    if (this.open === null) return;
+    const n = this.narrow ? 1 : this.menus.length;
+    this.openAt((this.open + d + n) % n);
+  }
+
+  /** Walk the highlight within the open dropdown by `d` (wraps, separators excluded) — the
+   *  keyboard/gamepad ↑/↓. */
+  moveItem(d: number): void {
+    if (this.open === null || this.navItems.length === 0) return;
+    this.activeItem = (this.activeItem + d + this.navItems.length) % this.navItems.length;
+    this.paintActiveItem();
+  }
+
+  /** Run the highlighted item, then close — the keyboard/gamepad Space/A. */
+  choose(): void {
+    if (this.open === null) return;
+    const it = this.navItems[this.activeItem];
+    this.close();
+    it?.run();
   }
 
   private applyPalette(): void {
@@ -158,11 +194,29 @@ export class MenuBar {
     for (const [k, v] of Object.entries(p)) {
       this.bar.style.setProperty(`--mb-${k}`, v);
       this.dropdown.style.setProperty(`--mb-${k}`, v);
+      this.tip.style.setProperty(`--mb-${k}`, v);
     }
+  }
+
+  /** Show the System-1 hover tooltip for `text` beside `row` (flips left if it would overflow). */
+  private showTip(text: string, row: HTMLElement): void {
+    this.tip.textContent = text;
+    this.tip.style.display = "block";
+    const r = row.getBoundingClientRect();
+    const w = this.tip.offsetWidth;
+    const h = this.tip.offsetHeight;
+    const x = r.right + 8 + w > window.innerWidth - 6 ? Math.max(6, r.left - w - 8) : r.right + 8;
+    this.tip.style.left = `${x}px`;
+    this.tip.style.top = `${Math.max(6, Math.min(r.top, window.innerHeight - h - 6))}px`;
+  }
+  /** Hide the hover tooltip. */
+  private hideTip(): void {
+    this.tip.style.display = "none";
   }
 
   private openAt(i: number): void {
     this.open = i;
+    this.activeItem = 0; // a fresh menu highlights its first item (keyboard/gamepad start)
     this.titleEls.forEach((t, j) => t.classList.toggle("mb-open", j === i));
     if (this.narrow) this.renderCombined();
     else this.renderDropdown(i);
@@ -179,19 +233,24 @@ export class MenuBar {
     this.dropdown.style.maxHeight = `${Math.max(120, window.innerHeight - top - 8)}px`;
   }
 
-  private close(): void {
+  /** Dismiss the open pull-down (no-op if closed) — click-away, Esc, or the keyboard/gamepad B. */
+  close(): void {
     if (this.open === null) return;
     this.open = null;
     this.titleEls.forEach((t) => t.classList.remove("mb-open"));
     this.dropdown.style.display = "none";
+    this.hideTip();
   }
 
   private renderDropdown(i: number): void {
+    this.navItems = []; // itemEl repopulates this as it builds the rows
     this.dropdown.replaceChildren(...this.menus[i].items.map((it) => this.itemEl(it)));
+    this.paintActiveItem();
   }
 
   /** The whole menu as one list (phone layout): each menu's items under a header. */
   private renderCombined(): void {
+    this.navItems = [];
     this.dropdown.replaceChildren();
     this.menus.forEach((m, mi) => {
       if (mi > 0) this.dropdown.appendChild(this.itemEl({ kind: "sep" }));
@@ -201,6 +260,17 @@ export class MenuBar {
       this.dropdown.appendChild(h);
       for (const it of m.items) this.dropdown.appendChild(this.itemEl(it));
     });
+    this.paintActiveItem();
+  }
+
+  /** Paint the active-row highlight (keyboard/gamepad cursor), clamping if the list shrank. */
+  private paintActiveItem(): void {
+    if (this.activeItem >= this.navItems.length) this.activeItem = Math.max(0, this.navItems.length - 1);
+    this.navItems.forEach((r, i) => r.el.classList.toggle("mb-active", i === this.activeItem));
+    // The hover tooltip follows the SELECTION — mouse hover and keyboard/gamepad nav both set activeItem.
+    const active = this.navItems[this.activeItem];
+    if (active?.title) this.showTip(active.title, active.el);
+    else this.hideTip();
   }
 
   private itemEl(it: MenuItem): HTMLElement {
@@ -241,6 +311,13 @@ export class MenuBar {
       if (moved) return; // a scroll, not a tap
       it.run();
       this.close();
+    });
+    // Register as a navigable row + let the mouse share the keyboard/gamepad cursor (hover = highlight).
+    const navIndex = this.navItems.length;
+    this.navItems.push({ run: it.run, el: row, title: it.title });
+    row.addEventListener("pointerenter", () => {
+      this.activeItem = navIndex;
+      this.paintActiveItem();
     });
     return row;
   }
