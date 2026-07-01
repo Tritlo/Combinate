@@ -14,8 +14,9 @@
 import { createRequire } from "module";
 import { encode, decode } from "../src/core/wasmCodec";
 import { app, freeVar, type Node } from "../src/core/term";
-import { CATALOG, named } from "../src/core/catalog";
+import { CATALOG, lamN, named } from "../src/core/catalog";
 import { normalize } from "../src/core/reduce";
+import { type NativeOpts } from "../src/core/native";
 
 const require = createRequire(import.meta.url);
 const fs = require("fs") as typeof import("fs");
@@ -219,8 +220,8 @@ sessionInvariant("(*) 3 3", app(app(named("(*)"), nat(3)), nat(3)));
 // `normalize(_, false, {numbers:true})` — clean canonical Scott arithmetic, no blow-up. ----
 let kPass = 0;
 let kFail = 0;
-function graphKernelNF(t: Node, cap: number, opts: { numbers?: boolean; lists?: boolean; booleans?: boolean } = { numbers: true }): { term: Node; done: boolean } {
-  const { data, symName, freeName } = encode(t, opts);
+function graphKernelNF(t: Node, cap: number, opts: { numbers?: boolean; lists?: boolean; booleans?: boolean } = { numbers: true }, fast = false): { term: Node; done: boolean } {
+  const { data, symName, freeName } = encode(t, opts, fast);
   const ptr = malloc(data.length * 4, 4) >>> 0;
   new Int32Array(wasm.memory.buffer, ptr, data.length).set(data);
   const h = S.graphsession_new(ptr, data.length);
@@ -286,8 +287,135 @@ for (const p of [TRUE, FALSE])
 kcheckOpts("and False Ω [short-circuit]", app(app(named("and"), FALSE()), OMEGA()), B);
 kcheckOpts("or True Ω [short-circuit]", app(app(named("or"), TRUE()), OMEGA()), B);
 
+// ---- FAST (rule-based) parity: the graph engine in fast mode must produce the SAME normal
+// forms as the TS `redexAt` fast path, `normalize(_, _, true, opts)` — the safety net for Turbo
+// honouring the rules setting (`wasm+rules(+native)` == TS `rules(+native)`). Covers every
+// catalog rule, the arithmetic/list/bool grids (rules alone AND rules+native), and the recursion
+// combinators that dominate the grind (foldr / filter / quicksort, authored from the catalog). ----
+let fPass = 0;
+let fFail = 0;
+let fSkip = 0;
+function fcheck(label: string, t: Node, opts: NativeOpts = {}, cap = 500_000): void {
+  const ts = normalize(t, cap, true, opts);
+  if (!ts.done) {
+    fSkip++; // divergent within cap (e.g. a fixpoint on a free var) — both bail; not a signal
+    return;
+  }
+  const expect = struct(ts.term);
+  const g = graphKernelNF(t, cap, opts, true);
+  if (g.done && struct(g.term) === expect) fPass++;
+  else {
+    fFail++;
+    if (fails.length < 24) fails.push(`fast ${label}: TS=${expect.slice(0, 34)} | GRAPH+fast(${g.done})=${struct(g.term).slice(0, 34)}`);
+  }
+}
+// every catalog combinator on fresh free vars, fast mode (the rule fires; a free head → WHNF)
+for (const law of CATALOG) {
+  if (law.args) continue; // skip the non-terminating-probe birds (Y) — diverge on free vars
+  let t: Node;
+  try {
+    t = named(law.sym);
+    for (let i = 0; i < law.arity; i++) t = app(t, vars[i]);
+  } catch {
+    continue;
+  }
+  fcheck(`comb ${law.sym}`, t);
+}
+// arithmetic grid: rules alone (Scott recursion via named birds) AND rules+native (kernel ?? rule)
+for (const op of ["(+)", "(-)", "(*)", "(==)", "(/=)", "(<)", "(<=)", "(>)", "(>=)", "compare"])
+  for (let a = 0; a <= 4; a++)
+    for (let b = 0; b <= 4; b++) {
+      fcheck(`${op} ${a} ${b}`, app(app(named(op), nat(a)), nat(b)));
+      fcheck(`${op} ${a} ${b} +num`, app(app(named(op), nat(a)), nat(b)), { numbers: true });
+    }
+// nested arithmetic (deep rule recursion, exercises the kernel-miss → rule fallback too)
+fcheck("(*) ((+) 2 3) 4", app(app(named("(*)"), app(app(named("(+)"), nat(2)), nat(3))), nat(4)), { numbers: true });
+fcheck("(+) 2 x [lazy]", app(app(named("(+)"), nat(2)), freeVar("x")), { numbers: true });
+fcheck("(+) x y [stuck]", app(app(named("(+)"), freeVar("x")), freeVar("y")), { numbers: true });
+// list + bool ops: rules alone AND rules+native
+for (const o of [{}, { lists: true, booleans: true }]) {
+  fcheck("map Succ [1,2,3]", app(app(named("map"), named("Succ")), list([nat(1), nat(2), nat(3)])), o);
+  fcheck("[1,2] <> [3,4]", app(app(named("<>"), list([nat(1), nat(2)])), list([nat(3), nat(4)])), o);
+  fcheck("concat [[1,2],[3]]", app(named("concat"), list([list([nat(1), nat(2)]), list([nat(3)])])), o);
+  for (const p of [TRUE, FALSE]) for (const q of [TRUE, FALSE]) fcheck("and/or", app(app(named("and"), p()), app(app(named("or"), q()), TRUE())), o);
+}
+// ---- recursion combinators that dominate a compiled program's grind, authored from the
+// catalog (Y + named birds). The graph-fast NF must equal the TS-fast NF (both drive the same
+// term through the same rules) — a strong end-to-end parity signal for the recursion structure. ----
+// foldr f z xs = xs z (λh t. f h (foldr f z t))
+const foldr = (): Node =>
+  app(named("Y"), lamN(["r", "f", "z", "xs"], ([r, f, z, xs]) => app(app(xs, z), lamN(["h", "t"], ([h, t]) => app(app(f, h), app(app(app(r, f), z), t))))));
+// filter p xs = xs [] (λh t. (p h) (filter p t) (h : filter p t))  [Scott bool: True=KI picks 2nd]
+const filter = (): Node =>
+  app(
+    named("Y"),
+    lamN(["r", "p", "xs"], ([r, p, xs]) =>
+      app(app(xs, named("K")), lamN(["h", "t"], ([h, t]) => app(app(app(p, h), app(app(r, p), t)), app(app(named("cons"), h), app(app(r, p), t))))),
+    ),
+  );
+// quicksort xs = xs [] (λh t. qsort (filter (< h) t) <> (h : qsort (filter (>= h) t)))
+const qsort = (): Node =>
+  app(
+    named("Y"),
+    lamN(["r", "xs"], ([r, xs]) =>
+      app(
+        app(xs, named("K")),
+        lamN(["h", "t"], ([h, t]) =>
+          app(
+            app(named("<>"), app(r, app(app(filter(), lamN(["x"], ([x]) => app(app(named("(<)"), x), h))), t))),
+            app(app(named("cons"), h), app(r, app(app(filter(), lamN(["x"], ([x]) => app(app(named("(>=)"), x), h))), t))),
+          ),
+        ),
+      ),
+    ),
+  );
+for (const o of [{}, { numbers: true, lists: true, booleans: true }]) {
+  fcheck("foldr (+) 0 [1,2,3]", app(app(app(foldr(), named("(+)")), nat(0)), list([nat(1), nat(2), nat(3)])), o);
+  fcheck("foldr (*) 1 [1,2,3,4]", app(app(app(foldr(), named("(*)")), nat(1)), list([nat(1), nat(2), nat(3), nat(4)])), o);
+  fcheck("filter (< 3) [4,1,3,0,2]", app(app(filter(), lamN(["x"], ([x]) => app(app(named("(<)"), x), nat(3)))), list([nat(4), nat(1), nat(3), nat(0), nat(2)])), o);
+  fcheck("quicksort [3,1,2]", app(qsort(), list([nat(3), nat(1), nat(2)])), o);
+  fcheck("quicksort [4,2,5,1,3]", app(qsort(), list([nat(4), nat(2), nat(5), nat(1), nat(3)])), o);
+}
+
+// ---- end-to-end: the vendored MicroHs example dumps (real compiled programs — the recursion
+// combinators + basis plumbing that dominate the Turbo grind). Skipped unless the dumps are
+// vendored locally (public/vendor/mhs/examples/*.comb is git-ignored). The graph engine in fast
+// mode + native must reduce each to the SAME normal form as the TS fast path. ----
+let ePass = 0;
+let eFail = 0;
+let eSkip = 0;
+const EX_DIR = "public/vendor/mhs/examples";
+if (fs.existsSync(EX_DIR)) {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { dumpToTree } = require("../src/core/mhs") as typeof import("../src/core/mhs");
+  const ALLN: NativeOpts = { numbers: true, lists: true, booleans: true };
+  for (const name of ["fac", "sum", "filter", "quicksort", "arith", "rev", "inc", "lt"]) {
+    const path = `${EX_DIR}/${name}.comb`;
+    if (!fs.existsSync(path)) {
+      eSkip++;
+      continue;
+    }
+    const r = dumpToTree(fs.readFileSync(path, "utf8"), "Ex.out");
+    if ("error" in r) {
+      eSkip++;
+      continue;
+    }
+    const ts = normalize(r.tree, 5_000_000, true, ALLN);
+    const g = graphKernelNF(r.tree, 3_000_000, ALLN, true);
+    if (ts.done && g.done && struct(g.term) === struct(ts.term)) ePass++;
+    else {
+      eFail++;
+      if (fails.length < 24) fails.push(`example ${name}: TS(${ts.done})=${struct(ts.term).slice(0, 30)} | GRAPH+fast(${g.done})=${struct(g.term).slice(0, 30)}`);
+    }
+  }
+} else {
+  eSkip = -1; // not vendored here
+}
+
 console.log(`wasm-reduce cross-check: ${pass} pass, ${fail} fail, ${skip} skipped(divergent)`);
 console.log(`session invariance: ${sPass} pass, ${sFail} fail`);
 console.log(`graph kernels (number+list+bool): ${kPass} pass, ${kFail} fail`);
+console.log(`graph FAST rules (rules & rules+native): ${fPass} pass, ${fFail} fail, ${fSkip} skipped(divergent)`);
+console.log(`MicroHs example dumps (fast+native, end-to-end): ${ePass} pass, ${eFail} fail${eSkip === -1 ? " (dumps not vendored — skipped)" : `, ${eSkip} skipped`}`);
 for (const f of fails) console.log(`  FAIL ${f}`);
-process.exit(fail === 0 && sFail === 0 && kFail === 0 ? 0 : 1);
+process.exit(fail === 0 && sFail === 0 && kFail === 0 && fFail === 0 && eFail === 0 ? 0 : 1);

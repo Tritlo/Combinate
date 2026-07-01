@@ -88,8 +88,10 @@ export function lam(arity: number, body: (v: Node[]) => Node): Node {
 }
 
 /** Bracket abstraction over explicitly-named variables (nests, for the bodies
- *  that need captured outer vars — e.g. the recursive list/arithmetic folds). */
-function lamN(names: string[], body: (v: Node[]) => Node): Node {
+ *  that need captured outer vars — e.g. the recursive list/arithmetic folds).
+ *  Exported so tests can author nested-recursive terms (foldr/filter/quicksort)
+ *  the same way the catalog derives its defs. */
+export function lamN(names: string[], body: (v: Node[]) => Node): Node {
   let t = body(names.map(freeVar));
   for (let i = names.length - 1; i >= 0; i--) t = bracket(names[i], t);
   return t;
