@@ -56,7 +56,7 @@ const TURBO_EXPLODE_NODES = 2_000_000; // a raw term blowing up (e.g. Scott arit
 const FINISH_PROBE_MAX = 150; // skip the catalog/quest/golf probes on a normal form (or source) bigger than this — they'd reduce it (too slow), and a big result isn't a bird/puzzle solution
 
 
-export type Transport = "play" | "pause" | "ff";
+export type Transport = "play" | "pause" | "ff" | "max";
 
 // `source` is the tree as the player built/edited it (captured on release), before
 // reduction mutates it — the golf metric + challenge target score the source, not its NF.
@@ -80,6 +80,9 @@ export interface ReductionDeps {
   tickSound: (sym: string | null) => void; // a tone per contraction (null = no rule)
   notify: (msg: string) => void; // toast
   onTransportChange: () => void; // repaint the menu + transport bar
+  /** A raw/optimize term ballooned past the render cap: enable graph reduction (call-by-need sharing
+   *  → no blow-up) and continue THIS tree there. Silent — no toast. */
+  onBalloon: (tree: TreeView) => void;
   /** Mirror a focused tree's step into the 3D view (plan 06) — a no-op unless 3D is open + tree is focused. */
   morph3D?: (tree: TreeView, node: Node, durationMS: number) => void;
   /** Settle any in-flight 3D morph (called when the 2D reducer is paused, which stop-animates trees). */
@@ -439,7 +442,7 @@ export class ReductionController {
     let node = a.work ?? tree.node;
     if (exceedsNodes(node, BALLOON_CAP)) {
       a.work = undefined;
-      this.autoPause("term is ballooning — try Graph reduction or Turbo (Optimizations menu)");
+      this.deps.onBalloon(tree); // auto-switch to graph reduction (shares → no blow-up), no toast
       return;
     }
     let sym: string | null = null;
@@ -574,6 +577,11 @@ export class ReductionController {
   /** The current transport mode (read by the bar + permalink + dev seam). */
   get mode(): Transport {
     return this.transport;
+  }
+
+  /** The playback modes the transport bar shows, slowest → fastest (Step is a separate action). */
+  transportModes(): Transport[] {
+    return ["pause", "play", "ff"];
   }
 
   /** Total contractions across all live trees (the reduction-rate read-out + dev seam). */

@@ -34,7 +34,7 @@ function injectStyles(): void {
   stylesInjected = true;
   const css = `
 @font-face { font-family: 'IoskeleyMono'; src: url('${vendorUrl("vendor/fonts/IoskeleyMono-Regular.woff2")}') format('woff2'); font-display: swap; }
-.qt-root { position: fixed; top: 86px; right: 16px; width: min(320px, calc(100vw - 32px)); z-index: 40;
+.qt-root { position: fixed; top: 112px; right: 16px; width: min(320px, calc(100vw - 32px)); z-index: 40;
   font-family: ${MONO}; display: none; }
 .qt-card { background: var(--qt-paper); color: var(--qt-ink); border: 1px solid var(--qt-ink);
   box-shadow: 2px 2px 0 var(--qt-shadow); }
@@ -61,6 +61,9 @@ function injectStyles(): void {
 .qt-iolabel { font-size: 11px; opacity: 0.6; }
 .qt-ioform { margin-top: 3px; font-size: 12px; line-height: 1.45; max-height: 4.4em; overflow-y: auto; word-break: break-word;
   color: color-mix(in srgb, var(--qt-ink) 75%, var(--qt-gold)); }
+/* Small screens: hide the tracker (the read-out drops beneath the bars there — no room for it too).
+   !important beats the inline display the JS toggles. */
+@media (max-width: 1024px) { .qt-root { display: none !important; } }
 `;
   const style = document.createElement("style");
   style.textContent = css;
