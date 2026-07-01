@@ -49,6 +49,7 @@ import { NameKeyboard } from "./view/nameKeyboard";
 import { GamepadController } from "./view/gamepad";
 import { preloadSphere3D } from "./view/sphere3d";
 import { SphereController } from "./view/sphereController";
+import { Camera } from "./view/camera";
 import { HintBar } from "./view/hints";
 import { DiscoveryCard } from "./view/discovery";
 import { type Context, type Intent, intentForKey } from "./view/keymap";
@@ -85,8 +86,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const world = new Container();
   const ghostLayer = new Container();
   const hud = new Container();
+  const camera = new Camera(world);
   // The camera transform, read live so TreeView can viewport-cull edges.
-  const cameraTransform = (): { x: number; y: number; scale: number } => ({ x: world.position.x, y: world.position.y, scale: world.scale.x });
+  const cameraTransform = (): { x: number; y: number; scale: number } => camera.transform();
   world.addChild(ghostLayer);
   pixi.stage.addChild(world, hud);
 
@@ -452,8 +454,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   };
   fitStage();
 
-  const screenToWorld = (x: number, y: number) => world.toLocal({ x, y });
-  const worldToScreen = (x: number, y: number) => world.toGlobal({ x, y });
 
   // The Delete/Copy context popup (mouse right-click + the keyboard "c" / pad-X build bind).
   const ctxMenu = new ContextMenu();
@@ -468,7 +468,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
 
   function spawnTree(node: Node, screenX: number, screenY: number): TreeView {
-    const w = screenToWorld(screenX, screenY);
+    const w = camera.screenToWorld(screenX, screenY);
     const tree = new TreeView(node, w.x, w.y, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
     addTree(tree);
     focus = tree;
@@ -561,7 +561,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     focus = tree;
     reduce.cancel(tree); // touching a tree freezes it (§6.4)
     gameInput?.detach(tree); // grabbing a bucket tree with the mouse releases its slot (ADR 17)
-    const w = screenToWorld(e.global.x, e.global.y);
+    const w = camera.screenToWorld(e.global.x, e.global.y);
     world.addChild(tree.container); // bring to front
     tree.container.eventMode = "none"; // passive while carried, so the next click reaches what's underneath
     drag = {
@@ -637,8 +637,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       kind: "pan",
       startX: e.global.x,
       startY: e.global.y,
-      worldX: world.position.x,
-      worldY: world.position.y,
+      worldX: camera.transform().x,
+      worldY: camera.transform().y,
     };
   });
 
@@ -649,11 +649,11 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
     if (!drag) return;
     if (drag.kind === "pan") {
-      world.position.set(drag.worldX + (e.global.x - drag.startX), drag.worldY + (e.global.y - drag.startY));
+      camera.moveTo(drag.worldX + (e.global.x - drag.startX), drag.worldY + (e.global.y - drag.startY));
       return;
     }
     const tree = drag.tree;
-    const w = screenToWorld(e.global.x, e.global.y);
+    const w = camera.screenToWorld(e.global.x, e.global.y);
     if (drag.kind === "tree") {
       tree.container.position.set(w.x + drag.offX, w.y + drag.offY);
     } else {
@@ -778,14 +778,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
 
   // ---- camera zoom: mouse wheel (desktop) + two-finger pinch (touch) ----
-  // Set a new scale while keeping the screen point (sx, sy) fixed under it.
-  const zoomTo = (newScale: number, sx: number, sy: number): void => {
-    const s = Math.max(0.04, Math.min(4, newScale)); // floor low enough that a fac-scale tree fits
-    const ratio = s / world.scale.x;
-    world.position.set(sx - (sx - world.position.x) * ratio, sy - (sy - world.position.y) * ratio);
-    world.scale.set(s);
-  };
-
   pixi.canvas.addEventListener(
     "wheel",
     (ev) => {
@@ -793,7 +785,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       noteMouse(); // wheel is a mouse action → hide the controls' visuals/hints
       if (zoo.isOpen || challenges.isOpen) return; // an open overlay owns the wheel (its list scrolls instead of zooming the canvas behind it)
       if (sphere.active()) return sphere.zoomBy(ev.deltaY < 0 ? 0.9 : 1 / 0.9); // 3D: wheel orbits-zoom
-      zoomTo(world.scale.x * (ev.deltaY < 0 ? 1.1 : 1 / 1.1), ev.clientX, ev.clientY);
+      camera.zoomBy(ev.deltaY < 0 ? 1.1 : 1 / 1.1, ev.clientX, ev.clientY);
     },
     { passive: false },
   );
@@ -840,8 +832,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
     if (pointers.size >= 2 && pinch) {
       const cur = pinchMetrics();
-      world.position.set(world.position.x + (cur.cx - pinch.cx), world.position.y + (cur.cy - pinch.cy));
-      zoomTo(world.scale.x * (cur.d / pinch.d), cur.cx, cur.cy);
+      camera.panBy(cur.cx - pinch.cx, cur.cy - pinch.cy);
+      camera.zoomBy(cur.d / pinch.d, cur.cx, cur.cy);
       pinch = cur;
     }
   });
@@ -976,8 +968,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const scale = Math.max(0.04, Math.min(2.5, Math.min((window.innerWidth * margin) / Math.max(b.w, 1), (window.innerHeight * margin) / Math.max(b.h, 1))));
     const cx = b.x + b.w / 2;
     const cy = b.y + b.h / 2;
-    world.scale.set(scale);
-    world.position.set(window.innerWidth / 2 - cx * scale, window.innerHeight / 2 - cy * scale);
+    camera.place(cx, cy, scale, window.innerWidth / 2, window.innerHeight / 2);
   }
 
   // Game mode's spatial buckets (ADR 17): a stable horizontal strip BUCKET_SPACING apart, keyed by k.
@@ -987,8 +978,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // drop the focus a little above centre so the tree has room to grow downward over the hotbar.
   function frameBucketAt(x: number): void {
     const z = Math.min(1.3, window.innerWidth / (BUCKET_SPACING * 2.3));
-    world.scale.set(z);
-    world.position.set(window.innerWidth / 2 - x * z, window.innerHeight * 0.5);
+    camera.place(x, 0, z, window.innerWidth / 2, window.innerHeight * 0.5);
   }
 
   // Toggle the "expand everything to ι" view (read by TreeView.expand).
@@ -1055,8 +1045,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     captureWorld: (tree) => tree.nodeWorldPositions(),
     removeTree,
     frameBucketAt: (x) => frameBucketAt(x),
-    pan: (dx, dy) => world.position.set(world.position.x + dx, world.position.y + dy),
-    zoom: (factor) => zoomTo(world.scale.x * factor, window.innerWidth / 2, window.innerHeight / 2),
+    pan: (dx, dy) => camera.panBy(dx, dy),
+    zoom: (factor) => camera.zoomBy(factor, window.innerWidth / 2, window.innerHeight / 2),
     setSpeed: (lvl) => reduce.setSpeedLevel(lvl),
     getSpeedLevel: () => reduce.speedLevel,
     openMenu: () => menuBar?.openMenuBar(),
@@ -1355,7 +1345,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     if (gameInput.hasHand) return; // a carry is in progress — don't act on the bucket underneath
     const tree = gameInput.focusedTree;
     if (!tree) return;
-    const s = worldToScreen(gameInput.focusedKey * BUCKET_SPACING, 0);
+    const s = camera.worldToScreen(gameInput.focusedKey * BUCKET_SPACING, 0);
     ctxMenu.show(s.x, s.y, [
       { label: "Name Combinator", run: () => nameCombinator(tree, tree.node.id) },
       { label: "Delete", run: () => removeTree(tree) },
@@ -1599,7 +1589,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       type: { on: () => readout.isTypeOn, toggle: () => readout.toggleType(), of: (s: string) => inferType(fromEgg(s)) },
       unlockAll: () => unlockAll(),
       openZoo: () => zoo.open(),
-      camera: () => ({ scale: world.scale.x, x: world.position.x, y: world.position.y }),
+      camera: () => camera.transform(),
       golf: {
         toggle: () => challenges.toggle(),
         onNF: (s: string) => challenges.onNormalForm(fromEgg(s)),
