@@ -21,6 +21,16 @@ const STEP_GAP = 130; // pause between reduction steps
 const HEAVY_GAP = 8; // big trees jump-cut each step; pace them fast but still yield to the renderer (≠ 0, which starves rAF)
 const STEP_CAP = 2000; // non-termination guard: stop auto-reducing past this many steps
 const GRAPH_STEP_CAP = 100_000; // graph mode shares (cheap steps) — let fac-scale reductions finish
+// A raw/optimize term bigger than this isn't reflowed every step — laying out + drawing 14k+ nodes is
+// O(n) and blocks the frame (the per-step reflow is what freezes the UI on a ballooning quicksort). Past
+// it, the term reduces in the background (budgeted, yielding to the renderer) and only reflows once it's
+// small enough to draw in a frame, or reaches normal form — so the UI stays live + the bar keeps moving.
+const HEAVY_RENDER_CAP = 2500;
+const HEAVY_TS_BUDGET_MS = 6; // wall-clock spent building contractions per batch before yielding to rAF
+// A raw (unshared) reduction can balloon without bound (quicksort duplicates subterms via the S rule);
+// once a single contraction would deep-clone a term this big, ONE `build()` blocks a frame. Past this,
+// pause cleanly ("try Graph/Turbo", which share and don't clone) rather than freeze on a giant copy.
+const BALLOON_CAP = 30_000;
 
 // ---- Turbo (wasm) playback: run many resident contractions per visible frame, so a big
 // raw tree reduces fast even when the renderer can't keep up with one tween per step. ----
@@ -53,7 +63,7 @@ export type Transport = "play" | "pause" | "ff";
 // `stash` is the next raw-TS contractum, precomputed while a 3D morph plays (pipeline depth 1) so the
 // animation's time isn't wasted; keyed by `from` (must still equal tree.node) so a mode/term change
 // discards it. Raw path only — graph/turbo mutate their engines, so we never run them ahead.
-type AutoState = { gen: number; timer: number; steps: number; source?: Node; grapher?: GraphReducer; session?: WasmSession | null; stash?: { from: Node; next: Node; sym: string | null } };
+type AutoState = { gen: number; timer: number; steps: number; source?: Node; grapher?: GraphReducer; session?: WasmSession | null; stash?: { from: Node; next: Node; sym: string | null }; work?: Node };
 
 /** What the reduction loop needs from the shell. */
 export interface ReductionDeps {
@@ -201,6 +211,7 @@ export class ReductionController {
     a.gen++;
     a.steps = 0;
     a.stash = undefined; // a fresh run — no stale look-ahead from the previous term/mode
+    a.work = undefined; // no carried-over background-reduced term
     a.source = tree.node; // score the tree as built, before reduction
     this.freeSession(a); // drop any prior resident session
     a.grapher = this.deps.getShare() ? new GraphReducer(tree.node, this.deps.getFast()) : undefined;
@@ -332,6 +343,10 @@ export class ReductionController {
     if (this.transport === "pause") return; // frozen — resume re-kicks from setTransport
     const share = this.deps.getShare();
     const fast = this.deps.getFast();
+    // A big ballooning raw/optimize term reduces in the BACKGROUND (budgeted + yielding) rather than
+    // paying an O(n) layout+edge reflow every step — the per-step reflow is what freezes the UI on a
+    // 14k-node quicksort intermediate. Graph mode (share) already does cheap shared steps, so it's out.
+    if (!share && exceedsNodes(tree.node, HEAVY_RENDER_CAP)) return this.stepHeavyTs(tree, gen);
     // Pace to the 3D morph: while it animates, don't advance the visible state — but use that time to
     // precompute the next RAW contractum (pipeline depth 1), so the cadence stays full once it ends.
     if (this.morphPacing(tree)) {
@@ -403,6 +418,65 @@ export class ReductionController {
       } else {
         a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(tree));
       }
+    });
+  }
+
+  /** Reduce a term too big to reflow every step ({@link HEAVY_RENDER_CAP}): build contractions in short
+   *  budgeted batches WITHOUT a reflow, yielding to the renderer between batches, and only reflow once the
+   *  term is small enough to draw in a frame — or reaches normal form. Keeps the UI live + the estimate
+   *  bar moving through a huge ballooning reduction (quicksort) instead of freezing on a per-step O(n)
+   *  layout+edge rebuild. Re-enters {@link stepAuto} once the term is renderable, so it animates normally. */
+  private stepHeavyTs(tree: TreeView, gen: number): void {
+    const a = this.auto.get(tree);
+    if (!a || a.gen !== gen) return;
+    if (this.transport === "pause") return;
+    if (this.morphPacing(tree)) {
+      a.timer = window.setTimeout(() => this.stepHeavyTs(tree, gen), MORPH_POLL_MS);
+      return;
+    }
+    const fast = this.deps.getFast();
+    const native = this.deps.getNative();
+    let node = a.work ?? tree.node;
+    if (exceedsNodes(node, BALLOON_CAP)) {
+      a.work = undefined;
+      this.autoPause("term is ballooning — try Graph reduction or Turbo (Optimizations menu)");
+      return;
+    }
+    let sym: string | null = null;
+    let nf = false;
+    const start = performance.now();
+    do {
+      if (a.steps >= STEP_CAP) {
+        a.work = undefined;
+        this.autoPause(`won't settle after ${a.steps} steps — try Graph reduction (Optimizations menu)`);
+        return;
+      }
+      const redex = redexAt(node, 0, fast, native);
+      if (!redex) {
+        nf = true;
+        break;
+      }
+      node = redex.build();
+      sym = redex.sym;
+      a.steps++;
+      if (!exceedsNodes(node, HEAVY_RENDER_CAP)) break; // dropped below the cap → reflow this batch
+    } while (performance.now() - start < HEAVY_TS_BUDGET_MS);
+    this.deps.tickSound(sym); // one tone for the batch — a heavy term can't sonify every contraction
+    if (!nf && exceedsNodes(node, HEAVY_RENDER_CAP)) {
+      a.work = node; // still too big to draw — keep reducing it in the background, yielding each batch
+      a.timer = window.setTimeout(() => this.stepHeavyTs(tree, gen), 0);
+      return;
+    }
+    a.work = undefined;
+    this.stepTo(tree, node, () => {
+      const a2 = this.auto.get(tree);
+      if (!a2 || a2.gen !== gen) return;
+      if (this.transport === "pause") return;
+      if (nf) {
+        this.finishNormalForm(tree, a2);
+        return;
+      }
+      a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(tree));
     });
   }
 
