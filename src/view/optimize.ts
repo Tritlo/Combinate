@@ -26,9 +26,14 @@ type OptState = Record<OptKey, boolean>;
 function defaults(): OptState {
   const s = {} as OptState;
   for (const e of OPT_SETTINGS) s[e.key] = false;
-  s.rules = true; // default to rule-based reduction: reduce named combinators by their law (no ι blow-up),
-  // so most programs finish without ballooning; one that still balloons auto-escalates to Graph (see the
-  // reducer). Turn it off (Optimizations menu) to watch the raw pure-ι grind.
+  // Default to rule-based reduction + native value ops (Primitives). Rules reduces a named combinator by
+  // its law (no ι blow-up) so most programs terminate; native computes recognised numbers/lists/booleans
+  // directly on top. Benchmarks: rules+native is the cheapest mode across the board (native ALONE is
+  // worse — it needs rules to keep the structure from exploding). Turn them off for the raw pure-ι grind.
+  s.rules = true;
+  s.nativeNumbers = true;
+  s.nativeLists = true;
+  s.nativeBooleans = true;
   return s;
 }
 
