@@ -8,7 +8,7 @@ import {
   Text,
   Texture,
 } from "pixi.js";
-import { app as mkApp, cloneTerm, comb, exceedsNodes, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
+import { app as mkApp, cloneTerm, comb, exceedsNodes, freeVar, iota, type Node, type NodeId, removeSubtree, sexp } from "./core/term";
 import { evalShared } from "./core/graph";
 import { encodePermalink, decodePermalink, type Modes } from "./core/permalink";
 import { LocalStore } from "./store/local";
@@ -1607,6 +1607,43 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       run: () => { if (focus) reduce.schedule(focus); },
       incrParity: () => (focus ? focus.debugLayoutParity() : null), // dev seam: incremental-layout parity vs a full recompute
       incrActive: () => (focus ? focus.canIncremental() : false),
+      // Dev seam: isolate applyPatch cost vs tree size for a FIXED small change (clause-2 O(changed)
+      // proof). Builds an inert H-tree of ~2^(depth+1) free-var nodes, then alternates a 1↔3-node swap
+      // at a fixed deep anchor, timing only applyPatch. Off-canvas (never rendered), destroyed after.
+      benchIncr: (depth: number, iters: number): { size: number; avgApplyUs: number; fullLayoutUs: number } | { error: string } => {
+        const count = (n: Node): number => { let c = 0; const s = [n]; while (s.length) { const m = s.pop()!; c++; if (m.kind === "app") s.push(m.fn, m.arg); } return c; };
+        const buildBal = (d: number): Node => (d <= 0 ? freeVar("x") : mkApp(buildBal(d - 1), buildBal(d - 1)));
+        const splice = (r: Node, path: number[], sub: Node, i = 0): Node => (i === path.length ? sub : r.kind !== "app" ? sub : path[i] === 0 ? { ...r, fn: splice(r.fn, path, sub, i + 1) } : { ...r, arg: splice(r.arg, path, sub, i + 1) });
+        const root0 = buildBal(depth);
+        const P: number[] = [];
+        { let n = root0; while (n.kind === "app") { P.push(0); n = n.fn; } } // leftmost-leaf path
+        const subA = freeVar("A");
+        const subB = mkApp(freeVar("B"), freeVar("C"));
+        let cur = splice(root0, P, subA);
+        const size = count(cur);
+        const view = new TreeView(cur, -1e6, -1e6, pixi.ticker, isDiscovered, layoutHTree, () => false, cameraTransform);
+        if (!view.beginIncremental()) { view.destroy(); return { error: "not eligible for incremental" }; }
+        let curSub = subA;
+        let otherSub: Node = subB;
+        let t = 0;
+        for (let i = 0; i < iters; i++) {
+          const root = splice(cur, P, otherSub);
+          const patch = { root, sym: "bench", path: P, oldRedex: curSub, replacement: otherSub };
+          const s = performance.now();
+          view.applyPatch(patch);
+          t += performance.now() - s;
+          cur = root;
+          [curSub, otherSub] = [otherSub, curSub];
+        }
+        view.commitIncremental();
+        view.destroy();
+        // For contrast: the O(n) full-layout recompute the old path did every step.
+        const fl0 = performance.now();
+        const reps = 20;
+        for (let i = 0; i < reps; i++) layoutHTree(cur, { l0: undefined });
+        const fullLayoutUs = ((performance.now() - fl0) / reps) * 1000;
+        return { size, avgApplyUs: (t / iters) * 1000, fullLayoutUs };
+      },
       spawn: (s: string) => { spawnTreeWorld(fromEgg(s), 0, 0); }, // dev seam: drop a reducing tree from an s-expr
       fit: () => { if (focus) fitTree(focus); }, // dev seam: frame the focused tree to the viewport
 
