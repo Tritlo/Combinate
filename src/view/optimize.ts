@@ -11,11 +11,11 @@ export type OptKey = "rules" | "graph" | "nativeNumbers" | "nativeLists" | "nati
 
 /** The optimizations, in menu order — label + a one-line description (the menu shows the label). */
 export const OPT_SETTINGS: { key: OptKey; label: string; desc: string }[] = [
-  { key: "rules", label: "Rule-based reduction", desc: "Reduce a named combinator by its law in one step, not its raw ι/SKI tree." },
-  { key: "graph", label: "Graph reduction (DAG)", desc: "Call-by-need sharing — a shared subterm is drawn and reduced once." },
-  { key: "nativeNumbers", label: "Native numbers", desc: "Compute catalog arithmetic (+, ×, =, <, …) on whole numbers directly." },
-  { key: "nativeLists", label: "Native lists", desc: "Evaluate list ops (<>, map, concat) on recognised lists directly." },
-  { key: "nativeBooleans", label: "Native booleans", desc: "Evaluate not, and, or on recognised booleans directly." },
+  { key: "rules", label: "Rule-Based Reduction", desc: "Reduce a named combinator by its law in one step, not its raw ι/SKI tree." },
+  { key: "graph", label: "Graph Reduction (DAG)", desc: "Call-by-need sharing — a shared subterm is drawn and reduced once." },
+  { key: "nativeNumbers", label: "Native Numbers", desc: "Compute catalog arithmetic (+, ×, =, <, …) on whole numbers directly." },
+  { key: "nativeLists", label: "Native Lists", desc: "Evaluate list ops (<>, map, concat) on recognised lists directly." },
+  { key: "nativeBooleans", label: "Native Booleans", desc: "Evaluate not, and, or on recognised booleans directly." },
   { key: "wasm", label: "Turbo", desc: "Reduce big trees in WebAssembly with call-by-need sharing + native number/list/bool kernels — fast, no blow-up. Auto-engages once a tree is big (small trees keep the step-by-step animation). Off while the rule-steps or graph option is on." },
 ];
 
