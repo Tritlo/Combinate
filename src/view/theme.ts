@@ -229,3 +229,12 @@ export function ensureFont(): void {
   style.textContent = `@font-face { font-family: 'IoskeleyMono'; src: url('${vendorUrl("vendor/fonts/IoskeleyMono-Regular.woff2")}') format('woff2'); font-display: swap; }`;
   document.head.appendChild(style);
 }
+
+/** Resolve once IoskeleyMono has actually finished loading at `px` (kicks {@link ensureFont} first).
+ *  DOM text repaints itself for free when a `font-display: swap` webfont swaps in, but canvas text
+ *  (Pixi's `Text`) rasterizes to a bitmap once at creation time — a caller drawing glyphs with
+ *  {@link MONO} must re-rasterize anything drawn before this resolves. */
+export function monoFontReady(px: number): Promise<void> {
+  ensureFont();
+  return document.fonts.load(`${px}px IoskeleyMono`).then(() => undefined);
+}
