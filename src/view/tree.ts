@@ -1,4 +1,4 @@
-import { Container, Graphics, ParticleContainer, Particle, Rectangle, Text, Texture, type Ticker } from "pixi.js";
+import { CanvasTextMetrics, Container, Graphics, ParticleContainer, Particle, Rectangle, Text, TextStyle, Texture, type Ticker } from "pixi.js";
 import { type Node, type NodeId, IOTA_ID_SPAN } from "../core/term";
 import { expandDisplay } from "../core/catalog";
 import { type Layout, type LayoutFn, layoutHTreeSubtree } from "../core/layout";
@@ -62,24 +62,44 @@ function nodeTexture(): Texture {
 /** The disc radius per node kind — the one source of truth {@link visSpec} and {@link radiusOf} share. */
 const RADIUS: Record<Node["kind"], number> = { iota: 7, comb: 15, free: 13, app: 5 };
 
-/** The disc radius and (optional) text glyph for each node kind. */
-function visSpec(n: Node): { radius: number; tint: number; glyph: { text: string; color: number; size: number } | null } {
+// A combinator sym this long or longer overflows the comb disc: IoskeleyMono at fontSize 15 (the comb
+// glyph size) is a 9px/char monospace, and the 30px disc (2×RADIUS.comb) only comfortably fits 3
+// characters (27px) — a 4-char sym (36px) already overflows by more than its own side-bearing
+// (measured against the live webfont; matches the reported "compare" → "ompar" clipping). Boxed nodes
+// render as a pill instead of the shared disc texture — see makePill.
+const PILL_MIN_LEN = 4;
+const COMB_GLYPH_STYLE = new TextStyle({ fontFamily: MONO, fontSize: 15 });
+
+/** The disc radius, tint, and (optional) text glyph for each node kind; `boxed` marks a comb node
+ *  whose name is too long for the disc (see {@link PILL_MIN_LEN}) — it renders as a pill instead. */
+function visSpec(n: Node): { radius: number; tint: number; glyph: { text: string; color: number; size: number } | null; boxed: boolean } {
   switch (n.kind) {
     case "iota":
-      return { radius: RADIUS.iota, tint: theme.mutedDot, glyph: { text: "ι", color: theme.text, size: 10 } }; // grey dot + ink ι (no longer gold)
+      return { radius: RADIUS.iota, tint: theme.mutedDot, glyph: { text: "ι", color: theme.text, size: 10 }, boxed: false }; // grey dot + ink ι (no longer gold)
     case "comb": {
       const tint = combinatorColor(n.sym); // per-combinator hue in Colour mode, ink in mono
-      return { radius: RADIUS.comb, tint, glyph: { text: n.sym, color: glyphOn(tint), size: 15 } };
+      return { radius: RADIUS.comb, tint, glyph: { text: n.sym, color: glyphOn(tint), size: 15 }, boxed: n.sym.length >= PILL_MIN_LEN };
     }
     case "free":
       // a free var sits on a muted (grey) dot, so its glyph is ink (text), not
       // paper — paper-on-grey is too low-contrast.
-      return { radius: RADIUS.free, tint: theme.mutedDot, glyph: { text: n.name, color: theme.text, size: 14 } };
+      return { radius: RADIUS.free, tint: theme.mutedDot, glyph: { text: n.name, color: theme.text, size: 14 }, boxed: false };
     default:
-      return { radius: RADIUS.app, tint: theme.mutedDot, glyph: null }; // app junction dot
+      return { radius: RADIUS.app, tint: theme.mutedDot, glyph: null, boxed: false }; // app junction dot
   }
 }
 const radiusOf = (kind: Node["kind"]): number => RADIUS[kind];
+
+/** A per-node pill (stadium shape) sized to `text`, for a comb node too long for the shared disc
+ *  texture. Drawn white and tinted like the disc (see {@link nodeTexture}) so a pill's fill and its
+ *  glyph colour follow the exact same {@link combinatorColor}/{@link glyphOn} logic as a circle node. */
+function makePill(text: string, tint: number): Graphics {
+  const w = CanvasTextMetrics.measureText(text, COMB_GLYPH_STYLE).width + 10; // 5px breathing room each side
+  const h = RADIUS.comb * 2;
+  const g = new Graphics().roundRect(-w / 2, -h / 2, w, h, h / 2).fill(0xffffff);
+  g.tint = tint;
+  return g;
+}
 
 // A glyph's canvas bitmap is rasterized once at Text-creation time; the camera then scales the whole
 // tree as a transform (up to 4×, Camera.MAX_SCALE), which smears a bitmap rasterized for 1×. So each
@@ -93,13 +113,16 @@ function glyphResLevel(zoom: number): number {
 
 /** One rendered node: an instanced particle (the disc), the scale that maps the
  *  shared texture to this kind's radius, and a lazily-created text glyph (only
- *  present below {@link GLYPH_MAX}). */
+ *  present below {@link GLYPH_MAX}). `boxed` nodes additionally get a `pill` (in
+ *  lockstep with the glyph) and their particle disc is hidden while it's shown. */
 interface NodeVis {
   id: NodeId;
   particle: Particle;
   baseScale: number;
   glyphSpec: { text: string; color: number; size: number } | null;
   glyph: Text | null;
+  boxed: boolean;
+  pill: Graphics | null;
 }
 
 interface Anim {
@@ -134,6 +157,10 @@ export class TreeView {
   // grow-in is the Text glyph scaling + the dot alpha-fading). `scale` isn't a real
   // Pixi v8 particle property, so it was a no-op before.
   private readonly particles = new ParticleContainer({ dynamicProperties: { position: true, color: true } });
+  // Per-node pill backgrounds for boxed (long-named) comb nodes — plain Graphics, not instanced (rare
+  // enough that a shared/instanced batch isn't worth the complexity; see makePill). Sits above the
+  // particle batch (whose disc a boxed node hides) and below the glyphs.
+  private readonly pills = new Container();
   private readonly glyphs = new Container();
   node: Node; // the logical term (used for reduction)
   private display: Node; // node with undiscovered S/K/I expanded to their ι-trees
@@ -201,8 +228,9 @@ export class TreeView {
     this.frozenL0 = this.lay.l0; // (re-)fit the H-tree arm scale
     this.glyphRes = glyphResLevel(this.getCamera?.().scale ?? 1);
     this.particles.eventMode = "none";
+    this.pills.eventMode = "none";
     this.glyphs.eventMode = "none";
-    this.container.addChild(this.edges, this.rootMark, this.particles, this.glyphs);
+    this.container.addChild(this.edges, this.rootMark, this.particles, this.pills, this.glyphs);
     this.container.position.set(worldX, worldY);
     this.container.eventMode = "static";
     this.container.cursor = "grab";
@@ -302,8 +330,9 @@ export class TreeView {
   dimExcept(keep: Set<NodeId>, alpha: number): void {
     for (const [id, vis] of this.objs) {
       const a = keep.has(id) ? 1 : alpha;
-      vis.particle.alpha = a;
+      vis.particle.alpha = vis.pill ? 0 : a; // a boxed node's disc stays hidden — the pill carries the dim
       if (vis.glyph) vis.glyph.alpha = a;
+      if (vis.pill) vis.pill.alpha = a;
     }
   }
 
@@ -626,20 +655,26 @@ export class TreeView {
     done?.();
   }
 
-  /** Write a node's transform onto its particle (disc) and glyph: position, alpha, the tween scale
-   *  `s`, and the layout's optional per-node glyph-scale (H-tree shrinks deep nodes toward their
-   *  arm). Disc & glyph both scale by `s × nodeScale`. */
+  /** Write a node's transform onto its particle (disc), glyph, and (if boxed) pill: position, alpha,
+   *  the tween scale `s`, and the layout's optional per-node glyph-scale (H-tree shrinks deep nodes
+   *  toward their arm). Disc & glyph both scale by `s × nodeScale`. A boxed node's particle disc stays
+   *  fully transparent — its pill is the visible shape — so the two never show at once. */
   private place(vis: NodeVis, x: number, y: number, alpha: number, s: number): void {
     const p = vis.particle;
     const ns = this.lay.scale?.get(vis.id) ?? 1;
     p.x = x;
     p.y = y;
-    p.alpha = alpha;
+    p.alpha = vis.pill ? 0 : alpha;
     p.scaleX = p.scaleY = vis.baseScale * s * ns;
     if (vis.glyph) {
       vis.glyph.position.set(x, y);
       vis.glyph.alpha = alpha;
       vis.glyph.scale.set(s * ns);
+    }
+    if (vis.pill) {
+      vis.pill.position.set(x, y);
+      vis.pill.alpha = alpha;
+      vis.pill.scale.set(s * ns);
     }
   }
 
@@ -670,6 +705,7 @@ export class TreeView {
     this.particles.removeParticles();
     this.recycled.length = 0; // the pool's particles were just removed from the batch — drop the stale refs
     for (const g of this.glyphs.removeChildren()) g.destroy();
+    for (const g of this.pills.removeChildren()) g.destroy();
     this.objs.clear();
     for (const [id, n] of collectNodes(this.display)) {
       const vis = this.makeVis(n);
@@ -813,7 +849,7 @@ export class TreeView {
     const particle = this.recycled.pop() ?? this.addParticle();
     particle.tint = spec.tint;
     particle.alpha = 1;
-    return { id: n.id, particle, baseScale: spec.radius / TEX_R, glyphSpec: spec.glyph, glyph: null };
+    return { id: n.id, particle, baseScale: spec.radius / TEX_R, glyphSpec: spec.glyph, glyph: null, boxed: spec.boxed, pill: null };
   }
 
   // A fresh particle added to the instanced batch (all share the one disc texture + centre anchor).
@@ -823,10 +859,11 @@ export class TreeView {
     return particle;
   }
 
-  // Retire a node's render record: destroy its glyph and park its particle (invisible, off-screen) in
-  // the recycle pool for reuse — never the O(n) removeParticle.
+  // Retire a node's render record: destroy its glyph + pill and park its particle (invisible,
+  // off-screen) in the recycle pool for reuse — never the O(n) removeParticle.
   private recycle(vis: NodeVis): void {
     vis.glyph?.destroy();
+    vis.pill?.destroy();
     const p = vis.particle;
     p.alpha = 0;
     p.scaleX = p.scaleY = 0;
@@ -834,8 +871,10 @@ export class TreeView {
     this.recycled.push(p);
   }
 
-  // Show text glyphs only below GLYPH_MAX nodes (LOD): create the ones now needed,
-  // tear down the ones we no longer want. Glyphs track their particle's transform.
+  // Show text glyphs only below GLYPH_MAX nodes (LOD): create the ones now needed, tear down the ones
+  // we no longer want. Glyphs track their particle's transform. A boxed node additionally gets a pill
+  // (its disc hidden — see place()) in lockstep with the glyph: no text to protect from clipping means
+  // no need for the pill either, so past GLYPH_MAX a boxed node just falls back to a plain (LOD) dot.
   private applyGlyphLOD(): void {
     const show = this.objs.size <= GLYPH_MAX;
     for (const vis of this.objs.values()) {
@@ -846,9 +885,23 @@ export class TreeView {
         g.alpha = vis.particle.alpha;
         vis.glyph = g;
         this.glyphs.addChild(g);
+        if (vis.boxed) {
+          const pill = makePill(vis.glyphSpec.text, vis.particle.tint);
+          pill.position.set(vis.particle.x, vis.particle.y);
+          pill.scale.set(vis.particle.scaleX / vis.baseScale);
+          pill.alpha = vis.particle.alpha;
+          vis.pill = pill;
+          this.pills.addChild(pill);
+          vis.particle.alpha = 0; // the pill is now this node's visible shape
+        }
       } else if (!show && vis.glyph) {
         vis.glyph.destroy();
         vis.glyph = null;
+        if (vis.pill) {
+          vis.pill.destroy();
+          vis.pill = null;
+          vis.particle.alpha = 1; // no pill left — the disc becomes visible again
+        }
       }
     }
   }
