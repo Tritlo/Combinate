@@ -488,3 +488,30 @@ trade fidelity for speed must be triggered by measured cost against the frame bu
 batch paths already are: 6ms wall-clock budgets) or by genuine runaway guards (BALLOON_CAP,
 step caps) — never by size alone. Consequence: a big raw grind at play is slow *on purpose*; the
 player switches to ff/max or enables the engines, rather than the app overriding their choice.
+
+## 23: One naming model — Law.label, page-scoped overrides, canvas-as-context-lens
+**Status:** Accepted.
+
+Display naming had drifted across three overlapping fields: a wordy `PageEntry.alias`, a
+recently-added `PageEntry.label`, and the canvas rendering the raw `sym` regardless. One model
+instead, two scopes, each with one home. `sym` stays the semantic identifier everywhere (permalinks,
+probe, mhs mapping, rules) — never touched by this ADR. `Law.label` is the sym-level short display
+form: the same short glyph on every page unless overridden (`(+)` → "+", `compare` → "cmp", `cons` →
+":"). `PageEntry.label` is now a page-scoped override *only* — set where a symbol's role genuinely
+differs by page (Lists' `K` → "[]", Char's `I` → "chr", Arithmetic's `K` → "0", Booleans' `K`/`A` →
+"False"/"True"); a label that would just repeat the Law's belongs on the Law instead, not copied onto
+every page. `alias` keeps its job as the wordy per-page name (zoo detail pane, hotbar tooltip); the
+read-out box keeps printing `sym` (it's the textual/semantic view, untouched).
+
+One resolution chain, `displayLabel(sym, entry?) = entry.label ?? law.label ?? entry.alias ?? sym`,
+used by every surface: the hotbar cell, the zoo list row, and — new — the canvas node glyph. The
+canvas is **context-sensitive**: it looks up `sym` on the hotbar's *currently open* page, so the same
+`K` node reads "0" with Arithmetic open, "False" with Booleans open, "[]" with Lists open, and falls
+back to `law.label ?? sym` with no matching page entry (or on Programs, which excludes these ops
+entirely) — the canvas treats the open hotbar page as a context lens over an otherwise page-agnostic
+tree. `TreeView` takes a `labelFor(sym)` dependency (defaulting to the raw sym) exactly like its
+existing `isDiscovered`/`expandAll` deps; `Hotbar` gained a minimal `onPageChange` hook (fired only
+when the tab actually changes) so a page switch re-renders every live tree's glyphs through the same
+`refresh()` path the webfont-load and theme-change repaints already use. The long-name pill/circle
+choice (H2) re-measures off the *displayed* label, not the raw sym — so `cons` shown as ":" is a
+circle again, while an unmapped long sym (e.g. `uncons` on Programs) still boxes.

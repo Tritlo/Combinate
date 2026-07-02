@@ -71,14 +71,18 @@ const PILL_MIN_LEN = 4;
 const COMB_GLYPH_STYLE = new TextStyle({ fontFamily: MONO, fontSize: 15 });
 
 /** The disc radius, tint, and (optional) text glyph for each node kind; `boxed` marks a comb node
- *  whose name is too long for the disc (see {@link PILL_MIN_LEN}) — it renders as a pill instead. */
-function visSpec(n: Node): { radius: number; tint: number; glyph: { text: string; color: number; size: number } | null; boxed: boolean } {
+ *  whose DISPLAYED name is too long for the disc (see {@link PILL_MIN_LEN}) — it renders as a pill
+ *  instead. `labelFor` resolves a comb node's glyph text (ADR 23: context-sensitive on the hotbar's
+ *  open page, e.g. `K` reads "[]" with Lists open) — `n.sym` stays the tint/identity key, only the
+ *  glyph text and (transitively) the boxed measurement follow the resolved label. */
+function visSpec(n: Node, labelFor: (sym: string) => string): { radius: number; tint: number; glyph: { text: string; color: number; size: number } | null; boxed: boolean } {
   switch (n.kind) {
     case "iota":
       return { radius: RADIUS.iota, tint: theme.mutedDot, glyph: { text: "ι", color: theme.text, size: 10 }, boxed: false }; // grey dot + ink ι (no longer gold)
     case "comb": {
       const tint = combinatorColor(n.sym); // per-combinator hue in Colour mode, ink in mono
-      return { radius: RADIUS.comb, tint, glyph: { text: n.sym, color: glyphOn(tint), size: 15 }, boxed: n.sym.length >= PILL_MIN_LEN };
+      const text = labelFor(n.sym);
+      return { radius: RADIUS.comb, tint, glyph: { text, color: glyphOn(tint), size: 15 }, boxed: text.length >= PILL_MIN_LEN };
     }
     case "free":
       // a free var sits on a muted (grey) dot, so its glyph is ink (text), not
@@ -223,6 +227,11 @@ export class TreeView {
     /** The camera (world container) transform, so edges can be viewport-culled
      *  while animating a huge tree. Null → no culling (all edges drawn). */
     private readonly getCamera: (() => { x: number; y: number; scale: number }) | null = null,
+    /** Resolve a comb node's DISPLAYED glyph text (ADR 23) — defaults to the raw sym. `n.sym` stays
+     *  the semantic identifier everywhere else (edges, tint, hit-testing); only the glyph text (and,
+     *  transitively, the pill/circle sizing) follows this. Call {@link refresh} after it would return
+     *  a different answer (e.g. the hotbar's open page changed) to re-render with the new labels. */
+    private readonly labelFor: (sym: string) => string = (sym) => sym,
   ) {
     this.node = node;
     this.display = this.expand(node);
@@ -847,7 +856,7 @@ export class TreeView {
   // the batch) plus the glyph spec for the LOD layer. The display term only ever
   // contains discovered combinators (undiscovered S/K/I are expanded to ι-trees).
   private makeVis(n: Node): NodeVis {
-    const spec = visSpec(n);
+    const spec = visSpec(n, this.labelFor);
     const particle = this.recycled.pop() ?? this.addParticle();
     particle.tint = spec.tint;
     particle.alpha = 1;

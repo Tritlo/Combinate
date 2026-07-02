@@ -53,6 +53,11 @@ export class Hotbar {
     private readonly ticker: Ticker,
     private readonly isDiscovered: (sym: string) => boolean,
     private readonly spawnFor: (sym: string) => Node,
+    /** Fired whenever the open page actually changes (a tab click, {@link cycleTab}, or a discovery
+     *  jumping tabs) — NOT on every {@link layout} call, and not on ‹/› sub-paging within a tab.
+     *  Lets a canvas node glyph that reads the open page as a context lens (ADR 23) know when to
+     *  re-render. */
+    private readonly onPageChange?: () => void,
   ) {
     this.pageLabel.anchor.set(1, 0.5);
     this.tip.eventMode = "none"; // never eat the pointer it's describing
@@ -65,7 +70,7 @@ export class Hotbar {
   reveal(sym: string): void {
     const tab = PAGES.findIndex((p) => p.entries.some((e) => e.sym === sym));
     if (tab >= 0) {
-      this.tab = tab;
+      this.setTabIndex(tab);
       const idx = this.visible(tab).indexOf(sym);
       if (idx >= 0) this.sub = Math.floor(idx / this.pageSize());
     }
@@ -118,7 +123,7 @@ export class Hotbar {
     const shown = PAGES.map((_p, i) => i).filter((i) => this.visible(i).length > 0);
     if (shown.length === 0) return;
     const pos = Math.max(0, shown.indexOf(this.tab));
-    this.tab = shown[(pos + d + shown.length) % shown.length];
+    this.setTabIndex(shown[(pos + d + shown.length) % shown.length]);
     this.sub = 0;
     if (this.gameCursor !== null) this.gameCursor = 0;
     this.layout();
@@ -145,9 +150,16 @@ export class Hotbar {
     return Math.max(1, Math.floor((avail + GAP) / (SLOT + GAP)));
   }
   private setTab(i: number): void {
-    this.tab = i;
+    this.setTabIndex(i);
     this.sub = 0;
     this.layout();
+  }
+  /** Change `this.tab`, firing {@link onPageChange} only when it actually moves — the single choke
+   *  point every tab mutation (setTab/cycleTab/reveal) goes through. */
+  private setTabIndex(i: number): void {
+    if (this.tab === i) return;
+    this.tab = i;
+    this.onPageChange?.();
   }
   private flip(d: number): void {
     this.sub += d;

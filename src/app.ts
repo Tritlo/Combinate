@@ -15,7 +15,7 @@ import { ChallengePanel } from "./view/challenge";
 import { QuestPanel } from "./view/quest";
 import { QuestTracker } from "./view/questTracker";
 import { Sound } from "./view/sound";
-import { CATALOG, type Law, expandDisplay } from "./core/catalog";
+import { CATALOG, type Law, expandDisplay, PAGES, displayLabel } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutAuto, layoutRadial, layoutHTree, layoutTopDown, type LayoutFn } from "./core/layout";
 import { layoutHTree3D, layoutSphere } from "./core/layout3d";
@@ -473,7 +473,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   function spawnTree(node: Node, screenX: number, screenY: number): TreeView {
     const w = camera.screenToWorld(screenX, screenY);
-    const tree = new TreeView(node, w.x, w.y, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
+    const tree = new TreeView(node, w.x, w.y, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform, canvasLabelFor);
     addTree(tree);
     focus = tree;
     if (withMotion()) tree.popIn(); // grab/spawn pop is always on (only reduced-motion suppresses it)
@@ -499,9 +499,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     pixi.ticker,
     isDiscovered,
     spawnFor,
+    () => { for (const t of trees) t.refresh(); }, // the open page changed → re-render every canvas glyph (ADR 23)
   );
   hotbar.refresh();
   hud.addChild(hotbar.container);
+  // Canvas node glyphs follow the hotbar's currently-open page as a context lens (ADR 23): with
+  // Lists open, a `K` node reads "[]"; no entry on the open page falls back to displayLabel's own
+  // sym-level/raw-sym tail of the chain. Passed to every TreeView as its `labelFor` dep.
+  const canvasLabelFor = (sym: string): string =>
+    displayLabel(sym, PAGES.find((p) => p.name === hotbar.page)?.entries.find((e) => e.sym === sym));
   hud.addChild(zoo.container); // last → the Zoo overlay sits on top of the hotbar
 
   // ---- golf challenges + leaderboard + sonification (ADR 0005) ----
@@ -700,7 +706,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
    *  shared by mouse-snap and the game controller (X/Y choose direction, ADR 17). `fromWorld`
    *  (the consumed trees' node positions) glides the merge; without it the result pops in. */
   function applyTerms(fnNode: Node, argNode: Node, anchor: { x: number; y: number }, fromWorld?: Map<NodeId, { x: number; y: number }>): TreeView {
-    const merged = new TreeView(mkApp(fnNode, argNode), anchor.x, anchor.y, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
+    const merged = new TreeView(mkApp(fnNode, argNode), anchor.x, anchor.y, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform, canvasLabelFor);
     addTree(merged);
     focus = merged;
     if (fromWorld) merged.animateAttachFrom(fromWorld, ATTACH_MS); // smooth merge into the app tree
@@ -711,7 +717,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   /** Spawn a reducing tree at a world anchor (the game controller places buckets here). */
   function spawnTreeWorld(node: Node, wx: number, wy: number): TreeView {
-    const tree = new TreeView(node, wx, wy, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
+    const tree = new TreeView(node, wx, wy, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform, canvasLabelFor);
     addTree(tree);
     focus = tree;
     if (withMotion()) tree.popIn();
@@ -723,7 +729,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
    *  `TreeView` added straight to `world` — NOT scheduled, focused, or tracked in `trees`, so the
    *  reducer never touches it. Non-interactive (it's just a ghost). Tear down with {@link unpreview}. */
   function preview(node: Node, wx: number, wy: number): TreeView {
-    const tree = new TreeView(node, wx, wy, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform);
+    const tree = new TreeView(node, wx, wy, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform, canvasLabelFor);
     tree.container.eventMode = "none"; // a passive ghost — never steals pointer events
     world.addChild(tree.container);
     return tree;
