@@ -3,7 +3,7 @@ import { type Node, type NodeId, IOTA_ID_SPAN } from "../core/term";
 import { expandDisplay } from "../core/catalog";
 import { type Layout, type LayoutFn, layoutHTreeSubtree } from "../core/layout";
 import { type StepPatch } from "../core/reduce";
-import { theme, combinatorColor, glyphOn, edgeTierColor } from "./theme";
+import { theme, combinatorColor, glyphOn, edgeTierColor, MONO, monoFontReady } from "./theme";
 import { EdgeBuffer, edgeKey } from "./edgeBuffer";
 import { tween, easeInOut } from "./anim";
 
@@ -29,6 +29,13 @@ const INCR_MIN = 600;
 // Radius of the shared white circle texture all node particles are drawn from; a
 // node of radius r renders at scale r / TEX_R, tinted by its kind.
 const TEX_R = 32;
+// Text glyphs rasterize at fontSize 15 (the comb glyph size — see visSpec); every live TreeView
+// re-rasterizes its glyphs (a `refresh()`, the same repaint a theme change triggers) once the
+// webfont actually loads, since a glyph drawn before then is stuck on the fallback face.
+const liveViews = new Set<TreeView>();
+void monoFontReady(15).then(() => {
+  for (const v of liveViews) v.refresh();
+});
 
 // Node/edge colours come from the active theme (theme.ts). Edges encode two things: STYLE =
 // function (left, solid) vs argument (right, dashed), and COLOUR = depth tier (edgeTierColor:
@@ -73,6 +80,16 @@ function visSpec(n: Node): { radius: number; tint: number; glyph: { text: string
   }
 }
 const radiusOf = (kind: Node["kind"]): number => RADIUS[kind];
+
+// A glyph's canvas bitmap is rasterized once at Text-creation time; the camera then scales the whole
+// tree as a transform (up to 4×, Camera.MAX_SCALE), which smears a bitmap rasterized for 1×. So each
+// glyph's `resolution` tracks the camera zoom, quantized to 4 discrete levels (not a continuous
+// value) so a live zoom re-rasterizes at most 3 times, not every frame.
+const MAX_GLYPH_RES = 4;
+function glyphResLevel(zoom: number): number {
+  const dpr = window.devicePixelRatio || 1;
+  return Math.max(1, Math.min(MAX_GLYPH_RES, Math.ceil(dpr * zoom)));
+}
 
 /** One rendered node: an instanced particle (the disc), the scale that maps the
  *  shared texture to this kind's radius, and a lazily-created text glyph (only
@@ -144,6 +161,19 @@ export class TreeView {
   private ticking = false;
   private cancelPop: (() => void) | null = null; // the pop-in tween's canceller — stopped on destroy so it can't tick a freed container
   private readonly tick = (t: Ticker): void => this.advance(t.deltaMS);
+  // The glyph resolution level (see glyphResLevel) currently baked into every live glyph's bitmap.
+  // Checked every frame — cheap (one comparison) — but only re-rasterizes glyphs on the rare frame
+  // the quantized level actually changes, so a pan/zoom on an otherwise-settled tree still sharpens
+  // its text without a per-frame reflow.
+  private glyphRes = 1;
+  private readonly syncGlyphRes = (): void => {
+    const cam = this.getCamera?.();
+    if (!cam) return;
+    const level = glyphResLevel(cam.scale);
+    if (level === this.glyphRes) return;
+    this.glyphRes = level;
+    for (const vis of this.objs.values()) if (vis.glyph) vis.glyph.resolution = level;
+  };
   // Heavy incremental H-tree renderer (deeper-perf, ADR 18): resident edge geometry + an O(changed)
   // applyPatch. Active only for a big H-tree tree reducing on the raw/optimize path; small trees, non-H
   // layouts, graph/DAG, and any display-expansion change stay on the Graphics animateTo path.
@@ -169,6 +199,7 @@ export class TreeView {
     this.display = this.expand(node);
     this.lay = this.layoutFn(this.display);
     this.frozenL0 = this.lay.l0; // (re-)fit the H-tree arm scale
+    this.glyphRes = glyphResLevel(this.getCamera?.().scale ?? 1);
     this.particles.eventMode = "none";
     this.glyphs.eventMode = "none";
     this.container.addChild(this.edges, this.rootMark, this.particles, this.glyphs);
@@ -176,6 +207,8 @@ export class TreeView {
     this.container.eventMode = "static";
     this.container.cursor = "grab";
     this.rebuild();
+    liveViews.add(this);
+    this.ticker.add(this.syncGlyphRes);
   }
 
   get rootWorld(): { x: number; y: number } {
@@ -193,6 +226,8 @@ export class TreeView {
     this.cancelPop = null;
     clearTimeout(this.settleDashTimer); // a pending settle-dash redraw must not touch a freed container
     this.stopTicker();
+    this.ticker.remove(this.syncGlyphRes);
+    liveViews.delete(this);
     this.edgeBuffer?.destroy();
     this.container.destroy({ children: true });
   }
@@ -805,7 +840,7 @@ export class TreeView {
     const show = this.objs.size <= GLYPH_MAX;
     for (const vis of this.objs.values()) {
       if (show && vis.glyphSpec && !vis.glyph) {
-        const g = label(vis.glyphSpec.text, vis.glyphSpec.color, vis.glyphSpec.size);
+        const g = label(vis.glyphSpec.text, vis.glyphSpec.color, vis.glyphSpec.size, this.glyphRes);
         g.position.set(vis.particle.x, vis.particle.y);
         g.scale.set(vis.particle.scaleX / vis.baseScale);
         g.alpha = vis.particle.alpha;
@@ -900,8 +935,8 @@ function collectNodes(n: Node, m = new Map<NodeId, Node>()): Map<NodeId, Node> {
   return m;
 }
 
-function label(text: string, color: number, size: number): Text {
-  const t = new Text({ text, style: { fontFamily: "monospace", fontSize: size, fill: color } });
+function label(text: string, color: number, size: number, resolution: number): Text {
+  const t = new Text({ text, style: { fontFamily: MONO, fontSize: size, fill: color }, resolution });
   t.anchor.set(0.5);
   return t;
 }
