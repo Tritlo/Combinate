@@ -106,7 +106,9 @@ function makePill(text: string, tint: number): Graphics {
 // glyph's `resolution` tracks the camera zoom, quantized to 4 discrete levels (not a continuous
 // value) so a live zoom re-rasterizes at most 3 times, not every frame.
 const MAX_GLYPH_RES = 4;
-function glyphResLevel(zoom: number): number {
+/** The `Text.resolution` for a glyph drawn at camera zoom `zoom` (quantized, see above). Exported so
+ *  the drag-snap ghost preview label can match a tree's node glyphs instead of staying fixed at 1×. */
+export function glyphResLevel(zoom: number): number {
   const dpr = window.devicePixelRatio || 1;
   return Math.max(1, Math.min(MAX_GLYPH_RES, Math.ceil(dpr * zoom)));
 }
