@@ -380,6 +380,13 @@ interface PageEntry {
   sym: string;
   alias?: string;
   role?: string;
+  /** Short display glyph for the hotbar cell and the zoo list row (e.g. "+" for
+   *  `(+)`, "cmp" for `compare`, "[]" for the list-page nil). Purely cosmetic —
+   *  `sym` stays the semantic identifier (permalinks, probe, mhs mapping). The
+   *  hotbar falls back to `sym` and the zoo list to `alias ?? sym`; `alias` and
+   *  `role` still carry the wordy topic name shown in the zoo detail pane and
+   *  the hotbar tooltip. */
+  label?: string;
 }
 /** A named tab grouping combinators (shared by the Zoo and the hotbar). */
 export interface PageDef {
@@ -417,38 +424,43 @@ export const PAGES: PageDef[] = [
       { sym: "K", alias: "0", role: "Scott zero (Z) — also nil and false" },
       { sym: "Succ", alias: "Succ", role: "S — wraps a number as its own successor" },
       { sym: "Pred", alias: "Pred", role: "strips one successor (Z stays Z)" },
-      { sym: "(+)", alias: "Plus", role: "adds two numerals (recurses via Y)" },
-      { sym: "(-)", alias: "Sub", role: "truncated subtraction / monus (recurses via Y)" },
-      { sym: "(*)", alias: "Mult", role: "multiplies (recurses via Y)" },
+      { sym: "(+)", alias: "Plus", label: "+", role: "adds two numerals (recurses via Y)" },
+      { sym: "(-)", alias: "Sub", label: "-", role: "truncated subtraction / monus (recurses via Y)" },
+      { sym: "(*)", alias: "Mult", label: "*", role: "multiplies (recurses via Y)" },
       { sym: "(==)", alias: "==", role: "numeral equality → Bool (recurses via Y)" },
       { sym: "(/=)", alias: "/=", role: "numeral inequality → Bool" },
       { sym: "(<)", alias: "<", role: "strict less-than → Bool" },
       { sym: "(<=)", alias: "<=", role: "less-than-or-equal → Bool" },
       { sym: "(>)", alias: ">", role: "strict greater-than → Bool" },
       { sym: "(>=)", alias: ">=", role: "greater-than-or-equal → Bool" },
-      { sym: "compare", alias: "compare", role: "three-way comparison → LT | EQ | GT" },
-      { sym: "LT", alias: "LT", role: "Ordering: the left operand is smaller" },
-      { sym: "EQ", alias: "EQ", role: "Ordering: the operands are equal" },
-      { sym: "GT", alias: "GT", role: "Ordering: the left operand is larger" },
+    ],
+  },
+  {
+    name: "Ordering",
+    entries: [
+      { sym: "compare", alias: "compare", label: "cmp", role: "three-way comparison → LT | EQ | GT" },
+      { sym: "LT", alias: "LT", role: "arm 1 of the three-armed Scott Ordering — the left operand is smaller" },
+      { sym: "EQ", alias: "EQ", role: "arm 2 of the three-armed Scott Ordering — the operands are equal" },
+      { sym: "GT", alias: "GT", role: "arm 3 of the three-armed Scott Ordering — the left operand is larger" },
     ],
   },
   {
     name: "Char",
     entries: [
       { sym: "Succ", alias: "Succ", role: "a Char is its ASCII code — 'A' is 65, built with Succ from 0" },
-      { sym: "I", alias: "chr/ord", role: "Char ≡ Int, so chr and ord are both just the identity" },
+      { sym: "I", alias: "chr/ord", label: "chr", role: "Char ≡ Int, so chr and ord are both just the identity" },
       { sym: "(==)", alias: "==", role: "char equality is numeral equality" },
       { sym: "(/=)", alias: "/=", role: "char inequality" },
       { sym: "(<)", alias: "<", role: "char order is numeral order (alphabetical for letters)" },
       { sym: "(<=)", alias: "<=", role: "char ≤" },
-      { sym: "compare", alias: "compare", role: "three-way char comparison → LT | EQ | GT" },
+      { sym: "compare", alias: "compare", label: "cmp", role: "three-way char comparison → LT | EQ | GT (the LT/EQ/GT constructors live on the Ordering tab)" },
     ],
   },
   {
     name: "Lists",
     entries: [
-      { sym: "K", alias: "nil", role: "the empty list ([]) — also zero and false" },
-      { sym: "cons", alias: "cons", role: "the Scott cons cell: (h:t) = λn c. c h t" },
+      { sym: "K", alias: "nil", label: "[]", role: "the empty list ([]) — also zero and false" },
+      { sym: "cons", alias: "cons", label: ":", role: "the Scott cons cell: (h:t) = λn c. c h t" },
       { sym: "head", alias: "head", role: "the first element" },
       { sym: "tail", alias: "tail", role: "everything after the head (a trivial read under Scott)" },
       { sym: "uncons", alias: "uncons", role: "splits a list into (head, tail)" },

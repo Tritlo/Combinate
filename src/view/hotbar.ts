@@ -134,6 +134,11 @@ export class Hotbar {
   private aliasOf(sym: string): string {
     return PAGES[this.tab].entries.find((e) => e.sym === sym)?.alias ?? sym;
   }
+  /** Short display glyph for a cell (e.g. "+" for `(+)`, "cmp" for `compare`) —
+   *  falls back to the raw symbol, unlike {@link aliasOf} (tooltip only). */
+  private labelOf(sym: string): string {
+    return PAGES[this.tab].entries.find((e) => e.sym === sym)?.label ?? sym;
+  }
   private pageSize(): number {
     const margin = window.innerWidth < NARROW ? 14 : MARGIN; // tighter edges on phones → more cells per row
     const avail = window.innerWidth - 2 * margin - 2 * (ARROW + GAP) - GAP;
@@ -263,9 +268,9 @@ export class Hotbar {
       // game-mode cursor: a gold selection ring around the cell (ADR 17)
       v.addChild(new Graphics().rect(-SLOT / 2 - 3, -SLOT / 2 - 3, SLOT + 6, SLOT + 6).stroke({ width: 2.5, color: theme.iota }));
     }
-    const glyph = new Text({ text: this.aliasOf(sym), style: { fontFamily: "monospace", fontSize: 22, fill: glyphColor } });
+    const glyph = new Text({ text: this.labelOf(sym), style: { fontFamily: "monospace", fontSize: 22, fill: glyphColor } });
     glyph.anchor.set(0.5);
-    const maxW = SLOT - 10; // shrink long glyphs (e.g. "Succ", "Mult") to fit
+    const maxW = SLOT - 10; // shrink long glyphs (e.g. "Succ", "uncons") to fit
     if (glyph.width > maxW) glyph.scale.set(maxW / glyph.width);
     v.addChild(glyph);
     v.position.set(cx, cy);
