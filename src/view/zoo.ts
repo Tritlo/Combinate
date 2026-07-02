@@ -17,6 +17,8 @@ interface Entry {
   alias?: string;
   /** Topic-page one-line note on the role this combinator plays. */
   role?: string;
+  /** Short display glyph for the list row (e.g. "+" for `(+)`), overriding `alias`. */
+  label?: string;
 }
 
 interface Page {
@@ -240,7 +242,7 @@ export class Zoo {
       if (i === this.selected) row.addChild(new Graphics().roundRect(0, 0, this.listW, rowH - 4, 5).fill({ color: theme.select }));
       const num = new Text({ text: `#${String(entry.num).padStart(2, "0")}`, style: { fontFamily: "monospace", fontSize: 13, fill: theme.textDim } });
       num.position.set(10, 7);
-      const name = new Text({ text: known ? (entry.alias ?? entry.sym) : "?", style: { fontFamily: "monospace", fontSize: 15, fill: known ? theme.text : theme.textDim } });
+      const name = new Text({ text: known ? (entry.label ?? entry.alias ?? entry.sym) : "?", style: { fontFamily: "monospace", fontSize: 15, fill: known ? theme.text : theme.textDim } });
       name.position.set(64, 6);
       row.addChild(num, name);
       row.eventMode = "static";
@@ -353,6 +355,7 @@ function buildPages(): Page[] {
       law: e.sym === "ι" ? null : byId.get(e.sym) ?? null,
       alias: e.alias,
       role: e.role,
+      label: e.label,
     })),
   }));
 }
