@@ -72,6 +72,9 @@ export class ReadoutLens {
   private lastMode: Ty | undefined;
   private lastExpr = "";
   private lastNamedAt = 0; // last wall-clock the (evaluating) named view recomputed — for the throttle
+  // Non-null while a drag/snap ghost preview is live: overrides the focused tree so every view reads
+  // the would-be merged term instead — see setPreview.
+  private previewNode: Node | null = null;
 
   constructor(private readonly deps: ReadoutDeps) {
     deps.ticker.add(() => this.tick());
@@ -97,7 +100,7 @@ export class ReadoutLens {
   // The per-frame render: switch on the active view FIRST, so the default (`ski`) and `barker`
   // paths never touch a normalizing probe — only the `named` view reduces.
   private tick(): void {
-    const node = this.deps.focusNode();
+    const node = this.previewNode ?? this.deps.focusNode();
     const view = this.deps.box.current;
     const mode = READ_AS[this.deps.readPage()];
     if (node === this.lastNode && view === this.lastView && this.typeOn === this.lastType && mode === this.lastMode) return;
@@ -161,6 +164,17 @@ export class ReadoutLens {
   invalidate(): void {
     this.lastNode = null;
     this.lastView = null;
+  }
+
+  /** Override the read-out with `node` instead of the focused tree — e.g. a drag/snap ghost preview
+   *  of the would-be merged term, shown exactly as it would render after the drop (all three views,
+   *  through the same size/budget guards as the focused-tree path). Pass `null` to release the
+   *  override. Every teardown path (drop, cancel, or the ghost losing its snap target) must call this
+   *  with `null` — an override left set after the drag ends is a stale read-out. */
+  setPreview(node: Node | null): void {
+    if (this.previewNode === node) return;
+    this.previewNode = node;
+    this.invalidate();
   }
 
   // Load the egg re-folder wasm and upgrade the behavioural pass to the full behavioural→egg pipeline.

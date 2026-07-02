@@ -650,7 +650,14 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // the committed result so you can see which side becomes the function.
   function drawGhost(dragged: TreeView, target: TreeView | null): void {
     ghost.clear();
-    if (!target) return;
+    if (!target) {
+      // Snap target lost mid-drag (dragged out of range) — same teardown as clearGhost's label/lens
+      // half (the graphics are already cleared above); no full clearGhost() since drag.active() still
+      // holds the ghost's other state (snapTarget etc.) that only DragController owns.
+      ghostLabel.visible = false;
+      readout.setPreview(null);
+      return;
+    }
     const left = dragged.rootWorld.x <= target.rootWorld.x ? dragged : target;
     const right = left === dragged ? target : dragged;
     const ax = (left.rootWorld.x + right.rootWorld.x) / 2;
@@ -666,11 +673,16 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     ghostLabel.text = `(${readout.exprOf(left.node)} ${readout.exprOf(right.node)})`;
     ghostLabel.position.set(ax, ay - 12);
     ghostLabel.visible = true;
+    // Mirror the would-be merged term into the read-out box (all three lens views), exactly the
+    // application commitSnap/applyTerms would build — same fn/arg order (left = fn), so the read-out
+    // matches what actually lands on drop.
+    readout.setPreview(mkApp(left.node, right.node));
   }
 
   function clearGhost(): void {
     ghostLabel.visible = false;
     ghost.clear();
+    readout.setPreview(null);
   }
 
   // Forget + remove + destroy a tree (and release any bucket it filled, so game-mode slot
@@ -1493,6 +1505,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       discovered: () => [...discovered],
       discover: (sym: string) => { const l = CATALOG.find((x) => x.sym === sym); if (l) discover(l); }, // dev seam: fire the discovery flow (card + chirp)
       place: (sym: string, x: number, y: number) => spawnTree(spawnFor(sym), x, y).rootWorld, // dev seam: place a (non-reducing) combinator tree at a screen point (drag/snap harness)
+      // dev seam: drive the drag/snap ghost preview directly (headless drag can't reach Pixi's pointer
+      // events) — indices into `trees`, e.g. after two `place` calls. `show` calls the same drawGhost
+      // the DragController snap FSM calls each pointer move; `clear` matches a drop/cancel teardown.
+      ghost: { show: (i: number, j: number) => drawGhost(trees[i], trees[j]), clear: () => clearGhost() },
       mode: () => layoutName(),
       toggleLayout: () => toggleLayout(),
       view3d: { on: () => sphere.active(), toggle: () => sphere.toggle(), info: () => sphere.info(), morph: () => sphere.debugMorph() },
