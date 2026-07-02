@@ -18,7 +18,7 @@ const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducin
 const MORPH_POLL_MS = 16; // while a focused 3D morph is playing, re-check this often before stepping
 const STEP_MS = 300; // duration of one reduction-step tween
 const STEP_GAP = 700; // pause between reduction steps — with STEP_MS this makes Play ≈ 1 reduction/s
-const HEAVY_GAP = 8; // big trees jump-cut each step; pace them fast but still yield to the renderer (≠ 0, which starves rAF)
+const HEAVY_GAP = 8; // "max" transport's per-step gap — as fast as it animates but still yielding to the renderer (≠ 0, which starves rAF; ADR 22)
 const STEP_CAP = 2000; // non-termination guard: stop auto-reducing past this many steps
 const GRAPH_STEP_CAP = 100_000; // graph mode shares (cheap steps) — let fac-scale reductions finish
 // A raw/optimize term bigger than this isn't reflowed every step — laying out + drawing 14k+ nodes is
@@ -155,10 +155,12 @@ export class ReductionController {
   private stepGap(): number {
     return STEP_GAP / this.speed();
   }
-  // Big trees jump-cut, so pace them at a short fixed gap (still yields); small use the speed
-  // gap. The multiplier speeds the jump-cut too, so a high level actually accelerates big trees.
-  private nextGap(t: TreeView): number {
-    return t.heavy() ? Math.max(1, HEAVY_GAP / this.mult) : this.stepGap();
+  // Pacing honours the transport (ADR 22): play/ff keep their advertised per-step gap no matter
+  // how big the tree draws — a display-cost threshold (TreeView.heavy(), the 600-particle
+  // jump-cut) must never change playback speed; it used to, silently running "play" at ~40 red/s.
+  // Only "max" (≈ as-fast-as-it-animates) takes the short fixed gap.
+  private nextGap(): number {
+    return this.transport === "max" ? Math.max(1, HEAVY_GAP / this.mult) : this.stepGap();
   }
   // A focused tree whose 3D morph is still animating must wait — advancing the visible state now
   // would cut the morph short (in 3D the 2D view is hidden, so the morph IS the visible step). True
@@ -411,7 +413,7 @@ export class ReductionController {
         const a2 = this.auto.get(tree);
         if (!a2 || a2.gen !== gen) return;
         if (this.transport === "pause") return;
-        a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(tree));
+        a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap());
       });
       return;
     }
@@ -446,7 +448,7 @@ export class ReductionController {
       if (this.wantsTurbo(tree, a2.steps) && this.engageTurbo(tree, a2)) {
         a2.timer = window.setTimeout(() => this.turboTick(tree, gen), this.turboGap());
       } else {
-        a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(tree));
+        a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap());
       }
     });
   }
@@ -512,7 +514,7 @@ export class ReductionController {
         this.finishNormalForm(tree, a2);
         return;
       }
-      a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(tree));
+      a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap());
     });
   }
 
@@ -565,7 +567,7 @@ export class ReductionController {
           const a2 = this.auto.get(tree);
           if (!a2 || a2.gen !== gen) return;
           if (this.transport === "pause") return;
-          a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(tree));
+          a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap());
         });
         return;
       }
@@ -582,7 +584,7 @@ export class ReductionController {
       this.finishNormalForm(tree, a);
       return;
     }
-    a.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(tree));
+    a.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap());
   }
 
   /** Step: pause, then advance the focused tree by exactly one reduction (no reschedule).

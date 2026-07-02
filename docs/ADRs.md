@@ -475,3 +475,16 @@ change, not a speculative one.
 The packed-sphere 3D view stays exploratory, not the headline: DOM-mounted WebGL wasn't reliable
 enough in real browsers to be load-bearing, so the zoo/discovery card default to 2D and the
 full-screen 3D view is where 3D lives.
+
+## 22: The transport is sovereign over pacing
+**Status:** Accepted.
+
+`nextGap()` reused `TreeView.heavy()` — the 600-drawn-particle *display* threshold (jump-cut) — as
+its pacing gate, silently collapsing "play ≈ 1 red/s" to ~8ms gaps (~40 red/s) once a tree drew big
+(display expansion inflates particles ~4× past logical size, so even a small raw grind tripped it).
+Decision: display-cost heuristics may not change playback speed. Play/ff always honour their
+advertised gap; only **max** ("as fast as it animates") takes the short fixed gap. Escalations that
+trade fidelity for speed must be triggered by measured cost against the frame budget (the >2.5k-node
+batch paths already are: 6ms wall-clock budgets) or by genuine runaway guards (BALLOON_CAP,
+step caps) — never by size alone. Consequence: a big raw grind at play is slow *on purpose*; the
+player switches to ff/max or enables the engines, rather than the app overriding their choice.
