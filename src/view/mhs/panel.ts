@@ -62,7 +62,8 @@ function injectStyles(): void {
   background: var(--mhs-editorBg); overflow: hidden; }
 .mhs-pre, .mhs-ta { position: absolute; inset: 0; margin: 0; padding: 10px; border: 0;
   font-family: ${MONO}; font-size: 13px; line-height: 1.5; tab-size: 2; white-space: pre;
-  box-sizing: border-box; overflow: auto; }
+  box-sizing: border-box; overflow: auto;
+  font-variant-ligatures: contextual; font-feature-settings: "calt" 1, "liga" 1; }
 .mhs-pre { color: var(--mhs-editorFg); overflow: hidden; pointer-events: none; }
 .mhs-ta { background: transparent; color: transparent; caret-color: var(--mhs-editorFg); resize: none; outline: none; }
 .mhs-bar { display: flex; align-items: center; gap: 12px; }

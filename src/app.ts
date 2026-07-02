@@ -23,7 +23,7 @@ import { recognizeDeep, fromEgg, parseComb, toEgg } from "./core/refold";
 import { read, render, type Ty } from "./core/types";
 import { inferType } from "./core/infer";
 import { defineCombinator, defineRule, findSubtree, isNameTaken, parseRule, replaceSubtree, validateName } from "./core/authoring";
-import { TreeView, dashedSegment } from "./view/tree";
+import { TreeView, dashedSegment, glyphResLevel } from "./view/tree";
 import { Hotbar } from "./view/hotbar";
 import { Toast } from "./view/toast";
 import { Zoo } from "./view/zoo";
@@ -36,7 +36,7 @@ import { ReductionController, type Transport } from "./view/reduction";
 import { TransportBar } from "./view/transportBar";
 import { LayoutControls } from "./view/layoutControls";
 import { preloadCompiler } from "./view/mhs/compiler";
-import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange, edgeTierColor } from "./view/theme";
+import { theme, initTheme, toggleMode, currentMode, colorOn, toggleColor, onThemeChange, edgeTierColor, MONO, monoFontReady } from "./view/theme";
 import { MenuBar, type Menu, type MenuItem } from "./view/menubar";
 import { About } from "./view/about";
 import { Help } from "./view/help";
@@ -87,13 +87,23 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   pixi.stage.addChild(world, hud);
 
   const ghost = new Graphics();
+  // MONO + a zoom-aware resolution (see glyphResLevel, tree.ts) so the snap-preview label rasterizes
+  // as crisply as a tree's own node glyphs instead of a fixed 1× "monospace" bitmap smeared by zoom.
   const ghostLabel = new Text({
     text: "",
-    style: { fontFamily: "monospace", fontSize: 15, fill: theme.text },
+    style: { fontFamily: MONO, fontSize: 15, fill: theme.text },
+    resolution: glyphResLevel(camera.transform().scale),
   });
   ghostLabel.anchor.set(0.5, 1);
   ghostLabel.visible = false;
   ghostLayer.addChild(ghost, ghostLabel);
+  // Canvas text bakes its bitmap with whatever font is available at draw time — a ghostLabel drawn
+  // before the webfont resolves is stuck on the fallback face until its style is next dirtied (see
+  // monoFontReady's doc comment). Reassigning `.style` unconditionally re-rasterizes, unlike a plain
+  // property tweak (TextStyle setters diff by value, and MONO hasn't changed).
+  void monoFontReady(15).then(() => {
+    ghostLabel.style = { fontFamily: MONO, fontSize: 15, fill: theme.text };
+  });
 
   const trees: TreeView[] = [];
   // The pointer-drag FSM (carry a tree / camera pan / snap-to-apply). Owns `drag` + `snapTarget`;
@@ -651,6 +661,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     ghost.stroke({ width: 2.5, color: edgeTierColor(0), alpha: 0.7 });
     ghost.circle(ax, ay, 6).fill({ color: theme.mutedDot, alpha: 0.7 });
     // preview the resulting expression (left is the function), masked like the rest
+    const res = glyphResLevel(camera.transform().scale);
+    if (ghostLabel.resolution !== res) ghostLabel.resolution = res;
     ghostLabel.text = `(${readout.exprOf(left.node)} ${readout.exprOf(right.node)})`;
     ghostLabel.position.set(ax, ay - 12);
     ghostLabel.visible = true;

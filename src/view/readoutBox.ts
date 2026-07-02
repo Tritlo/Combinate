@@ -40,7 +40,8 @@ function injectStyles(): void {
 .ro-exp { flex: 0 0 auto; width: 16px; height: 15px; display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--ro-paper); font-size: 11px; line-height: 1; cursor: pointer; }
 .ro-body { padding: 5px 9px; font-size: 16px; line-height: 1.4; white-space: nowrap;
-  overflow-x: auto; overflow-y: hidden; user-select: text; }
+  overflow-x: auto; overflow-y: hidden; user-select: text;
+  font-variant-ligatures: contextual; font-feature-settings: "calt" 1, "liga" 1; }
 .ro-body.ro-wrap { white-space: pre-wrap; word-break: break-all; overflow-x: hidden; overflow-y: auto; max-height: 42vh; }
 /* The centred read-out competes with the top-right control stack (and the top-left edge legend).
    1101–1399px: narrow it — centred at width (100vw−780) fixes each margin at 390px, clearing both
