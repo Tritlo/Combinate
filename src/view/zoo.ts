@@ -1,5 +1,5 @@
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text } from "pixi.js";
-import { CATALOG, countIotas, iotaTreeOf, type Law, META, PAGES } from "../core/catalog";
+import { CATALOG, countIotas, displayLabel, iotaTreeOf, type Law, META, PAGES } from "../core/catalog";
 import { iota, type Node, type NodeId } from "../core/term";
 import { layoutHTree } from "../core/layout";
 import { theme, edgeTierColor } from "./theme";
@@ -17,7 +17,7 @@ interface Entry {
   alias?: string;
   /** Topic-page one-line note on the role this combinator plays. */
   role?: string;
-  /** Short display glyph for the list row (e.g. "+" for `(+)`), overriding `alias`. */
+  /** Page-scoped override of the short display glyph — see {@link displayLabel}. */
   label?: string;
 }
 
@@ -242,7 +242,7 @@ export class Zoo {
       if (i === this.selected) row.addChild(new Graphics().roundRect(0, 0, this.listW, rowH - 4, 5).fill({ color: theme.select }));
       const num = new Text({ text: `#${String(entry.num).padStart(2, "0")}`, style: { fontFamily: "monospace", fontSize: 13, fill: theme.textDim } });
       num.position.set(10, 7);
-      const name = new Text({ text: known ? (entry.label ?? entry.alias ?? entry.sym) : "?", style: { fontFamily: "monospace", fontSize: 15, fill: known ? theme.text : theme.textDim } });
+      const name = new Text({ text: known ? displayLabel(entry.sym, entry) : "?", style: { fontFamily: "monospace", fontSize: 15, fill: known ? theme.text : theme.textDim } });
       name.position.set(64, 6);
       row.addChild(num, name);
       row.eventMode = "static";

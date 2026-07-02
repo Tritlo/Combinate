@@ -20,6 +20,11 @@ export const IOTA_CODE: Record<string, string> = {
 export interface Law {
   /** Combinator symbol, e.g. "I", "K", "B" (Smullyan's bird names). */
   sym: string;
+  /** Sym-level short display form (e.g. "+" for `(+)`, "cmp" for `compare`, ":" for `cons`) — the
+   *  same short glyph on every page that doesn't override it (see {@link PageEntry.label}). Display
+   *  only; never semantic — `sym` stays the identifier for permalinks/probe/mhs/rules. Resolved by
+   *  {@link displayLabel}. */
+  label?: string;
   /** Display text, reused verbatim in the toast and notebook. */
   lawText: string;
   /** Number of fresh free variables to apply when probing. */
@@ -194,16 +199,16 @@ const yRule = ([f]: Node[]): Node => app(f, app(mk("Y"), f)); // Y f → f (Y f)
 // Alphabetical by symbol. I/K/S reduce by built-in rules (no def); Y is the
 // recursive fixpoint (probed finitely); the rest derive their def from their law.
 export const CATALOG: Law[] = [
-  { sym: "(+)", lawText: "(+) Z n = n;  (+) (S p) n = S (p + n)", arity: 2, reference: noProbe("(+)"), rule: plusRule, def: plusDef }, // Peano addition
-  { sym: "(-)", lawText: "(-) m Z = m;  (-) m (S p) = Pred (m - p)", arity: 2, reference: noProbe("(-)"), rule: minusRule, def: minusDef }, // Peano monus
-  { sym: "(*)", lawText: "(*) Z n = Z;  (*) (S p) n = n + (p * n)", arity: 2, reference: noProbe("(*)"), rule: timesRule, def: timesDef }, // Peano product
-  { sym: "(==)", lawText: "(==) Z Z = True;  (==) (S p) (S q) = p == q;  else False", arity: 2, reference: noProbe("(==)"), rule: eqNatRule, def: eqNatDef }, // Peano equality
-  { sym: "(/=)", lawText: "(/=) m n = not (m == n)", arity: 2, reference: noProbe("(/=)"), rule: neNatRule, def: neNatDef },
-  { sym: "(<)", lawText: "(<) m Z = False;  (<) Z (S q) = True;  (<) (S p) (S q) = p < q", arity: 2, reference: noProbe("(<)"), rule: ltNatRule, def: ltNatDef },
-  { sym: "(<=)", lawText: "(<=) Z n = True;  (<=) (S p) Z = False;  (<=) (S p) (S q) = p <= q", arity: 2, reference: noProbe("(<=)"), rule: leNatRule, def: leNatDef },
-  { sym: "(>)", lawText: "(>) m n = n < m", arity: 2, reference: noProbe("(>)"), rule: gtNatRule, def: gtNatDef },
-  { sym: "(>=)", lawText: "(>=) m n = n <= m", arity: 2, reference: noProbe("(>=)"), rule: geNatRule, def: geNatDef },
-  { sym: "compare", lawText: "compare m n = LT | EQ | GT (three-way)", arity: 2, reference: noProbe("compare"), rule: compareRule, def: compareDef },
+  { sym: "(+)", label: "+", lawText: "(+) Z n = n;  (+) (S p) n = S (p + n)", arity: 2, reference: noProbe("(+)"), rule: plusRule, def: plusDef }, // Peano addition
+  { sym: "(-)", label: "-", lawText: "(-) m Z = m;  (-) m (S p) = Pred (m - p)", arity: 2, reference: noProbe("(-)"), rule: minusRule, def: minusDef }, // Peano monus
+  { sym: "(*)", label: "*", lawText: "(*) Z n = Z;  (*) (S p) n = n + (p * n)", arity: 2, reference: noProbe("(*)"), rule: timesRule, def: timesDef }, // Peano product
+  { sym: "(==)", label: "==", lawText: "(==) Z Z = True;  (==) (S p) (S q) = p == q;  else False", arity: 2, reference: noProbe("(==)"), rule: eqNatRule, def: eqNatDef }, // Peano equality
+  { sym: "(/=)", label: "/=", lawText: "(/=) m n = not (m == n)", arity: 2, reference: noProbe("(/=)"), rule: neNatRule, def: neNatDef },
+  { sym: "(<)", label: "<", lawText: "(<) m Z = False;  (<) Z (S q) = True;  (<) (S p) (S q) = p < q", arity: 2, reference: noProbe("(<)"), rule: ltNatRule, def: ltNatDef },
+  { sym: "(<=)", label: "<=", lawText: "(<=) Z n = True;  (<=) (S p) Z = False;  (<=) (S p) (S q) = p <= q", arity: 2, reference: noProbe("(<=)"), rule: leNatRule, def: leNatDef },
+  { sym: "(>)", label: ">", lawText: "(>) m n = n < m", arity: 2, reference: noProbe("(>)"), rule: gtNatRule, def: gtNatDef },
+  { sym: "(>=)", label: ">=", lawText: "(>=) m n = n <= m", arity: 2, reference: noProbe("(>=)"), rule: geNatRule, def: geNatDef },
+  { sym: "compare", label: "cmp", lawText: "compare m n = LT | EQ | GT (three-way)", arity: 2, reference: noProbe("compare"), rule: compareRule, def: compareDef },
   bird("LT", "LT l e g = l", 3, (v) => v[0]), // Ordering: less-than
   bird("EQ", "EQ l e g = e", 3, (v) => v[1]), // Ordering: equal
   bird("GT", "GT l e g = g", 3, (v) => v[2]), // Ordering: greater-than
@@ -247,7 +252,7 @@ export const CATALOG: Law[] = [
   bird("or", "or p q = if p then True else q", 2, (v) => app(app(v[0], v[1]), KI())), // p q True
   // ---- Scott list operations; the structural ops read off one eliminator arm,
   // the folds (<>, concat, map) recurse via Y (built, not discovered).
-  bird("cons", "cons h t n c = c h t", 4, consBody), // prepend (Scott cons cell)
+  { ...bird("cons", "cons h t n c = c h t", 4, consBody), label: ":" }, // prepend (Scott cons cell)
   bird("head", "head (h : t) = h", 1, (v) => app(app(v[0], K()), K())), // xs nil-default K
   { sym: "<>", lawText: "[] <> ys = ys;  (h:t) <> ys = h : (t <> ys)", arity: 2, reference: noProbe("<>"), rule: appendRule, def: appendDef }, // append
   { sym: "concat", lawText: "concat [] = [];  concat (xs:xss) = xs <> concat xss", arity: 1, reference: noProbe("concat"), rule: concatRule, def: concatDef }, // flatten
@@ -380,12 +385,11 @@ interface PageEntry {
   sym: string;
   alias?: string;
   role?: string;
-  /** Short display glyph for the hotbar cell and the zoo list row (e.g. "+" for
-   *  `(+)`, "cmp" for `compare`, "[]" for the list-page nil). Purely cosmetic —
-   *  `sym` stays the semantic identifier (permalinks, probe, mhs mapping). The
-   *  hotbar falls back to `sym` and the zoo list to `alias ?? sym`; `alias` and
-   *  `role` still carry the wordy topic name shown in the zoo detail pane and
-   *  the hotbar tooltip. */
+  /** Page-scoped override of the short display glyph — beats {@link Law.label} on THIS page only
+   *  (e.g. Lists' `K` → "[]", Char's `I` → "chr"; a sym whose short form is the same everywhere
+   *  belongs on the Law instead). Purely cosmetic — `sym` stays the semantic identifier
+   *  (permalinks, probe, mhs mapping); `alias`/`role` still carry the wordy topic name shown in the
+   *  zoo detail pane and the hotbar tooltip. Resolved by {@link displayLabel}. */
   label?: string;
 }
 /** A named tab grouping combinators (shared by the Zoo and the hotbar). */
@@ -410,8 +414,8 @@ export const PAGES: PageDef[] = [
   {
     name: "Booleans",
     entries: [
-      { sym: "K", alias: "False", role: "Scott False — selects the first (else) arm" },
-      { sym: "A", alias: "True", role: "Scott True (= K I) — selects the second (then) arm" },
+      { sym: "K", alias: "False", label: "False", role: "Scott False — selects the first (else) arm" },
+      { sym: "A", alias: "True", label: "True", role: "Scott True (= K I) — selects the second (then) arm" },
       { sym: "not", alias: "Not", role: "flips a boolean" },
       { sym: "and", alias: "And", role: "true only when both are true" },
       { sym: "or", alias: "Or", role: "true when either is true" },
@@ -421,12 +425,12 @@ export const PAGES: PageDef[] = [
   {
     name: "Arithmetic",
     entries: [
-      { sym: "K", alias: "0", role: "Scott zero (Z) — also nil and false" },
+      { sym: "K", alias: "0", label: "0", role: "Scott zero (Z) — also nil and false" },
       { sym: "Succ", alias: "Succ", role: "S — wraps a number as its own successor" },
       { sym: "Pred", alias: "Pred", role: "strips one successor (Z stays Z)" },
-      { sym: "(+)", alias: "Plus", label: "+", role: "adds two numerals (recurses via Y)" },
-      { sym: "(-)", alias: "Sub", label: "-", role: "truncated subtraction / monus (recurses via Y)" },
-      { sym: "(*)", alias: "Mult", label: "*", role: "multiplies (recurses via Y)" },
+      { sym: "(+)", alias: "Plus", role: "adds two numerals (recurses via Y)" },
+      { sym: "(-)", alias: "Sub", role: "truncated subtraction / monus (recurses via Y)" },
+      { sym: "(*)", alias: "Mult", role: "multiplies (recurses via Y)" },
       { sym: "(==)", alias: "==", role: "numeral equality → Bool (recurses via Y)" },
       { sym: "(/=)", alias: "/=", role: "numeral inequality → Bool" },
       { sym: "(<)", alias: "<", role: "strict less-than → Bool" },
@@ -438,7 +442,7 @@ export const PAGES: PageDef[] = [
   {
     name: "Ordering",
     entries: [
-      { sym: "compare", alias: "compare", label: "cmp", role: "three-way comparison → LT | EQ | GT" },
+      { sym: "compare", alias: "compare", role: "three-way comparison → LT | EQ | GT" },
       { sym: "LT", alias: "LT", role: "arm 1 of the three-armed Scott Ordering — the left operand is smaller" },
       { sym: "EQ", alias: "EQ", role: "arm 2 of the three-armed Scott Ordering — the operands are equal" },
       { sym: "GT", alias: "GT", role: "arm 3 of the three-armed Scott Ordering — the left operand is larger" },
@@ -453,14 +457,14 @@ export const PAGES: PageDef[] = [
       { sym: "(/=)", alias: "/=", role: "char inequality" },
       { sym: "(<)", alias: "<", role: "char order is numeral order (alphabetical for letters)" },
       { sym: "(<=)", alias: "<=", role: "char ≤" },
-      { sym: "compare", alias: "compare", label: "cmp", role: "three-way char comparison → LT | EQ | GT (the LT/EQ/GT constructors live on the Ordering tab)" },
+      { sym: "compare", alias: "compare", role: "three-way char comparison → LT | EQ | GT (the LT/EQ/GT constructors live on the Ordering tab)" },
     ],
   },
   {
     name: "Lists",
     entries: [
       { sym: "K", alias: "nil", label: "[]", role: "the empty list ([]) — also zero and false" },
-      { sym: "cons", alias: "cons", label: ":", role: "the Scott cons cell: (h:t) = λn c. c h t" },
+      { sym: "cons", alias: "cons", role: "the Scott cons cell: (h:t) = λn c. c h t" },
       { sym: "head", alias: "head", role: "the first element" },
       { sym: "tail", alias: "tail", role: "everything after the head (a trivial read under Scott)" },
       { sym: "uncons", alias: "uncons", role: "splits a list into (head, tail)" },
@@ -471,6 +475,18 @@ export const PAGES: PageDef[] = [
     ],
   },
 ];
+
+/**
+ * Resolve a combinator's DISPLAYED short name — the one naming model shared by the hotbar cell, the
+ * zoo list row, and (page-context-sensitive) the canvas node glyph (ADR 23): a page-scoped override
+ * beats the sym-level short form beats the page's wordy alias beats the raw symbol. `sym` itself is
+ * never affected — it stays the semantic identifier for permalinks/probe/mhs/rules; this is cosmetic
+ * display only. `entry` is the `PageEntry` (or entry-shaped record, e.g. the Zoo's own row) for `sym`
+ * on the page in question, or omitted/undefined when there's no page context (or no matching entry).
+ */
+export function displayLabel(sym: string, entry?: { label?: string; alias?: string }): string {
+  return entry?.label ?? LAW_BY_SYM.get(sym)?.label ?? entry?.alias ?? sym;
+}
 
 /** Expand an SK(I) tree into a pure-ι tree (the skToIota gadget, §7.3):
  *  S/K/I leaves become their ι-trees, application stays application. */

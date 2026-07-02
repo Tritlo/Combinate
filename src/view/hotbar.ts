@@ -1,6 +1,6 @@
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text, type Ticker } from "pixi.js";
 import { type Node } from "../core/term";
-import { PAGES, CATALOG } from "../core/catalog";
+import { PAGES, CATALOG, displayLabel } from "../core/catalog";
 import { theme, paperInk } from "./theme";
 import { tween } from "./anim";
 
@@ -134,10 +134,10 @@ export class Hotbar {
   private aliasOf(sym: string): string {
     return PAGES[this.tab].entries.find((e) => e.sym === sym)?.alias ?? sym;
   }
-  /** Short display glyph for a cell (e.g. "+" for `(+)`, "cmp" for `compare`) —
-   *  falls back to the raw symbol, unlike {@link aliasOf} (tooltip only). */
+  /** Short display glyph for a cell (e.g. "+" for `(+)`, "cmp" for `compare`) — the
+   *  {@link displayLabel} resolution chain, unlike {@link aliasOf} (tooltip only). */
   private labelOf(sym: string): string {
-    return PAGES[this.tab].entries.find((e) => e.sym === sym)?.label ?? sym;
+    return displayLabel(sym, PAGES[this.tab].entries.find((e) => e.sym === sym));
   }
   private pageSize(): number {
     const margin = window.innerWidth < NARROW ? 14 : MARGIN; // tighter edges on phones → more cells per row
