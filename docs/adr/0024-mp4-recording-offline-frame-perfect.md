@@ -31,8 +31,12 @@ path can't be captured deterministically), then muxed with the video via **Media
 backpressure, and codec probing; AAC with Opus fallback where the browser lacks an AAC
 encoder). No wasm encoder fallback in the MVP — probe first, fail with a clear message.
 
-Scope notes (plan review, 2026-07-07): **2D lands first** — the 3D option is visible but
-disabled until the recorder-owned Sphere3D pump seam lands (3D is secondary, ADR 21).
+Scope notes (plan review, 2026-07-07): **2D landed first**; 3D followed the same day via
+a recorder-owned Sphere3D (injected clock, pixel-ratio 1, its canvas encoded directly;
+morphs over the cap fail loudly instead of jump-cutting — ADR 21 keeps 3D secondary).
+The modal shows a first-frame preview of the current settings, layout is an explicit
+choice (Auto resolved via `resolveAutoLayout` at prefill), and the tone track is muted
+by picking base note **None** (no separate audio toggle).
 Recording captures the **current focused term to normal form** (the pre-reduction source
 is ephemeral live state; a source-retention seam is a possible follow-up). A pre-run
 pass counts steps (capped — Ω must not hang the modal), sizes the progress bar, and

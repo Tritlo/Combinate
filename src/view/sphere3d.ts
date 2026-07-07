@@ -106,6 +106,18 @@ function nodeStyle(n: Node, depth: number): { radius: number; color: number } {
 
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 
+/** Optional recorder/test seams; omitted in the live app for byte-identical behavior. */
+export interface Sphere3DOptions {
+  /** Time source for instrumentation fields; defaults to `performance.now`. */
+  now?: () => number;
+  /** Render-target pixel ratio; defaults to the live DPR cap. */
+  pixelRatio?: number;
+  /** Preserve the WebGL drawing buffer for snapshot copying/encoding. */
+  preserveDrawingBuffer?: boolean;
+  /** Throw instead of jump-cutting a morph that exceeds the morph cap. */
+  failOnMorphSnap?: boolean;
+}
+
 export class Sphere3D {
   /** The off-DOM render target — the owner wraps this in a Pixi texture. */
   readonly canvas = document.createElement("canvas");
@@ -135,6 +147,11 @@ export class Sphere3D {
   private lastNodes = new Map<number, Node>(); // currently-displayed nodes (to colour/size dropped nodes)
   private lastDepth = new Map<number, number>(); // currently-displayed node depths (app nodes take their incoming-edge tier)
   private morph: Morph | null = null;
+  private readonly now: () => number;
+
+  constructor(private readonly options: Sphere3DOptions = {}) {
+    this.now = options.now ?? (() => performance.now());
+  }
 
   /** Current orbit azimuth (for the dev seam / E2E — confirms rotation). */
   get azimuth(): number {
@@ -173,8 +190,8 @@ export class Sphere3D {
   private ensureScene(): void {
     if (this.scene || !THREE) return;
     const three = THREE;
-    this.renderer = new three.WebGLRenderer({ canvas: this.canvas, antialias: true }); // `new` can throw if WebGL is unavailable — caught by show()
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, DPR_CAP));
+    this.renderer = new three.WebGLRenderer({ canvas: this.canvas, antialias: true, preserveDrawingBuffer: this.options.preserveDrawingBuffer }); // `new` can throw if WebGL is unavailable — caught by show()
+    this.renderer.setPixelRatio(this.options.pixelRatio ?? Math.min(window.devicePixelRatio || 1, DPR_CAP));
     this.scene = new three.Scene();
     this.camera = new three.PerspectiveCamera(50, 1, 0.1, 500_000);
     // No lights: nodes use an unlit MeshBasicMaterial so per-combinator hues read flat + vivid
@@ -204,7 +221,7 @@ export class Sphere3D {
       this.draw();
       return;
     }
-    const t0 = performance.now();
+    const t0 = this.now();
     const { pos, radius } = this.layout3(node);
     this.lastCount = pos.size;
     this.lastCapped = pos.size > NODE_CAP;
@@ -228,7 +245,7 @@ export class Sphere3D {
     if (keepCamera) this.place();
     else this.frame(radius);
     this.draw();
-    this.lastBuildMs = performance.now() - t0;
+    this.lastBuildMs = this.now() - t0;
   }
 
   // id → Node for the displayed tree (to style dropped nodes + walk new-tree edges).
@@ -276,6 +293,10 @@ export class Sphere3D {
     const { pos: newPos } = this.layout3(node);
     const ids = new Set<number>([...this.lastPos.keys(), ...newPos.keys()]);
     if (this.lastPos.size === 0 || ids.size > MORPH_CAP) {
+      if (this.options.failOnMorphSnap) {
+        const reason = this.lastPos.size === 0 ? "no settled 3D scene to morph from" : `morph would touch ${ids.size} nodes (cap ${MORPH_CAP})`;
+        throw new Error(`record: ${reason}`);
+      }
       this.update(node, true); // nothing to glide from, or too big to tween — snap to the steady scene
       return;
     }
@@ -348,7 +369,7 @@ export class Sphere3D {
     const m = this.morph;
     if (!m || !THREE) return false;
     const three = THREE;
-    const t0 = performance.now();
+    const t0 = this.now();
     m.elapsed += Math.min(dtMS, MORPH_MAX_DT); // clamp so a frame hitch can't snap the tween to its end
     const t = Math.min(1, m.elapsed / m.duration);
     const e = easeInOut(t);
@@ -380,7 +401,7 @@ export class Sphere3D {
       e.seg.geometry.getAttribute("position").needsUpdate = true;
       if (e.dashed) e.seg.computeLineDistances(); // endpoints moved → recompute the dash pattern
     }
-    this.lastMorphFrameMs = performance.now() - t0; // CPU morph work this frame, excl. the GPU draw below
+    this.lastMorphFrameMs = this.now() - t0; // CPU morph work this frame, excl. the GPU draw below
     this.draw();
     if (t >= 1) {
       this.morph = null;
@@ -569,11 +590,11 @@ export class Sphere3D {
 
   private draw(): void {
     if (!this.renderer || !this.scene || !this.camera) return;
-    const t0 = performance.now();
+    const t0 = this.now();
     this.renderer.render(this.scene, this.camera);
     this.onFrame?.(); // owner re-uploads the canvas into its Pixi texture
     this.drawCount++;
-    this.lastDrawMs = performance.now() - t0;
+    this.lastDrawMs = this.now() - t0;
   }
 
   /** Resize the off-DOM render target (the owner sizes its sprite to match). */
@@ -598,5 +619,24 @@ export class Sphere3D {
       any.geometry?.dispose();
       any.material?.dispose();
     });
+  }
+
+  /** Destroy the off-DOM Three renderer and scene resources. */
+  destroy(): void {
+    this.hide();
+    if (this.content && this.scene) {
+      this.disposeGroup(this.content);
+      this.scene.remove(this.content);
+    }
+    this.content = null;
+    this.current = null;
+    this.lastPos = new Map();
+    this.lastNodes = new Map();
+    this.lastDepth = new Map();
+    this.renderer?.dispose();
+    this.renderer?.forceContextLoss();
+    this.renderer = null;
+    this.scene = null;
+    this.camera = null;
   }
 }
