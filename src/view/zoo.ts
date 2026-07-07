@@ -361,7 +361,7 @@ function buildPages(): Page[] {
   }));
 }
 
-// Draw a term's nodes/edges, scaled to fit `size`, centred at the container origin.
+// Draw a term's nodes/edges, scaled to fit `size`, centered at the container origin.
 function renderPicture(tree: Node, size: number): Container {
   const c = new Container();
   const lay = layoutHTree(tree);
@@ -374,8 +374,8 @@ function renderPicture(tree: Node, size: number): Container {
   };
 
   const edges = new Graphics();
-  // Edge colour = depth TIER (red/black), width = fn (thicker) vs arg — the tricolor tree convention,
-  // sized down for the thumbnail. One colour per stroke, so 4 strokes: {arg,fn} × {even,odd tier}.
+  // Edge color = depth TIER (red/black), width = fn (thicker) vs arg — the tricolor tree convention,
+  // sized down for the thumbnail. One color per stroke, so 4 strokes: {arg,fn} × {even,odd tier}.
   const fn: Array<[number, number, number, number, number]> = [];
   const arg: Array<[number, number, number, number, number]> = [];
   const walk = (n: Node, depth: number): void => {

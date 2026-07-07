@@ -81,10 +81,10 @@ export function layoutTopDown(root: Node): Layout {
 }
 
 /**
- * Root-centred radial layout (port of `treedraw.svg_radial`, §5.1 radial mode):
- * the root sits at the centre, depth maps to radius, the in-order leaves spread
+ * Root-centered radial layout (port of `treedraw.svg_radial`, §5.1 radial mode):
+ * the root sits at the center, depth maps to radius, the in-order leaves spread
  * evenly around the full circle, and each application takes the midpoint angle
- * of its two children — so the tree fans out from the centre.
+ * of its two children — so the tree fans out from the center.
  */
 export function layoutRadial(root: Node): Layout {
   const depth = new Map<NodeId, number>();
@@ -181,7 +181,7 @@ function placeHTree(node: Node, x: number, y: number, d: number, L0: number, pos
   if (pos.has(node.id)) return; // DAG (graph mode): position each shared node once — a no-op on a tree
   pos.set(node.id, { x, y });
   depthOut?.set(node.id, d); // only layoutHTreeSubtree needs the depth map back (edge tiering); full layout skips it
-  // Shrink a node toward its shortest adjacent arm so it never overwhelms the structure (the "grey
+  // Shrink a node toward its shortest adjacent arm so it never overwhelms the structure (the "gray
   // blob" on big/clamped trees): full-size while arms are long, scaling down once an arm drops
   // below a node's span. Only bites when L0 clamps — small trees keep full-size nodes.
   const childArm = L0 * HTREE_SHRINK ** d;

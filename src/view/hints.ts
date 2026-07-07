@@ -38,7 +38,7 @@ export class HintBar {
     this.refresh();
   }
 
-  /** Reposition: centre the row just above the toolbar's top edge (`toolbarTop`). */
+  /** Reposition: center the row just above the toolbar's top edge (`toolbarTop`). */
   place(width: number, toolbarTop: number): void {
     this.container.position.set(width / 2, toolbarTop - ABOVE);
   }
@@ -74,7 +74,7 @@ export class HintBar {
       total += w + GAP;
     }
     total -= GAP;
-    // lay the row out centred around the container origin (placed at screen-bottom-centre)
+    // lay the row out centered around the container origin (placed at screen-bottom-center)
     let x = -total / 2;
     for (const { c, w } of chips) {
       c.position.set(x, -H);

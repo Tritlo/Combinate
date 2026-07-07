@@ -1,10 +1,10 @@
 /**
  * Native value evaluation (ADR 10) — an opt-in reducer peephole. When a *saturated
  * named catalog op* (`(+)`, `(*)`, `<>`, `not`, …) is applied to args the
- * {@link value.ts} matchers recognise as values, compute the result natively and emit
+ * {@link value.ts} matchers recognize as values, compute the result natively and emit
  * the **canonical pure tree** straight away (e.g. `(*) 12 15` → the Scott numeral `180`,
  * skipping the O(n) Scott recursion). No native value ever escapes the reducer, so the
- * round-trip invariant holds by construction: permalinks, the behavioural probe, and
+ * round-trip invariant holds by construction: permalinks, the behavioral probe, and
  * toggling-off all keep seeing ordinary pure terms. Default off = plain pure reduction.
  *
  * These ops are registered as **kernels** (ADR 11) in `kernels.ts`; the reducer

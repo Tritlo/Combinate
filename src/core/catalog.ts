@@ -14,8 +14,8 @@ export const IOTA_CODE: Record<string, string> = {
 
 /**
  * A discoverable combinator law (§7.2). Data only — the probe (probe.ts) tests a
- * term against it behaviourally, and the shell turns a match into a toast +
- * hotbar slot, collapsing the recognised tree into a single named node.
+ * term against it behaviorally, and the shell turns a match into a toast +
+ * hotbar slot, collapsing the recognized tree into a single named node.
  */
 export interface Law {
   /** Combinator symbol, e.g. "I", "K", "B" (Smullyan's bird names). */
@@ -49,7 +49,7 @@ export interface Law {
    */
   def?: () => Node;
   /** True for a player-authored combinator (ADR 0006): it lives in the catalog
-   *  like any other, but the behavioural probe skips it (it is *defined*, not
+   *  like any other, but the behavioral probe skips it (it is *defined*, not
    *  *discovered*, so it never auto-collapses another tree). */
   userDefined?: boolean;
 }
@@ -555,7 +555,7 @@ export function barkerCode(root: Node, maxChars = 4096): string {
 }
 
 /** Render a term as the player sees its DATA — named combinators (an undiscovered one masks to its
- *  ι-tree, like the s-expression view) plus Scott literal sugar recognised STRUCTURALLY: numerals
+ *  ι-tree, like the s-expression view) plus Scott literal sugar recognized STRUCTURALLY: numerals
  *  (`Succ…K` → an int), non-empty lists (`cons…K` → `[…]`), and booleans — all WITHOUT reducing. So a
  *  term shows its current shape (`((+) 1 1)`), tracking a reduction rather than jumping to the answer.
  *  Application spines are flattened Haskell-style (`f a b`, not `((f a) b)`). A bare `K` is the shared

@@ -81,7 +81,7 @@ function readChurch(n: Node): number | null {
   return t.kind === "free" && t.name === "§x" ? k : null;
 }
 
-// ---- structural / behavioural comparison ----
+// ---- structural / behavioral comparison ----
 function nfEqual(n1: Node, n2: Node): boolean {
   const r1 = normalize(n1, CAP, true);
   const r2 = normalize(n2, CAP, true);
@@ -196,7 +196,7 @@ function runCase(c: RawCase, scope: Scope): boolean {
   }
   const n1 = parseExpr(e1, scope);
   const n2 = parseExpr(e2, scope);
-  // Equality is behavioural ("action on enough arguments"). By Church–Rosser, two
+  // Equality is behavioral ("action on enough arguments"). By Church–Rosser, two
   // terms are equal iff they share a reduct: settle to the same NF, or — for terms
   // that don't settle (a fixed point `Y K`, whose `K x a` and `x a` both reduce back
   // to `x`) — their reduction sequences intersect. This is sound: distinct normal

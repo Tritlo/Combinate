@@ -1,5 +1,5 @@
 /**
- * Boot splash (the user's request): a centred "Combinate" wordmark over the Y
+ * Boot splash (the user's request): a centered "Combinate" wordmark over the Y
  * combinator's SKI tree, a progress bar, and a "Loading n/total" line. The shell
  * (background, wordmark, bar) lives in index.html so it paints before this module
  * loads; here we fill in the Y art — computed from the catalog's Y definition and
@@ -8,7 +8,7 @@
  *
  * The art is the Y combinator in SKI form (its `def`, not the fully-expanded
  * ι-tree): legibly "Y" with ~24 labelled S/K/I leaves rather than a bloom of
- * identical ι dots. Colours come from CSS variables (set per prefers-color-scheme
+ * identical ι dots. Colors come from CSS variables (set per prefers-color-scheme
  * in index.html), so the art matches the theme without depending on theme JS.
  */
 import { CATALOG } from "./core/catalog";
@@ -24,7 +24,7 @@ export interface Splash {
 }
 
 /** Render the Y combinator's SKI tree as an inline SVG (radial layout, the app's
- *  function/argument edge colours; S/K/I leaves carry their letter). The raw
+ *  function/argument edge colors; S/K/I leaves carry their letter). The raw
  *  layout spans depth×RING units (Y's SKI form is deep), so we normalise it into a
  *  fixed BOX with fixed node sizes — keeping the leaf letters legible regardless
  *  of the tree's spread. */

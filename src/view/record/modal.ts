@@ -14,8 +14,7 @@ import type { CodecSupport, RecordInfo, RecordPlan, RecordProgress, RecordSettin
 
 type RecordLayoutKey = Exclude<LayoutKey, "auto">;
 
-const MAX_STEPS = 2000;
-const GRAPH_MAX_STEPS = 100_000;
+const MAX_STEPS = 100_000;
 const THUMB_W = 320;
 const RESOLUTIONS = [
   { label: "1080×1080", width: 1080, height: 1080 },
@@ -42,7 +41,7 @@ const PALETTE: Record<Mode, { paper: string; ink: string; shadow: string; red: s
 };
 const LAYOUT_HINTS: Record<RecordLayoutKey, string> = {
   topdown: "Leaves line up; depth grows downward.",
-  radial: "Root in the centre; depth becomes radius.",
+  radial: "Root in the center; depth becomes radius.",
   htree: "Compact alternating-axis H-tree layout.",
 };
 
@@ -95,9 +94,7 @@ function injectModalStyles(): void {
   .rm-view { order: 2; }
   .rm-layout { order: 3; }
   .rm-video { order: 4; }
-  .rm-pacing { order: 5; }
-  .rm-audio { order: 6; }
-  .rm-overlays { order: 7; }
+  .rm-audio { order: 5; }
   .rm-section { padding: 8px; gap: 7px; }
   .rm-row { gap: 6px 8px; }
   .rm-choice { min-height: 40px; }
@@ -238,9 +235,6 @@ export class RecordModal extends Modal {
   private readonly holdMs = document.createElement("input");
   private readonly baseNote = document.createElement("select");
   private readonly overlayInfo = checkbox();
-  private readonly overlayInfoLabel: HTMLLabelElement;
-  private readonly overlayStats = checkbox();
-  private readonly overlayStatsLabel: HTMLLabelElement;
   private readonly estimate = document.createElement("div");
   private readonly warning = document.createElement("div");
   private readonly codecStatus = document.createElement("div");
@@ -288,7 +282,7 @@ export class RecordModal extends Modal {
     view.classList.add("rm-view");
     const viewRow = document.createElement("div");
     viewRow.className = "rm-row";
-    this.rotateLabel = this.hinted(label("Rotate", this.rotate), "Turntable camera orbit.");
+    this.rotateLabel = this.hinted(label("Rotate", this.rotate), "Turntable: one full revolution over the clip.");
     this.spinRevs.className = "rm-select";
     for (const spin of SPIN_REVS) this.spinRevs.append(selectOption(spin.value, spin.label, spin.value === "1"));
     this.spinLabel = this.field("Spin", this.spinRevs, "Turntable speed: revolutions per clip.");
@@ -305,7 +299,10 @@ export class RecordModal extends Modal {
       this.themeRadios.set(mode, input);
       themeRow.append(this.hinted(label(mode === "light" ? "Light" : "Dark", input), "Record in either theme without changing the app."));
     }
-    themeRow.append(this.hinted(label("Colour", this.color), "Per-combinator hues (Colour 4096)."));
+    themeRow.append(
+      this.hinted(label("Color", this.color), "Per-combinator hues (Color 4096)."),
+      this.hinted(label("Info", this.overlayInfo), "System-1 info card: the term, its law, live value and stats."),
+    );
     view.append(
       viewRow,
       themeRow,
@@ -347,21 +344,6 @@ export class RecordModal extends Modal {
     this.fps.className = "rm-select";
     this.fps.append(selectOption("30", "30 fps"), selectOption("60", "60 fps", true));
     this.hinted(this.fps, "Pick the output frame rate.");
-    const cameraRow = document.createElement("div");
-    cameraRow.className = "rm-row";
-    for (const [key, text, hint] of [
-      ["hold", "Hold", "One zoom for the whole clip - no rescaling."],
-      ["fixed", "Fixed", "Fit the first frame only."],
-      ["follow", "Follow", "Re-frame every step."],
-    ] as const) {
-      const input = radio("rm-camera", key);
-      this.cameraRadios.set(key, input);
-      cameraRow.append(this.hinted(label(text, input), hint));
-    }
-    video.append(this.field("Resolution", this.resolution, "Pick the output pixel size."), this.field("FPS", this.fps, "Pick the output frame rate."), cameraRow);
-
-    const pacing = section("Pacing");
-    pacing.classList.add("rm-pacing");
     this.stepMs.className = "rm-input";
     this.stepMs.type = "number";
     this.stepMs.min = "1";
@@ -372,10 +354,30 @@ export class RecordModal extends Modal {
     this.holdMs.min = "0";
     this.holdMs.step = "100";
     this.holdMs.value = "1000";
-    pacing.append(
+    const videoRow = document.createElement("div");
+    videoRow.className = "rm-row";
+    videoRow.append(
+      this.field("Resolution", this.resolution, "Pick the output pixel size."),
+      this.field("FPS", this.fps, "Pick the output frame rate."),
+    );
+    const timingRow = document.createElement("div");
+    timingRow.className = "rm-row";
+    timingRow.append(
       this.field("Step ms", this.stepMs, "Output-time per reduction step."),
       this.field("Hold ms", this.holdMs, "Freeze on the final frame."),
     );
+    const cameraRow = document.createElement("div");
+    cameraRow.className = "rm-row";
+    for (const [key, text, hint] of [
+      ["hold", "Hold", "One zoom for the whole clip - no rescaling."],
+      ["fixed", "Fixed", "Fit the first frame only."],
+      ["follow", "Follow", "Re-frames the shot as the tree reduces."],
+    ] as const) {
+      const input = radio("rm-camera", key);
+      this.cameraRadios.set(key, input);
+      cameraRow.append(this.hinted(label(text, input), hint));
+    }
+    video.append(videoRow, timingRow, cameraRow);
 
     const sound = section("Audio");
     sound.classList.add("rm-audio");
@@ -383,17 +385,8 @@ export class RecordModal extends Modal {
     for (const n of BASE_NOTES) this.baseNote.append(selectOption(n.value, n.label, n.value === "48"));
     sound.append(this.field("Base note", this.baseNote, "Root pitch of the tone track; None = silent."));
 
-    const overlays = section("Overlays");
-    overlays.classList.add("rm-overlays");
-    this.overlayInfoLabel = this.hinted(label("Info card", this.overlayInfo), "Burn the term's name and live value into the video.");
-    this.overlayStatsLabel = this.hinted(label("Stats", this.overlayStats), "Step counter and node count, bottom-right.");
-    const overlayRow = document.createElement("div");
-    overlayRow.className = "rm-row";
-    overlayRow.append(this.overlayInfoLabel, this.overlayStatsLabel);
-    overlays.append(overlayRow);
-
-    leftCol.append(preview, sound, overlays);
-    rightCol.append(view, layout, video, pacing, engines);
+    leftCol.append(preview, sound);
+    rightCol.append(view, layout, video, engines);
     grid.append(leftCol, rightCol);
 
     const footer = document.createElement("div");
@@ -502,7 +495,6 @@ export class RecordModal extends Modal {
       this.holdMs,
       this.baseNote,
       this.overlayInfo,
-      this.overlayStats,
     ];
     for (const el of controls) {
       el.addEventListener("change", () => this.settingsChanged());
@@ -538,7 +530,6 @@ export class RecordModal extends Modal {
     this.holdMs.value = "1000";
     this.baseNote.value = "48";
     this.overlayInfo.checked = false;
-    this.overlayStats.checked = false;
     this.syncViewControls();
   }
 
@@ -688,14 +679,14 @@ export class RecordModal extends Modal {
       holdMs,
       baseNote: audio ? Number(this.baseNote.value) : 48,
       audio,
-      maxSteps: graph ? GRAPH_MAX_STEPS : MAX_STEPS,
+      maxSteps: MAX_STEPS,
       theme: this.selectedTheme(),
       color: this.color.checked,
       spinRevs: Number(this.spinRevs.value) || 1,
       camera: this.selectedCamera(),
       rotate: this.view3d.checked && this.rotate.checked,
       overlayInfo: this.overlayInfo.checked,
-      overlayStats: this.overlayStats.checked,
+      overlayStats: this.overlayInfo.checked,
       info: this.overlayInfo.checked ? this.info : undefined,
     };
   }
@@ -731,7 +722,7 @@ export class RecordModal extends Modal {
       codecText = this.codecError ? `Codec: ${this.codecError}` : "Codec: recording unavailable - no supported video encoder.";
     } else if (settings.audio && !this.codec.audio) {
       disabled = true;
-      codecText = "Codec: video ok; audio encoder unavailable. Turn Audio off for silent video.";
+      codecText = "Codec: video ok; audio encoder unavailable. Choose Base note None for silent video.";
     } else {
       codecText = `Codec: ${this.codec.video}${settings.audio ? ` + ${this.codec.audio}` : ""}`;
     }

@@ -155,8 +155,8 @@ function identity(cap: number): Uint32Array {
   return idx;
 }
 
-// A 2×2 solid-colour texture for a tier (line-list samples it at uv 0 → flat colour, no per-mesh
-// tint needed). Rebuilt on demand so a theme flip re-colours the lines.
+// A 2×2 solid-color texture for a tier (line-list samples it at uv 0 → flat color, no per-mesh
+// tint needed). Rebuilt on demand so a theme flip re-colors the lines.
 function tierTexture(tier: 0 | 1): Texture {
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = 2;

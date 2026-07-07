@@ -1,7 +1,7 @@
 /**
  * The auto-reduce + transport subsystem, extracted from app.ts (reorg, ADR 12). Owns the
  * per-tree reduction loop (each settled tree plays itself to normal form one tween at a
- * time, cancelled on touch), the playback transport (play / pause / fast-forward), the
+ * time, canceled on touch), the playback transport (play / pause / fast-forward), the
  * non-termination guard, and the graph-mode lifecycle. Pure-ish imperative shell: the Pixi
  * side effects (the transport bar) stay in app.ts and are injected
  * as callbacks, so this is the state machine, not the chrome.
@@ -92,7 +92,7 @@ export interface ReductionDeps {
   makeSession: (term: Node) => WasmSession | null;
   /** The focused tree if it is still live on the canvas, else null. */
   focusedLive: () => TreeView | null;
-  settle: (tree: TreeView) => void; // recognise + collapse a normal form
+  settle: (tree: TreeView) => void; // recognize + collapse a normal form
   onNormalForm: (source: Node) => void; // golf + quest progression
   tickSound: (sym: string | null) => void; // a tone per contraction (null = no rule)
   notify: (msg: string) => void; // toast
@@ -338,7 +338,7 @@ export class ReductionController {
     this.deps.notify(`auto-paused — ${reason}`);
   }
 
-  // A tree reached normal form: recognise + collapse it, then score it (golf + quest).
+  // A tree reached normal form: recognize + collapse it, then score it (golf + quest).
   // Shared by the auto loop and the manual Step button so both record solves.
   private finishNormalForm(tree: TreeView, a: AutoState): void {
     // settle() recognises the NF against the catalog; onNormalForm() runs the quest/golf
@@ -439,7 +439,7 @@ export class ReductionController {
     } else {
       const redex = redexAt(tree.node, fast, this.deps.getNative());
       if (!redex) {
-        this.finishNormalForm(tree, a); // normal form reached — recognise, collapse, score
+        this.finishNormalForm(tree, a); // normal form reached — recognize, collapse, score
         return;
       }
       next = redex.build(); // build before the side effects (sound/step count)
