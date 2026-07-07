@@ -228,8 +228,11 @@ export class RecordModal extends Modal {
   private readonly stepMs = document.createElement("input");
   private readonly holdMs = document.createElement("input");
   private readonly baseNote = document.createElement("select");
+  private readonly zen = checkbox();
   private readonly overlayInfo = checkbox();
+  private readonly overlayInfoLabel: HTMLLabelElement;
   private readonly overlayStats = checkbox();
+  private readonly overlayStatsLabel: HTMLLabelElement;
   private readonly estimate = document.createElement("div");
   private readonly warning = document.createElement("div");
   private readonly codecStatus = document.createElement("div");
@@ -331,8 +334,9 @@ export class RecordModal extends Modal {
     const cameraRow = document.createElement("div");
     cameraRow.className = "rm-row";
     for (const [key, text, hint] of [
-      ["fixed", "Fixed", "Keep the initial shot framing."],
-      ["follow", "Follow", "Re-frames the shot as the tree reduces."],
+      ["hold", "Hold", "One zoom for the whole clip - no rescaling."],
+      ["fixed", "Fixed", "Fit the first frame only."],
+      ["follow", "Follow", "Re-frame every step."],
     ] as const) {
       const input = radio("rm-camera", key);
       this.cameraRadios.set(key, input);
@@ -362,9 +366,12 @@ export class RecordModal extends Modal {
     sound.append(this.field("Base note", this.baseNote, "Root pitch of the tone track; None = silent."));
 
     const overlays = section("Overlays");
+    this.overlayInfoLabel = this.hinted(label("Info card", this.overlayInfo), "Burn the term's name and live value into the video.");
+    this.overlayStatsLabel = this.hinted(label("Stats", this.overlayStats), "Step counter and node count, bottom-right.");
     overlays.append(
-      this.hinted(label("Info card", this.overlayInfo), "Burn the term's name and live value into the video."),
-      this.hinted(label("Stats", this.overlayStats), "Step counter and node count, bottom-right."),
+      this.hinted(label("Zen", this.zen), "Clean frames - no overlays."),
+      this.overlayInfoLabel,
+      this.overlayStatsLabel,
     );
 
     grid.append(preview, view, layout, video, pacing, sound, overlays, engines);
@@ -474,6 +481,7 @@ export class RecordModal extends Modal {
       this.stepMs,
       this.holdMs,
       this.baseNote,
+      this.zen,
       this.overlayInfo,
       this.overlayStats,
     ];
@@ -486,6 +494,7 @@ export class RecordModal extends Modal {
   private settingsChanged(): void {
     this.syncViewControls();
     this.syncGraphNative();
+    this.syncOverlayControls();
     this.queuePlanRefresh();
     this.queuePreviewRefresh();
     this.paintAvailability();
@@ -504,15 +513,17 @@ export class RecordModal extends Modal {
     this.rules.checked = this.deps.rules();
     this.graph.checked = this.deps.graph();
     this.primitives.checked = this.deps.primitives();
-    this.cameraRadios.get("fixed")!.checked = true;
+    this.cameraRadios.get("hold")!.checked = true;
     this.resolution.value = "1920x1080";
     this.fps.value = "60";
     this.stepMs.value = "300";
     this.holdMs.value = "1000";
     this.baseNote.value = "48";
+    this.zen.checked = false;
     this.overlayInfo.checked = false;
     this.overlayStats.checked = false;
     this.syncViewControls();
+    this.syncOverlayControls();
   }
 
   private prefillLayout(): RecordLayoutKey {
@@ -541,6 +552,14 @@ export class RecordModal extends Modal {
     const spinEnabled = is3D && this.rotate.checked;
     this.spinRevs.disabled = !spinEnabled;
     this.spinLabel.classList.toggle("disabled", !spinEnabled);
+  }
+
+  private syncOverlayControls(): void {
+    const zen = this.zen.checked;
+    this.overlayInfo.disabled = zen;
+    this.overlayStats.disabled = zen;
+    this.overlayInfoLabel.classList.toggle("disabled", zen);
+    this.overlayStatsLabel.classList.toggle("disabled", zen);
   }
 
   private queuePlanRefresh(): void {
@@ -647,6 +666,7 @@ export class RecordModal extends Modal {
     const stepMs = Math.max(1, Math.round(this.stepMs.valueAsNumber || 300));
     const holdMs = Math.max(0, Math.round(this.holdMs.valueAsNumber || 0));
     const audio = this.baseNote.value !== "none";
+    const zen = this.zen.checked;
     return {
       view: this.view3d.checked ? "3d" : "2d",
       layout: this.selectedLayout(),
@@ -667,9 +687,9 @@ export class RecordModal extends Modal {
       spinRevs: Number(this.spinRevs.value) || 1,
       camera: this.selectedCamera(),
       rotate: this.view3d.checked && this.rotate.checked,
-      overlayInfo: this.overlayInfo.checked,
-      overlayStats: this.overlayStats.checked,
-      info: this.overlayInfo.checked ? this.info : undefined,
+      overlayInfo: !zen && this.overlayInfo.checked,
+      overlayStats: !zen && this.overlayStats.checked,
+      info: !zen && this.overlayInfo.checked ? this.info : undefined,
     };
   }
 
@@ -680,7 +700,7 @@ export class RecordModal extends Modal {
 
   private selectedCamera(): RecordSettings["camera"] {
     for (const [camera, input] of this.cameraRadios) if (input.checked) return camera;
-    return "fixed";
+    return "hold";
   }
 
   private selectedLayout(): RecordLayoutKey {
