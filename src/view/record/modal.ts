@@ -58,7 +58,6 @@ function injectModalStyles(): void {
 .rm-form { display: flex; flex-direction: column; gap: 10px; }
 .rm-grid { display: grid; grid-template-columns: minmax(250px, 0.92fr) minmax(310px, 1.08fr); gap: 10px 12px; align-items: start; }
 .rm-col { min-width: 0; display: flex; flex-direction: column; gap: 9px; }
-.rm-bottom { grid-column: 1 / -1; min-width: 0; }
 .rm-section { border: 1px solid color-mix(in srgb, var(--md-ink) 60%, transparent); padding: 7px 8px 8px; display: flex; flex-direction: column; gap: 7px; }
 .rm-section.wide { grid-column: 1 / -1; }
 .rm-title { font-weight: 700; font-size: 12px; letter-spacing: 0.02em; }
@@ -91,7 +90,7 @@ function injectModalStyles(): void {
   .rm-body { padding: 10px 11px 12px; gap: 9px; }
   .rm-grid { grid-template-columns: 1fr; }
   .rm-col { display: contents; }
-  .rm-bottom { grid-column: 1; order: 8; }
+  .rm-engines { order: 8; }
   .rm-preview { order: 1; }
   .rm-view { order: 2; }
   .rm-layout { order: 3; }
@@ -277,8 +276,6 @@ export class RecordModal extends Modal {
     leftCol.className = "rm-col";
     const rightCol = document.createElement("div");
     rightCol.className = "rm-col";
-    const bottom = document.createElement("div");
-    bottom.className = "rm-bottom";
 
     const preview = section("Preview");
     preview.classList.add("rm-preview");
@@ -331,6 +328,7 @@ export class RecordModal extends Modal {
     layout.append(layoutRow, this.hinted(label("Expand-ι", this.expand), "Expand named birds to their raw ι trees."));
 
     const engines = section("Engines");
+    engines.classList.add("rm-engines");
     const engineRow = document.createElement("div");
     engineRow.className = "rm-row";
     this.primitivesLabel = this.hinted(label("Primitives", this.primitives), "Use native number/list/boolean kernels.");
@@ -397,9 +395,8 @@ export class RecordModal extends Modal {
     );
 
     leftCol.append(preview, sound, overlays);
-    rightCol.append(view, layout, video, pacing);
-    bottom.append(engines);
-    grid.append(leftCol, rightCol, bottom);
+    rightCol.append(view, layout, video, pacing, engines);
+    grid.append(leftCol, rightCol);
 
     const footer = document.createElement("div");
     footer.className = "rm-footer";
