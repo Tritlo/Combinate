@@ -13,8 +13,8 @@ const MARGIN = 80; // keep the row clear of the screen edges
 const ARROW = 28; // width of a ‹ / › page button
 const PAD = 14; // palette-window inner padding
 const NARROW = 560; // phone layout: smaller tabs + tighter margins
-const iotaDot = (mode: Mode): number => mode === "light" ? 0xffffff : 0x000000;
-const iotaGlyph = (mode: Mode): number => mode === "light" ? 0x000000 : 0xffffff;
+const iotaDot = (mode: Mode): number => (mode === "light" ? 0x000000 : 0xffffff);
+const iotaGlyph = (mode: Mode): number => (mode === "light" ? 0xffffff : 0x000000);
 
 /**
  * The hotbar (§8.1), bottom-centre — styled as an early-Photoshop tool palette: a

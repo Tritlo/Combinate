@@ -61,7 +61,7 @@ function nodeTexture(): Texture {
 
 /** The disc radius per node kind — the one source of truth {@link visSpec} and {@link radiusOf} share. */
 const RADIUS: Record<Node["kind"], number> = { iota: 7, comb: 15, free: 13, app: 5 };
-const iotaDot = (mode: Mode): number => mode === "light" ? 0xffffff : 0x000000;
+const iotaDot = (mode: Mode): number => (mode === "light" ? 0x000000 : 0xffffff);
 
 // A combinator sym this long or longer overflows the comb disc: IoskeleyMono at fontSize 15 (the comb
 // glyph size) is a 9px/char monospace, and the 30px disc (2×RADIUS.comb) only comfortably fits 3

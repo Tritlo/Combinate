@@ -7,7 +7,7 @@ import { wirePanelChrome, placeCard } from "./pixiPanel";
 
 const LIST_W = 248;
 const LIST_TOP = 88; // list/detail start below the title + tab row
-const iotaDot = (mode: Mode): number => mode === "light" ? 0xffffff : 0x000000;
+const iotaDot = (mode: Mode): number => (mode === "light" ? 0x000000 : 0xffffff);
 
 interface Entry {
   num: number;
