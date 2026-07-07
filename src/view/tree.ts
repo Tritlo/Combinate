@@ -291,6 +291,13 @@ export class TreeView {
     return { x: this.container.position.x + this.lay.minX, y: this.container.position.y + this.lay.minY, w: this.lay.width, h: this.lay.height };
   }
 
+  /** Node count of the currently displayed (expansion-applied) tree — the layout
+   *  positions every node exactly once, so this equals `countNodes(displayTerm)`
+   *  without re-expanding. Lets the recorder read the stat straight off the tree. */
+  nodeCount(): number {
+    return this.lay.pos.size;
+  }
+
   private colors(): Theme {
     return this.recordTheme?.colors ?? theme;
   }

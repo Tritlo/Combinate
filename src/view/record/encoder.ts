@@ -8,6 +8,7 @@ import {
   CanvasSource,
   Mp4OutputFormat,
   Output,
+  QUALITY_MEDIUM,
   canEncodeAudio,
   canEncodeVideo,
   type AudioCodec,
@@ -17,17 +18,19 @@ import type { CodecSupport, RecordPlan, RecordSettings } from "./types";
 const AUDIO_SAMPLE_RATE = 48_000;
 const AUDIO_CHANNELS = 1;
 const AUDIO_BITRATE = 160_000;
+/**
+ * Combinate frames are flat 1-bit / few-hue line-art, so a fixed high bitrate
+ * just bloats the file. Mediabunny's resolution-aware {@link QUALITY_MEDIUM}
+ * (~1.7 Mbps at 1080², vs the old ~5.6 Mbps target) is visually lossless here
+ * and roughly a third the size. VBR still undershoots on near-static frames.
+ */
+const VIDEO_QUALITY = QUALITY_MEDIUM;
 
 /** A started MP4 encoder owned by the recorder driver. */
 export interface RecordingEncoder {
   addFrame: (timestampSec: number, durationSec: number) => Promise<void>;
   finalize: () => Promise<Blob>;
   cancel: () => Promise<void>;
-}
-
-function videoBitrate(settings: RecordSettings): number {
-  const target = settings.width * settings.height * settings.fps * 0.08;
-  return Math.round(Math.max(2_000_000, Math.min(16_000_000, target)));
 }
 
 async function audioCodec(): Promise<"aac" | "opus" | null> {
@@ -50,7 +53,7 @@ export async function createRecordingEncoder(
   plan: RecordPlan,
   audioBuffer: AudioBuffer | null,
 ): Promise<RecordingEncoder> {
-  const bitrate = videoBitrate(settings);
+  const bitrate = VIDEO_QUALITY;
   if (!(await canEncodeVideo("avc", { width: settings.width, height: settings.height, bitrate }).catch(() => false))) {
     throw new Error("record: H.264 video encoding is unavailable in this browser");
   }

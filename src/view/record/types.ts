@@ -99,5 +99,8 @@ export interface CodecSupport {
 export interface RecordHooks {
   /** Called after each frame is encoded, with the offscreen canvas to blit from. */
   onFrame?: (canvas: HTMLCanvasElement, progress: RecordProgress) => void;
+  /** Called at each setup milestone before frames flow (e.g. "Building scene…"),
+   *  so the preview can show what the pre-frame black screen is doing. */
+  onPhase?: (label: string) => void;
   signal?: AbortSignal;
 }
