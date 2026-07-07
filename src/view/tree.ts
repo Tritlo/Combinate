@@ -173,7 +173,7 @@ export class TreeView {
   readonly container = new Container();
   private readonly edges = new Graphics();
   private readonly rootMark = new Graphics(); // halo on the root (snap anchor)
-  private readonly sharedMarks = new Graphics(); // ink halos on graph-shared nodes
+  private readonly sharedMarks = new Graphics(); // red halos on graph-shared nodes (ink = root)
   // All node discs in one GPU-instanced batch; glyphs in a thin layer on top.
   // Only position (movement) + color (tint + alpha fades) change per frame;
   // vertices/uvs/rotation stay static (no per-dot scale/rotation animation — the
@@ -995,7 +995,7 @@ export class TreeView {
       if (!vis) continue;
       this.sharedMarks.circle(vis.particle.x, vis.particle.y, radiusOf(kind) + 5);
     }
-    this.sharedMarks.stroke({ width: 2, color: this.colors().text });
+    this.sharedMarks.stroke({ width: 2, color: this.colors().iota }); // the tricolor red: sharing, vs the ink root halo
   }
 }
 
