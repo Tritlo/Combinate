@@ -17,7 +17,7 @@ import { TreeView } from "../tree";
 import { ensureFont, monoFontReady, MONO, themeForMode, type Theme } from "../theme";
 import { renderAudio } from "./audio";
 import { createRecordingEncoder, type RecordingEncoder } from "./encoder";
-import { createReductionReplay, frameBudget } from "./precount";
+import { createReductionReplay, createScheduleCursor, frameBudget } from "./precount";
 import type { RecordHooks, RecordPlan, RecordSettings } from "./types";
 
 function layoutFor(settings: RecordSettings): LayoutFn {
@@ -233,32 +233,6 @@ function layoutRootExtents(term: Node, settings: RecordSettings, layout: LayoutF
   return { extents: rootExtents(lay.minX, lay.maxX, lay.minY, lay.maxY, root), l0: lay.l0 };
 }
 
-// Yield to the event loop every this many pre-pass steps so the preview overlay
-// can actually paint its "preparing" progress during a 100k-step layout pre-pass.
-const PREPASS_YIELD_EVERY = 512;
-
-async function holdExtentsFor(term: Node, settings: RecordSettings, steps: number, onPrepare?: (done: number, total: number) => void, signal?: AbortSignal): Promise<RootExtents> {
-  const layout = layoutFor(settings);
-  const first = layoutRootExtents(term, settings, layout);
-  const frozen = { l0: first.l0 };
-  const best = { ...first.extents };
-  const replay = createReductionReplay(term, settings);
-  for (let i = 0; i < steps; i++) {
-    const next = replay.step();
-    if (!next) break;
-    const e = layoutRootExtents(next.node, settings, layout, frozen).extents;
-    best.halfW = Math.max(best.halfW, e.halfW);
-    best.halfH = Math.max(best.halfH, e.halfH);
-    if ((i + 1) % PREPASS_YIELD_EVERY === 0) {
-      throwIfAborted(signal);
-      onPrepare?.(i + 1, steps);
-      await new Promise((r) => setTimeout(r, 0));
-    }
-  }
-  onPrepare?.(steps, steps);
-  return best;
-}
-
 function nativeReadMode(settings: RecordSettings): Ty | undefined {
   const modes: Ty[] = [];
   if (settings.native.numbers) modes.push("Int");
@@ -354,11 +328,10 @@ interface RecordingPipeline {
   destroy: () => void;
 }
 
-async function setup2DPipeline(term: Node, settings: RecordSettings, holdSteps = 0, hooks?: RecordHooks): Promise<RecordingPipeline> {
+async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<RecordingPipeline> {
   const colors = themeForMode(settings.theme, settings.color);
-  const holdExtents = settings.camera === "hold" ? await holdExtentsFor(term, settings, holdSteps, hooks?.onPrepare, hooks?.signal) : undefined;
-  const initialExtents = holdExtents ?? layoutRootExtents(term, settings, layoutFor(settings)).extents;
-  const overlay = overlayStateFor(term, settings, initialExtents);
+  let holdExtents = layoutRootExtents(term, settings, layoutFor(settings)).extents;
+  const overlay = overlayStateFor(term, settings, holdExtents);
   const canvas = document.createElement("canvas");
   canvas.width = settings.width;
   canvas.height = settings.height;
@@ -400,6 +373,17 @@ async function setup2DPipeline(term: Node, settings: RecordSettings, holdSteps =
     throw err;
   }
   const view = tree;
+  const zoomOutToHoldExtents = (): void => {
+    const b = view.worldBounds();
+    const root = view.layoutRootWorld;
+    const next = rootExtents(b.x, b.x + b.w, b.y, b.y + b.h, root);
+    if (next.halfW <= holdExtents.halfW && next.halfH <= holdExtents.halfH) return;
+    holdExtents = {
+      halfW: Math.max(holdExtents.halfW, next.halfW),
+      halfH: Math.max(holdExtents.halfH, next.halfH),
+    };
+    applyStageFit(stage, stageFitFor(view, settings, holdExtents, overlay));
+  };
 
   return {
     canvas,
@@ -408,6 +392,8 @@ async function setup2DPipeline(term: Node, settings: RecordSettings, holdSteps =
       displayCount = countNodes(displayTerm(node, settings));
       expression = readoutExpression(node, settings);
       view.animateTo(node, durationMS, () => {});
+      if (durationMS <= 0) view.stopAnimation();
+      if (settings.camera === "hold") zoomOutToHoldExtents();
     },
     advanceTo: (timeMS) => {
       const dt = timeMS - clockMS;
@@ -434,8 +420,6 @@ async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec
     now: () => 0,
     pixelRatio: 1,
     preserveDrawingBuffer: true,
-    failOnMorphSnap: true,
-    unlimited: true,
     themeMode: settings.theme,
     color: settings.color,
   });
@@ -459,6 +443,8 @@ async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec
       displayCount = countNodes(next);
       expression = readoutExpression(node, settings);
       sphere.animateTo(next, durationMS);
+      if (durationMS <= 0) sphere.settleMorph();
+      if (settings.camera === "hold") sphere.zoomOutToFrame();
     },
     advanceTo: (timeMS) => {
       const dt = timeMS - clockMS;
@@ -476,8 +462,8 @@ async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec
   };
 }
 
-async function setupPipeline(term: Node, settings: RecordSettings, plan?: Pick<RecordPlan, "durationSec" | "steps">, hooks?: RecordHooks): Promise<RecordingPipeline> {
-  return settings.view === "3d" ? setup3DPipeline(term, settings, plan?.durationSec ?? 0) : setup2DPipeline(term, settings, plan?.steps ?? 0, hooks);
+async function setupPipeline(term: Node, settings: RecordSettings, plan?: Pick<RecordPlan, "durationSec">): Promise<RecordingPipeline> {
+  return settings.view === "3d" ? setup3DPipeline(term, settings, plan?.durationSec ?? 0) : setup2DPipeline(term, settings);
 }
 
 function cssColor(color: number): string {
@@ -662,31 +648,40 @@ export async function runRecording(
     throwIfAborted(hooks.signal);
     await prepareOverlayFont(settings);
     throwIfAborted(hooks.signal);
-    pipeline = await setupPipeline(term, settings, plan, hooks);
+    pipeline = await setupPipeline(term, settings, plan);
     const compositor = createCompositor(settings, pipeline.overlay);
 
     const audioBuffer = settings.audio && plan.tones.length > 0 ? await renderAudio(plan, settings) : null;
     encoder = await createRecordingEncoder(compositor.canvas, settings, plan, audioBuffer);
 
     const replay = createReductionReplay(term, settings);
+    const schedule = createScheduleCursor(settings);
     const frameDurationSec = 1 / settings.fps;
     const frameDurationMs = 1000 / settings.fps;
     let clockMs = 0;
     let nextStep = 0;
+    let nextGroup = schedule.next(plan.steps);
     let encodedFrames = 0;
 
     const advanceTo = (targetMs: number): void => {
-      while (nextStep < plan.steps) {
-        const stepStartMs = nextStep * settings.stepMs;
-        if (stepStartMs > targetMs + 1e-7) break;
-        if (stepStartMs > clockMs) {
-          pipeline!.advanceTo(stepStartMs);
-          clockMs = stepStartMs;
+      while (nextGroup) {
+        if (nextGroup.timeMs > targetMs + 1e-7) break;
+        if (nextGroup.timeMs > clockMs) {
+          pipeline!.advanceTo(nextGroup.timeMs);
+          clockMs = nextGroup.timeMs;
         }
-        const step = replay.step();
-        if (!step) throw new Error(`record: replay ended after ${nextStep} of ${plan.steps} planned steps`);
-        pipeline!.stepTo(step.node, settings.stepMs);
-        nextStep++;
+        let node: Node | null = null;
+        for (let i = 0; i < nextGroup.stepCount; i++) {
+          const step = replay.step();
+          if (!step) throw new Error(`record: replay ended after ${nextStep} of ${plan.steps} planned steps`);
+          node = step.node;
+          nextStep++;
+        }
+        if (node) {
+          const durationMs = nextGroup.stepCount === 1 && nextGroup.durationMs > frameDurationMs + 1e-7 ? nextGroup.durationMs : 0;
+          pipeline!.stepTo(node, durationMs);
+        }
+        nextGroup = schedule.next(plan.steps - nextStep);
       }
       if (targetMs > clockMs) {
         pipeline!.advanceTo(targetMs);
@@ -706,6 +701,9 @@ export async function runRecording(
 
     if (encodedFrames !== plan.totalFrames) {
       throw new Error(`record: encoded frame drift (${encodedFrames} !== ${plan.totalFrames})`);
+    }
+    if (nextStep !== plan.steps) {
+      throw new Error(`record: replay frame budget missed ${plan.steps - nextStep} planned steps`);
     }
     const blob = await encoder.finalize();
     finalized = true;
