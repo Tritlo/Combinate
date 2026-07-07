@@ -46,6 +46,16 @@ function fitStage(stage: Container, tree: TreeView, settings: RecordSettings): v
 }
 
 /**
+ * Render just the first frame (the term as laid out, no reduction) at the
+ * chosen resolution — the modal's "layout feel" preview thumbnail.
+ */
+export async function renderFirstFrame(term: Node, settings: RecordSettings): Promise<HTMLCanvasElement> {
+  void term;
+  void settings;
+  throw new Error("record: renderFirstFrame not implemented yet");
+}
+
+/**
  * Render `term`'s reduction to an MP4 blob under `settings`/`plan`.
  * Rejects on cancellation (AbortSignal), unsupported codecs, or driver errors.
  */
