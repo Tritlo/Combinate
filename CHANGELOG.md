@@ -4,6 +4,38 @@ All notable changes to **Combinate** — an interactive ι (iota) / SKI combinat
 sandbox. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses a single integer major per release (`vN.0`).
 
+## [11.0.0] — 2026-07-07
+
+Offline MP4 recording of reductions (ADR 24), an ι restyle, and a 3D fix.
+
+### Added
+
+- **Record MP4** (ADR 24) — a red ● in the transport bar and File ▸ Record… render
+  the focused reduction to an MP4, offline and frame-perfect: a recorder-owned
+  pipeline stepped on a manual clock (no wall time, no live controller), H.264 via
+  WebCodecs + Mediabunny, the sonification rendered through an OfflineAudioContext
+  at exact frame timestamps (AAC, Opus fallback), previewed frame-by-frame in a
+  System-1 window while it encodes. The modal prefills from the live canvas —
+  layout (H-Tree when Auto), expand-ι, rules/graph/primitives (no Turbo: nothing
+  to animate) — with a square 1080×1080 default, 2D or 3D (uncapped offline, with
+  a turntable that always completes whole revolutions), a light/dark/Colour-4096
+  override that never touches the live theme, hold/fixed/follow cameras
+  (root-anchored in an overlay-safe rect; hold fits the whole reduction from a
+  layout pre-pass), a base note for the tone track (None = silent), burn-in
+  overlays — a System-1 info card whose title is the initial expression and whose
+  body live-reads the current term through the named+native lens, plus a stats
+  line — a live first-frame preview in the modal, and a quiet combinate.app
+  watermark. Phone-sized layouts and System-1 hover hints throughout.
+
+### Changed / Fixed
+
+- **ι restyle** — ι nodes are plain ink-contrast dots (white on dark, black on
+  light; no glyph) across the 2D canvas, the 3D view, zoo mini-trees and the
+  hotbar cell.
+- **3D layout switching** — picking a layout no longer kicks the view back to 2D;
+  the sphere re-lays-out in place under the new mapping.
+- New runtime dep: `mediabunny` (pinned) for the MP4 encode/mux plumbing.
+
 ## [10.0.0] — 2026-06-26
 
 A retro System 1 Macintosh re-skin of the chrome, plus a reducer simplification
