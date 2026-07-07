@@ -453,7 +453,9 @@ async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec
     advanceTo: (timeMS) => {
       const dt = timeMS - clockMS;
       if (dt > 0) sphere.advanceMorph(dt);
-      if (settings.rotate && durationSec > 0 && dt > 0) sphere.rotateBy((settings.spinRevs * dt * Math.PI * 2) / 1000 / durationSec);
+      // Whole revolutions only — the turn must complete exactly at the clip's end.
+      const revs = Math.max(1, Math.round(settings.spinRevs));
+      if (settings.rotate && durationSec > 0 && dt > 0) sphere.rotateBy((revs * dt * Math.PI * 2) / 1000 / durationSec);
       if (settings.camera === "follow") sphere.followFrame(followAlpha(dt));
       clockMS = timeMS;
     },

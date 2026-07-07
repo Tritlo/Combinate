@@ -31,7 +31,6 @@ const BASE_NOTES = [
   { label: "C4", value: "60" },
 ] as const;
 const SPIN_REVS = [
-  { label: "1/2x", value: "0.5" },
   { label: "1x", value: "1" },
   { label: "2x", value: "2" },
   { label: "4x", value: "4" },
