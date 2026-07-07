@@ -33,6 +33,8 @@ const DASH_SIZE = 16; // arg (right) edges are DASHED, fn (left) solid — the 3
 const GAP_SIZE = 11; // (layout shells are ~92 units apart, so ~3 dashes per edge)
 const FRAME_MARGIN = 1.6; // camera pull-back factor when framing (smaller = the ball fills more of the view)
 const FRAME_FLOOR = 120; // min framing radius (keeps a tiny tree from clipping)
+const RIM_SPACER_SCALE = 1.15; // paper gap between a node and its inverted-hull rim
+const RIM_SCALE = 1.3; // colored inverted-hull rim around the root and graph-shared nodes
 const iotaDot = (mode: Mode): number => (mode === "light" ? 0x000000 : 0xffffff);
 
 type Pos3 = { x: number; y: number; z: number };
@@ -49,6 +51,7 @@ interface MorphAnim {
   baseR: number;
   sFrom: number; // 1 survivor/exit start, 0 enter start
   sTo: number; // 1 survivor/enter end, 0 exit end
+  rimI?: number; // instance slot in the root/shared rim mesh, if this node is rimmed in the target DAG
 }
 // An in-flight reduction-step morph: its own InstancedMesh + edge buffer, advanced frame by frame.
 // fn (solid) + arg (dashed) edges as separate batches so left/right reads; positions rewritten each frame.
@@ -60,6 +63,8 @@ interface EdgeBatch {
 }
 interface Morph {
   mesh: T.InstancedMesh;
+  rimSpacerMesh: T.InstancedMesh;
+  rimMesh: T.InstancedMesh;
   anims: MorphAnim[];
   edges: EdgeBatch[];
   curPos: Map<number, Pos3>;
@@ -100,6 +105,26 @@ function nodeStyle(n: Node, depth: number, palette: { mode: Mode; color: boolean
 
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 
+function sharedNodeIds(root: Node): Set<number> | null {
+  const incoming = new Set<number>();
+  let shared: Set<number> | null = null;
+  const seen = new Set<number>();
+  const noteIncoming = (n: Node): void => {
+    if (incoming.has(n.id)) (shared ??= new Set()).add(n.id);
+    else incoming.add(n.id);
+  };
+  const walk = (n: Node): void => {
+    if (n.kind !== "app" || seen.has(n.id)) return;
+    seen.add(n.id);
+    noteIncoming(n.fn);
+    noteIncoming(n.arg);
+    walk(n.fn);
+    walk(n.arg);
+  };
+  walk(root);
+  return shared;
+}
+
 /** Optional recorder/test seams; omitted in the live app for byte-identical behavior. */
 export interface Sphere3DOptions {
   /** Time source for instrumentation fields; defaults to `performance.now`. */
@@ -136,6 +161,8 @@ export class Sphere3D {
   lastBuildMs = 0;
   lastDrawMs = 0; // wall-clock of the last orbit render + texture re-upload (the per-frame cost)
   lastMorphFrameMs = 0; // CPU cost of the last advanceMorph frame (matrices + edge rewrite + dash recompute), excl. the GPU draw
+  lastRimInstanceCount = 0;
+  lastSharedRimCount = 0;
   drawCount = 0; // renders since boot (dev seam: confirms the morph render loop actually advanced)
   private layout3: Layout3Fn = layoutHTree3D; // the active 3D layout (cubic H-tree by default; sphere via setLayout3 for radial)
   private lastPos = new Map<number, Pos3>(); // currently-displayed node positions — the next morph's `from`
@@ -219,6 +246,8 @@ export class Sphere3D {
     }
     if (!node) {
       this.lastCount = 0;
+      this.lastRimInstanceCount = 0;
+      this.lastSharedRimCount = 0;
       this.lastPos = new Map();
       this.lastNodes = new Map();
       this.lastDepth = new Map();
@@ -228,7 +257,12 @@ export class Sphere3D {
     const t0 = this.now();
     const { pos, radius } = this.layout3(node);
     this.lastCount = pos.size;
+    const sharedIds = sharedNodeIds(node);
+    this.lastSharedRimCount = sharedIds?.size ?? 0;
+    this.lastRimInstanceCount = 1 + this.lastSharedRimCount;
     const group = new three.Group();
+    const rims = this.buildRims(three, node, pos, sharedIds);
+    group.add(rims.spacer, rims.rim);
     group.add(this.buildNodes(three, node, pos));
     const edges = this.buildEdges(three, node, pos);
     if (edges) group.add(edges);
@@ -294,22 +328,31 @@ export class Sphere3D {
     }
     const newNodes = this.collect(node);
     const newDepth = this.depthMap(node);
+    const sharedIds = sharedNodeIds(node);
+    this.lastSharedRimCount = sharedIds?.size ?? 0;
+    this.lastRimInstanceCount = 1 + this.lastSharedRimCount;
     const mesh = new three.InstancedMesh(new three.SphereGeometry(1, SPHERE_SEGMENTS, SPHERE_SEGMENTS), new three.MeshBasicMaterial(), ids.size);
+    const rimSpacerMesh = this.newRimSpacerMesh(three, this.lastRimInstanceCount);
+    const rimMesh = this.newRimMesh(three, this.lastRimInstanceCount);
     const anims: MorphAnim[] = [];
     const col = new three.Color();
     let i = 0;
+    let rimI = 1;
     for (const id of ids) {
       const np = newPos.get(id);
       const op = this.lastPos.get(id);
       const depth = newDepth.get(id) ?? this.lastDepth.get(id) ?? 0;
       const { radius: baseR, color } = nodeStyle(newNodes.get(id) ?? this.lastNodes.get(id)!, depth, this.recordTheme);
-      if (np && op) anims.push({ i, id, fx: op.x, fy: op.y, fz: op.z, tx: np.x, ty: np.y, tz: np.z, baseR, sFrom: 1, sTo: 1 });
-      else if (np) anims.push({ i, id, fx: np.x, fy: np.y, fz: np.z, tx: np.x, ty: np.y, tz: np.z, baseR, sFrom: 0, sTo: 1 });
-      else anims.push({ i, id, fx: op!.x, fy: op!.y, fz: op!.z, tx: op!.x, ty: op!.y, tz: op!.z, baseR, sFrom: 1, sTo: 0 });
+      const rimSlot = id === node.id ? 0 : sharedIds?.has(id) ? rimI++ : undefined;
+      if (rimSlot !== undefined) rimMesh.setColorAt(rimSlot, col.set(rimSlot === 0 ? this.colors().text : this.colors().iota));
+      if (np && op) anims.push({ i, id, fx: op.x, fy: op.y, fz: op.z, tx: np.x, ty: np.y, tz: np.z, baseR, sFrom: 1, sTo: 1, rimI: rimSlot });
+      else if (np) anims.push({ i, id, fx: np.x, fy: np.y, fz: np.z, tx: np.x, ty: np.y, tz: np.z, baseR, sFrom: 0, sTo: 1, rimI: rimSlot });
+      else anims.push({ i, id, fx: op!.x, fy: op!.y, fz: op!.z, tx: op!.x, ty: op!.y, tz: op!.z, baseR, sFrom: 1, sTo: 0, rimI: rimSlot });
       mesh.setColorAt(i, col.set(color));
       i++;
     }
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (rimMesh.instanceColor) rimMesh.instanceColor.needsUpdate = true;
     // new-tree edges, fn (left) + arg (right) as separate batches (endpoints all in `ids`, so curPos
     // has them); positions rewritten each frame. arg is dashed so left/right reads while it morphs.
     const fnPairs: Array<[number, number]> = [];
@@ -342,6 +385,7 @@ export class Sphere3D {
     batch(fnPairs, fnCols, false);
     batch(argPairs, argCols, true);
     const group = new three.Group();
+    group.add(rimSpacerMesh, rimMesh);
     group.add(mesh);
     for (const e of edges) group.add(e.seg);
     if (this.content) {
@@ -351,7 +395,7 @@ export class Sphere3D {
     this.scene.add(group);
     this.content = group;
     this.place(); // a same-term morph — keep the user's orbit/zoom
-    this.morph = { mesh, anims, edges, curPos: new Map(), node, newPos, radius, elapsed: 0, duration: Math.max(16, durationMS) };
+    this.morph = { mesh, rimSpacerMesh, rimMesh, anims, edges, curPos: new Map(), node, newPos, radius, elapsed: 0, duration: Math.max(16, durationMS) };
     this.advanceMorph(0); // paint frame 0
   }
 
@@ -375,9 +419,21 @@ export class Sphere3D {
       M.makeScale(s, s, s);
       M.setPosition(x, y, z);
       m.mesh.setMatrixAt(a.i, M);
+      if (a.rimI !== undefined) {
+        const spacer = s * RIM_SPACER_SCALE;
+        M.makeScale(spacer, spacer, spacer);
+        M.setPosition(x, y, z);
+        m.rimSpacerMesh.setMatrixAt(a.rimI, M);
+        const rim = s * RIM_SCALE;
+        M.makeScale(rim, rim, rim);
+        M.setPosition(x, y, z);
+        m.rimMesh.setMatrixAt(a.rimI, M);
+      }
       m.curPos.set(a.id, { x, y, z });
     }
     m.mesh.instanceMatrix.needsUpdate = true;
+    m.rimSpacerMesh.instanceMatrix.needsUpdate = true;
+    m.rimMesh.instanceMatrix.needsUpdate = true;
     for (const e of m.edges) {
       for (let k = 0; k < e.pairs.length; k++) {
         const pa = m.curPos.get(e.pairs[k][0])!;
@@ -474,6 +530,60 @@ export class Sphere3D {
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     return mesh;
+  }
+
+  private newRimSpacerMesh(three: typeof T, count: number): T.InstancedMesh {
+    return new three.InstancedMesh(
+      new three.SphereGeometry(1, SPHERE_SEGMENTS, SPHERE_SEGMENTS),
+      new three.MeshBasicMaterial({ color: this.colors().bg, side: three.BackSide }),
+      count,
+    );
+  }
+
+  private newRimMesh(three: typeof T, count: number): T.InstancedMesh {
+    return new three.InstancedMesh(
+      new three.SphereGeometry(1, SPHERE_SEGMENTS, SPHERE_SEGMENTS),
+      new three.MeshBasicMaterial({ side: three.BackSide }),
+      count,
+    );
+  }
+
+  private buildRims(three: typeof T, root: Node, pos: Map<number, Pos3>, sharedIds: Set<number> | null): { spacer: T.InstancedMesh; rim: T.InstancedMesh } {
+    const count = 1 + (sharedIds?.size ?? 0);
+    const spacer = this.newRimSpacerMesh(three, count);
+    const rim = this.newRimMesh(three, count);
+    const m = new three.Matrix4();
+    const col = new three.Color();
+    const seen = new Set<number>();
+    const place = (i: number, n: Node, depth: number, color: number): void => {
+      const p = pos.get(n.id)!;
+      const base = nodeStyle(n, depth, this.recordTheme).radius;
+      const gap = base * RIM_SPACER_SCALE;
+      m.makeScale(gap, gap, gap);
+      m.setPosition(p.x, p.y, p.z);
+      spacer.setMatrixAt(i, m);
+      const out = base * RIM_SCALE;
+      m.makeScale(out, out, out);
+      m.setPosition(p.x, p.y, p.z);
+      rim.setMatrixAt(i, m);
+      rim.setColorAt(i, col.set(color));
+    };
+    place(0, root, 0, this.colors().text);
+    let i = 1;
+    const walk = (n: Node, depth: number): void => {
+      if (seen.has(n.id)) return;
+      seen.add(n.id);
+      if (n.id !== root.id && sharedIds?.has(n.id)) place(i++, n, depth, this.colors().iota);
+      if (n.kind === "app") {
+        walk(n.fn, depth + 1);
+        walk(n.arg, depth + 1);
+      }
+    };
+    walk(root, 0);
+    spacer.instanceMatrix.needsUpdate = true;
+    rim.instanceMatrix.needsUpdate = true;
+    if (rim.instanceColor) rim.instanceColor.needsUpdate = true;
+    return { spacer, rim };
   }
 
   // A LineSegments for one edge batch: solid (fn) or dashed (arg). Per-vertex color carries the

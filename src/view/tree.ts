@@ -173,6 +173,7 @@ export class TreeView {
   readonly container = new Container();
   private readonly edges = new Graphics();
   private readonly rootMark = new Graphics(); // halo on the root (snap anchor)
+  private readonly sharedMarks = new Graphics(); // red halos on graph-shared nodes (ink = root)
   // All node discs in one GPU-instanced batch; glyphs in a thin layer on top.
   // Only position (movement) + color (tint + alpha fades) change per frame;
   // vertices/uvs/rotation stay static (no per-dot scale/rotation animation — the
@@ -200,6 +201,7 @@ export class TreeView {
   // time, so the per-frame edge draw is pure array iteration — no `objs` Map lookups
   // (3 per edge per frame on the animation hot path).
   private edgeList: Array<{ pv: NodeVis; lv: NodeVis; rv: NodeVis; depth: number }> = [];
+  private sharedMarkKinds: Map<NodeId, Node["kind"]> | null = null;
 
   private anims: Anim[] = [];
   private elapsed = 0;
@@ -260,7 +262,8 @@ export class TreeView {
     this.particles.eventMode = "none";
     this.pills.eventMode = "none";
     this.glyphs.eventMode = "none";
-    this.container.addChild(this.edges, this.rootMark, this.particles, this.pills, this.glyphs);
+    this.sharedMarks.eventMode = "none";
+    this.container.addChild(this.edges, this.rootMark, this.sharedMarks, this.particles, this.pills, this.glyphs);
     this.container.position.set(worldX, worldY);
     this.container.eventMode = "static";
     this.container.cursor = "grab";
@@ -768,14 +771,23 @@ export class TreeView {
   // animateAttachFrom keep the same display, so the cache stays valid there.
   private indexEdges(): void {
     this.edgeList = [];
+    this.sharedMarkKinds = null;
+    this.sharedMarks.clear();
     // Walk each app node once (by id). A shared child (graph mode) is reached from
     // several parents, so it gets several incoming edges but is walked once — the
     // edges converge on its single particle. On a tree no id repeats, so this is
     // identical to the old per-app walk.
     const seen = new Set<NodeId>();
+    const incoming = new Set<NodeId>();
+    const noteIncoming = (n: Node): void => {
+      if (incoming.has(n.id)) (this.sharedMarkKinds ??= new Map()).set(n.id, n.kind);
+      else incoming.add(n.id);
+    };
     const walk = (n: Node, depth: number): void => {
       if (n.kind !== "app" || seen.has(n.id)) return;
       seen.add(n.id);
+      noteIncoming(n.fn);
+      noteIncoming(n.arg);
       // All endpoints are in `objs` by now (rebuild/animateTo populate it before
       // indexing); skip the rare edge whose vis is somehow missing.
       const pv = this.objs.get(n.id);
@@ -850,6 +862,7 @@ export class TreeView {
       this.edges.stroke({ width: 3, color: this.edgeTierColor(parity) });
     }
     this.placeRootMark();
+    this.placeSharedMarks();
     // Drew a big tree solid because it's being redrawn rapidly (still reducing) → schedule a one-shot
     // dashed redraw for once it goes idle. A later draw (next step) cancels and reschedules it.
     if (this.objs.size > HEAVY && !dash && !this.options.deterministicEdges) {
@@ -972,6 +985,17 @@ export class TreeView {
     if (!vis) return;
     if (this.rootMarkKind !== this.display.kind) this.redrawRootMark(); // root kind changed → re-tessellate once
     this.rootMark.position.set(vis.particle.x, vis.particle.y);
+  }
+
+  private placeSharedMarks(): void {
+    if (!this.sharedMarkKinds) return;
+    this.sharedMarks.clear();
+    for (const [id, kind] of this.sharedMarkKinds) {
+      const vis = this.objs.get(id);
+      if (!vis) continue;
+      this.sharedMarks.circle(vis.particle.x, vis.particle.y, radiusOf(kind) + 5);
+    }
+    this.sharedMarks.stroke({ width: 2, color: this.colors().iota }); // the tricolor red: sharing, vs the ink root halo
   }
 }
 
