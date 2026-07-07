@@ -51,11 +51,38 @@ interface StageFit {
   scale: number;
 }
 
+interface RenderRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 interface FrameStats {
   step: number;
   totalSteps: number;
   nodes: number;
   expression: string;
+}
+
+interface InfoOverlayMetrics {
+  pad: number;
+  gap: number;
+  titlePx: number;
+  smallPx: number;
+  exprPx: number;
+  cardPadX: number;
+  cardPadY: number;
+  maxTextW: number;
+  cardH: number;
+  shadow: number;
+  reservedTop: number;
+}
+
+interface StatsOverlayMetrics {
+  pad: number;
+  px: number;
+  reservedBottom: number;
 }
 
 function abortError(): Error {
@@ -66,13 +93,57 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw abortError();
 }
 
+function lineHeight(px: number): number {
+  return Math.round(px * 1.22);
+}
+
+function infoOverlayMetrics(settings: RecordSettings): InfoOverlayMetrics | null {
+  if (!settings.overlayInfo) return null;
+  const h = settings.height;
+  const pad = Math.max(12, Math.round(h * 0.018));
+  const gap = Math.max(4, Math.round(h * 0.006));
+  const titlePx = Math.max(16, Math.round(h * 0.026));
+  const smallPx = Math.max(11, Math.round(h * 0.016));
+  const exprPx = Math.max(12, Math.round(h * 0.018));
+  const cardPadX = Math.max(10, Math.round(h * 0.015));
+  const cardPadY = Math.max(8, Math.round(h * 0.012));
+  const maxTextW = Math.max(40, Math.min(settings.width * 0.62, settings.width - pad * 2 - cardPadX * 2));
+  const linePxs: number[] = [];
+  if (settings.info) {
+    linePxs.push(titlePx);
+    if (settings.info.law) linePxs.push(smallPx);
+    if (settings.info.subtitle) linePxs.push(smallPx);
+  }
+  linePxs.push(exprPx);
+  const textH = linePxs.reduce((sum, px, i) => sum + lineHeight(px) + (i === 0 && linePxs.length > 1 ? gap : 0), 0);
+  const cardH = textH + cardPadY * 2;
+  const shadow = Math.max(2, Math.round(h * 0.004));
+  return { pad, gap, titlePx, smallPx, exprPx, cardPadX, cardPadY, maxTextW, cardH, shadow, reservedTop: pad + cardH + shadow + gap };
+}
+
+function statsOverlayMetrics(settings: RecordSettings): StatsOverlayMetrics | null {
+  if (!settings.overlayStats) return null;
+  const h = settings.height;
+  const pad = Math.max(12, Math.round(h * 0.018));
+  const px = Math.max(12, Math.round(h * 0.016));
+  return { pad, px, reservedBottom: pad + lineHeight(px) };
+}
+
+function renderRect(settings: RecordSettings): RenderRect {
+  const top = infoOverlayMetrics(settings)?.reservedTop ?? 0;
+  const bottom = statsOverlayMetrics(settings)?.reservedBottom ?? 0;
+  return { x: 0, y: top, w: settings.width, h: Math.max(1, settings.height - top - bottom) };
+}
+
 function stageFitFor(tree: TreeView, settings: RecordSettings): StageFit {
   const b = tree.worldBounds();
+  const root = tree.layoutRootWorld;
+  const rect = renderRect(settings);
   const margin = 0.82;
-  const scale = Math.max(0.04, Math.min(2.5, Math.min((settings.width * margin) / Math.max(b.w, 1), (settings.height * margin) / Math.max(b.h, 1))));
-  const cx = b.x + b.w / 2;
-  const cy = b.y + b.h / 2;
-  return { x: settings.width / 2 - cx * scale, y: settings.height / 2 - cy * scale, scale };
+  const halfW = Math.max(1, Math.max(Math.abs(root.x - b.x), Math.abs(b.x + b.w - root.x)));
+  const halfH = Math.max(1, Math.max(Math.abs(root.y - b.y), Math.abs(b.y + b.h - root.y)));
+  const scale = Math.max(0.04, Math.min(2.5, Math.min((rect.w * margin) / (2 * halfW), (rect.h * margin) / (2 * halfH))));
+  return { x: rect.x + rect.w / 2 - root.x * scale, y: rect.y + rect.h / 2 - root.y * scale, scale };
 }
 
 function applyStageFit(stage: Container, fit: StageFit): void {
@@ -313,73 +384,71 @@ function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number):
 }
 
 function drawInfoOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettings, stats: FrameStats, colors: Theme): void {
-  if (!settings.overlayInfo) return;
-  const h = settings.height;
-  const pad = Math.max(12, Math.round(h * 0.018));
-  const gap = Math.max(4, Math.round(h * 0.006));
-  const titlePx = Math.max(16, Math.round(h * 0.026));
-  const smallPx = Math.max(11, Math.round(h * 0.016));
-  const exprPx = Math.max(12, Math.round(h * 0.018));
-  const innerX = pad;
-  const innerY = pad;
-  const cardPadX = Math.max(10, Math.round(h * 0.015));
-  const cardPadY = Math.max(8, Math.round(h * 0.012));
-  const maxTextW = Math.max(40, Math.min(settings.width * 0.62, settings.width - pad * 2 - cardPadX * 2));
+  const metrics = infoOverlayMetrics(settings);
+  if (!metrics) return;
+  const innerX = metrics.pad;
+  const innerY = metrics.pad;
   const lines: Array<{ text: string; font: string; color: string; px: number }> = [];
   if (settings.info) {
-    lines.push({ text: settings.info.title, font: overlayFont(titlePx, 700), color: cssColor(colors.text), px: titlePx });
-    if (settings.info.law) lines.push({ text: settings.info.law, font: overlayFont(smallPx), color: cssColor(colors.textDim), px: smallPx });
-    if (settings.info.subtitle) lines.push({ text: settings.info.subtitle, font: overlayFont(smallPx), color: cssColor(colors.textDim), px: smallPx });
+    lines.push({ text: settings.info.title, font: overlayFont(metrics.titlePx, 700), color: cssColor(colors.text), px: metrics.titlePx });
+    if (settings.info.law) lines.push({ text: settings.info.law, font: overlayFont(metrics.smallPx), color: cssColor(colors.textDim), px: metrics.smallPx });
+    if (settings.info.subtitle) lines.push({ text: settings.info.subtitle, font: overlayFont(metrics.smallPx), color: cssColor(colors.textDim), px: metrics.smallPx });
   }
-  lines.push({ text: stats.expression, font: overlayFont(exprPx), color: cssColor(colors.text), px: exprPx });
+  lines.push({ text: stats.expression, font: overlayFont(metrics.exprPx), color: cssColor(colors.text), px: metrics.exprPx });
   let width = 0;
   const fitted = lines.map((line) => {
     ctx.font = line.font;
-    const text = fitText(ctx, line.text, maxTextW);
+    const text = fitText(ctx, line.text, metrics.maxTextW);
     width = Math.max(width, ctx.measureText(text).width);
     return { ...line, text };
   });
-  const lineH = (px: number): number => Math.round(px * 1.22);
-  const textH = fitted.reduce((sum, line, i) => sum + lineH(line.px) + (i === 0 && fitted.length > 1 ? gap : 0), 0);
-  const cardW = Math.ceil(Math.min(width, maxTextW) + cardPadX * 2);
-  const cardH = textH + cardPadY * 2;
-  const shadow = Math.max(2, Math.round(h * 0.004));
+  const cardW = Math.ceil(Math.min(width, metrics.maxTextW) + metrics.cardPadX * 2);
 
   ctx.fillStyle = "rgba(0,0,0,0.65)";
-  ctx.fillRect(innerX + shadow, innerY + shadow, cardW, cardH);
+  ctx.fillRect(innerX + metrics.shadow, innerY + metrics.shadow, cardW, metrics.cardH);
   ctx.fillStyle = cssColor(colors.panel);
-  ctx.fillRect(innerX, innerY, cardW, cardH);
+  ctx.fillRect(innerX, innerY, cardW, metrics.cardH);
   ctx.strokeStyle = cssColor(colors.border);
   ctx.lineWidth = 1;
-  ctx.strokeRect(innerX + 0.5, innerY + 0.5, cardW - 1, cardH - 1);
+  ctx.strokeRect(innerX + 0.5, innerY + 0.5, cardW - 1, metrics.cardH - 1);
 
   ctx.textBaseline = "top";
-  let y = innerY + cardPadY;
+  let y = innerY + metrics.cardPadY;
   for (let i = 0; i < fitted.length; i++) {
     const line = fitted[i];
     ctx.font = line.font;
     ctx.fillStyle = line.color;
-    ctx.fillText(line.text, innerX + cardPadX, y);
-    y += lineH(line.px) + (i === 0 && fitted.length > 1 ? gap : 0);
+    ctx.fillText(line.text, innerX + metrics.cardPadX, y);
+    y += lineHeight(line.px) + (i === 0 && fitted.length > 1 ? metrics.gap : 0);
   }
 }
 
 function drawStatsOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettings, stats: FrameStats, colors: Theme): void {
-  if (!settings.overlayStats) return;
-  const h = settings.height;
-  const pad = Math.max(12, Math.round(h * 0.018));
-  const px = Math.max(12, Math.round(h * 0.016));
+  const metrics = statsOverlayMetrics(settings);
+  if (!metrics) return;
   const text = `step ${stats.step}/${stats.totalSteps} · nodes ${stats.nodes}`;
-  ctx.font = overlayFont(px);
+  ctx.font = overlayFont(metrics.px);
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = cssColor(colors.text);
   const width = ctx.measureText(text).width;
-  ctx.fillText(text, Math.max(pad, settings.width - pad - width), settings.height - pad, settings.width - pad * 2);
+  ctx.fillText(text, Math.max(metrics.pad, settings.width - metrics.pad - width), settings.height - metrics.pad, settings.width - metrics.pad * 2);
 }
 
 interface Compositor {
   readonly canvas: HTMLCanvasElement;
   compose: (source: HTMLCanvasElement, stats: FrameStats) => HTMLCanvasElement;
+}
+
+function drawSourceCanvas(ctx: CanvasRenderingContext2D, source: HTMLCanvasElement, settings: RecordSettings): void {
+  const rect = renderRect(settings);
+  if (settings.view !== "3d" || (rect.y === 0 && rect.h === settings.height)) {
+    ctx.drawImage(source, 0, 0, settings.width, settings.height);
+    return;
+  }
+  const scale = Math.min(rect.w / settings.width, rect.h / settings.height);
+  const w = settings.width * scale;
+  const h = settings.height * scale;
+  ctx.drawImage(source, rect.x + (rect.w - w) / 2, rect.y + (rect.h - h) / 2, w, h);
 }
 
 function createCompositor(settings: RecordSettings): Compositor {
@@ -394,7 +463,7 @@ function createCompositor(settings: RecordSettings): Compositor {
     compose: (source, stats) => {
       ctx.fillStyle = cssColor(colors.bg);
       ctx.fillRect(0, 0, settings.width, settings.height);
-      ctx.drawImage(source, 0, 0, settings.width, settings.height);
+      drawSourceCanvas(ctx, source, settings);
       drawInfoOverlay(ctx, settings, stats, colors);
       drawStatsOverlay(ctx, settings, stats, colors);
       return canvas;
