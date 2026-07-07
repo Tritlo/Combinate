@@ -43,6 +43,7 @@ const DASH_SIZE = 16; // arg (right) edges are DASHED, fn (left) solid — the 3
 const GAP_SIZE = 11; // (layout shells are ~92 units apart, so ~3 dashes per edge)
 const FRAME_MARGIN = 1.6; // camera pull-back factor when framing (smaller = the ball fills more of the view)
 const FRAME_FLOOR = 120; // min framing radius (keeps a tiny tree from clipping)
+const IOTA_DOT = 0xffffff;
 
 type Pos3 = { x: number; y: number; z: number };
 // One node's tween across a reduction step: instance slot, from→to position, base radius, scale 0/1.
@@ -97,7 +98,7 @@ function nodeStyle(n: Node, depth: number, palette: { mode: Mode; color: boolean
   const tier = (d: number): number => (palette ? edgeTierColorForMode(d, palette.mode, colors) : edgeTierColor(d));
   switch (n.kind) {
     case "iota":
-      return { radius: 9, color: colors.mutedDot }; // grey sphere — ι is the bare generator (no longer gold)
+      return { radius: 9, color: IOTA_DOT };
     case "comb":
       return { radius: 18, color: palette ? (palette.color ? combinatorColorForMode(n.sym, palette.mode) : colors.node) : combinatorColor(n.sym) };
     case "free":

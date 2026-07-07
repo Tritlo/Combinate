@@ -61,6 +61,8 @@ function nodeTexture(): Texture {
 
 /** The disc radius per node kind — the one source of truth {@link visSpec} and {@link radiusOf} share. */
 const RADIUS: Record<Node["kind"], number> = { iota: 7, comb: 15, free: 13, app: 5 };
+const IOTA_DOT = 0xffffff;
+const IOTA_GLYPH = 0x000000;
 
 // A combinator sym this long or longer overflows the comb disc: IoskeleyMono at fontSize 15 (the comb
 // glyph size) is a 9px/char monospace, and the 30px disc (2×RADIUS.comb) only comfortably fits 3
@@ -83,7 +85,7 @@ function visSpec(
   const colors = palette?.colors ?? theme;
   switch (n.kind) {
     case "iota":
-      return { radius: RADIUS.iota, tint: colors.mutedDot, glyph: { text: "ι", color: colors.text, size: 10 }, boxed: false }; // grey dot + ink ι (no longer gold)
+      return { radius: RADIUS.iota, tint: IOTA_DOT, glyph: { text: "ι", color: IOTA_GLYPH, size: 10 }, boxed: false };
     case "comb": {
       const tint = palette ? (palette.color ? combinatorColorForMode(n.sym, palette.mode) : colors.node) : combinatorColor(n.sym); // per-combinator hue in Colour mode, ink in mono
       const text = labelFor(n.sym);
