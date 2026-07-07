@@ -1,5 +1,5 @@
 /**
- * The read-out lens (ADR 12): the per-frame driver behind the top-centre read-out box. It reads the
+ * The read-out lens (ADR 12): the per-frame driver behind the top-center read-out box. It reads the
  * focused tree's *current* term every frame and renders it in the box's active view:
  *
  *  - **ski** (default) — `exprOf`: the combinator s-expression of the current term, masking
@@ -7,10 +7,10 @@
  *    "show the current state" means — e.g. `map (+1) [1,2,3]` stays itself until the tree visibly
  *    reduces, instead of jumping to `[2,3,4]`).
  *  - **named** — the current term as DATA: named combinators + Scott literals (numerals / lists / bools)
- *    recognised STRUCTURALLY by `catalog.sugar` (no reduction), so it tracks the reduction — `(+) 1 1`
+ *    recognized STRUCTURALLY by `catalog.sugar` (no reduction), so it tracks the reduction — `(+) 1 1`
  *    stays `((+) 1 1)` until it actually reduces. ONLY at a true normal form (no possible reduction)
  *    does it read the value back (`read`/`render`, which is extensional → recovers `2` even from a
- *    non-optimised NF). The HM type badge (opt-in) appends on that value branch.
+ *    non-optimized NF). The HM type badge (opt-in) appends on that value branch.
  *  - **barker** — the raw Barker ι bit-code (`1` = ι, `0 <fn> <arg>` = app), bounded.
  *
  * The shell injects how to find the focused node + the active read page and owns the box placement.
@@ -60,7 +60,7 @@ const NAMED_MIN_INTERVAL = 120; // ms (~8 Hz)
 export class ReadoutLens {
   // Re-folder for naming combinator residuals (S(KS)K → B …). Used ONLY on the normal-form branch of
   // the named view (one-shot, never per-frame), plus the dev seam. Starts as the instant pure-TS
-  // behavioural pass; upgraded to the full behavioural→egg pipeline once the wasm loads at boot.
+  // behavioral pass; upgraded to the full behavioral→egg pipeline once the wasm loads at boot.
   private refolder: Refolder = behavioralRefolder;
   private refolderLoading = false;
   private refoldRaw: ((sexpr: string) => string) | null = null;
@@ -138,7 +138,7 @@ export class ReadoutLens {
   // reduce, it renders the CURRENT shape sugared (named combinators + native literals via `sugar`, no
   // normalize) so it tracks the reduction instead of spoiling the answer — `add (S 0)(S 0)` reads as
   // `((+) 1 1)`. Only once there is NO possible reduction do we read it back to a value: `read` is
-  // extensional, so it recovers e.g. `2` even from the non-optimised normal form `K (S I (K (Succ K)))`
+  // extensional, so it recovers e.g. `2` even from the non-optimized normal form `K (S I (K (Succ K)))`
   // that isn't a literal Succ-spine. A combinator / stuck-partial NF (read → null) or a term too big to
   // probe falls back to the same structural sugar (the type badge, opt-in, lives on the value branch).
   private named(node: Node, mode: Ty | undefined): string {
@@ -150,7 +150,7 @@ export class ReadoutLens {
       return this.typeOn ? `${txt}  ::  (tree too large to type)` : txt;
     }
     if (redexAt(node) === null) {
-      // Normal form. Read the value (extensional → recovers e.g. 2 from a non-optimised NF); a
+      // Normal form. Read the value (extensional → recovers e.g. 2 from a non-optimized NF); a
       // combinator / stuck-partial NF (read → null) is re-folded once here (name its birds) then
       // sugared. The HM type badge (opt-in) shows only at NF — never mid-reduction.
       const v = read(node, mode ?? null);
@@ -177,10 +177,10 @@ export class ReadoutLens {
     this.invalidate();
   }
 
-  // Load the egg re-folder wasm and upgrade the behavioural pass to the full behavioural→egg pipeline.
+  // Load the egg re-folder wasm and upgrade the behavioral pass to the full behavioral→egg pipeline.
   // Called eagerly at boot (no lazy load) so a normal-form re-fold + the dev seam are ready up front.
   // `quiet` suppresses the fallback toast — the boot load passes it, since a missing wasm just leaves
-  // the graceful behavioural refolder and isn't something to nag the user about at startup.
+  // the graceful behavioral refolder and isn't something to nag the user about at startup.
   async ensureRefolder(quiet = false): Promise<void> {
     if (this.refoldRaw || this.refolderLoading) return;
     this.refolderLoading = true;
@@ -194,8 +194,8 @@ export class ReadoutLens {
       console.log(`[combinate] re-folder wasm ready — ${(performance.now() - t0).toFixed(0)}ms (egg pipeline live)`);
       this.invalidate(); // re-render now the egg stage is live
     } catch (e) {
-      console.warn(`[combinate] re-folder wasm FAILED after ${(performance.now() - t0).toFixed(0)}ms — behavioural fallback only`, e);
-      if (!quiet) this.deps.toast.show("re-folder: behavioural only (wasm unavailable)");
+      console.warn(`[combinate] re-folder wasm FAILED after ${(performance.now() - t0).toFixed(0)}ms — behavioral fallback only`, e);
+      if (!quiet) this.deps.toast.show("re-folder: behavioral only (wasm unavailable)");
     } finally {
       this.refolderLoading = false;
     }

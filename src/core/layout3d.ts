@@ -4,7 +4,7 @@
  * the Three.js view renders.
  *
  * It's a binary spherical cone-tree (Robertson et al. 1991, adapted): the root sits at the
- * centre, depth maps to radius (concentric shells, exactly like the 2D radial), and each
+ * center, depth maps to radius (concentric shells, exactly like the 2D radial), and each
  * application fans its two children — `fn` and `arg` — into opposite lobes tilted off the
  * parent's growth direction. The split is leaf-weighted (the heavier subtree stays nearer the
  * parent's axis, the lighter one is pushed out), and the splitting plane is rotated by the

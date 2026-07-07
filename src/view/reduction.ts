@@ -1,7 +1,7 @@
 /**
  * The auto-reduce + transport subsystem, extracted from app.ts (reorg, ADR 12). Owns the
  * per-tree reduction loop (each settled tree plays itself to normal form one tween at a
- * time, cancelled on touch), the playback transport (play / pause / fast-forward), the
+ * time, canceled on touch), the playback transport (play / pause / fast-forward), the
  * non-termination guard, and the graph-mode lifecycle. Pure-ish imperative shell: the Pixi
  * side effects (the transport bar) stay in app.ts and are injected
  * as callbacks, so this is the state machine, not the chrome.
@@ -18,6 +18,7 @@ const AUTO_DELAY = 450; // ms a tree must sit untouched before it starts reducin
 const MORPH_POLL_MS = 16; // while a focused 3D morph is playing, re-check this often before stepping
 const STEP_MS = 300; // duration of one reduction-step tween
 const STEP_GAP = 700; // pause between reduction steps — with STEP_MS this makes Play ≈ 1 reduction/s
+const TINY_STEP_GAP = 130; // first-minute terms like (ι ι) should resolve at the v10 cadence
 const HEAVY_GAP = 8; // "max" transport's per-step gap — as fast as it animates but still yielding to the renderer (≠ 0, which starves rAF; ADR 22)
 const STEP_CAP = 2000; // non-termination guard: stop auto-reducing past this many steps
 const GRAPH_STEP_CAP = 100_000; // graph mode shares (cheap steps) — let fac-scale reductions finish
@@ -91,7 +92,7 @@ export interface ReductionDeps {
   makeSession: (term: Node) => WasmSession | null;
   /** The focused tree if it is still live on the canvas, else null. */
   focusedLive: () => TreeView | null;
-  settle: (tree: TreeView) => void; // recognise + collapse a normal form
+  settle: (tree: TreeView) => void; // recognize + collapse a normal form
   onNormalForm: (source: Node) => void; // golf + quest progression
   tickSound: (sym: string | null) => void; // a tone per contraction (null = no rule)
   notify: (msg: string) => void; // toast
@@ -155,12 +156,19 @@ export class ReductionController {
   private stepGap(): number {
     return STEP_GAP / this.speed();
   }
+  private tinyStepGap(): number {
+    return TINY_STEP_GAP / this.speed();
+  }
+  private tinySource(a: AutoState): boolean {
+    return !!a.source && !exceedsNodes(a.source, 3);
+  }
   // Pacing honours the transport (ADR 22): play/ff keep their advertised per-step gap no matter
   // how big the tree draws — a display-cost threshold (TreeView.heavy(), the 600-particle
   // jump-cut) must never change playback speed; it used to, silently running "play" at ~40 red/s.
   // Only "max" (≈ as-fast-as-it-animates) takes the short fixed gap.
-  private nextGap(): number {
-    return this.transport === "max" ? Math.max(1, HEAVY_GAP / this.mult) : this.stepGap();
+  private nextGap(a: AutoState): number {
+    if (this.transport === "max") return Math.max(1, HEAVY_GAP / this.mult);
+    return this.tinySource(a) ? this.tinyStepGap() : this.stepGap();
   }
   // A focused tree whose 3D morph is still animating must wait — advancing the visible state now
   // would cut the morph short (in 3D the 2D view is hidden, so the morph IS the visible step). True
@@ -330,7 +338,7 @@ export class ReductionController {
     this.deps.notify(`auto-paused — ${reason}`);
   }
 
-  // A tree reached normal form: recognise + collapse it, then score it (golf + quest).
+  // A tree reached normal form: recognize + collapse it, then score it (golf + quest).
   // Shared by the auto loop and the manual Step button so both record solves.
   private finishNormalForm(tree: TreeView, a: AutoState): void {
     // settle() recognises the NF against the catalog; onNormalForm() runs the quest/golf
@@ -413,7 +421,7 @@ export class ReductionController {
         const a2 = this.auto.get(tree);
         if (!a2 || a2.gen !== gen) return;
         if (this.transport === "pause") return;
-        a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap());
+        a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(a2));
       });
       return;
     }
@@ -431,7 +439,7 @@ export class ReductionController {
     } else {
       const redex = redexAt(tree.node, fast, this.deps.getNative());
       if (!redex) {
-        this.finishNormalForm(tree, a); // normal form reached — recognise, collapse, score
+        this.finishNormalForm(tree, a); // normal form reached — recognize, collapse, score
         return;
       }
       next = redex.build(); // build before the side effects (sound/step count)
@@ -448,7 +456,7 @@ export class ReductionController {
       if (this.wantsTurbo(tree, a2.steps) && this.engageTurbo(tree, a2)) {
         a2.timer = window.setTimeout(() => this.turboTick(tree, gen), this.turboGap());
       } else {
-        a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap());
+        a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(a2));
       }
     });
   }
@@ -514,7 +522,7 @@ export class ReductionController {
         this.finishNormalForm(tree, a2);
         return;
       }
-      a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap());
+      a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(a2));
     });
   }
 
@@ -567,7 +575,7 @@ export class ReductionController {
           const a2 = this.auto.get(tree);
           if (!a2 || a2.gen !== gen) return;
           if (this.transport === "pause") return;
-          a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap());
+          a2.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(a2));
         });
         return;
       }
@@ -584,7 +592,7 @@ export class ReductionController {
       this.finishNormalForm(tree, a);
       return;
     }
-    a.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap());
+    a.timer = window.setTimeout(() => this.stepAuto(tree, gen), this.nextGap(a));
   }
 
   /** Step: pause, then advance the focused tree by exactly one reduction (no reschedule).

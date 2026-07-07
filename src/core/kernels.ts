@@ -3,7 +3,7 @@
  * primitive (MicroHs-FFI style, but no IO). One registry + one reducer hook: at a
  * saturated `comb` head, `reduce.ts` asks {@link kernelFor}; if a kernel is registered
  * and its gate is open, the redex's `build` runs `kernel.run(args)` and falls back to the
- * catalog rule when it returns `null` (operands not recognised as values). A kernel emits
+ * catalog rule when it returns `null` (operands not recognized as values). A kernel emits
  * the exact canonical pure tree — it never leaks a native payload — so the round-trip
  * invariant holds by construction, exactly like native values (which are the built-in
  * kernels registered here).

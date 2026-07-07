@@ -488,6 +488,8 @@ trade fidelity for speed must be triggered by measured cost against the frame bu
 batch paths already are: 6ms wall-clock budgets) or by genuine runaway guards (BALLOON_CAP,
 step caps) — never by size alone. Consequence: a big raw grind at play is slow *on purpose*; the
 player switches to ff/max or enables the engines, rather than the app overriding their choice.
+Amendment (v11 hotfix): terms whose *source* is tiny (≤3 nodes — the first-minutes ι-snaps)
+keep the quick 130ms cadence; the deliberate pace begins once terms have any size to read.
 
 ## 23: One naming model — Law.label, page-scoped overrides, canvas-as-context-lens
 **Status:** Accepted.

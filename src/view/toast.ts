@@ -6,7 +6,7 @@ const HOLD = 1900;
 const OUT = 450;
 
 /** Discovery toast (§7.4): fades in, holds, fades out. Lives in the HUD (screen
- * space), centred below the read-out + its sub-line so it doesn't collide with
+ * space), centered below the read-out + its sub-line so it doesn't collide with
  * the menu bar / expression at the top. */
 export class Toast {
   readonly container = new Container();
@@ -21,10 +21,10 @@ export class Toast {
 
   show(text: string): void {
     for (const c of this.container.removeChildren()) c.destroy({ children: true });
-    // System-1 chrome: paper panel, square ink border, a hard drop shadow, ink text (no accent colour).
+    // System-1 chrome: paper panel, square ink border, a hard drop shadow, ink text (no accent color).
     const t = new Text({ text, style: { fontFamily: "monospace", fontSize: 18, fill: theme.text } });
     t.anchor.set(0.5);
-    t.roundPixels = true; // snap to whole pixels — a fractional centre (odd text width / window) blurs the glyphs
+    t.roundPixels = true; // snap to whole pixels — a fractional center (odd text width / window) blurs the glyphs
     const w = t.width + 40;
     const h = t.height + 20;
     const shadow = new Graphics().rect(-w / 2 + 3, -h / 2 + 3, w, h).fill({ color: 0x000000, alpha: 0.2 });
@@ -39,7 +39,7 @@ export class Toast {
     }
   }
 
-  /** Centre horizontally for the current screen size. */
+  /** Center horizontally for the current screen size. */
   layout(): void {
     this.container.x = Math.round(window.innerWidth / 2);
     this.container.y = Math.round(this.baseY);

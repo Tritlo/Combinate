@@ -6,8 +6,8 @@
  *
  * Buckets are spatial regions on the canvas, NOT explicit slots: an unbounded horizontal strip
  * keyed by a stable integer `k` (world x = k · spacing; k may be negative). You start on bucket 0;
- * arrowing ←/→ pans to the neighbour, and arrowing past an end simply focuses a fresh empty bucket
- * (so "adding a bucket" is implicit). The focused bucket renders bright; its neighbours fade to
+ * arrowing ←/→ pans to the neighbor, and arrowing past an end simply focuses a fresh empty bucket
+ * (so "adding a bucket" is implicit). The focused bucket renders bright; its neighbors fade to
  * {@link DIM} — the spatial "there's more ←/→" cue (they peek faded at the screen edges). Each
  * bucket's term is a world-space `TreeView` the scene creates/destroys; this tracks which k holds
  * which + keeps the camera framing the focused one. Mouse input stays fully live; grabbing a bucket
@@ -18,7 +18,7 @@ import { type TreeView } from "./tree";
 import { type Hotbar } from "./hotbar";
 import { type Intent } from "./keymap";
 
-const DIM = 0.3; // faded-neighbour opacity (the focused bucket stays at 1)
+const DIM = 0.3; // faded-neighbor opacity (the focused bucket stays at 1)
 
 /** The scene primitives the controller drives (provided by app.ts). */
 export interface GameScene {
@@ -42,7 +42,7 @@ export interface GameScene {
   captureWorld: (tree: TreeView) => Map<number, { x: number; y: number }>;
   /** Forget + remove + destroy a tree. */
   removeTree: (tree: TreeView) => void;
-  /** Centre the camera on a bucket's world x (faded-neighbour framing — neighbours peek at the edges). */
+  /** Center the camera on a bucket's world x (faded-neighbor framing — neighbors peek at the edges). */
   frameBucketAt: (x: number) => void;
   pan: (dx: number, dy: number) => void;
   zoom: (factor: number) => void;
@@ -106,7 +106,7 @@ export class GameInputController {
   /** Show/hide the DEVICE-gated visual — the toolbar's game cursor — and nothing else. The four
    *  controls' visuals are split by what gates each (a device switch must not lurch the camera or
    *  re-dim trees): the cursor is device-gated (here); the held badge is hand-gated (see
-   *  {@link render}); the camera framing + the faded-neighbour strip are navigation-gated (see
+   *  {@link render}); the camera framing + the faded-neighbor strip are navigation-gated (see
    *  {@link frameSelected}). So this toggles only the cursor, un-fades on the way out, and lets the
    *  badge follow the hand — it never frames a bucket. Build state (zone/selected/hand) is preserved. */
   setEnabled(on: boolean): void {
@@ -151,7 +151,7 @@ export class GameInputController {
   detach(tree: TreeView): void {
     for (const [k, t] of this.buckets) {
       if (t === tree) {
-        t.container.alpha = 1; // it's leaving the faded-neighbour strip — restore full opacity
+        t.container.alpha = 1; // it's leaving the faded-neighbor strip — restore full opacity
         this.buckets.delete(k);
         return;
       }
@@ -238,7 +238,7 @@ export class GameInputController {
     this.scene.hotbar.cycleTab(d);
     if (this.zone !== "hotbar") this.toZone("hotbar");
   }
-  // Frame the focused bucket (camera centres on it; neighbours peek faded) + refresh the fade.
+  // Frame the focused bucket (camera centers on it; neighbors peek faded) + refresh the fade.
   private frameSelected(): void {
     this.scene.frameBucketAt(this.scene.bucketAnchor(this.selected).x);
     this.applyFade();
@@ -374,9 +374,9 @@ export class GameInputController {
       t.container.visible = false;
       this.previewHidden = t;
       this.preview = this.scene.preview(result, a);
-      this.preview.dimExcept(keep, 0.45); // grey the new app node + held; the placed tree stays bright
+      this.preview.dimExcept(keep, 0.45); // gray the new app node + held; the placed tree stays bright
     } else {
-      // Empty: the whole held term is new — grey it all where it'll land.
+      // Empty: the whole held term is new — gray it all where it'll land.
       this.preview = this.scene.preview(this.hand.node, a);
       this.preview.container.alpha = 0.5;
     }

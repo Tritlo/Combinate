@@ -1,12 +1,12 @@
 /**
  * Golf challenges (ADR 0005): a data-driven set of goals, each with a *target*
- * (a behavioural predicate over a built tree). Pure — no Pixi/DOM. A *solution*
+ * (a behavioral predicate over a built tree). Pure — no Pixi/DOM. A *solution*
  * is a tree whose target predicate holds; its score is {@link iotaCost} (lower is
  * better). The shell evaluates a challenge when a tree settles at normal form,
  * records the best (Store.putBest), and shares/ranks it as a permalink
  * (verify-by-replay leaderboard).
  *
- * Targets reuse the existing machinery: the behavioural probe (`probe.ts`, "does
+ * Targets reuse the existing machinery: the behavioral probe (`probe.ts`, "does
  * this tree act like combinator X?") and the Scott value reader (`value.ts`,
  * "does this reduce to the number/list/boolean N?"). The metric is the honest
  * ι-count: a named combinator is charged for its full ι-tree, so dragging a

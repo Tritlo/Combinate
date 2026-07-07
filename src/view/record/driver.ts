@@ -103,7 +103,7 @@ interface OverlayMetrics {
 }
 
 function abortError(): Error {
-  return new Error("recording cancelled");
+  return new Error("recording canceled");
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
@@ -569,7 +569,7 @@ interface Compositor {
   compose: (source: HTMLCanvasElement, stats: FrameStats) => HTMLCanvasElement;
 }
 
-/** A quiet grey watermark in the bottom-right corner — drawn on every frame. */
+/** A quiet gray watermark in the bottom-right corner — drawn on every frame. */
 function drawAttribution(ctx: CanvasRenderingContext2D, settings: RecordSettings, colors: Theme): void {
   const px = Math.max(10, Math.round(settings.height * 0.018));
   const pad = Math.max(6, Math.round(settings.height * 0.012));

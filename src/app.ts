@@ -43,8 +43,7 @@ import { Help } from "./view/help";
 import { withMotion } from "./view/motion";
 import { OPT_SETTINGS, isOpt, setOpt, onOptChange, type OptKey } from "./view/optimize";
 import { type NativeOpts } from "./core/native";
-import { runRecording } from "./view/record/driver";
-import { RecordModal, RecordPreviewOverlay } from "./view/record/modal";
+import type { RecordModal, RecordPreviewOverlay } from "./view/record/modal";
 import type { RecordInfo, RecordPlan, RecordSettings } from "./view/record/types";
 import { GameInputController } from "./view/gameInput";
 import { ContextMenu } from "./view/contextMenu";
@@ -63,12 +62,12 @@ const PAD_ORBIT = 320; // 3D orbit: px-equivalent/sec at full left-stick deflect
 const PAD_PAN = 1100; // build camera pan: world-px/sec at full right-stick deflection
 const PAD_PAN3D = 600; // 3D pan: px-equivalent/sec at full right-stick deflection
 const PAD_ROT_STEP = 22; // 3D orbit: px-equivalent per gamepad d-pad step
-const COLLAPSE_MS = 340; // morph from a recognised normal form into its named node
+const COLLAPSE_MS = 340; // morph from a recognized normal form into its named node
 const ATTACH_MS = 280; // glide two trees together when snapped
 const DELETE_MS = 240; // fade out a right-clicked subtree
 
 /** Wire the functional core to a Pixi scene: hotbar → spawn, drag → move/snap,
- * auto-reduce on idle (cancelled on touch), plus a pannable/zoomable camera
+ * auto-reduce on idle (canceled on touch), plus a pannable/zoomable camera
  * (§5.3, §6). */
 export async function mountApp(onStep: (label: string) => void = () => {}): Promise<void> {
   initTheme(); // pick light/dark from the OS before anything paints
@@ -141,14 +140,14 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const discoveryCard = new DiscoveryCard(); // DOM card on discovery (a rotating 3D mini-view) — replaces the discovery toast
 
   // Live read-out of the focused tree's current expression — a small clickable System-1 box,
-  // top-centre. Its title bar cycles the view (combinators / named + native / Barker 0/1); the
+  // top-center. Its title bar cycles the view (combinators / named + native / Barker 0/1); the
   // ReadoutLens below polls the box's view each frame and owns the compute. The box is DOM
   // (matches the quest tracker / discovery card chrome) and themes itself.
   const readoutBox = new ReadoutBox();
   // (Quest hints live in the Quest tracker + the Quest window — not on the main canvas.)
 
   // ---- discovery (§7): the set of combinators found so far. Drives the
-  // behavioural probe (what to still look for) and the masking of transient
+  // behavioral probe (what to still look for) and the masking of transient
   // S/K/I nodes (undiscovered ones render as "?", revealed on discovery). ----
   // Discovered combinators persist across sessions (localStorage); the player's own
   // authored combos are tracked separately so a "Reset progress" keeps them.
@@ -202,16 +201,19 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     onToggle: () => paintRail(),
     toast,
   });
-  void readout.ensureRefolder(true); // load the re-folder wasm at boot (no lazy load); quiet — a missing wasm just keeps the behavioural fallback
+  void readout.ensureRefolder(true); // load the re-folder wasm at boot (no lazy load); quiet — a missing wasm just keeps the behavioral fallback
 
   // Layout: auto by default (§5.1); the other layouts are reachable via the View menu or
   // toggleLayout() (the __combinate.toggleLayout dev seam) — no key is bound to either.
   let layoutFn: LayoutFn = layoutAuto;
   let layoutControls: LayoutControls | undefined; // the top-right toggle bar (wired once the shell is built)
-  let recordModal: RecordModal | undefined; // built after the layout/optimization getters exist
+  let recordModal: RecordModal | undefined; // lazy: the MP4 recorder lives off the first-load path
+  let recordPreview: RecordPreviewOverlay | undefined;
+  let recordModalLoad: Promise<typeof import("./view/record/modal")> | undefined;
+  let recordDriverLoad: Promise<typeof import("./view/record/driver")> | undefined;
   let recording = false;
 
-  // What a recognised tree collapses into: a single named node. I/K/S reduce by
+  // What a recognized tree collapses into: a single named node. I/K/S reduce by
   // built-in rules; the rest carry their definition (law.def) for the reducer
   // to unfold when applied.
   const collapsedNode = (law: Law): Node => comb(law.sym, law.def?.(), law.arity);
@@ -251,7 +253,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     paintRail();
   }
 
-  // When a tree settles at normal form, recognise what it does: unlock the law
+  // When a tree settles at normal form, recognize what it does: unlock the law
   // if new (§7), then collapse the tree into that single named node so a
   // discovered combinator shows up *as itself* (e.g. I), not as `S K (K K)`.
   function settle(tree: TreeView): void {
@@ -290,7 +292,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   // Prompt for a fresh combinator name, validating against the catalog + existing
   // user combinators (ADR 0006: reject collisions). Returns the trimmed name, or
-  // null if the player cancelled or entered an invalid one.
+  // null if the player canceled or entered an invalid one.
   function promptName(): string | null {
     const raw = window.prompt("name this combinator:");
     if (raw === null) return null;
@@ -408,7 +410,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   // Transport bar (top-right): rate read-out + Pause/Step/Play/FF — a thin view over the
   // ReductionController (extracted to view/transportBar.ts, ADR 12).
-  const transportBar = new TransportBar(pixi.ticker, reduce, sound, () => openRecord());
+  const transportBar = new TransportBar(pixi.ticker, reduce, sound, () => void openRecord());
 
   // Reduction progress bar (plan 02): a thin fill along the top edge of the hotbar box, showing how
   // far the focused tree's reduction has played vs the background same-mode total. Shown only when
@@ -657,7 +659,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   pixi.stage.on("pointerup", onUp);
   pixi.stage.on("pointerupoutside", onUp);
 
-  // Preview the application about to form, with the same fn/arg edge colours as
+  // Preview the application about to form, with the same fn/arg edge colors as
   // the committed result so you can see which side becomes the function.
   function drawGhost(dragged: TreeView, target: TreeView | null): void {
     ghost.clear();
@@ -950,7 +952,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     );
   }
 
-  /** Frame a tree to fill the viewport (zoom + centre) — from its layout bbox. */
+  /** Frame a tree to fill the viewport (zoom + center) — from its layout bbox. */
   function fitTree(tree: TreeView): void {
     const b = tree.worldBounds();
     const margin = 0.82;
@@ -962,9 +964,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   // Game mode's spatial buckets (ADR 17): a stable horizontal strip BUCKET_SPACING apart, keyed by k.
   const BUCKET_SPACING = 640;
-  // Centre the camera on a bucket's world x at a fixed "region" zoom so the neighbours (±spacing)
-  // peek faded at the screen edges — the faded-neighbour spatial cue. Anchors sit at world y=0; we
-  // drop the focus a little above centre so the tree has room to grow downward over the hotbar.
+  // Center the camera on a bucket's world x at a fixed "region" zoom so the neighbors (±spacing)
+  // peek faded at the screen edges — the faded-neighbor spatial cue. Anchors sit at world y=0; we
+  // drop the focus a little above center so the tree has room to grow downward over the hotbar.
   function frameBucketAt(x: number): void {
     const z = Math.min(1.3, window.innerWidth / (BUCKET_SPACING * 2.3));
     camera.place(x, 0, z, window.innerWidth / 2, window.innerHeight * 0.5);
@@ -1055,20 +1057,33 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const setAllNative = (on: boolean): void => {
     for (const k of NATIVE_KEYS) setOpt(k, on);
   };
-  const recordPreview = new RecordPreviewOverlay();
-  recordModal = new RecordModal({
-    is3D: () => sphere.active(),
-    layout: () => layoutName(),
-    expandIota: () => expandAll,
-    rules: () => isOpt("rules"),
-    graph: () => isOpt("graph"),
-    primitives: () => nativeAllOn(),
-    color: () => colorOn(),
-    onRecord: (term, settings, plan) => {
-      void startRecording(term, settings, plan);
-    },
-    onError: (message) => toast.show(message),
-  });
+  const loadRecordModal = (): Promise<typeof import("./view/record/modal")> => (recordModalLoad ??= import("./view/record/modal"));
+  const loadRecordDriver = (): Promise<typeof import("./view/record/driver")> => (recordDriverLoad ??= import("./view/record/driver"));
+  const ensureRecordPreview = async (): Promise<RecordPreviewOverlay> => {
+    if (recordPreview) return recordPreview;
+    const mod = await loadRecordModal();
+    recordPreview = new mod.RecordPreviewOverlay();
+    return recordPreview;
+  };
+  const ensureRecordModal = async (): Promise<RecordModal> => {
+    if (recordModal) return recordModal;
+    const mod = await loadRecordModal();
+    recordPreview ??= new mod.RecordPreviewOverlay();
+    recordModal = new mod.RecordModal({
+      is3D: () => sphere.active(),
+      layout: () => layoutName(),
+      expandIota: () => expandAll,
+      rules: () => isOpt("rules"),
+      graph: () => isOpt("graph"),
+      primitives: () => nativeAllOn(),
+      color: () => colorOn(),
+      onRecord: (term, settings, plan) => {
+        void startRecording(term, settings, plan);
+      },
+      onError: (message) => toast.show(message),
+    });
+    return recordModal;
+  };
   // The top-right layout toggle bar (under the transport): [2D|3D], [Top-Down|Radial|H-tree], [Auto].
   layoutControls = new LayoutControls({
     is3D: () => sphere.active(),
@@ -1204,7 +1219,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "sep" },
       { kind: "action", label: "Compile Haskell…", title: "Compile a Haskell expression into a combinator tree, using Micro Haskell.", run: () => mhsPanel.open() },
       { kind: "action", label: "Share Link", title: "Copy a permalink to the current canvas.", run: () => shareFocused() },
-      { kind: "action", label: "Record…", title: "Render the focused reduction to an MP4.", run: () => openRecord() },
+      { kind: "action", label: "Record…", title: "Render the focused reduction to an MP4.", run: () => void openRecord() },
     ] },
     { title: "Edit", items: [
       { kind: "action", label: "Clear Canvas", title: "Remove every tree from the canvas.", run: () => clearCanvas() },
@@ -1227,7 +1242,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "radio", label: "Read-Out: Barker (0/1)", title: "Show the term as Barker bit-code.", on: () => readout.view === "barker", run: () => readoutBox.setView("barker") },
       { kind: "sep" },
       { kind: "toggle", label: "Dark Mode", title: "Switch to the dark palette.", checked: () => currentMode() === "dark", run: () => toggleMode() },
-      { kind: "toggle", label: "Color (4096)", title: "Enable the 4096-colour palette.", checked: () => colorOn(), run: () => toggleColor() },
+      { kind: "toggle", label: "Color (4096)", title: "Enable the 4096-color palette.", checked: () => colorOn(), run: () => toggleColor() },
       { kind: "sep" },
       { kind: "toggle", label: "Track Quest", title: "Show the quest-tracker panel.", checked: () => !quest.done && !questTracker.isHidden, run: () => { questTracker.setHidden(!questTracker.isHidden); paintRail(); } },
       { kind: "toggle", label: "Show Controls", title: "Show the on-screen control hints.", checked: () => showControls, run: () => setShowControls(!showControls) },
@@ -1236,7 +1251,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     { title: "Optimizations", items: [
       optItem("rules"),
       optItem("graph"),
-      { kind: "toggle", label: "Primitives", title: "Compute catalog numbers, lists, and booleans on recognised native values directly.", checked: () => nativeAllOn(), run: () => setAllNative(!nativeAllOn()) },
+      { kind: "toggle", label: "Primitives", title: "Compute catalog numbers, lists, and booleans on recognized native values directly.", checked: () => nativeAllOn(), run: () => setAllNative(!nativeAllOn()) },
       optItem("wasm"),
     ] },
   ];
@@ -1313,14 +1328,19 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
 
   /** Pause live playback and open the record modal on a fresh snapshot of the focused term. */
-  function openRecord(): void {
+  async function openRecord(): Promise<void> {
     if (recording) {
       toast.show("recording already in progress");
       return;
     }
     reduce.setTransport("pause");
     const term = focus && trees.includes(focus) ? cloneTerm(focus.node) : null;
-    recordModal?.openFor(term, term ? recordInfoFor(term) : undefined);
+    try {
+      const modal = await ensureRecordModal();
+      modal.openFor(term, term ? recordInfoFor(term) : undefined);
+    } catch (err) {
+      toast.show(err instanceof Error && err.message ? err.message : "recording UI unavailable");
+    }
   }
 
   /** Run the offline recorder behind the preview window, then download the finished MP4. */
@@ -1331,20 +1351,23 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
     recording = true;
     const abort = new AbortController();
-    recordPreview.show(settings.width, settings.height, plan.totalFrames, () => abort.abort());
+    let preview: RecordPreviewOverlay | undefined;
     try {
+      preview = await ensureRecordPreview();
+      preview.show(settings.width, settings.height, plan.totalFrames, () => abort.abort());
+      const { runRecording } = await loadRecordDriver();
       const blob = await runRecording(term, settings, plan, {
         signal: abort.signal,
-        onFrame: (canvas, progress) => recordPreview.blit(canvas, progress),
+        onFrame: (canvas, progress) => preview?.blit(canvas, progress),
       });
-      if (abort.signal.aborted) throw new Error("recording cancelled");
+      if (abort.signal.aborted) throw new Error("recording canceled");
       downloadRecording(blob);
       toast.show("recording downloaded");
     } catch (err) {
-      const message = err instanceof Error && err.message ? err.message : abort.signal.aborted ? "recording cancelled" : String(err);
+      const message = err instanceof Error && err.message ? err.message : abort.signal.aborted ? "recording canceled" : String(err);
       toast.show(message);
     } finally {
-      recordPreview.close();
+      preview?.close();
       recording = false;
     }
   }
@@ -1559,15 +1582,17 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     l1.position.set(34, -7);
     const l2 = new Text({ text: "argument (right)", style });
     l2.position.set(34, 11);
-    const l3 = new Text({ text: "colour = depth", style });
+    const l3 = new Text({ text: "color = depth", style });
     l3.position.set(34, 29);
     c.addChild(l1, l2, l3);
   }
 
   // The re-folding lens wasm is already loading (readout.ensureRefolder(true), fired at boot above);
-  // the behavioural-only re-folder bridges until it's ready.
+  // the behavioral-only re-folder bridges until it's ready.
   if (isOpt("wasm")) void loadWasmReducer(); // persisted Turbo → warm the wasm so the first reduction uses it
   void preloadSphere3D(); // warm the Three.js chunk so the first 3D view is instant
+  void loadRecordModal(); // warm the recorder chunks during boot — the ● must be instant,
+  void loadRecordDriver(); // but their weight stays out of the main chunk's first paint
   onStep("lenses"); // splash step 3/4
 
   // Warm the MicroHs live-compile blob + cache (the 3 MB compiler), so the Haskell
@@ -1698,7 +1723,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
         ready: () => readout.refolderReady,
         init: () => readout.ensureRefolder(),
         raw: (s: string) => readout.rawRefold(s),
-        // behavioural pre-pass alone, on an egg s-expression term
+        // behavioral pre-pass alone, on an egg s-expression term
         deep: (s: string) => sexp(recognizeDeep(fromEgg(s))),
         // Phase 1 value reader, on an egg s-expression term
         value: (s: string) => {

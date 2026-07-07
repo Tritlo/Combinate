@@ -47,9 +47,9 @@ function freshVars(n: number, used: Set<string>): Node[] {
 }
 
 /**
- * Behavioural discovery (§7.1): apply `tree` to `law.arity` fresh free variables,
+ * Behavioral discovery (§7.1): apply `tree` to `law.arity` fresh free variables,
  * normal-order reduce, and check the normal form equals the law's reference
- * output on those same variables. Discovery is behavioural, not syntactic —
+ * output on those same variables. Discovery is behavioral, not syntactic —
  * `(ι ι)` normalises to `S K (K K)` yet `(ι ι) a ≡ a`, so it realises `I`.
  *
  * Returns false if the term fails to reach a normal form within the step cap.

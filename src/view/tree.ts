@@ -37,7 +37,7 @@ void monoFontReady(15).then(() => {
   for (const v of liveViews) v.refresh();
 });
 
-// Node/edge colours come from the active theme (theme.ts). Edges encode two things: STYLE =
+// Node/edge colors come from the active theme (theme.ts). Edges encode two things: STYLE =
 // function (left, solid) vs argument (right, dashed), and COLOUR = depth tier (edgeTierColor:
 // red/black alternating), so a node's parent-edge differs from its child-edges and `(ι X)` vs
 // `(X ι)` read differently.
@@ -86,13 +86,13 @@ function visSpec(
     case "iota":
       return { radius: RADIUS.iota, tint: iotaDot(palette?.mode ?? currentMode()), glyph: null, boxed: false };
     case "comb": {
-      const tint = palette ? (palette.color ? combinatorColorForMode(n.sym, palette.mode) : colors.node) : combinatorColor(n.sym); // per-combinator hue in Colour mode, ink in mono
+      const tint = palette ? (palette.color ? combinatorColorForMode(n.sym, palette.mode) : colors.node) : combinatorColor(n.sym); // per-combinator hue in Color mode, ink in mono
       const text = labelFor(n.sym);
       return { radius: RADIUS.comb, tint, glyph: { text, color: glyphOn(tint), size: 15 }, boxed: text.length >= PILL_MIN_LEN };
     }
     case "free":
-      // a free var sits on a muted (grey) dot, so its glyph is ink (text), not
-      // paper — paper-on-grey is too low-contrast.
+      // a free var sits on a muted (gray) dot, so its glyph is ink (text), not
+      // paper — paper-on-gray is too low-contrast.
       return { radius: RADIUS.free, tint: colors.mutedDot, glyph: { text: n.name, color: colors.text, size: 14 }, boxed: false };
     default:
       return { radius: RADIUS.app, tint: colors.mutedDot, glyph: null, boxed: false }; // app junction dot
@@ -102,7 +102,7 @@ const radiusOf = (kind: Node["kind"]): number => RADIUS[kind];
 
 /** A per-node pill (stadium shape) sized to `text`, for a comb node too long for the shared disc
  *  texture. Drawn white and tinted like the disc (see {@link nodeTexture}) so a pill's fill and its
- *  glyph colour follow the exact same {@link combinatorColor}/{@link glyphOn} logic as a circle node. */
+ *  glyph color follow the exact same {@link combinatorColor}/{@link glyphOn} logic as a circle node. */
 function makePill(text: string, tint: number): Graphics {
   const w = CanvasTextMetrics.measureText(text, COMB_GLYPH_STYLE).width + 10; // 5px breathing room each side
   const h = RADIUS.comb * 2;
@@ -157,7 +157,7 @@ export interface TreeViewOptions {
   deterministicEdges?: boolean;
   /** Fixed theme mode for recorder-owned views; omitted views follow the live theme. */
   themeMode?: Mode;
-  /** Use Colour-4096 combinator hues under `themeMode`. */
+  /** Use Color-4096 combinator hues under `themeMode`. */
   color?: boolean;
 }
 
@@ -174,7 +174,7 @@ export class TreeView {
   private readonly edges = new Graphics();
   private readonly rootMark = new Graphics(); // halo on the root (snap anchor)
   // All node discs in one GPU-instanced batch; glyphs in a thin layer on top.
-  // Only position (movement) + colour (tint + alpha fades) change per frame;
+  // Only position (movement) + color (tint + alpha fades) change per frame;
   // vertices/uvs/rotation stay static (no per-dot scale/rotation animation — the
   // grow-in is the Text glyph scaling + the dot alpha-fading). `scale` isn't a real
   // Pixi v8 particle property, so it was a no-op before.
@@ -369,7 +369,7 @@ export class TreeView {
   }
 
   /** Dim every node NOT in `keep` (its disc + glyph) to `alpha`, leaving the kept nodes bright — used
-   *  by the build preview to grey only the newly-attached part while the already-placed tree stays at
+   *  by the build preview to gray only the newly-attached part while the already-placed tree stays at
    *  full opacity. The preview tree is static (not animating) so this override sticks. */
   dimExcept(keep: Set<NodeId>, alpha: number): void {
     for (const [id, vis] of this.objs) {
@@ -782,8 +782,8 @@ export class TreeView {
       const lv = this.objs.get(n.fn.id);
       const rv = this.objs.get(n.arg.id);
       if (pv && lv && rv) {
-        this.edgeList.push({ pv, lv, rv, depth }); // depth → the red/black tier colour
-        // an app child takes the colour of its incoming edge (the tier edge leaving n at this depth)
+        this.edgeList.push({ pv, lv, rv, depth }); // depth → the red/black tier color
+        // an app child takes the color of its incoming edge (the tier edge leaving n at this depth)
         const tier = this.edgeTierColor(depth);
         if (n.fn.kind === "app") lv.particle.tint = tier;
         if (n.arg.kind === "app") rv.particle.tint = tier;
@@ -821,9 +821,9 @@ export class TreeView {
       this.lastEdgeDrawAt = now;
       dash = this.objs.size <= HEAVY || settled;
     }
-    // Colour = depth TIER (red/black), style = fn solid / arg dashed. Each tier is a separate stroke
-    // (one colour per Graphics stroke), so 4 strokes: {arg,fn} × {even,odd}. A node's parent-edge is
-    // the opposite colour of its child-edges → you can trace direction even in a dense tree.
+    // Color = depth TIER (red/black), style = fn solid / arg dashed. Each tier is a separate stroke
+    // (one color per Graphics stroke), so 4 strokes: {arg,fn} × {even,odd}. A node's parent-edge is
+    // the opposite color of its child-edges → you can trace direction even in a dense tree.
     for (const parity of [0, 1]) {
       for (const e of this.edgeList) {
         if (e.depth % 2 !== parity) continue;
@@ -899,7 +899,7 @@ export class TreeView {
     return { id: n.id, particle, baseScale: spec.radius / TEX_R, glyphSpec: spec.glyph, glyph: null, boxed: spec.boxed, pill: null };
   }
 
-  // A fresh particle added to the instanced batch (all share the one disc texture + centre anchor).
+  // A fresh particle added to the instanced batch (all share the one disc texture + center anchor).
   private addParticle(): Particle {
     const particle = new Particle({ texture: nodeTexture(), anchorX: 0.5, anchorY: 0.5 });
     this.particles.addParticle(particle);
@@ -977,7 +977,7 @@ export class TreeView {
 
 /** Emit dashed sub-segments along a→b into the graphics path (caller strokes once).
  *  Dashing the argument edge gives function vs argument a style cue, not just a
- *  colour one — the distinction survives 1-bit black-and-white. Exported so the
+ *  color one — the distinction survives 1-bit black-and-white. Exported so the
  *  drag-snap ghost preview can match the committed tree. */
 export function dashedSegment(g: Graphics, ax: number, ay: number, bx: number, by: number, dash = 8, gap = 6): void {
   const dx = bx - ax;

@@ -56,7 +56,7 @@ export function wirePanelChrome(p: PanelParts, close: () => void, scroll: Scroll
   p.listView.mask = p.listMask;
 }
 
-/** Centre a `w`×`h` card on the viewport (rounded to whole pixels, so text isn't rendered on a
+/** Center a `w`×`h` card on the viewport (rounded to whole pixels, so text isn't rendered on a
  *  sub-pixel offset and goes blurry), draw the backdrop + card, and position the title + close
  *  button. Returns the card origin for the caller's own list/detail geometry. */
 export function placeCard(parts: { backdrop: Graphics; card: Graphics; title: Text; closeBtn: Container }, w: number, h: number): { x: number; y: number } {

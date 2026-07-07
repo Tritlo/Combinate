@@ -1,6 +1,6 @@
 /**
  * The 3D "packed sphere" view (ADR 20) — a lazy Three.js renderer for the focused term. It
- * renders a 3D layout (layoutHTree3D / layoutSphere) as instanced spheres + coloured edges into its OWN off-DOM
+ * renders a 3D layout (layoutHTree3D / layoutSphere) as instanced spheres + colored edges into its OWN off-DOM
  * canvas; the owner draws that canvas as a Pixi texture sprite so the Pixi HUD composites on
  * top (compositing "A", Magi-consensus — no separate overlay covering the HUD). Re-renders on
  * demand (term / theme / resize / orbit) and animates reduction steps via {@link animateTo} +
@@ -92,7 +92,7 @@ export function preloadSphere3D(): Promise<void> {
   return loadThree().catch(() => {});
 }
 
-// Per-kind node radius + colour (a 3D echo of tree.ts's visSpec, reusing the theme).
+// Per-kind node radius + color (a 3D echo of tree.ts's visSpec, reusing the theme).
 function nodeStyle(n: Node, depth: number, palette: { mode: Mode; color: boolean; colors: Theme } | null): { radius: number; color: number } {
   const colors = palette?.colors ?? theme;
   const tier = (d: number): number => (palette ? edgeTierColorForMode(d, palette.mode, colors) : edgeTierColor(d));
@@ -124,7 +124,7 @@ export interface Sphere3DOptions {
   unlimited?: boolean;
   /** Fixed theme mode for recorder-owned spheres; omitted spheres follow the live theme. */
   themeMode?: Mode;
-  /** Use Colour-4096 combinator hues under `themeMode`. */
+  /** Use Color-4096 combinator hues under `themeMode`. */
   color?: boolean;
 }
 
@@ -154,7 +154,7 @@ export class Sphere3D {
   drawCount = 0; // renders since boot (dev seam: confirms the morph render loop actually advanced)
   private layout3: Layout3Fn = layoutHTree3D; // the active 3D layout (cubic H-tree by default; sphere via setLayout3 for radial)
   private lastPos = new Map<number, Pos3>(); // currently-displayed node positions — the next morph's `from`
-  private lastNodes = new Map<number, Node>(); // currently-displayed nodes (to colour/size dropped nodes)
+  private lastNodes = new Map<number, Node>(); // currently-displayed nodes (to color/size dropped nodes)
   private lastDepth = new Map<number, number>(); // currently-displayed node depths (app nodes take their incoming-edge tier)
   private morph: Morph | null = null;
   private readonly now: () => number;
@@ -220,7 +220,7 @@ export class Sphere3D {
   }
 
   /** Render `node` (rebuilds the scene content). Frames the camera unless `keepCamera` (a same-term
-   *  repaint — theme/colour — must not reset the user's orbit/pan). Cheap to call again. */
+   *  repaint — theme/color — must not reset the user's orbit/pan). Cheap to call again. */
   update(node: Node | null, keepCamera = false): void {
     this.current = node;
     this.morph = null; // an external rebuild (theme / Expand / discovery / settle) supersedes any in-flight morph; its group is disposed below
@@ -477,7 +477,7 @@ export class Sphere3D {
   // One instanced sphere per node, positioned + scaled by kind, tinted per kind.
   private buildNodes(three: typeof T, root: Node, pos: Map<number, { x: number; y: number; z: number }>): T.InstancedMesh {
     const geo = new three.SphereGeometry(1, SPHERE_SEGMENTS, SPHERE_SEGMENTS);
-    const mat = new three.MeshBasicMaterial(); // unlit: per-instance colours read at full saturation, matching the 2D palette
+    const mat = new three.MeshBasicMaterial(); // unlit: per-instance colors read at full saturation, matching the 2D palette
     const mesh = new three.InstancedMesh(geo, mat, pos.size);
     const m = new three.Matrix4();
     const col = new three.Color();
@@ -504,7 +504,7 @@ export class Sphere3D {
     return mesh;
   }
 
-  // A LineSegments for one edge batch: solid (fn) or dashed (arg). Per-vertex colour carries the
+  // A LineSegments for one edge batch: solid (fn) or dashed (arg). Per-vertex color carries the
   // red/black depth TIER (so parent vs child reads); the style carries left vs right.
   private edgeLine(three: typeof T, geo: T.BufferGeometry, dashed: boolean): T.LineSegments {
     const mat = dashed
@@ -515,9 +515,9 @@ export class Sphere3D {
     return seg;
   }
 
-  // Parent→child edges as two batches: fn (left) SOLID, arg (right) DASHED; each vertex coloured by
-  // the parent's depth TIER (red/black) so a node's parent-edge is the opposite colour of its
-  // child-edges. Style = left/right, colour = depth — the 3D echo of the 2D legend.
+  // Parent→child edges as two batches: fn (left) SOLID, arg (right) DASHED; each vertex colored by
+  // the parent's depth TIER (red/black) so a node's parent-edge is the opposite color of its
+  // child-edges. Style = left/right, color = depth — the 3D echo of the 2D legend.
   private buildEdges(three: typeof T, root: Node, pos: Map<number, { x: number; y: number; z: number }>): T.Object3D | null {
     const fn = { verts: [] as number[], cols: [] as number[] };
     const arg = { verts: [] as number[], cols: [] as number[] };
@@ -628,7 +628,7 @@ export class Sphere3D {
   private frame(radius: number): void {
     if (!this.camera) return;
     this.lastRadius = radius;
-    this.target = { x: 0, y: 0, z: 0 }; // re-centre the look-at on the ball
+    this.target = { x: 0, y: 0, z: 0 }; // re-center the look-at on the ball
     this.rad = this.frameDistance(radius);
     this.az = 0.6;
     this.pol = 1.05;
@@ -656,7 +656,7 @@ export class Sphere3D {
     this.draw();
   }
 
-  /** Re-read the theme (background + node/edge colours) and repaint, keeping the camera. */
+  /** Re-read the theme (background + node/edge colors) and repaint, keeping the camera. */
   retheme(): void {
     if (this.on) this.update(this.current, true);
   }

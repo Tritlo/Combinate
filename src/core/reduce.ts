@@ -85,7 +85,7 @@ function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts
   if (n.kind !== "app") return null;
 
   // optimize / native mode: reduce the leftmost-outermost *named* head redex — by a
-  // native value op (ADR 10) when recognised, else by its catalog rule (fast mode).
+  // native value op (ADR 10) when recognized, else by its catalog rule (fast mode).
   if ((fast || native) && !headChecked) {
     // Collect the applied spine head-first. `push`+`reverse` is O(spine); the old
     // `unshift` was O(spine²) (it shifts the whole array each arg), which — re-run at
@@ -163,7 +163,7 @@ function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts
   // A collapsed named combinator with no built-in rule (A, X, cons, …) in head
   // position: unfold its definition so it can reduce like its ι-tree — but only
   // once it has enough arguments to be saturated (arity defaults to 1, i.e. the
-  // old eager behaviour, if unknown).
+  // old eager behavior, if unknown).
   if (fn.kind === "comb" && fn.def && argsAbove + 1 >= (fn.arity ?? 1)) {
     const def = fn.def;
     if (trace) trace.oldRedex = n;

@@ -1,6 +1,6 @@
 /**
  * The read-out box (ADR 12, revised): the focused tree's live expression in a small System-1 card,
- * top-centre. Click the title bar to cycle the *view* — combinators (the current state, no
+ * top-center. Click the title bar to cycle the *view* — combinators (the current state, no
  * reduction), named + native (birds + ints/lists/…, an explicit "what does it evaluate to" lens),
  * and the raw Barker ι bit-code (0/1). An expand toggle in the title bar swaps the single scrolling
  * line for the full wrapped expression (handy for long Barker codes / big trees). Owns the view +
@@ -43,8 +43,8 @@ function injectStyles(): void {
   overflow-x: auto; overflow-y: hidden; user-select: text;
   font-variant-ligatures: contextual; font-feature-settings: "calt" 1, "liga" 1; }
 .ro-body.ro-wrap { white-space: pre-wrap; word-break: break-all; overflow-x: hidden; overflow-y: auto; max-height: 42vh; }
-/* The centred read-out competes with the top-right control stack (and the top-left edge legend).
-   1101–1399px: narrow it — centred at width (100vw−780) fixes each margin at 390px, clearing both
+/* The centered read-out competes with the top-right control stack (and the top-left edge legend).
+   1101–1399px: narrow it — centered at width (100vw−780) fixes each margin at 390px, clearing both
    the legend (left) and the bars/tracker (right) at every width. ≤1100px: drop it BELOW the whole
    stack; the tracker hides at the same breakpoint. ≤600px: go full width (phone). */
 @media (min-width: 1101px) and (max-width: 1399px) { .ro-root { width: min(620px, calc(100vw - 780px)); } }
