@@ -16,7 +16,7 @@ type RecordLayoutKey = Exclude<LayoutKey, "auto">;
 
 const MAX_STEPS = 2000;
 const GRAPH_MAX_STEPS = 100_000;
-const THUMB_W = 220;
+const THUMB_W = 320;
 const RESOLUTIONS = [
   { label: "1080×1080", width: 1080, height: 1080 },
   { label: "1920×1080", width: 1920, height: 1080 },
@@ -51,13 +51,15 @@ function injectModalStyles(): void {
   if (modalStylesInjected) return;
   modalStylesInjected = true;
   const css = `
-.rm-card { max-height: min(86vh, calc(100vh - 20px)); }
-.rm-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 11px; font-size: 13px; }
+.rm-card { max-height: min(90vh, calc(100vh - 20px)); }
+.rm-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
 .rm-body [hidden] { display: none !important; }
 .rm-empty { padding: 18px 4px 4px; line-height: 1.45; opacity: 0.72; }
-.rm-form { display: flex; flex-direction: column; gap: 11px; }
-.rm-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
-.rm-section { border: 1px solid color-mix(in srgb, var(--md-ink) 60%, transparent); padding: 8px 9px 9px; display: flex; flex-direction: column; gap: 7px; }
+.rm-form { display: flex; flex-direction: column; gap: 10px; }
+.rm-grid { display: grid; grid-template-columns: minmax(250px, 0.92fr) minmax(310px, 1.08fr); gap: 10px 12px; align-items: start; }
+.rm-col { min-width: 0; display: flex; flex-direction: column; gap: 9px; }
+.rm-bottom { grid-column: 1 / -1; min-width: 0; }
+.rm-section { border: 1px solid color-mix(in srgb, var(--md-ink) 60%, transparent); padding: 7px 8px 8px; display: flex; flex-direction: column; gap: 7px; }
 .rm-section.wide { grid-column: 1 / -1; }
 .rm-title { font-weight: 700; font-size: 12px; letter-spacing: 0.02em; }
 .rm-row { display: flex; flex-wrap: wrap; gap: 9px 12px; align-items: center; }
@@ -70,14 +72,13 @@ function injectModalStyles(): void {
 .rm-input { width: 84px; }
 .rm-select { min-width: 104px; }
 .rm-input:disabled, .rm-select:disabled { opacity: 0.5; }
-.rm-preview { grid-column: 1 / -1; }
-.rm-preview-box { width: min(${THUMB_W}px, 100%); padding: 4px; border: 1px solid var(--md-ink); background: var(--md-paper);
+.rm-preview-box { width: 100%; box-sizing: border-box; padding: 4px; border: 1px solid var(--md-ink); background: var(--md-paper);
   box-shadow: 2px 2px 0 var(--rm-shadow); }
 .rm-thumb { display: block; width: 100%; height: auto; background: #000; }
-.rm-footer { border-top: 1px solid color-mix(in srgb, var(--md-ink) 35%, transparent); padding-top: 10px; display: flex; flex-direction: column; gap: 7px; }
+.rm-footer { border-top: 1px solid color-mix(in srgb, var(--md-ink) 35%, transparent); padding-top: 8px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: end; }
 .rm-est, .rm-codec, .rm-warning { min-height: 1.25em; font-size: 12px; line-height: 1.35; }
 .rm-warning { color: var(--rm-red); }
-.rm-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 2px; }
+.rm-actions { grid-column: 2; grid-row: 1 / 4; display: flex; justify-content: flex-end; gap: 8px; padding-top: 2px; }
 .rm-btn { font-family: inherit; font-size: 13px; font-weight: 700; padding: 4px 15px; cursor: pointer; border: 1px solid var(--md-ink); }
 .rm-cancel { color: var(--md-ink); background: var(--md-paper); }
 .rm-record { color: var(--md-paper); background: var(--md-ink); }
@@ -89,10 +90,20 @@ function injectModalStyles(): void {
   .rm-card { width: calc(100vw - 16px); max-height: calc(100vh - 18px); }
   .rm-body { padding: 10px 11px 12px; gap: 9px; }
   .rm-grid { grid-template-columns: 1fr; }
+  .rm-col { display: contents; }
+  .rm-bottom { grid-column: 1; order: 8; }
+  .rm-preview { order: 1; }
+  .rm-view { order: 2; }
+  .rm-layout { order: 3; }
+  .rm-video { order: 4; }
+  .rm-pacing { order: 5; }
+  .rm-audio { order: 6; }
+  .rm-overlays { order: 7; }
   .rm-section { padding: 8px; gap: 7px; }
   .rm-row { gap: 6px 8px; }
   .rm-choice { min-height: 40px; }
   .rm-input, .rm-select { min-height: 40px; }
+  .rm-footer { display: flex; flex-direction: column; gap: 7px; }
   .rm-actions { justify-content: stretch; }
   .rm-btn { flex: 1 1 0; min-height: 40px; padding: 6px 12px; }
 }
@@ -247,7 +258,7 @@ export class RecordModal extends Modal {
   private previewTimer: number | undefined;
 
   constructor(private readonly deps: RecordModalDeps) {
-    super({ title: "Record MP4", width: "min(560px, 94vw)" });
+    super({ title: "Record MP4", width: "min(760px, 96vw)" });
     injectModalStyles();
     this.card.classList.add("rm-card");
     this.body.classList.add("rm-body");
@@ -262,8 +273,14 @@ export class RecordModal extends Modal {
     this.form.className = "rm-form";
     const grid = document.createElement("div");
     grid.className = "rm-grid";
+    const leftCol = document.createElement("div");
+    leftCol.className = "rm-col";
+    const rightCol = document.createElement("div");
+    rightCol.className = "rm-col";
+    const bottom = document.createElement("div");
+    bottom.className = "rm-bottom";
 
-    const preview = section("Preview", true);
+    const preview = section("Preview");
     preview.classList.add("rm-preview");
     const previewBox = document.createElement("div");
     previewBox.className = "rm-preview-box";
@@ -272,6 +289,7 @@ export class RecordModal extends Modal {
     preview.append(previewBox);
 
     const view = section("View");
+    view.classList.add("rm-view");
     const viewRow = document.createElement("div");
     viewRow.className = "rm-row";
     this.rotateLabel = this.hinted(label("Rotate", this.rotate), "Turntable camera orbit.");
@@ -298,6 +316,7 @@ export class RecordModal extends Modal {
     );
 
     const layout = section("Layout");
+    layout.classList.add("rm-layout");
     const layoutRow = document.createElement("div");
     layoutRow.className = "rm-row";
     for (const [key, text] of [
@@ -311,7 +330,7 @@ export class RecordModal extends Modal {
     }
     layout.append(layoutRow, this.hinted(label("Expand-ι", this.expand), "Expand named birds to their raw ι trees."));
 
-    const engines = section("Engines", true);
+    const engines = section("Engines");
     const engineRow = document.createElement("div");
     engineRow.className = "rm-row";
     this.primitivesLabel = this.hinted(label("Primitives", this.primitives), "Use native number/list/boolean kernels.");
@@ -324,6 +343,7 @@ export class RecordModal extends Modal {
     engines.append(engineRow, this.primitivesNote);
 
     const video = section("Video");
+    video.classList.add("rm-video");
     this.resolution.className = "rm-select";
     for (const r of RESOLUTIONS) this.resolution.append(selectOption(`${r.width}x${r.height}`, r.label, r.width === r.height));
     this.hinted(this.resolution, "Pick the output pixel size.");
@@ -344,6 +364,7 @@ export class RecordModal extends Modal {
     video.append(this.field("Resolution", this.resolution, "Pick the output pixel size."), this.field("FPS", this.fps, "Pick the output frame rate."), cameraRow);
 
     const pacing = section("Pacing");
+    pacing.classList.add("rm-pacing");
     this.stepMs.className = "rm-input";
     this.stepMs.type = "number";
     this.stepMs.min = "1";
@@ -360,11 +381,13 @@ export class RecordModal extends Modal {
     );
 
     const sound = section("Audio");
+    sound.classList.add("rm-audio");
     this.baseNote.className = "rm-select";
     for (const n of BASE_NOTES) this.baseNote.append(selectOption(n.value, n.label, n.value === "48"));
     sound.append(this.field("Base note", this.baseNote, "Root pitch of the tone track; None = silent."));
 
     const overlays = section("Overlays");
+    overlays.classList.add("rm-overlays");
     this.overlayInfoLabel = this.hinted(label("Info card", this.overlayInfo), "Burn the term's name and live value into the video.");
     this.overlayStatsLabel = this.hinted(label("Stats", this.overlayStats), "Step counter and node count, bottom-right.");
     overlays.append(
@@ -373,7 +396,10 @@ export class RecordModal extends Modal {
       this.overlayStatsLabel,
     );
 
-    grid.append(preview, view, layout, video, pacing, sound, overlays, engines);
+    leftCol.append(preview, sound, overlays);
+    rightCol.append(view, layout, video, pacing);
+    bottom.append(engines);
+    grid.append(leftCol, rightCol, bottom);
 
     const footer = document.createElement("div");
     footer.className = "rm-footer";
