@@ -13,9 +13,9 @@
  * exited / re-entered before it resolves.
  */
 import { Container, Sprite, Texture, type Ticker } from "pixi.js";
-import { type Node, exceedsNodes } from "../core/term";
+import { type Node } from "../core/term";
 import { type Layout3Fn } from "../core/layout3d";
-import { Sphere3D, NODE_CAP } from "./sphere3d";
+import { Sphere3D } from "./sphere3d";
 import { type TreeView } from "./tree";
 
 const KEY_ROT = 6; // orbit: px-equivalent per frame for a held rotate-key
@@ -42,7 +42,6 @@ export interface SphereControllerDeps {
 /** The dev-seam readout (`__combinate.view3d.info()`), kept source-compatible with the old inline seam. */
 export interface SphereInfo {
   count: number;
-  capped: boolean;
   buildMs: number;
   drawMs: number;
   morphMs: number;
@@ -113,11 +112,8 @@ export class SphereController {
 
   enter(): void {
     if (this.view3D) return;
-    // Preflight on the EXPANDED display (iterative exceedsNodes — deep-tree-safe) so a too-big /
-    // unfocused tree never enters 3D, and the message shows on the visible 2D HUD.
     const disp = this.displayTerm();
     if (!disp) return this.deps.notify("focus a tree to view it in 3D");
-    if (exceedsNodes(disp, NODE_CAP)) return this.deps.notify(`tree too large for 3D (over ${NODE_CAP} nodes)`);
     this.view3D = true;
     const g = ++this.gen;
     this.sphere.setLayout3(this.deps.layout3());
@@ -154,28 +150,18 @@ export class SphereController {
     this.deps.onActiveChange(false);
   }
 
-  /** Re-render the open 3D view after a setting changed the displayed term or layout. Keeps the
-   *  camera; backs out to 2D if the new display blew past the node cap. */
+  /** Re-render the open 3D view after a setting changed the displayed term or layout. Keeps the camera. */
   rerender(): void {
     if (!this.view3D) return;
     const disp = this.displayTerm();
-    if (disp && exceedsNodes(disp, NODE_CAP)) {
-      this.exit();
-      return this.deps.notify(`tree too large for 3D (over ${NODE_CAP} nodes)`);
-    }
     this.sphere.setLayout3(this.deps.layout3());
     this.sphere.update(disp, true);
   }
 
-  /** Mirror a focused tree's reduction step into the open 3D view (plan 06). No-op unless 3D is open
-   *  on the focused tree; backs out to 2D if the expanded term exceeds the cap. */
+  /** Mirror a focused tree's reduction step into the open 3D view (plan 06). No-op unless 3D is open on the focused tree. */
   morph(tree: TreeView, node: Node, durationMS: number): void {
     if (!this.view3D || tree !== this.deps.focus()) return;
     const disp = this.deps.display(node);
-    if (exceedsNodes(disp, NODE_CAP)) {
-      this.exit();
-      return this.deps.notify(`tree too large for 3D (over ${NODE_CAP} nodes)`);
-    }
     this.sphere.animateTo(disp, durationMS);
   }
   settleMorph(): void {
@@ -262,7 +248,7 @@ export class SphereController {
 
   info(): SphereInfo {
     const s = this.sphere;
-    return { count: s.lastCount, capped: s.lastCapped, buildMs: s.lastBuildMs, drawMs: s.lastDrawMs, morphMs: s.lastMorphFrameMs, az: s.azimuth, pan: s.panSum };
+    return { count: s.lastCount, buildMs: s.lastBuildMs, drawMs: s.lastDrawMs, morphMs: s.lastMorphFrameMs, az: s.azimuth, pan: s.panSum };
   }
   debugMorph(): ReturnType<Sphere3D["debugMorph"]> {
     return this.sphere.debugMorph();

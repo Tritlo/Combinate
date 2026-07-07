@@ -363,13 +363,13 @@ export class RecordModal extends Modal {
     const timingRow = document.createElement("div");
     timingRow.className = "rm-row";
     timingRow.append(
-      this.field("Step ms", this.stepMs, "Output-time per reduction step."),
+      this.field("Step ms", this.stepMs, "Initial output-time per reduction step; long clips accelerate automatically."),
       this.field("Hold ms", this.holdMs, "Freeze on the final frame."),
     );
     const cameraRow = document.createElement("div");
     cameraRow.className = "rm-row";
     for (const [key, text, hint] of [
-      ["hold", "Hold", "One zoom for the whole clip - no rescaling."],
+      ["hold", "Hold", "Root-anchored shot that only zooms out when the tree outgrows it."],
       ["fixed", "Fixed", "Fit the first frame only."],
       ["follow", "Follow", "Re-frames the shot as the tree reduces."],
     ] as const) {
@@ -815,17 +815,9 @@ export class RecordPreviewOverlay {
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, width, height);
     }
-    this.frame.textContent = "preparing\u2026";
+    this.frame.textContent = `frame 0 / ${Math.max(1, totalFrames)}`;
     this.fill.style.width = "0%";
     this.root.style.display = "flex";
-    void totalFrames;
-  }
-
-  /** Pre-render setup progress — shown until the first frame lands. */
-  prepare(done: number, total: number): void {
-    if (total <= 0) return;
-    this.frame.textContent = `preparing\u2026 laying out step ${Math.min(done, total)} / ${total}`;
-    this.fill.style.width = `${Math.max(0, Math.min(100, (done / total) * 100))}%`;
   }
 
   /** Blit the latest encoded frame into the preview and update progress. */
