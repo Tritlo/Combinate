@@ -154,8 +154,8 @@ export class SphereController {
     this.deps.onActiveChange(false);
   }
 
-  /** Re-render the open 3D view after a setting changed the displayed term (Expand toggle, a
-   *  discovery). Keeps the camera; backs out to 2D if the new display blew past the node cap. */
+  /** Re-render the open 3D view after a setting changed the displayed term or layout. Keeps the
+   *  camera; backs out to 2D if the new display blew past the node cap. */
   rerender(): void {
     if (!this.view3D) return;
     const disp = this.displayTerm();
@@ -163,6 +163,7 @@ export class SphereController {
       this.exit();
       return this.deps.notify(`tree too large for 3D (over ${NODE_CAP} nodes)`);
     }
+    this.sphere.setLayout3(this.deps.layout3());
     this.sphere.update(disp, true);
   }
 

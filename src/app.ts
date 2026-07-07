@@ -922,12 +922,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     },
   });
 
-  // Set the layout for every tree (and trees spawned afterward). Picking a 2D layout leaves 3D.
+  // Set the layout for every tree (and trees spawned afterward). Preserve the chosen view mode:
+  // when 3D is open, the sphere re-lays out through the current 2D→3D mapping.
   const setLayoutMode = (fn: LayoutFn): void => {
-    if (sphere.active()) sphere.exit(); // a 2D layout choice exits the 3D view
     if (layoutFn !== fn) {
       layoutFn = fn;
       for (const t of trees) t.setLayout(fn);
+      sphere.rerender();
       paintRail();
     }
     layoutControls?.refresh();
