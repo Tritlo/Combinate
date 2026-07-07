@@ -4,31 +4,42 @@
  */
 import type { Node } from "../../core/term";
 import type { NativeOpts } from "../../core/native";
+import { resolveAutoLayout } from "../../core/layout";
 import { Modal } from "../modal";
 import type { LayoutKey } from "../layoutControls";
 import { currentMode, ensureFont, INK, MONO, onThemeChange, PAPER, type Mode } from "../theme";
+import { renderFirstFrame } from "./driver";
 import { probeSupport } from "./encoder";
 import { precount } from "./precount";
 import type { CodecSupport, RecordPlan, RecordProgress, RecordSettings } from "./types";
 
+type RecordLayoutKey = Exclude<LayoutKey, "auto">;
+
 const MAX_STEPS = 2000;
 const GRAPH_MAX_STEPS = 100_000;
+const THUMB_W = 220;
 const RESOLUTIONS = [
   { label: "1920×1080", width: 1920, height: 1080 },
   { label: "1280×720", width: 1280, height: 720 },
   { label: "1080×1080", width: 1080, height: 1080 },
 ] as const;
 const BASE_NOTES = [
-  { label: "C2", midi: 36 },
-  { label: "G2", midi: 43 },
-  { label: "C3", midi: 48 },
-  { label: "G3", midi: 55 },
-  { label: "C4", midi: 60 },
+  { label: "None", value: "none" },
+  { label: "C2", value: "36" },
+  { label: "G2", value: "43" },
+  { label: "C3", value: "48" },
+  { label: "G3", value: "55" },
+  { label: "C4", value: "60" },
 ] as const;
 
 const PALETTE: Record<Mode, { paper: string; ink: string; shadow: string; red: string; dim: string }> = {
   light: { paper: PAPER.light, ink: INK.light, shadow: "rgba(0,0,0,0.65)", red: "#b42318", dim: "rgba(27,31,36,0.62)" },
   dark: { paper: PAPER.dark, ink: INK.dark, shadow: "rgba(0,0,0,0.85)", red: "#ff6b5f", dim: "rgba(240,246,252,0.62)" },
+};
+const LAYOUT_HINTS: Record<RecordLayoutKey, string> = {
+  topdown: "Leaves line up; depth grows downward.",
+  radial: "Root in the centre; depth becomes radius.",
+  htree: "Compact alternating-axis H-tree layout.",
 };
 
 let modalStylesInjected = false;
@@ -36,6 +47,7 @@ function injectModalStyles(): void {
   if (modalStylesInjected) return;
   modalStylesInjected = true;
   const css = `
+.rm-card { max-height: min(86vh, calc(100vh - 20px)); }
 .rm-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 11px; font-size: 13px; }
 .rm-body [hidden] { display: none !important; }
 .rm-empty { padding: 18px 4px 4px; line-height: 1.45; opacity: 0.72; }
@@ -54,6 +66,10 @@ function injectModalStyles(): void {
 .rm-input { width: 84px; }
 .rm-select { min-width: 104px; }
 .rm-input:disabled, .rm-select:disabled { opacity: 0.5; }
+.rm-preview { grid-column: 1 / -1; }
+.rm-preview-box { width: min(${THUMB_W}px, 100%); padding: 4px; border: 1px solid var(--md-ink); background: var(--md-paper);
+  box-shadow: 2px 2px 0 var(--rm-shadow); }
+.rm-thumb { display: block; width: 100%; height: auto; background: #000; }
 .rm-footer { border-top: 1px solid color-mix(in srgb, var(--md-ink) 35%, transparent); padding-top: 10px; display: flex; flex-direction: column; gap: 7px; }
 .rm-est, .rm-codec, .rm-warning { min-height: 1.25em; font-size: 12px; line-height: 1.35; }
 .rm-warning { color: var(--rm-red); }
@@ -62,8 +78,19 @@ function injectModalStyles(): void {
 .rm-cancel { color: var(--md-ink); background: var(--md-paper); }
 .rm-record { color: var(--md-paper); background: var(--md-ink); }
 .rm-record:disabled { opacity: 0.45; cursor: default; }
+.rm-tip { position: fixed; display: none; max-width: 280px; padding: 5px 9px; z-index: 62; pointer-events: none;
+  background: var(--md-paper); color: var(--md-ink); border: 1px solid var(--md-ink); box-shadow: 2px 2px 0 var(--rm-shadow);
+  font-family: ${MONO}; font-size: 12px; line-height: 1.45; white-space: normal; }
 @media (max-width: 560px) {
+  .rm-card { width: calc(100vw - 16px); max-height: calc(100vh - 18px); }
+  .rm-body { padding: 10px 11px 12px; gap: 9px; }
   .rm-grid { grid-template-columns: 1fr; }
+  .rm-section { padding: 8px; gap: 7px; }
+  .rm-row { gap: 6px 8px; }
+  .rm-choice { min-height: 40px; }
+  .rm-input, .rm-select { min-height: 40px; }
+  .rm-actions { justify-content: stretch; }
+  .rm-btn { flex: 1 1 0; min-height: 40px; padding: 6px 12px; }
 }
 `;
   const style = document.createElement("style");
@@ -172,9 +199,11 @@ function formatDuration(sec: number): string {
 export class RecordModal extends Modal {
   private readonly empty = document.createElement("div");
   private readonly form = document.createElement("div");
+  private readonly tip = document.createElement("div");
+  private readonly thumb = document.createElement("canvas");
   private readonly view2d = radio("rm-view", "2d");
   private readonly view3d = radio("rm-view", "3d");
-  private readonly layoutRadios = new Map<LayoutKey, HTMLInputElement>();
+  private readonly layoutRadios = new Map<RecordLayoutKey, HTMLInputElement>();
   private readonly expand = checkbox();
   private readonly rules = checkbox();
   private readonly graph = checkbox();
@@ -186,7 +215,6 @@ export class RecordModal extends Modal {
   private readonly stepMs = document.createElement("input");
   private readonly holdMs = document.createElement("input");
   private readonly baseNote = document.createElement("select");
-  private readonly audio = checkbox();
   private readonly estimate = document.createElement("div");
   private readonly warning = document.createElement("div");
   private readonly codecStatus = document.createElement("div");
@@ -197,11 +225,16 @@ export class RecordModal extends Modal {
   private codecError = "";
   private probeSeq = 0;
   private planTimer: number | undefined;
+  private previewSeq = 0;
+  private previewTimer: number | undefined;
 
   constructor(private readonly deps: RecordModalDeps) {
     super({ title: "Record MP4", width: "min(560px, 94vw)" });
     injectModalStyles();
+    this.card.classList.add("rm-card");
     this.body.classList.add("rm-body");
+    this.tip.className = "rm-tip";
+    this.root.append(this.tip);
     this.applyRecordPalette();
     onThemeChange(() => this.applyRecordPalette());
 
@@ -212,42 +245,54 @@ export class RecordModal extends Modal {
     const grid = document.createElement("div");
     grid.className = "rm-grid";
 
+    const preview = section("Preview", true);
+    preview.classList.add("rm-preview");
+    const previewBox = document.createElement("div");
+    previewBox.className = "rm-preview-box";
+    this.thumb.className = "rm-thumb";
+    previewBox.append(this.thumb);
+    preview.append(previewBox);
+
     const view = section("View");
-    this.view3d.disabled = true;
-    view.append(label("2D", this.view2d), label("3D", this.view3d, "(soon)"));
+    view.append(
+      this.hinted(label("2D", this.view2d), "Render the flat canvas view."),
+      this.hinted(label("3D", this.view3d), "Render the 3D tree view."),
+    );
 
     const layout = section("Layout");
     const layoutRow = document.createElement("div");
     layoutRow.className = "rm-row";
     for (const [key, text] of [
-      ["auto", "Auto"],
       ["topdown", "Top-Down"],
       ["radial", "Radial"],
       ["htree", "H-Tree"],
     ] as const) {
       const input = radio("rm-layout", key);
       this.layoutRadios.set(key, input);
-      layoutRow.append(label(text, input));
+      layoutRow.append(this.hinted(label(text, input), LAYOUT_HINTS[key]));
     }
-    layout.append(layoutRow);
-
-    const display = section("Display");
-    display.append(label("Expand-ι", this.expand));
+    layout.append(layoutRow, this.hinted(label("Expand-ι", this.expand), "Expand named birds to their raw ι trees."));
 
     const engines = section("Engines", true);
     const engineRow = document.createElement("div");
     engineRow.className = "rm-row";
-    this.primitivesLabel = label("Primitives", this.primitives);
-    engineRow.append(label("Rules", this.rules), label("Graph", this.graph), this.primitivesLabel);
+    this.primitivesLabel = this.hinted(label("Primitives", this.primitives), "Use native number/list/boolean kernels.");
+    engineRow.append(
+      this.hinted(label("Rules", this.rules), "Catalog rewrite laws fire as single steps."),
+      this.hinted(label("Graph", this.graph), "Use call-by-need sharing; primitives do not apply."),
+      this.primitivesLabel,
+    );
     this.primitivesNote.className = "rm-note";
     engines.append(engineRow, this.primitivesNote);
 
     const video = section("Video");
     this.resolution.className = "rm-select";
     for (const r of RESOLUTIONS) this.resolution.append(selectOption(`${r.width}x${r.height}`, r.label, r.width === 1920));
+    this.hinted(this.resolution, "Pick the output pixel size.");
     this.fps.className = "rm-select";
     this.fps.append(selectOption("30", "30 fps"), selectOption("60", "60 fps", true));
-    video.append(this.resolution, this.fps);
+    this.hinted(this.fps, "Pick the output frame rate.");
+    video.append(this.field("Resolution", this.resolution, "Pick the output pixel size."), this.field("FPS", this.fps, "Pick the output frame rate."));
 
     const pacing = section("Pacing");
     this.stepMs.className = "rm-input";
@@ -260,14 +305,17 @@ export class RecordModal extends Modal {
     this.holdMs.min = "0";
     this.holdMs.step = "100";
     this.holdMs.value = "1000";
-    pacing.append(this.field("Step ms", this.stepMs), this.field("Hold ms", this.holdMs));
+    pacing.append(
+      this.field("Step ms", this.stepMs, "Output-time per reduction step."),
+      this.field("Hold ms", this.holdMs, "Freeze on the final frame."),
+    );
 
     const sound = section("Audio");
     this.baseNote.className = "rm-select";
-    for (const n of BASE_NOTES) this.baseNote.append(selectOption(String(n.midi), n.label, n.midi === 48));
-    sound.append(this.field("Base note", this.baseNote), label("Audio", this.audio));
+    for (const n of BASE_NOTES) this.baseNote.append(selectOption(n.value, n.label, n.value === "48"));
+    sound.append(this.field("Base note", this.baseNote, "Root pitch of the tone track; None = silent."));
 
-    grid.append(view, layout, display, video, pacing, sound, engines);
+    grid.append(preview, view, layout, video, pacing, sound, engines);
 
     const footer = document.createElement("div");
     footer.className = "rm-footer";
@@ -279,9 +327,11 @@ export class RecordModal extends Modal {
     const cancel = document.createElement("button");
     cancel.className = "rm-btn rm-cancel";
     cancel.textContent = "Cancel";
+    this.hinted(cancel, "Close without recording.");
     cancel.addEventListener("pointerdown", () => this.close());
     this.record.className = "rm-btn rm-record";
     this.record.textContent = "Record";
+    this.hinted(this.record, "Render and download the MP4.");
     this.record.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       this.submit();
@@ -300,21 +350,56 @@ export class RecordModal extends Modal {
     super.open();
   }
 
+  override close(): void {
+    this.hideTip();
+    super.close();
+  }
+
   protected override onOpen(): void {
     this.prefill();
     this.syncGraphNative();
     this.showTermState();
     this.refreshCodec();
     this.refreshPlan();
+    this.refreshPreview();
   }
 
-  private field(text: string, control: HTMLElement): HTMLLabelElement {
+  private field(text: string, control: HTMLElement, hint: string): HTMLLabelElement {
     const el = document.createElement("label");
     el.className = "rm-choice";
     const span = document.createElement("span");
     span.textContent = text;
     el.append(span, control);
+    return this.hinted(el, hint);
+  }
+
+  private hinted<T extends HTMLElement>(el: T, text: string): T {
+    el.addEventListener("pointerenter", (e) => {
+      if (e.pointerType === "touch") return;
+      this.showTip(text, el);
+    });
+    el.addEventListener("pointermove", (e) => {
+      if (e.pointerType === "touch" || this.tip.style.display !== "block") return;
+      this.showTip(text, el);
+    });
+    el.addEventListener("pointerleave", () => this.hideTip());
+    el.addEventListener("pointercancel", () => this.hideTip());
     return el;
+  }
+
+  private showTip(text: string, el: HTMLElement): void {
+    this.tip.textContent = text;
+    this.tip.style.display = "block";
+    const r = el.getBoundingClientRect();
+    const w = this.tip.offsetWidth;
+    const h = this.tip.offsetHeight;
+    const x = r.right + 8 + w > window.innerWidth - 6 ? Math.max(6, r.left - w - 8) : r.right + 8;
+    this.tip.style.left = `${x}px`;
+    this.tip.style.top = `${Math.max(6, Math.min(r.top, window.innerHeight - h - 6))}px`;
+  }
+
+  private hideTip(): void {
+    this.tip.style.display = "none";
   }
 
   private installListeners(): void {
@@ -331,7 +416,6 @@ export class RecordModal extends Modal {
       this.stepMs,
       this.holdMs,
       this.baseNote,
-      this.audio,
     ];
     for (const el of controls) {
       el.addEventListener("change", () => this.settingsChanged());
@@ -342,6 +426,7 @@ export class RecordModal extends Modal {
   private settingsChanged(): void {
     this.syncGraphNative();
     this.queuePlanRefresh();
+    this.queuePreviewRefresh();
     this.paintAvailability();
   }
 
@@ -349,17 +434,22 @@ export class RecordModal extends Modal {
     const is3D = this.deps.is3D();
     this.view2d.checked = !is3D;
     this.view3d.checked = is3D;
-    this.layoutRadios.get(this.deps.layout())!.checked = true;
+    this.layoutRadios.get(this.prefillLayout())!.checked = true;
     this.expand.checked = this.deps.expandIota();
     this.rules.checked = this.deps.rules();
     this.graph.checked = this.deps.graph();
     this.primitives.checked = this.deps.primitives();
-    this.audio.checked = true;
     this.resolution.value = "1920x1080";
     this.fps.value = "60";
     this.stepMs.value = "300";
     this.holdMs.value = "1000";
     this.baseNote.value = "48";
+  }
+
+  private prefillLayout(): RecordLayoutKey {
+    const current = this.deps.layout();
+    if (current !== "auto") return current;
+    return this.term ? resolveAutoLayout(this.term) : "topdown";
   }
 
   private showTermState(): void {
@@ -383,6 +473,14 @@ export class RecordModal extends Modal {
     }, 80);
   }
 
+  private queuePreviewRefresh(): void {
+    if (this.previewTimer !== undefined) window.clearTimeout(this.previewTimer);
+    this.previewTimer = window.setTimeout(() => {
+      this.previewTimer = undefined;
+      this.refreshPreview();
+    }, 300);
+  }
+
   private refreshPlan(): void {
     if (!this.term) {
       this.plan = null;
@@ -402,6 +500,45 @@ export class RecordModal extends Modal {
       this.warning.textContent = "";
     }
     this.paintAvailability();
+  }
+
+  private refreshPreview(): void {
+    const settings = this.settings();
+    const seq = ++this.previewSeq;
+    this.drawPreviewPlaceholder(settings);
+    if (!this.term) return;
+    void renderFirstFrame(this.term, settings)
+      .then((canvas) => {
+        if (seq !== this.previewSeq) return;
+        this.drawPreviewCanvas(canvas, settings);
+      })
+      .catch(() => {
+        if (seq !== this.previewSeq) return;
+        this.drawPreviewPlaceholder(settings);
+      });
+  }
+
+  private resizeThumb(settings: RecordSettings): void {
+    const w = THUMB_W;
+    const h = Math.max(1, Math.round((THUMB_W * settings.height) / Math.max(1, settings.width)));
+    this.thumb.width = w;
+    this.thumb.height = h;
+    this.thumb.style.aspectRatio = `${settings.width} / ${settings.height}`;
+  }
+
+  private drawPreviewPlaceholder(settings: RecordSettings): void {
+    this.resizeThumb(settings);
+    const ctx = this.thumb.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, this.thumb.width, this.thumb.height);
+  }
+
+  private drawPreviewCanvas(source: HTMLCanvasElement, settings: RecordSettings): void {
+    this.resizeThumb(settings);
+    const ctx = this.thumb.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(source, 0, 0, this.thumb.width, this.thumb.height);
   }
 
   private refreshCodec(): void {
@@ -431,6 +568,7 @@ export class RecordModal extends Modal {
     const primitiveNative: NativeOpts = this.primitives.checked && !graph ? { numbers: true, lists: true, booleans: true } : {};
     const stepMs = Math.max(1, Math.round(this.stepMs.valueAsNumber || 300));
     const holdMs = Math.max(0, Math.round(this.holdMs.valueAsNumber || 0));
+    const audio = this.baseNote.value !== "none";
     return {
       view: this.view3d.checked ? "3d" : "2d",
       layout: this.selectedLayout(),
@@ -443,15 +581,15 @@ export class RecordModal extends Modal {
       fps: this.fps.value === "30" ? 30 : 60,
       stepMs,
       holdMs,
-      baseNote: Number(this.baseNote.value),
-      audio: this.audio.checked,
+      baseNote: audio ? Number(this.baseNote.value) : 48,
+      audio,
       maxSteps: graph ? GRAPH_MAX_STEPS : MAX_STEPS,
     };
   }
 
-  private selectedLayout(): LayoutKey {
+  private selectedLayout(): RecordLayoutKey {
     for (const [key, input] of this.layoutRadios) if (input.checked) return key;
-    return "auto";
+    return "topdown";
   }
 
   private paintAvailability(): void {
@@ -462,10 +600,7 @@ export class RecordModal extends Modal {
     const settings = this.settings();
     let disabled = false;
     let codecText = this.codecStatus.textContent || "";
-    if (settings.view === "3d") {
-      disabled = true;
-      codecText = "3D recording is coming soon.";
-    } else if (this.codec === undefined) {
+    if (this.codec === undefined) {
       disabled = true;
       codecText = "Codec: checking...";
     } else if (!this.codec.video) {
@@ -483,19 +618,19 @@ export class RecordModal extends Modal {
   }
 
   private submit(): void {
-    if (!this.term) return;
+    if (!this.term || this.record.disabled) return;
     const settings = this.settings();
-    if (!this.plan) {
-      try {
-        this.plan = precount(this.term, settings);
-      } catch (err) {
-        this.deps.onError(messageOf(err));
-        return;
-      }
+    // Recompute from the CURRENT settings — the debounced this.plan can be
+    // stale when Record lands within the refresh window, and the driver
+    // rejects any plan whose frame budget doesn't match the settings.
+    let plan: RecordPlan;
+    try {
+      plan = precount(this.term, settings);
+    } catch (err) {
+      this.deps.onError(messageOf(err));
+      return;
     }
-    if (!this.plan || this.record.disabled) return;
     const term = this.term;
-    const plan = this.plan;
     this.close();
     this.deps.onRecord(term, settings, plan);
   }
@@ -504,6 +639,7 @@ export class RecordModal extends Modal {
     const p = PALETTE[currentMode()];
     this.root.style.setProperty("--rm-red", p.red);
     this.root.style.setProperty("--rm-dim", p.dim);
+    this.root.style.setProperty("--rm-shadow", p.shadow);
   }
 }
 
