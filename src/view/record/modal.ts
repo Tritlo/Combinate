@@ -18,9 +18,9 @@ const MAX_STEPS = 2000;
 const GRAPH_MAX_STEPS = 100_000;
 const THUMB_W = 220;
 const RESOLUTIONS = [
+  { label: "1080×1080", width: 1080, height: 1080 },
   { label: "1920×1080", width: 1920, height: 1080 },
   { label: "1280×720", width: 1280, height: 720 },
-  { label: "1080×1080", width: 1080, height: 1080 },
 ] as const;
 const BASE_NOTES = [
   { label: "None", value: "none" },
@@ -326,7 +326,7 @@ export class RecordModal extends Modal {
 
     const video = section("Video");
     this.resolution.className = "rm-select";
-    for (const r of RESOLUTIONS) this.resolution.append(selectOption(`${r.width}x${r.height}`, r.label, r.width === 1920));
+    for (const r of RESOLUTIONS) this.resolution.append(selectOption(`${r.width}x${r.height}`, r.label, r.width === r.height));
     this.hinted(this.resolution, "Pick the output pixel size.");
     this.fps.className = "rm-select";
     this.fps.append(selectOption("30", "30 fps"), selectOption("60", "60 fps", true));
@@ -514,7 +514,7 @@ export class RecordModal extends Modal {
     this.graph.checked = this.deps.graph();
     this.primitives.checked = this.deps.primitives();
     this.cameraRadios.get("hold")!.checked = true;
-    this.resolution.value = "1920x1080";
+    this.resolution.value = "1080x1080";
     this.fps.value = "60";
     this.stepMs.value = "300";
     this.holdMs.value = "1000";
