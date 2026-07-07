@@ -167,3 +167,47 @@ export function precount(term: Node, settings: RecordSettings): RecordPlan {
   const budget = frameBudget(steps, settings);
   return { steps, ...budget, capped: replay.hasRedex(), tones };
 }
+
+/**
+ * Async twin of {@link precount}: identical replay + frameBudget math, but it
+ * yields to the event loop every `yieldEvery` steps (default 512) and aborts
+ * cleanly via `signal`, so a 100k-step plan can't freeze the UI thread. Used by
+ * the record modal; the sync {@link precount} stays for small-term/off-thread callers.
+ */
+export async function precountAsync(
+  term: Node,
+  settings: RecordSettings,
+  opts: { yieldEvery?: number; signal?: AbortSignal } = {},
+): Promise<RecordPlan> {
+  const yieldEvery = Math.max(1, Math.floor(opts.yieldEvery ?? 512));
+  const signal = opts.signal;
+  const throwIfAborted = (): void => {
+    if (signal?.aborted) throw new DOMException("precount aborted", "AbortError");
+  };
+  throwIfAborted();
+  const replay = createReductionReplay(term, settings);
+  const schedule = createScheduleCursor(settings);
+  const tones: ToneEvent[] = [];
+  let steps = 0;
+  let sinceYield = 0;
+  while (steps < settings.maxSteps) {
+    const group = schedule.next(settings.maxSteps - steps);
+    if (!group) break;
+    for (let i = 0; i < group.stepCount; i++) {
+      const next = replay.step();
+      if (!next) {
+        const budget = frameBudget(steps, settings);
+        return { steps, ...budget, capped: false, tones };
+      }
+      if (i === 0 && next.sym !== null) tones.push({ sym: next.sym, timeSec: group.timeMs / 1000 });
+      steps++;
+      if (++sinceYield >= yieldEvery) {
+        sinceYield = 0;
+        await new Promise((r) => setTimeout(r, 0));
+        throwIfAborted();
+      }
+    }
+  }
+  const budget = frameBudget(steps, settings);
+  return { steps, ...budget, capped: replay.hasRedex(), tones };
+}
