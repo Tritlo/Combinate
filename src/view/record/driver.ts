@@ -73,11 +73,17 @@ interface FrameStats {
   expression: string;
 }
 
+interface OverlayState {
+  title: string;
+  cardW: number | null;
+}
+
 interface CardOverlayMetrics {
   inlineLaw: boolean;
   cardPadX: number;
   cardPadY: number;
   contentCap: number;
+  cardW: number;
   cardH: number;
   shadow: number;
   reservedTop: number;
@@ -117,7 +123,23 @@ function measureOverlayText(text: string, font: string): number {
   return overlayMeasureCtx.measureText(text).width;
 }
 
-function overlayMetrics(settings: RecordSettings): OverlayMetrics {
+function defaultOverlayTitle(settings: RecordSettings): string {
+  return settings.info?.title ?? "";
+}
+
+function overlayTitle(overlay: OverlayState | undefined, settings: RecordSettings): string {
+  return overlay?.title || defaultOverlayTitle(settings);
+}
+
+function cardWidthBounds(settings: RecordSettings, pad: number, shadow: number): { floor: number; ceiling: number } {
+  const ceiling = Math.max(40, Math.min(settings.width * 0.86, settings.width - pad * 2 - shadow));
+  return {
+    floor: Math.min(ceiling, Math.max(40, settings.width * 0.3)),
+    ceiling,
+  };
+}
+
+function overlayMetrics(settings: RecordSettings, overlay?: OverlayState): OverlayMetrics {
   const h = settings.height;
   const pad = Math.max(8, Math.round(h * 0.012));
   const gap = Math.max(3, Math.round(h * 0.004));
@@ -128,20 +150,22 @@ function overlayMetrics(settings: RecordSettings): OverlayMetrics {
   const cardPadX = Math.max(10, Math.round(h * 0.015));
   const cardPadY = Math.max(8, Math.round(h * 0.012));
   const shadow = Math.max(2, Math.round(h * 0.004));
-  const maxCardW = Math.max(40, Math.min(settings.width * 0.86, settings.width - pad * 2 - shadow));
-  const topCap = Math.max(24, maxCardW - cardPadX * 2);
+  const bounds = cardWidthBounds(settings, pad, shadow);
+  const cardW = overlay?.cardW != null ? Math.max(bounds.floor, Math.min(bounds.ceiling, overlay.cardW)) : bounds.ceiling;
+  const topCap = Math.max(24, cardW - cardPadX * 2);
   let card: CardOverlayMetrics | null = null;
   if (settings.overlayInfo || settings.overlayStats) {
     const law = settings.info?.law;
-    const titleW = settings.info ? measureOverlayText(settings.info.title, overlayFont(titlePx, 700)) : 0;
+    const title = overlayTitle(overlay, settings);
+    const titleW = title ? measureOverlayText(title, overlayFont(titlePx, 700)) : 0;
     const lawW = law ? measureOverlayText(law, overlayFont(lawPx)) : 0;
     let inlineLaw = true;
-    if (settings.overlayInfo && settings.info && law) {
+    if (settings.overlayInfo && title && law) {
       const inlineW = titleW + measureOverlayText(" · ", overlayFont(lawPx)) + lawW;
       inlineLaw = inlineW <= topCap;
     }
     const linePxs: number[] = [];
-    if (settings.overlayInfo && settings.info) {
+    if (settings.overlayInfo && (title || law)) {
       linePxs.push(titlePx);
       if (law && !inlineLaw) linePxs.push(lawPx);
     }
@@ -154,6 +178,7 @@ function overlayMetrics(settings: RecordSettings): OverlayMetrics {
       cardPadX,
       cardPadY,
       contentCap: topCap,
+      cardW,
       cardH,
       shadow,
       reservedTop: pad + cardH + shadow + gap,
@@ -162,15 +187,19 @@ function overlayMetrics(settings: RecordSettings): OverlayMetrics {
   return { pad, gap, titlePx, lawPx, exprPx, statsPx, card };
 }
 
-function renderRect(settings: RecordSettings): RenderRect {
-  const metrics = overlayMetrics(settings);
+function renderRect(settings: RecordSettings, overlay?: OverlayState): RenderRect {
+  const metrics = overlayMetrics(settings, overlay);
   const top = metrics.card?.reservedTop ?? 0;
   return { x: 0, y: top, w: settings.width, h: Math.max(1, settings.height - top) };
 }
 
-function stageFitFromExtents(root: { x: number; y: number }, extents: RootExtents, settings: RecordSettings): StageFit {
-  const rect = renderRect(settings);
-  const scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, Math.min((rect.w * FIT_MARGIN) / (2 * extents.halfW), (rect.h * FIT_MARGIN) / (2 * extents.halfH))));
+function fitScaleForExtents(extents: RootExtents, rect: RenderRect): number {
+  return Math.max(MIN_SCALE, Math.min(MAX_SCALE, Math.min((rect.w * FIT_MARGIN) / (2 * extents.halfW), (rect.h * FIT_MARGIN) / (2 * extents.halfH))));
+}
+
+function stageFitFromExtents(root: { x: number; y: number }, extents: RootExtents, settings: RecordSettings, overlay?: OverlayState): StageFit {
+  const rect = renderRect(settings, overlay);
+  const scale = fitScaleForExtents(extents, rect);
   return { x: rect.x + rect.w / 2 - root.x * scale, y: rect.y + rect.h / 2 - root.y * scale, scale };
 }
 
@@ -181,10 +210,10 @@ function rootExtents(minX: number, maxX: number, minY: number, maxY: number, roo
   };
 }
 
-function stageFitFor(tree: TreeView, settings: RecordSettings, extents?: RootExtents): StageFit {
+function stageFitFor(tree: TreeView, settings: RecordSettings, extents?: RootExtents, overlay?: OverlayState): StageFit {
   const b = tree.worldBounds();
   const root = tree.layoutRootWorld;
-  return stageFitFromExtents(root, extents ?? rootExtents(b.x, b.x + b.w, b.y, b.y + b.h, root), settings);
+  return stageFitFromExtents(root, extents ?? rootExtents(b.x, b.x + b.w, b.y, b.y + b.h, root), settings, overlay);
 }
 
 function applyStageFit(stage: Container, fit: StageFit): void {
@@ -204,8 +233,8 @@ function followStage(stage: Container, target: StageFit, deltaMS: number): void 
   stage.position.set(stage.position.x + (target.x - stage.position.x) * a, stage.position.y + (target.y - stage.position.y) * a);
 }
 
-function fitStage(stage: Container, tree: TreeView, settings: RecordSettings, extents?: RootExtents): void {
-  applyStageFit(stage, stageFitFor(tree, settings, extents));
+function fitStage(stage: Container, tree: TreeView, settings: RecordSettings, extents?: RootExtents, overlay?: OverlayState): void {
+  applyStageFit(stage, stageFitFor(tree, settings, extents, overlay));
 }
 
 function layoutRootExtents(term: Node, settings: RecordSettings, layout: LayoutFn, frozen?: { l0?: number }): { extents: RootExtents; l0?: number } {
@@ -287,8 +316,37 @@ function readoutExpression(node: Node, settings: RecordSettings): string {
   return sugar(node, opts, READOUT_TEXT_MAX);
 }
 
+function initialOverlayTitle(term: Node, settings: RecordSettings): string {
+  try {
+    const title = readoutExpression(term, settings).trim();
+    return title || defaultOverlayTitle(settings);
+  } catch {
+    return defaultOverlayTitle(settings);
+  }
+}
+
+function overlayCardWidthFromExtents(settings: RecordSettings, title: string, extents: RootExtents): number | null {
+  if (!needsOverlay(settings)) return null;
+  let cardW: number | null = null;
+  for (let i = 0; i < 4; i++) {
+    const overlay: OverlayState = { title, cardW };
+    const metrics = overlayMetrics(settings, overlay);
+    if (!metrics.card) return null;
+    const treeW = 2 * extents.halfW * fitScaleForExtents(extents, renderRect(settings, overlay));
+    const bounds = cardWidthBounds(settings, metrics.pad, metrics.card.shadow);
+    cardW = Math.max(bounds.floor, Math.min(bounds.ceiling, treeW));
+  }
+  return cardW;
+}
+
+function overlayStateFor(term: Node, settings: RecordSettings, extents?: RootExtents): OverlayState {
+  const title = initialOverlayTitle(term, settings);
+  return { title, cardW: extents ? overlayCardWidthFromExtents(settings, title, extents) : null };
+}
+
 interface RecordingPipeline {
   readonly canvas: HTMLCanvasElement;
+  readonly overlay: OverlayState;
   stepTo: (node: Node, durationMS: number) => void;
   advanceTo: (timeMS: number) => void;
   render: () => void;
@@ -300,6 +358,8 @@ interface RecordingPipeline {
 async function setup2DPipeline(term: Node, settings: RecordSettings, holdSteps = 0): Promise<RecordingPipeline> {
   const colors = themeForMode(settings.theme, settings.color);
   const holdExtents = settings.camera === "hold" ? holdExtentsFor(term, settings, holdSteps) : undefined;
+  const initialExtents = holdExtents ?? layoutRootExtents(term, settings, layoutFor(settings)).extents;
+  const overlay = overlayStateFor(term, settings, initialExtents);
   const canvas = document.createElement("canvas");
   canvas.width = settings.width;
   canvas.height = settings.height;
@@ -331,7 +391,7 @@ async function setup2DPipeline(term: Node, settings: RecordSettings, holdSteps =
       color: settings.color,
     });
     stage.addChild(tree.container);
-    fitStage(stage, tree, settings, holdExtents);
+    fitStage(stage, tree, settings, holdExtents, overlay);
     renderer.render(stage);
   } catch (err) {
     tree?.destroy();
@@ -344,6 +404,7 @@ async function setup2DPipeline(term: Node, settings: RecordSettings, holdSteps =
 
   return {
     canvas,
+    overlay,
     stepTo: (node, durationMS) => {
       displayCount = countNodes(displayTerm(node, settings));
       expression = readoutExpression(node, settings);
@@ -352,7 +413,7 @@ async function setup2DPipeline(term: Node, settings: RecordSettings, holdSteps =
     advanceTo: (timeMS) => {
       const dt = timeMS - clockMS;
       ticker.update(timeMS);
-      if (settings.camera === "follow") followStage(stage, stageFitFor(view, settings), dt);
+      if (settings.camera === "follow") followStage(stage, stageFitFor(view, settings, undefined, overlay), dt);
       clockMS = timeMS;
     },
     render: () => renderer.render(stage),
@@ -369,6 +430,7 @@ async function setup2DPipeline(term: Node, settings: RecordSettings, holdSteps =
 }
 
 async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec = 0): Promise<RecordingPipeline> {
+  const overlay = overlayStateFor(term, settings);
   const sphere = new Sphere3D({
     now: () => 0,
     pixelRatio: 1,
@@ -392,6 +454,7 @@ async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec
 
   return {
     canvas: sphere.canvas,
+    overlay,
     stepTo: (node, durationMS) => {
       const next = displayTerm(node, settings);
       displayCount = countNodes(next);
@@ -472,12 +535,13 @@ function drawCenteredRuns(
   });
 }
 
-function drawInfoOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettings, stats: FrameStats, colors: Theme): void {
-  const metrics = overlayMetrics(settings);
+function drawInfoOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettings, overlay: OverlayState, stats: FrameStats, colors: Theme): void {
+  const metrics = overlayMetrics(settings, overlay);
   if (!metrics.card) return;
   const centerX = settings.width / 2;
   const text = cssColor(colors.text);
   const dim = cssColor(colors.textDim);
+  const title = overlayTitle(overlay, settings);
   const lines: Array<{ px: number; width: number; draw: (y: number) => void }> = [];
   const textLine = (value: string, font: string, color: string, px: number): void => {
     ctx.font = font;
@@ -496,20 +560,23 @@ function drawInfoOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettings
     });
   };
 
-  if (settings.overlayInfo && settings.info) {
+  if (settings.overlayInfo && (title || settings.info?.law)) {
     const titleFont = overlayFont(metrics.titlePx, 700);
     const lawFont = overlayFont(metrics.lawPx);
-    const law = settings.info.law;
-    if (law && metrics.card.inlineLaw) {
+    const law = settings.info?.law;
+    if (title && law && metrics.card.inlineLaw) {
       const runs = [
-        { text: settings.info.title, font: titleFont, color: text },
+        { text: title, font: titleFont, color: text },
         { text: " · ", font: lawFont, color: dim },
         { text: law, font: lawFont, color: dim },
       ];
-      const width = runs.reduce((sum, run) => sum + measureOverlayText(run.text, run.font), 0);
+      const width = runs.reduce((sum, run) => {
+        ctx.font = run.font;
+        return sum + ctx.measureText(run.text).width;
+      }, 0);
       lines.push({ px: metrics.titlePx, width, draw: (y) => drawCenteredRuns(ctx, runs, centerX, y, metrics.titlePx) });
     } else {
-      textLine(settings.info.title, titleFont, text, metrics.titlePx);
+      if (title) textLine(title, titleFont, text, metrics.titlePx);
       if (law) textLine(law, lawFont, dim, metrics.lawPx);
     }
   }
@@ -517,8 +584,7 @@ function drawInfoOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettings
   if (settings.overlayStats) textLine(`step ${stats.step}/${stats.totalSteps} · nodes ${stats.nodes}`, overlayFont(metrics.statsPx), dim, metrics.statsPx);
   if (lines.length === 0) return;
 
-  const contentW = Math.max(...lines.map((line) => line.width));
-  const cardW = Math.ceil(Math.min(contentW, metrics.card.contentCap) + metrics.card.cardPadX * 2);
+  const cardW = Math.ceil(metrics.card.cardW);
   const cardX = Math.round((settings.width - cardW) / 2);
   const cardY = metrics.pad;
 
@@ -542,8 +608,8 @@ interface Compositor {
   compose: (source: HTMLCanvasElement, stats: FrameStats) => HTMLCanvasElement;
 }
 
-function drawSourceCanvas(ctx: CanvasRenderingContext2D, source: HTMLCanvasElement, settings: RecordSettings): void {
-  const rect = renderRect(settings);
+function drawSourceCanvas(ctx: CanvasRenderingContext2D, source: HTMLCanvasElement, settings: RecordSettings, overlay: OverlayState): void {
+  const rect = renderRect(settings, overlay);
   if (settings.view !== "3d" || (rect.y === 0 && rect.h === settings.height)) {
     ctx.drawImage(source, 0, 0, settings.width, settings.height);
     return;
@@ -554,7 +620,7 @@ function drawSourceCanvas(ctx: CanvasRenderingContext2D, source: HTMLCanvasEleme
   ctx.drawImage(source, rect.x + (rect.w - w) / 2, rect.y + (rect.h - h) / 2, w, h);
 }
 
-function createCompositor(settings: RecordSettings): Compositor {
+function createCompositor(settings: RecordSettings, overlay: OverlayState): Compositor {
   const canvas = document.createElement("canvas");
   canvas.width = settings.width;
   canvas.height = settings.height;
@@ -566,8 +632,8 @@ function createCompositor(settings: RecordSettings): Compositor {
     compose: (source, stats) => {
       ctx.fillStyle = cssColor(colors.bg);
       ctx.fillRect(0, 0, settings.width, settings.height);
-      drawSourceCanvas(ctx, source, settings);
-      drawInfoOverlay(ctx, settings, stats, colors);
+      drawSourceCanvas(ctx, source, settings, overlay);
+      drawInfoOverlay(ctx, settings, overlay, stats, colors);
       return canvas;
     },
   };
@@ -580,7 +646,7 @@ function createCompositor(settings: RecordSettings): Compositor {
 export async function renderFirstFrame(term: Node, settings: RecordSettings): Promise<HTMLCanvasElement> {
   await prepareOverlayFont(settings);
   const pipeline = await setupPipeline(term, settings);
-  const compositor = createCompositor(settings);
+  const compositor = createCompositor(settings, pipeline.overlay);
   try {
     pipeline.render();
     return compositor.compose(pipeline.canvas, { step: 0, totalSteps: 0, nodes: pipeline.nodeCount(), expression: pipeline.expression() });
@@ -614,7 +680,7 @@ export async function runRecording(
     await prepareOverlayFont(settings);
     throwIfAborted(hooks.signal);
     pipeline = await setupPipeline(term, settings, plan);
-    const compositor = createCompositor(settings);
+    const compositor = createCompositor(settings, pipeline.overlay);
 
     const audioBuffer = settings.audio && plan.tones.length > 0 ? await renderAudio(plan, settings) : null;
     encoder = await createRecordingEncoder(compositor.canvas, settings, plan, audioBuffer);
