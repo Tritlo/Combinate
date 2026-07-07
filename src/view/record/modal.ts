@@ -9,7 +9,7 @@ import type { LayoutKey } from "../layoutControls";
 import { currentMode, ensureFont, INK, MONO, onThemeChange, PAPER, type Mode } from "../theme";
 import { renderFirstFrame } from "./driver";
 import { probeSupport } from "./encoder";
-import { precount } from "./precount";
+import { precountAsync } from "./precount";
 import type { CodecSupport, RecordInfo, RecordPlan, RecordProgress, RecordSettings } from "./types";
 
 type RecordLayoutKey = Exclude<LayoutKey, "auto">;
@@ -246,6 +246,8 @@ export class RecordModal extends Modal {
   private codecError = "";
   private probeSeq = 0;
   private planTimer: number | undefined;
+  private planSeq = 0;
+  private planAbort: AbortController | undefined;
   private previewSeq = 0;
   private previewTimer: number | undefined;
 
@@ -425,7 +427,20 @@ export class RecordModal extends Modal {
 
   override close(): void {
     this.hideTip();
+    if (this.planTimer !== undefined) window.clearTimeout(this.planTimer);
+    this.planTimer = undefined;
+    this.invalidatePlan();
     super.close();
+  }
+
+  /** Drop any pending/in-flight estimate: bump the guard seq, abort the async
+   *  precount, and clear the stale plan so Record stays disabled until a fresh
+   *  estimate lands. Runs synchronously the instant settings change. */
+  private invalidatePlan(): void {
+    this.planSeq++;
+    this.planAbort?.abort();
+    this.planAbort = undefined;
+    this.plan = null;
   }
 
   protected override onOpen(): void {
@@ -433,7 +448,7 @@ export class RecordModal extends Modal {
     this.syncGraphNative();
     this.showTermState();
     this.refreshCodec();
-    this.refreshPlan();
+    void this.refreshPlan();
     this.refreshPreview();
   }
 
@@ -562,10 +577,19 @@ export class RecordModal extends Modal {
   }
 
   private queuePlanRefresh(): void {
+    // Invalidate the old estimate synchronously so a precount still running
+    // through the debounce window can't publish a stale plan, and Record
+    // disables immediately. The debounced refresh coalesces rapid changes into
+    // a single async run.
+    this.invalidatePlan();
+    if (this.term) {
+      this.estimate.textContent = "Estimating…";
+      this.warning.textContent = "";
+    }
     if (this.planTimer !== undefined) window.clearTimeout(this.planTimer);
     this.planTimer = window.setTimeout(() => {
       this.planTimer = undefined;
-      this.refreshPlan();
+      void this.refreshPlan();
     }, 80);
   }
 
@@ -577,20 +601,35 @@ export class RecordModal extends Modal {
     }, 300);
   }
 
-  private refreshPlan(): void {
+  private async refreshPlan(): Promise<void> {
     if (!this.term) {
-      this.plan = null;
+      this.invalidatePlan();
       this.estimate.textContent = "Estimated length: -";
       this.warning.textContent = "";
       this.paintAvailability();
       return;
     }
     const settings = this.settings();
+    // Sequence + abort guard (mirrors refreshPreview): only the newest run may
+    // publish, and superseded runs abort so at most one precount is ever live.
+    const seq = ++this.planSeq;
+    this.planAbort?.abort();
+    const abort = new AbortController();
+    this.planAbort = abort;
+    this.plan = null;
+    this.estimate.textContent = "Estimating…";
+    this.warning.textContent = "";
+    this.paintAvailability();
     try {
-      this.plan = precount(this.term, settings);
-      this.estimate.textContent = `Estimated length: ${formatDuration(this.plan.durationSec)} (${this.plan.totalFrames} frames)`;
-      this.warning.textContent = this.plan.capped ? `no normal form within ${settings.maxSteps} steps - records the first ${settings.maxSteps}` : "";
+      const plan = await precountAsync(this.term, settings, { signal: abort.signal });
+      if (seq !== this.planSeq) return;
+      this.planAbort = undefined;
+      this.plan = plan;
+      this.estimate.textContent = `Estimated length: ${formatDuration(plan.durationSec)} (${plan.totalFrames} frames)`;
+      this.warning.textContent = plan.capped ? `no normal form within ${settings.maxSteps} steps - records the first ${settings.maxSteps}` : "";
     } catch {
+      if (seq !== this.planSeq) return; // aborted/superseded — a newer run owns the UI
+      this.planAbort = undefined;
       this.plan = null;
       this.estimate.textContent = "Estimated length: -";
       this.warning.textContent = "";
@@ -732,18 +771,13 @@ export class RecordModal extends Modal {
   }
 
   private submit(): void {
-    if (!this.term || this.record.disabled) return;
+    // No sync recompute: `plan` is nulled on every settings change and Record
+    // stays disabled until the matching async estimate lands, so a non-null
+    // `plan` here always matches the current settings (the driver asserts this
+    // downstream too). This keeps the UI thread free even for huge terms.
+    if (!this.term || this.record.disabled || !this.plan) return;
     const settings = this.settings();
-    // Recompute from the CURRENT settings — the debounced this.plan can be
-    // stale when Record lands within the refresh window, and the driver
-    // rejects any plan whose frame budget doesn't match the settings.
-    let plan: RecordPlan;
-    try {
-      plan = precount(this.term, settings);
-    } catch (err) {
-      this.deps.onError(messageOf(err));
-      return;
-    }
+    const plan = this.plan;
     const term = this.term;
     this.close();
     this.deps.onRecord(term, settings, plan);

@@ -990,12 +990,17 @@ export class TreeView {
   private placeSharedMarks(): void {
     if (!this.sharedMarkKinds) return;
     this.sharedMarks.clear();
+    const color = this.colors().iota; // the tricolor red: sharing, vs the ink root halo
     for (const [id, kind] of this.sharedMarkKinds) {
       const vis = this.objs.get(id);
       if (!vis) continue;
-      this.sharedMarks.circle(vis.particle.x, vis.particle.y, radiusOf(kind) + 5);
+      // Match the disc's actual rendered size: the H-tree shrinks deep nodes, so the
+      // ring must scale by the same `s × nodeScale` the particle carries (baseScale
+      // maps radiusOf→texel, exactly as glyphs/pills recover it) — otherwise a tiny
+      // deep node gets a full-size halo. Stroke per-circle so each width scales too.
+      const scale = vis.particle.scaleX / vis.baseScale;
+      this.sharedMarks.circle(vis.particle.x, vis.particle.y, (radiusOf(kind) + 5) * scale).stroke({ width: 2 * scale, color });
     }
-    this.sharedMarks.stroke({ width: 2, color: this.colors().iota }); // the tricolor red: sharing, vs the ink root halo
   }
 }
 
