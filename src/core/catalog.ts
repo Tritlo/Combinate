@@ -106,6 +106,16 @@ const succDef = (): Node => lam(3, succBody);
 const predBody = (v: Node[]): Node => app(app(v[0], zeroDef()), I());
 const predDef = (): Node => lam(1, predBody);
 
+// Scott numeral literals: 0 = Z = K; k = Succ (k-1), built as a NAMED Succ chain
+// over Z (the same shape mhs's `natTree` emits), so the behavioral refolder can
+// name a raw `Succ 0` (whose SKI normal form is `K (S I (K K))`) back to `1`.
+const succComb = (): Node => comb("Succ", succDef(), 3); // a named Succ node (structKey `cSucc`), not its raw ι-tree
+const natLit = (k: number): Node => {
+  let t: Node = zeroDef();
+  for (let i = 0; i < k; i++) t = app(succComb(), t);
+  return t;
+};
+
 // [] = [] | (:) a [a]:  nil = K,  cons h t = λn c. c h t
 const nilDef = (): Node => K();
 const consBody = (v: Node[]): Node => app(app(v[3], v[0]), v[1]); // cons h t n c = c h t
@@ -171,6 +181,18 @@ function bird(sym: string, lawText: string, arity: number, body: (v: Node[]) => 
   return { sym, lawText, arity, reference: body, rule: body, def: () => lam(arity, body) };
 }
 
+/**
+ * A Scott numeral literal `k` (1..) as a named catalog combinator. A Scott
+ * numeral IS a two-arm eliminator — `k z s = s (k-1)` — so it is registered at
+ * arity 2 (not as an arity-0 constant): behavioral recognition applies a term to
+ * `arity` fresh vars, and `Succ 0` applied to `z s` reduces to `s 0`. Its `def`
+ * is the named `Succ` chain, so the tree stays reducible and the refolder names
+ * a bare `Succ^k Z` back to `k`.
+ */
+function numeral(k: number): Law {
+  return { sym: String(k), label: String(k), lawText: `${k} z s = s ${k - 1}`, arity: 2, reference: (v) => app(v[1], natLit(k - 1)), def: () => natLit(k) };
+}
+
 // ---- optimize-mode rules for the recursive ops: the direct Scott recursion via
 // *named* sub-combinators (`mk` below), no Y. Mirrors the Y-based defs above but
 // reduces step-by-step through named birds (each then reduced by its own rule)
@@ -212,6 +234,9 @@ export const CATALOG: Law[] = [
   bird("LT", "LT l e g = l", 3, (v) => v[0]), // Ordering: less-than
   bird("EQ", "EQ l e g = e", 3, (v) => v[1]), // Ordering: equal
   bird("GT", "GT l e g = g", 3, (v) => v[2]), // Ordering: greater-than
+  numeral(1), // Scott 1 = Succ 0
+  numeral(2), // Scott 2 = Succ (Succ 0)
+  numeral(3), // Scott 3 = Succ (Succ (Succ 0))
   bird("A", "A x y = y", 2, (v) => v[1]), // Albatross (= K I; the old Kite)
   bird("B", "B x y z = x (y z)", 3, (v) => app(v[0], app(v[1], v[2]))), // Bluebird
   bird("B1", "B1 x y z w = x (y z w)", 4, (v) => app(v[0], app(app(v[1], v[2]), v[3]))), // Blackbird
@@ -327,6 +352,9 @@ export const META: Record<string, Meta> = {
   EQ: { blurb: "The 'equal' Ordering: selects its second (middle) branch. Returned by compare when the operands are equal.", recipe: "λl e g. e" },
   GT: { blurb: "The 'greater-than' Ordering: selects its third branch. Returned by compare when the left operand is larger.", recipe: "λl e g. g" },
   Succ: { blurb: "The successor: S, the second Nat constructor. It simply remembers its predecessor (Succ n = λz s. s n), so the number 3 is just S (S (S Z)).", recipe: "λn z s. s n" },
+  "1": { blurb: "The Scott numeral 1 = Succ 0. As a value it is the two-arm case λz s. s 0 — it hands its predecessor 0 to the successor arm. Its raw ι/SKI form is K (S I (K K)).", recipe: "Succ 0" },
+  "2": { blurb: "The Scott numeral 2 = Succ (Succ 0): λz s. s 1, handing its predecessor 1 to the successor arm.", recipe: "Succ (Succ 0)" },
+  "3": { blurb: "The Scott numeral 3 = Succ (Succ (Succ 0)): λz s. s 2 — the pivot in `qs [3, 1, 2]`.", recipe: "Succ (Succ (Succ 0))" },
   Pred: { blurb: "The predecessor, and under the Scott encoding it is trivial: a number is a case on Z / S, so Pred just hands back the stored predecessor (and leaves Z at Z). The famous Church-numeral dentist-chair trick is gone — Scott pays the cost at construction instead.", recipe: "λm. m Z I" },
   cons: { blurb: "Prepends a head onto a list. A Scott cons cell stores its head and tail and, when matched, hands them to the cons branch (cons h t = λn c. c h t) — there is no fold built in, unlike the Church encoding.", recipe: "λh t n c. c h t" },
   head: { blurb: "Takes the first element of a list (or the empty list, if there is none). It matches the list with the Kestrel as the cons branch — K keeps the head, drops the tail — and a default for the empty case.", recipe: "λxs. xs nil K" },
@@ -399,7 +427,7 @@ export interface PageDef {
 }
 
 // Combinators that belong only to a topic page, not to the general "Programs" tab.
-const ARITH_OPS = new Set(["Succ", "Pred", "(+)", "(-)", "(*)", "(==)", "(/=)", "(<)", "(<=)", "(>)", "(>=)", "compare", "LT", "EQ", "GT"]);
+const ARITH_OPS = new Set(["1", "2", "3", "Succ", "Pred", "(+)", "(-)", "(*)", "(==)", "(/=)", "(<)", "(<=)", "(>)", "(>=)", "compare", "LT", "EQ", "GT"]);
 const LIST_OPS = new Set(["cons", "head", "tail", "<>", "concat", "map", "null", "uncons"]);
 const BOOL_OPS = new Set(["not", "and", "or"]);
 
@@ -426,6 +454,9 @@ export const PAGES: PageDef[] = [
     name: "Arithmetic",
     entries: [
       { sym: "K", alias: "0", label: "0", role: "Scott zero (Z) — also nil and false" },
+      { sym: "1", alias: "1", role: "Scott 1 = Succ 0 (the two-arm case λz s. s 0)" },
+      { sym: "2", alias: "2", role: "Scott 2 = Succ (Succ 0)" },
+      { sym: "3", alias: "3", role: "Scott 3 = Succ (Succ (Succ 0))" },
       { sym: "Succ", alias: "Succ", role: "S — wraps a number as its own successor" },
       { sym: "Pred", alias: "Pred", role: "strips one successor (Z stays Z)" },
       { sym: "(+)", alias: "Plus", role: "adds two numerals (recurses via Y)" },
