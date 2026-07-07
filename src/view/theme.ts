@@ -1,10 +1,10 @@
 /**
  * Light / dark theming with a **tricolor (red / black / white)** Macintosh-ish default and an opt-in
- * **Colour** mode. By default the canvas + panels are paper (white) + ink (black), with two reserved
+ * **Color** mode. By default the canvas + panels are paper (white) + ink (black), with two reserved
  * accents that carry meaning: the gold ι (the single generator / brand) and a **red** used to tier
  * tree edges by depth (red/black alternating, so a parent-edge differs from its child-edges — see
- * {@link edgeTierColor}). So: red, black, white, plus the gold ι. The View ▸ Colour toggle swaps in
- * the full palette, restricted to 4096 colours (12-bit, RGB444) like an early colour Mac.
+ * {@link edgeTierColor}). So: red, black, white, plus the gold ι. The View ▸ Color toggle swaps in
+ * the full palette, restricted to 4096 colors (12-bit, RGB444) like an early color Mac.
  *
  * The `theme` object is mutated in place and every view reads `theme.*` at render
  * time, so a re-render (hotbar/zoo/tree refresh) repaints in the active scheme.
@@ -19,19 +19,19 @@ export interface Theme {
   text: number;
   textDim: number;
   mutedDot: number; // application nodes, small markers
-  node: number; // combinator dot fill (ink in mono, blue in colour)
-  iota: number; // the brand accent (tricolor red) — titles, active states. Historically the gold ι (now a grey node).
+  node: number; // combinator dot fill (ink in mono, blue in color)
+  iota: number; // the brand accent (tricolor red) — titles, active states. Historically the gold ι (now a gray node).
   root: number; // highlight ring on a tree's root (the snap anchor)
-  select: number; // selected Zoo / challenge row (a quiet grey under unchanged text)
+  select: number; // selected Zoo / challenge row (a quiet gray under unchanged text)
   backdrop: number;
   backdropAlpha: number;
 }
 
-// ---- Colour mode: the classic 1977–1999 Apple six-colour logo (green/yellow/
+// ---- Color mode: the classic 1977–1999 Apple six-color logo (green/yellow/
 // orange/red/purple/blue) — the macOS heritage palette, six widely-separated hues
 // — mapped to roles: ι = yellow/gold, combinator node = purple, root = green,
 // accent = orange/blue. (Tree edges are the red/black depth tiers — see
-// edgeTierColor — in every mode, not a per-role hue.) Quantised to RGB444 at
+// edgeTierColor — in every mode, not a per-role hue.) Quantized to RGB444 at
 // apply() (channels near 0x11 multiples survive); this is the opt-in over the
 // tricolor default. Lightness is tuned per mode for contrast: the vivid logo hues
 // on dark, deepened on white where a token doubles as text. ----
@@ -53,7 +53,7 @@ const COLOR_LIGHT: Theme = {
 // ---- Tricolor mode (default): red / black / white. Paper (white) + ink (black) + red. Tree edges
 // alternate ink/red by depth tier (the red/black-tree cue; see edgeTierColor) and fn/arg are told
 // apart by solid vs dashed; the UI accent (titles, active states — `iota`) is the same red.
-// No gold, no other hues; the six-colour palette is the opt-in. ----
+// No gold, no other hues; the six-color palette is the opt-in. ----
 const MONO_DARK: Theme = {
   bg: 0x07090d, panel: 0x07090d, inset: 0x0d1117, border: 0xf0f3f6,
   text: 0xf0f3f6, textDim: 0x9aa3ad, mutedDot: 0x6e7681,
@@ -80,18 +80,18 @@ export function themeForMode(m: Mode, color = false): Theme {
   return color ? quantize(palette) : { ...palette };
 }
 
-/** Edge tier colour under a fixed theme. */
+/** Edge tier color under a fixed theme. */
 export function edgeTierColorForMode(depth: number, m: Mode, colors = themeForMode(m)): number {
   return depth % 2 === 0 ? colors.text : EDGE_RED[m];
 }
 
 let mode: Mode = "dark";
-let colorMode = false; // false = 1-bit mono (default); true = the 4096-colour palette
+let colorMode = false; // false = 1-bit mono (default); true = the 4096-color palette
 let userOverride = false;
 const listeners: Array<() => void> = [];
 
-// Edge TIER colour (red/black-tree style): edges alternate colour by depth, so a node's parent-edge
-// is always the OPPOSITE colour of its child-edges — that's what lets you trace parent→child
+// Edge TIER color (red/black-tree style): edges alternate color by depth, so a node's parent-edge
+// is always the OPPOSITE color of its child-edges — that's what lets you trace parent→child
 // direction (and tell "a's argument" from "b's argument") in a busy 2D/3D tree. Pairs with the
 // solid(fn)/dashed(arg) STYLE, which encodes left vs right. Even tiers = ink, odd tiers = red — the
 // red of the tricolor (red/black/white) identity, a fixed hue applied directly in every mode.
@@ -110,7 +110,7 @@ export function currentMode(): Mode {
   return mode;
 }
 
-/** Snap one colour to the nearest 12-bit value (4 bits per channel → 4096 total). */
+/** Snap one color to the nearest 12-bit value (4 bits per channel → 4096 total). */
 function q4(c: number): number {
   const r = Math.round(((c >> 16) & 0xff) / 17) * 17;
   const g = Math.round(((c >> 8) & 0xff) / 17) * 17;
@@ -125,7 +125,7 @@ function quantize(p: Theme): Theme {
   return out;
 }
 
-// ---- Per-combinator dot colours (Colour mode only). The most common birds get
+// ---- Per-combinator dot colors (Color mode only). The most common birds get
 // pinned hues — like sound.ts's FUNDAMENTAL — and the rest are hashed onto the
 // wheel, the way pitchFor hashes them onto the pentatonic scale. Mono keeps ink
 // dots. Saturation/lightness are fixed per mode so the glyph always contrasts. ----
@@ -149,14 +149,14 @@ function hsl(h: number, s: number, l: number): number {
   return (to(r) << 16) | (to(g) << 8) | to(b);
 }
 
-/** A combinator's dot colour: hued in Colour mode (common birds pinned, others
+/** A combinator's dot color: hued in Color mode (common birds pinned, others
  *  hashed), ink in 1-bit mono. */
 export function combinatorColor(sym: string): number {
   if (!colorMode) return theme.node; // 1-bit: ink dots
   return combinatorColorForMode(sym, mode);
 }
 
-/** A combinator's Colour-4096 dot colour under a fixed mode, independent of the live colour toggle. */
+/** A combinator's Color-4096 dot color under a fixed mode, independent of the live color toggle. */
 export function combinatorColorForMode(sym: string, m: Mode): number {
   const l = m === "dark" ? 0.6 : 0.42;
   const s = m === "dark" ? 0.7 : 0.62;
@@ -177,9 +177,9 @@ export function glyphOn(color: number): number {
 }
 
 function apply(): void {
-  const colour = mode === "dark" ? COLOR_DARK : COLOR_LIGHT;
+  const color = mode === "dark" ? COLOR_DARK : COLOR_LIGHT;
   const monochrome = mode === "dark" ? MONO_DARK : MONO_LIGHT;
-  Object.assign(theme, colorMode ? quantize(colour) : monochrome);
+  Object.assign(theme, colorMode ? quantize(color) : monochrome);
   for (const l of listeners) l();
 }
 
@@ -193,7 +193,7 @@ export function toggleMode(): void {
   setMode(mode === "dark" ? "light" : "dark");
 }
 
-/** Toggle the 4096-colour palette on/off (off = 1-bit mono). */
+/** Toggle the 4096-color palette on/off (off = 1-bit mono). */
 export function toggleColor(): void {
   colorMode = !colorMode;
   apply();
@@ -221,7 +221,7 @@ export function onThemeChange(cb: () => void): void {
 
 // ---- Shared DOM/Pixi chrome: the mono font stack, the once-injected IoskeleyMono @font-face, and
 // the tricolor paper/ink pair, which every System-1 overlay (menu bar, modals, quest, hotbar, …)
-// used to redeclare on its own. The pair is fixed mono chrome — independent of Colour mode, unlike
+// used to redeclare on its own. The pair is fixed mono chrome — independent of Color mode, unlike
 // theme.bg/theme.border above. ----
 export const MONO = "'IoskeleyMono', ui-monospace, SFMono-Regular, Menlo, monospace";
 
@@ -230,7 +230,7 @@ export const PAPER: Record<Mode, string> = { light: "#ffffff", dark: "#07090d" }
 export const INK: Record<Mode, string> = { light: "#000000", dark: "#f0f3f6" };
 
 /** {@link PAPER}/{@link INK} as 24-bit ints, for Pixi chrome that's always mono regardless of
- *  Colour mode (the hotbar / hint-bar tooltip). */
+ *  Color mode (the hotbar / hint-bar tooltip). */
 export function paperInk(): { paper: number; ink: number } {
   return mode === "dark" ? { paper: 0x07090d, ink: 0xf0f3f6 } : { paper: 0xffffff, ink: 0x000000 };
 }

@@ -118,12 +118,12 @@ function nodeCount(n: Node): number {
   return n.kind === "app" ? 1 + nodeCount(n.fn) + nodeCount(n.arg) : 1;
 }
 
-/** Collapse a recognised law into its named node, carrying def + arity so the
+/** Collapse a recognized law into its named node, carrying def + arity so the
  *  result stays reducible. */
 const namedNode = (law: Law): Node => comb(law.sym, law.def?.(), law.arity);
 
 /**
- * Behavioural re-folding (the pre-pass): recursively name subterms that
+ * Behavioral re-folding (the pre-pass): recursively name subterms that
  * *behave as* a catalog combinator. Unlike the egg engine this is extensional —
  * it applies a subterm to fresh variables and reduces (via `recognize`) — so it
  * collapses eta-equivalent forms egg cannot, e.g. `S K K → I`, `ι ι → I`, as
@@ -150,7 +150,7 @@ export function recognizeDeep(n: Node, cap = 1500, maxNodes = 160): Node {
  *  better was found (the caller then keeps the original). */
 export type Refolder = (n: Node) => Node | null;
 
-/** The behavioural-only re-folder — pure TS, no wasm. Names single-combinator
+/** The behavioral-only re-folder — pure TS, no wasm. Names single-combinator
  *  subterms and keeps the result only if it is strictly simpler. Doubles as the
  *  graceful fallback when the egg wasm is unavailable. */
 export const behavioralRefolder: Refolder = (n) => {
@@ -164,12 +164,12 @@ export const behavioralRefolder: Refolder = (n) => {
 };
 
 /**
- * The full re-folder: behavioural pre-pass → egg. First `recognizeDeep` names
+ * The full re-folder: behavioral pre-pass → egg. First `recognizeDeep` names
  * every single-combinator subterm (extensional, fixes the eta cases); then the
  * wasm `refold` runs on that residual to fold any remaining multi-combinator
  * structure, keeping its result only if it is simpler still. The output is
  * returned only when strictly simpler than the input; if egg fails the
- * behavioural result stands.
+ * behavioral result stands.
  */
 export function makeRefolder(raw: (sexpr: string) => string): Refolder {
   return (n) => {
@@ -183,7 +183,7 @@ export function makeRefolder(raw: (sexpr: string) => string): Refolder {
       const egged = fromEgg(raw(toEgg(best)));
       if (weight(egged) < weight(best)) best = egged;
     } catch {
-      // egg unavailable or threw — the behavioural pre-pass result stands.
+      // egg unavailable or threw — the behavioral pre-pass result stands.
     }
     return weight(best) < weight(n) ? best : null;
   };

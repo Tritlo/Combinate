@@ -34,7 +34,7 @@ const BODY = `
     <h2>UNDER THE HOOD</h2>
     <ul>
       <li>Everything is built from one generator, ι&nbsp;&nbsp;(ι x = x S K).</li>
-      <li>Combinators are discovered <em>behaviourally</em> — (ι ι) is recognised as I by what it does, not how it's spelled.</li>
+      <li>Combinators are discovered <em>behaviorally</em> — (ι ι) is recognized as I by what it does, not how it's spelled.</li>
       <li>Call-by-need <em>graph</em> reduction shares subterms (drawn as a DAG), so even fac-scale terms terminate.</li>
       <li>The re-fold lens re-sugars SKI normal forms back into named birds with <em>egg</em> (e-graph rewriting), compiled to WebAssembly.</li>
       <li>Real Haskell compiles to combinator trees in the browser by post-processing <em>MicroHs</em>'s Scott-encoded dump, then reading the result back to Int / Bool / List / Char with Hindley–Milner types.</li>

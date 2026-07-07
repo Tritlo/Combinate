@@ -43,8 +43,8 @@ const BODY = `
     <ul>
       <li>Every node applies a <b>function</b> (its left child) to an <b>argument</b> (its right child).</li>
       <li><b>Solid</b> edge = function (left); <b>dashed</b> edge = argument (right).</li>
-      <li>Edge <b>colour</b> alternates red / black by depth, so a node's parent edge is a different colour from its child edges — handy for tracing direction.</li>
-      <li>ι is a grey dot; named combinators are coloured and lettered.</li>
+      <li>Edge <b>color</b> alternates red / black by depth, so a node's parent edge is a different color from its child edges — handy for tracing direction.</li>
+      <li>ι is a gray dot; named combinators are colored and lettered.</li>
     </ul>
   </div>
 

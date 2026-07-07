@@ -162,7 +162,7 @@ function render(t: T): string {
 /**
  * The principal simple type of a term as a string (`(a → a) → a → a`), or `null`
  * if it has no simple type (self-application / a unification clash). Inferred on
- * the *behaviour* — the normal form, so `ι ι` reads as `a → a` (it is `I`),
+ * the *behavior* — the normal form, so `ι ι` reads as `a → a` (it is `I`),
  * matching how discovery, value-reading and refolding all work; a term with no
  * normal form (e.g. `Y`) is typed as written, which is untypable anyway.
  */
