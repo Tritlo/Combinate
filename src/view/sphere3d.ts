@@ -14,7 +14,7 @@
 import type * as T from "three";
 import { type Node } from "../core/term";
 import { layoutHTree3D, type Layout3Fn } from "../core/layout3d";
-import { theme, combinatorColor, edgeTierColor } from "./theme";
+import { theme, combinatorColor, edgeTierColor, themeForMode, edgeTierColorForMode, type Mode, type Theme } from "./theme";
 import { easeInOut } from "./anim";
 
 /** Beyond this node count the static scene gets heavy to build/draw — the app preflights this
@@ -74,6 +74,7 @@ interface Morph {
   curPos: Map<number, Pos3>;
   node: Node; // the settled term to snap to when the tween ends
   newPos: Map<number, Pos3>;
+  radius: number;
   elapsed: number;
   duration: number;
 }
@@ -91,16 +92,18 @@ export function preloadSphere3D(): Promise<void> {
 }
 
 // Per-kind node radius + colour (a 3D echo of tree.ts's visSpec, reusing the theme).
-function nodeStyle(n: Node, depth: number): { radius: number; color: number } {
+function nodeStyle(n: Node, depth: number, palette: { mode: Mode; colors: Theme } | null): { radius: number; color: number } {
+  const colors = palette?.colors ?? theme;
+  const tier = (d: number): number => (palette ? edgeTierColorForMode(d, palette.mode, colors) : edgeTierColor(d));
   switch (n.kind) {
     case "iota":
-      return { radius: 9, color: theme.mutedDot }; // grey sphere — ι is the bare generator (no longer gold)
+      return { radius: 9, color: colors.mutedDot }; // grey sphere — ι is the bare generator (no longer gold)
     case "comb":
-      return { radius: 18, color: combinatorColor(n.sym) };
+      return { radius: 18, color: palette ? colors.node : combinatorColor(n.sym) };
     case "free":
-      return { radius: 15, color: theme.mutedDot };
+      return { radius: 15, color: colors.mutedDot };
     default:
-      return { radius: 7, color: depth > 0 ? edgeTierColor(depth - 1) : theme.text }; // app junction takes its incoming-edge tier (root: ink)
+      return { radius: 7, color: depth > 0 ? tier(depth - 1) : colors.text }; // app junction takes its incoming-edge tier (root: ink)
   }
 }
 
@@ -116,6 +119,10 @@ export interface Sphere3DOptions {
   preserveDrawingBuffer?: boolean;
   /** Throw instead of jump-cutting a morph that exceeds the morph cap. */
   failOnMorphSnap?: boolean;
+  /** Build and morph trees past the live app's interactive caps. */
+  unlimited?: boolean;
+  /** Fixed mono theme mode for recorder-owned spheres; omitted spheres follow the live theme. */
+  themeMode?: Mode;
 }
 
 export class Sphere3D {
@@ -148,9 +155,11 @@ export class Sphere3D {
   private lastDepth = new Map<number, number>(); // currently-displayed node depths (app nodes take their incoming-edge tier)
   private morph: Morph | null = null;
   private readonly now: () => number;
+  private readonly recordTheme: { mode: Mode; colors: Theme } | null;
 
   constructor(private readonly options: Sphere3DOptions = {}) {
     this.now = options.now ?? (() => performance.now());
+    this.recordTheme = options.themeMode ? { mode: options.themeMode, colors: themeForMode(options.themeMode) } : null;
   }
 
   /** Current orbit azimuth (for the dev seam / E2E — confirms rotation). */
@@ -164,6 +173,14 @@ export class Sphere3D {
 
   get active(): boolean {
     return this.on;
+  }
+
+  private colors(): Theme {
+    return this.recordTheme?.colors ?? theme;
+  }
+
+  private edgeTierColor(depth: number): number {
+    return this.recordTheme ? edgeTierColorForMode(depth, this.recordTheme.mode, this.recordTheme.colors) : edgeTierColor(depth);
   }
 
   /** Enter 3D and render `node` at canvas size `w×h` (lazy-loads Three on first call). Rejects
@@ -206,7 +223,7 @@ export class Sphere3D {
     this.morph = null; // an external rebuild (theme / Expand / discovery / settle) supersedes any in-flight morph; its group is disposed below
     if (!this.on || !THREE || !this.scene) return;
     const three = THREE;
-    this.scene.background = new three.Color(theme.bg);
+    this.scene.background = new three.Color(this.colors().bg);
     if (this.content) {
       this.disposeGroup(this.content);
       this.scene.remove(this.content);
@@ -224,7 +241,7 @@ export class Sphere3D {
     const t0 = this.now();
     const { pos, radius } = this.layout3(node);
     this.lastCount = pos.size;
-    this.lastCapped = pos.size > NODE_CAP;
+    this.lastCapped = !this.options.unlimited && pos.size > NODE_CAP;
     if (this.lastCapped) {
       this.lastPos = new Map(); // can't morph from a tree we never laid out — the next step snaps
       this.lastNodes = new Map();
@@ -290,9 +307,9 @@ export class Sphere3D {
       this.lastNodes = this.collect(this.morph.node);
       this.morph = null;
     }
-    const { pos: newPos } = this.layout3(node);
+    const { pos: newPos, radius } = this.layout3(node);
     const ids = new Set<number>([...this.lastPos.keys(), ...newPos.keys()]);
-    if (this.lastPos.size === 0 || ids.size > MORPH_CAP) {
+    if (this.lastPos.size === 0 || (!this.options.unlimited && ids.size > MORPH_CAP)) {
       if (this.options.failOnMorphSnap) {
         const reason = this.lastPos.size === 0 ? "no settled 3D scene to morph from" : `morph would touch ${ids.size} nodes (cap ${MORPH_CAP})`;
         throw new Error(`record: ${reason}`);
@@ -310,7 +327,7 @@ export class Sphere3D {
       const np = newPos.get(id);
       const op = this.lastPos.get(id);
       const depth = newDepth.get(id) ?? this.lastDepth.get(id) ?? 0;
-      const { radius: baseR, color } = nodeStyle(newNodes.get(id) ?? this.lastNodes.get(id)!, depth);
+      const { radius: baseR, color } = nodeStyle(newNodes.get(id) ?? this.lastNodes.get(id)!, depth, this.recordTheme);
       if (np && op) anims.push({ i, id, fx: op.x, fy: op.y, fz: op.z, tx: np.x, ty: np.y, tz: np.z, baseR, sFrom: 1, sTo: 1 });
       else if (np) anims.push({ i, id, fx: np.x, fy: np.y, fz: np.z, tx: np.x, ty: np.y, tz: np.z, baseR, sFrom: 0, sTo: 1 });
       else anims.push({ i, id, fx: op!.x, fy: op!.y, fz: op!.z, tx: op!.x, ty: op!.y, tz: op!.z, baseR, sFrom: 1, sTo: 0 });
@@ -329,7 +346,7 @@ export class Sphere3D {
     const ewalk = (m: Node, depth: number): void => {
       if (seen.has(m.id) || m.kind !== "app") return;
       seen.add(m.id);
-      ecol.set(edgeTierColor(depth)); // depth tier (red/black) — fixed for the morph; only positions move
+      ecol.set(this.edgeTierColor(depth)); // depth tier (red/black) — fixed for the morph; only positions move
       fnPairs.push([m.id, m.fn.id]);
       fnCols.push(ecol.r, ecol.g, ecol.b, ecol.r, ecol.g, ecol.b);
       argPairs.push([m.id, m.arg.id]);
@@ -359,7 +376,7 @@ export class Sphere3D {
     this.scene.add(group);
     this.content = group;
     this.place(); // a same-term morph — keep the user's orbit/zoom
-    this.morph = { mesh, anims, edges, curPos: new Map(), node, newPos, elapsed: 0, duration: Math.max(16, durationMS) };
+    this.morph = { mesh, anims, edges, curPos: new Map(), node, newPos, radius, elapsed: 0, duration: Math.max(16, durationMS) };
     this.advanceMorph(0); // paint frame 0
   }
 
@@ -467,7 +484,7 @@ export class Sphere3D {
       if (seen.has(n.id)) return;
       seen.add(n.id);
       const p = pos.get(n.id)!;
-      const { radius, color } = nodeStyle(n, depth);
+      const { radius, color } = nodeStyle(n, depth, this.recordTheme);
       m.makeScale(radius, radius, radius);
       m.setPosition(p.x, p.y, p.z);
       mesh.setMatrixAt(i, m);
@@ -507,7 +524,7 @@ export class Sphere3D {
       const pa = pos.get(a.id)!;
       const pc = pos.get(c.id)!;
       b.verts.push(pa.x, pa.y, pa.z, pc.x, pc.y, pc.z);
-      col.set(edgeTierColor(depth));
+      col.set(this.edgeTierColor(depth));
       b.cols.push(col.r, col.g, col.b, col.r, col.g, col.b);
     };
     const walk = (n: Node, depth: number): void => {
@@ -547,6 +564,12 @@ export class Sphere3D {
     this.place();
     this.draw();
   }
+  /** Deterministically rotate the camera azimuth by radians. */
+  rotateBy(radians: number): void {
+    this.az += radians;
+    this.place();
+    this.draw();
+  }
   /** Pan the look-at point in the camera's screen plane (left drag / right stick / one finger). */
   pan(dx: number, dy: number): void {
     if (!this.camera || !THREE) return;
@@ -566,6 +589,21 @@ export class Sphere3D {
     this.frame(this.lastRadius);
     this.draw();
   }
+  /** Smoothly re-frame toward the current layout/morph radius without resetting the orbit angles. */
+  followFrame(alpha: number): void {
+    if (!this.camera) return;
+    const a = clamp(alpha, 0, 1);
+    const radius = this.morph?.radius ?? this.lastRadius;
+    const targetRad = this.frameDistance(radius);
+    this.lastRadius = radius;
+    this.target.x += (0 - this.target.x) * a;
+    this.target.y += (0 - this.target.y) * a;
+    this.target.z += (0 - this.target.z) * a;
+    this.rad += (targetRad - this.rad) * a;
+    this.syncCameraRange();
+    this.place();
+    this.draw();
+  }
   private place(): void {
     if (!this.camera) return;
     const sp = Math.sin(this.pol);
@@ -573,18 +611,25 @@ export class Sphere3D {
     this.camera.position.set(t.x + this.rad * sp * Math.cos(this.az), t.y + this.rad * Math.cos(this.pol), t.z + this.rad * sp * Math.sin(this.az));
     this.camera.lookAt(t.x, t.y, t.z);
   }
-  // Frame the whole ball: pull the camera back so a sphere of `radius` fills the view.
-  private frame(radius: number): void {
-    if (!this.camera) return;
+  private frameDistance(radius: number): number {
     const r = Math.max(radius, FRAME_FLOOR);
-    this.lastRadius = radius;
-    this.target = { x: 0, y: 0, z: 0 }; // re-centre the look-at on the ball
-    this.rad = (r * FRAME_MARGIN) / Math.tan((this.camera.fov * Math.PI) / 360);
-    this.az = 0.6;
-    this.pol = 1.05;
+    return (r * FRAME_MARGIN) / Math.tan((this.camera!.fov * Math.PI) / 360);
+  }
+  private syncCameraRange(): void {
+    if (!this.camera) return;
     this.camera.near = Math.max(0.1, this.rad / 1000);
     this.camera.far = this.rad * 10;
     this.camera.updateProjectionMatrix();
+  }
+  // Frame the whole ball: pull the camera back so a sphere of `radius` fills the view.
+  private frame(radius: number): void {
+    if (!this.camera) return;
+    this.lastRadius = radius;
+    this.target = { x: 0, y: 0, z: 0 }; // re-centre the look-at on the ball
+    this.rad = this.frameDistance(radius);
+    this.az = 0.6;
+    this.pol = 1.05;
+    this.syncCameraRange();
     this.place();
   }
 
