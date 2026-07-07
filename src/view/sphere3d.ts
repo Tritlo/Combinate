@@ -14,7 +14,7 @@
 import type * as T from "three";
 import { type Node } from "../core/term";
 import { layoutHTree3D, type Layout3Fn } from "../core/layout3d";
-import { theme, combinatorColor, combinatorColorForMode, edgeTierColor, themeForMode, edgeTierColorForMode, type Mode, type Theme } from "./theme";
+import { theme, combinatorColor, combinatorColorForMode, currentMode, edgeTierColor, themeForMode, edgeTierColorForMode, type Mode, type Theme } from "./theme";
 import { easeInOut } from "./anim";
 
 /** Beyond this node count the static scene gets heavy to build/draw — the app preflights this
@@ -43,7 +43,7 @@ const DASH_SIZE = 16; // arg (right) edges are DASHED, fn (left) solid — the 3
 const GAP_SIZE = 11; // (layout shells are ~92 units apart, so ~3 dashes per edge)
 const FRAME_MARGIN = 1.6; // camera pull-back factor when framing (smaller = the ball fills more of the view)
 const FRAME_FLOOR = 120; // min framing radius (keeps a tiny tree from clipping)
-const IOTA_DOT = 0xffffff;
+const iotaDot = (mode: Mode): number => mode === "light" ? 0xffffff : 0x000000;
 
 type Pos3 = { x: number; y: number; z: number };
 // One node's tween across a reduction step: instance slot, from→to position, base radius, scale 0/1.
@@ -98,7 +98,7 @@ function nodeStyle(n: Node, depth: number, palette: { mode: Mode; color: boolean
   const tier = (d: number): number => (palette ? edgeTierColorForMode(d, palette.mode, colors) : edgeTierColor(d));
   switch (n.kind) {
     case "iota":
-      return { radius: 9, color: IOTA_DOT };
+      return { radius: 9, color: iotaDot(palette?.mode ?? currentMode()) };
     case "comb":
       return { radius: 18, color: palette ? (palette.color ? combinatorColorForMode(n.sym, palette.mode) : colors.node) : combinatorColor(n.sym) };
     case "free":

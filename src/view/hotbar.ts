@@ -1,7 +1,7 @@
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text, type Ticker } from "pixi.js";
 import { type Node } from "../core/term";
 import { PAGES, CATALOG, displayLabel } from "../core/catalog";
-import { theme, paperInk } from "./theme";
+import { theme, currentMode, paperInk, type Mode } from "./theme";
 import { tween } from "./anim";
 
 /** Each combinator's defining law, keyed by symbol — the hover tooltip's text. */
@@ -13,8 +13,8 @@ const MARGIN = 80; // keep the row clear of the screen edges
 const ARROW = 28; // width of a ‹ / › page button
 const PAD = 14; // palette-window inner padding
 const NARROW = 560; // phone layout: smaller tabs + tighter margins
-const IOTA_DOT = 0xffffff;
-const IOTA_GLYPH = 0x000000;
+const iotaDot = (mode: Mode): number => mode === "light" ? 0xffffff : 0x000000;
+const iotaGlyph = (mode: Mode): number => mode === "light" ? 0x000000 : 0xffffff;
 
 /**
  * The hotbar (§8.1), bottom-centre — styled as an early-Photoshop tool palette: a
@@ -274,11 +274,11 @@ export class Hotbar {
 
   private slot(sym: string, cx: number, cy: number): Container {
     const { paper, ink } = paperInk();
-    const glyphColor = sym === "ι" ? IOTA_GLYPH : theme.node; // ι is fixed black-on-white; other combinators keep the current node role.
+    const glyphColor = sym === "ι" ? iotaGlyph(currentMode()) : theme.node; // hotbar keeps ι as a labelled button.
     const v = new Container() as Container & { sym: string };
     v.sym = sym;
     v.addChild(new Graphics().rect(-SLOT / 2, -SLOT / 2, SLOT, SLOT).fill({ color: paper }).stroke({ width: 1, color: ink }));
-    if (sym === "ι") v.addChild(new Graphics().circle(0, 0, 15).fill({ color: IOTA_DOT }));
+    if (sym === "ι") v.addChild(new Graphics().circle(0, 0, 15).fill({ color: iotaDot(currentMode()) }));
     if (sym === this.cursorSymCache) {
       // game-mode cursor: an accent selection ring around the cell (ADR 17)
       v.addChild(new Graphics().rect(-SLOT / 2 - 3, -SLOT / 2 - 3, SLOT + 6, SLOT + 6).stroke({ width: 2.5, color: theme.iota }));
