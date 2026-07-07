@@ -89,5 +89,8 @@ export interface CodecSupport {
 export interface RecordHooks {
   /** Called after each frame is encoded, with the offscreen canvas to blit from. */
   onFrame?: (canvas: HTMLCanvasElement, progress: RecordProgress) => void;
+  /** Pre-render setup progress (the hold camera's layout pre-pass over every
+   *  step) — long clips spend real time here before the first frame lands. */
+  onPrepare?: (done: number, total: number) => void;
   signal?: AbortSignal;
 }
