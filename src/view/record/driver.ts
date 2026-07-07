@@ -6,12 +6,12 @@
  */
 import { Container, Ticker, autoDetectRenderer } from "pixi.js";
 import { expandDisplay } from "../../core/catalog";
-import { layoutAuto, layoutHTree, layoutRadial, layoutTopDown, type LayoutFn } from "../../core/layout";
+import { countNodes, layoutAuto, layoutHTree, layoutRadial, layoutTopDown, type LayoutFn } from "../../core/layout";
 import { layoutHTree3D, layoutSphere, type Layout3Fn } from "../../core/layout3d";
-import { exceedsNodes, type Node } from "../../core/term";
-import { Sphere3D, NODE_CAP } from "../sphere3d";
+import { type Node } from "../../core/term";
+import { Sphere3D } from "../sphere3d";
 import { TreeView } from "../tree";
-import { theme } from "../theme";
+import { ensureFont, monoFontReady, MONO, themeForMode, type Theme } from "../theme";
 import { renderAudio } from "./audio";
 import { createRecordingEncoder, type RecordingEncoder } from "./encoder";
 import { createReductionReplay, frameBudget } from "./precount";
@@ -38,6 +38,20 @@ function displayTerm(term: Node, settings: RecordSettings): Node {
   return expandDisplay(term, { expandAll: settings.expandIota, isDiscovered: () => true });
 }
 
+const FOLLOW_TAU_MS = 180;
+
+interface StageFit {
+  x: number;
+  y: number;
+  scale: number;
+}
+
+interface FrameStats {
+  step: number;
+  totalSteps: number;
+  nodes: number;
+}
+
 function abortError(): Error {
   return new Error("recording cancelled");
 }
@@ -46,14 +60,34 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw abortError();
 }
 
-function fitStage(stage: Container, tree: TreeView, settings: RecordSettings): void {
+function stageFitFor(tree: TreeView, settings: RecordSettings): StageFit {
   const b = tree.worldBounds();
   const margin = 0.82;
   const scale = Math.max(0.04, Math.min(2.5, Math.min((settings.width * margin) / Math.max(b.w, 1), (settings.height * margin) / Math.max(b.h, 1))));
   const cx = b.x + b.w / 2;
   const cy = b.y + b.h / 2;
+  return { x: settings.width / 2 - cx * scale, y: settings.height / 2 - cy * scale, scale };
+}
+
+function applyStageFit(stage: Container, fit: StageFit): void {
+  stage.scale.set(fit.scale);
+  stage.position.set(fit.x, fit.y);
+}
+
+function followAlpha(deltaMS: number): number {
+  return deltaMS <= 0 ? 0 : 1 - Math.exp(-deltaMS / FOLLOW_TAU_MS);
+}
+
+function followStage(stage: Container, target: StageFit, deltaMS: number): void {
+  const a = followAlpha(deltaMS);
+  if (a === 0) return;
+  const scale = stage.scale.x + (target.scale - stage.scale.x) * a;
   stage.scale.set(scale);
-  stage.position.set(settings.width / 2 - cx * scale, settings.height / 2 - cy * scale);
+  stage.position.set(stage.position.x + (target.x - stage.position.x) * a, stage.position.y + (target.y - stage.position.y) * a);
+}
+
+function fitStage(stage: Container, tree: TreeView, settings: RecordSettings): void {
+  applyStageFit(stage, stageFitFor(tree, settings));
 }
 
 interface RecordingPipeline {
@@ -61,10 +95,12 @@ interface RecordingPipeline {
   stepTo: (node: Node, durationMS: number) => void;
   advanceTo: (timeMS: number) => void;
   render: () => void;
+  nodeCount: () => number;
   destroy: () => void;
 }
 
 async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<RecordingPipeline> {
+  const colors = themeForMode(settings.theme);
   const canvas = document.createElement("canvas");
   canvas.width = settings.width;
   canvas.height = settings.height;
@@ -74,7 +110,7 @@ async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<Re
     height: settings.height,
     resolution: 1,
     autoDensity: false,
-    background: theme.bg,
+    background: colors.bg,
     antialias: true,
     preserveDrawingBuffer: true,
     preference: ["webgl", "canvas"],
@@ -82,12 +118,17 @@ async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<Re
   const stage = new Container();
   const ticker = new Ticker();
   let tree: TreeView | null = null;
+  let displayCount = countNodes(displayTerm(term, settings));
+  let clockMS = 0;
   try {
     ticker.autoStart = false;
     ticker.maxFPS = 0;
     ticker.lastTime = 0;
 
-    tree = new TreeView(term, 0, 0, ticker, () => true, layoutFor(settings), () => settings.expandIota, null, (sym) => sym, { deterministicEdges: true });
+    tree = new TreeView(term, 0, 0, ticker, () => true, layoutFor(settings), () => settings.expandIota, null, (sym) => sym, {
+      deterministicEdges: true,
+      themeMode: settings.theme,
+    });
     stage.addChild(tree.container);
     fitStage(stage, tree, settings);
     renderer.render(stage);
@@ -102,9 +143,18 @@ async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<Re
 
   return {
     canvas,
-    stepTo: (node, durationMS) => view.animateTo(node, durationMS, () => {}),
-    advanceTo: (timeMS) => ticker.update(timeMS),
+    stepTo: (node, durationMS) => {
+      displayCount = countNodes(displayTerm(node, settings));
+      view.animateTo(node, durationMS, () => {});
+    },
+    advanceTo: (timeMS) => {
+      const dt = timeMS - clockMS;
+      ticker.update(timeMS);
+      if (settings.camera === "follow") followStage(stage, stageFitFor(view, settings), dt);
+      clockMS = timeMS;
+    },
     render: () => renderer.render(stage),
+    nodeCount: () => displayCount,
     destroy: () => {
       stage.removeChild(view.container);
       view.destroy();
@@ -115,14 +165,20 @@ async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<Re
   };
 }
 
-async function setup3DPipeline(term: Node, settings: RecordSettings): Promise<RecordingPipeline> {
-  const sphere = new Sphere3D({ now: () => 0, pixelRatio: 1, preserveDrawingBuffer: true, failOnMorphSnap: true });
+async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec = 0): Promise<RecordingPipeline> {
+  const sphere = new Sphere3D({
+    now: () => 0,
+    pixelRatio: 1,
+    preserveDrawingBuffer: true,
+    failOnMorphSnap: true,
+    unlimited: true,
+    themeMode: settings.theme,
+  });
+  let displayCount = countNodes(displayTerm(term, settings));
   try {
     sphere.setLayout3(layout3For(settings));
     const first = displayTerm(term, settings);
-    if (exceedsNodes(first, NODE_CAP)) throw new Error(`record: tree too large for 3D (over ${NODE_CAP} nodes)`);
     await sphere.show(first, settings.width, settings.height);
-    if (sphere.lastCapped) throw new Error(`record: tree too large for 3D (over ${NODE_CAP} nodes)`);
   } catch (err) {
     sphere.destroy();
     throw err;
@@ -133,31 +189,128 @@ async function setup3DPipeline(term: Node, settings: RecordSettings): Promise<Re
     canvas: sphere.canvas,
     stepTo: (node, durationMS) => {
       const next = displayTerm(node, settings);
-      if (exceedsNodes(next, NODE_CAP)) throw new Error(`record: tree too large for 3D (over ${NODE_CAP} nodes)`);
+      displayCount = countNodes(next);
       sphere.animateTo(next, durationMS);
     },
     advanceTo: (timeMS) => {
       const dt = timeMS - clockMS;
       if (dt > 0) sphere.advanceMorph(dt);
+      if (settings.rotate && durationSec > 0 && dt > 0) sphere.rotateBy((dt / 1000 / durationSec) * Math.PI * 2);
+      if (settings.camera === "follow") sphere.followFrame(followAlpha(dt));
       clockMS = timeMS;
     },
     render: () => {},
+    nodeCount: () => displayCount,
     destroy: () => sphere.destroy(),
   };
 }
 
-async function setupPipeline(term: Node, settings: RecordSettings): Promise<RecordingPipeline> {
-  return settings.view === "3d" ? setup3DPipeline(term, settings) : setup2DPipeline(term, settings);
+async function setupPipeline(term: Node, settings: RecordSettings, durationSec = 0): Promise<RecordingPipeline> {
+  return settings.view === "3d" ? setup3DPipeline(term, settings, durationSec) : setup2DPipeline(term, settings);
 }
 
-function copyCanvas(source: HTMLCanvasElement, settings: RecordSettings): HTMLCanvasElement {
-  const out = document.createElement("canvas");
-  out.width = settings.width;
-  out.height = settings.height;
-  const ctx = out.getContext("2d");
-  if (!ctx) throw new Error("record: unable to create preview canvas");
-  ctx.drawImage(source, 0, 0, settings.width, settings.height);
-  return out;
+function cssColor(color: number): string {
+  return `#${color.toString(16).padStart(6, "0")}`;
+}
+
+function overlayFont(size: number, weight = 400): string {
+  return `${weight} ${size}px ${MONO}`;
+}
+
+function needsOverlay(settings: RecordSettings): boolean {
+  return (settings.overlayInfo && !!settings.info) || settings.overlayStats;
+}
+
+async function prepareOverlayFont(settings: RecordSettings): Promise<void> {
+  if (!needsOverlay(settings)) return;
+  ensureFont();
+  const px = Math.max(12, Math.round(settings.height * 0.026));
+  await monoFontReady(px).catch(() => {});
+}
+
+function drawInfoOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettings, colors: Theme): void {
+  if (!settings.overlayInfo || !settings.info) return;
+  const h = settings.height;
+  const pad = Math.max(12, Math.round(h * 0.018));
+  const gap = Math.max(4, Math.round(h * 0.006));
+  const titlePx = Math.max(16, Math.round(h * 0.026));
+  const smallPx = Math.max(11, Math.round(h * 0.016));
+  const lines: Array<{ text: string; font: string; color: string }> = [{ text: settings.info.title, font: overlayFont(titlePx, 700), color: cssColor(colors.text) }];
+  if (settings.info.law) lines.push({ text: settings.info.law, font: overlayFont(smallPx), color: cssColor(colors.textDim) });
+  if (settings.info.subtitle) lines.push({ text: settings.info.subtitle, font: overlayFont(smallPx), color: cssColor(colors.textDim) });
+
+  let width = 0;
+  for (const line of lines) {
+    ctx.font = line.font;
+    width = Math.max(width, ctx.measureText(line.text).width);
+  }
+  const innerX = pad;
+  const innerY = pad;
+  const cardPadX = Math.max(10, Math.round(h * 0.015));
+  const cardPadY = Math.max(8, Math.round(h * 0.012));
+  const lineH = (px: number): number => Math.round(px * 1.22);
+  const textH = lines.reduce((sum, line, i) => sum + lineH(line.font === lines[0].font ? titlePx : smallPx) + (i === 0 && lines.length > 1 ? gap : 0), 0);
+  const maxTextW = Math.max(40, settings.width - pad * 2 - cardPadX * 2);
+  const cardW = Math.ceil(Math.min(width, maxTextW) + cardPadX * 2);
+  const cardH = textH + cardPadY * 2;
+  const shadow = Math.max(2, Math.round(h * 0.004));
+
+  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  ctx.fillRect(innerX + shadow, innerY + shadow, cardW, cardH);
+  ctx.fillStyle = cssColor(colors.panel);
+  ctx.fillRect(innerX, innerY, cardW, cardH);
+  ctx.strokeStyle = cssColor(colors.border);
+  ctx.lineWidth = 1;
+  ctx.strokeRect(innerX + 0.5, innerY + 0.5, cardW - 1, cardH - 1);
+
+  ctx.textBaseline = "top";
+  let y = innerY + cardPadY;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const px = i === 0 ? titlePx : smallPx;
+    ctx.font = line.font;
+    ctx.fillStyle = line.color;
+    ctx.fillText(line.text, innerX + cardPadX, y, maxTextW);
+    y += lineH(px) + (i === 0 && lines.length > 1 ? gap : 0);
+  }
+}
+
+function drawStatsOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettings, stats: FrameStats, colors: Theme): void {
+  if (!settings.overlayStats) return;
+  const h = settings.height;
+  const pad = Math.max(12, Math.round(h * 0.018));
+  const px = Math.max(12, Math.round(h * 0.016));
+  const text = `step ${stats.step}/${stats.totalSteps} · nodes ${stats.nodes}`;
+  ctx.font = overlayFont(px);
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = cssColor(colors.text);
+  const width = ctx.measureText(text).width;
+  ctx.fillText(text, Math.max(pad, settings.width - pad - width), settings.height - pad, settings.width - pad * 2);
+}
+
+interface Compositor {
+  readonly canvas: HTMLCanvasElement;
+  compose: (source: HTMLCanvasElement, stats: FrameStats) => HTMLCanvasElement;
+}
+
+function createCompositor(settings: RecordSettings): Compositor {
+  const canvas = document.createElement("canvas");
+  canvas.width = settings.width;
+  canvas.height = settings.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("record: unable to create compositor canvas");
+  const colors = themeForMode(settings.theme);
+  return {
+    canvas,
+    compose: (source, stats) => {
+      ctx.fillStyle = cssColor(colors.bg);
+      ctx.fillRect(0, 0, settings.width, settings.height);
+      ctx.drawImage(source, 0, 0, settings.width, settings.height);
+      drawInfoOverlay(ctx, settings, colors);
+      drawStatsOverlay(ctx, settings, stats, colors);
+      return canvas;
+    },
+  };
 }
 
 /**
@@ -165,10 +318,12 @@ function copyCanvas(source: HTMLCanvasElement, settings: RecordSettings): HTMLCa
  * chosen resolution — the modal's "layout feel" preview thumbnail.
  */
 export async function renderFirstFrame(term: Node, settings: RecordSettings): Promise<HTMLCanvasElement> {
+  await prepareOverlayFont(settings);
   const pipeline = await setupPipeline(term, settings);
+  const compositor = createCompositor(settings);
   try {
     pipeline.render();
-    return copyCanvas(pipeline.canvas, settings);
+    return compositor.compose(pipeline.canvas, { step: 0, totalSteps: 0, nodes: pipeline.nodeCount() });
   } finally {
     pipeline.destroy();
   }
@@ -196,10 +351,13 @@ export async function runRecording(
 
   try {
     throwIfAborted(hooks.signal);
-    pipeline = await setupPipeline(term, settings);
+    await prepareOverlayFont(settings);
+    throwIfAborted(hooks.signal);
+    pipeline = await setupPipeline(term, settings, plan.durationSec);
+    const compositor = createCompositor(settings);
 
     const audioBuffer = settings.audio && plan.tones.length > 0 ? await renderAudio(plan, settings) : null;
-    encoder = await createRecordingEncoder(pipeline.canvas, settings, plan, audioBuffer);
+    encoder = await createRecordingEncoder(compositor.canvas, settings, plan, audioBuffer);
 
     const replay = createReductionReplay(term, settings);
     const frameDurationSec = 1 / settings.fps;
@@ -231,9 +389,10 @@ export async function runRecording(
       throwIfAborted(hooks.signal);
       advanceTo(frame * frameDurationMs);
       pipeline.render();
+      const frameCanvas = compositor.compose(pipeline.canvas, { step: nextStep, totalSteps: plan.steps, nodes: pipeline.nodeCount() });
       await encoder.addFrame(frame * frameDurationSec, frameDurationSec);
       encodedFrames++;
-      hooks.onFrame?.(pipeline.canvas, { frame: frame + 1, totalFrames: plan.totalFrames });
+      hooks.onFrame?.(frameCanvas, { frame: frame + 1, totalFrames: plan.totalFrames });
     }
 
     if (encodedFrames !== plan.totalFrames) {

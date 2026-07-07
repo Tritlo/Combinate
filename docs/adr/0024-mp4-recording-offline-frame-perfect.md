@@ -37,6 +37,14 @@ morphs over the cap fail loudly instead of jump-cutting — ADR 21 keeps 3D seco
 The modal shows a first-frame preview of the current settings, layout is an explicit
 choice (Auto resolved via `resolveAutoLayout` at prefill), and the tone track is muted
 by picking base note **None** (no separate audio toggle).
+
+Round 3 (2026-07-07): offline 3D is **uncapped** (node/morph caps are live-app
+protections; slow offline renders are fine), plus **Rotate** (3D turntable, one
+revolution per clip), **Theme** (record light/dark without touching the live app —
+fixed mono palettes; deliberately ignores Colour-4096), **Camera** Fixed/Follow
+(smoothed re-fit per frame, deterministic), and burn-in **overlays** composited onto
+the encode canvas: an info card (name/law/ι-count from the shell's lenses) and a
+stats line (step n/total · node count).
 Recording captures the **current focused term to normal form** (the pre-reduction source
 is ephemeral live state; a source-retention seam is a possible follow-up). A pre-run
 pass counts steps (capped — Ω must not hang the modal), sizes the progress bar, and

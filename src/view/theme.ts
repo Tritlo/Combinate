@@ -74,6 +74,16 @@ export type Mode = "light" | "dark";
 /** The live theme — mutated in place so existing references stay valid. */
 export const theme: Theme = { ...MONO_DARK };
 
+/** A fixed mono theme for an offline render; unlike {@link theme}, this never tracks the live app. */
+export function themeForMode(m: Mode): Theme {
+  return { ...(m === "dark" ? MONO_DARK : MONO_LIGHT) };
+}
+
+/** Edge tier colour under a fixed mono theme. */
+export function edgeTierColorForMode(depth: number, m: Mode, colors = themeForMode(m)): number {
+  return depth % 2 === 0 ? colors.text : EDGE_RED[m];
+}
+
 let mode: Mode = "dark";
 let colorMode = false; // false = 1-bit mono (default); true = the 4096-colour palette
 let userOverride = false;
