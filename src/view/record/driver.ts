@@ -608,6 +608,17 @@ interface Compositor {
   compose: (source: HTMLCanvasElement, stats: FrameStats) => HTMLCanvasElement;
 }
 
+/** A quiet grey watermark in the bottom-right corner — drawn on every frame. */
+function drawAttribution(ctx: CanvasRenderingContext2D, settings: RecordSettings, colors: Theme): void {
+  const px = Math.max(10, Math.round(settings.height * 0.018));
+  const pad = Math.max(6, Math.round(settings.height * 0.012));
+  ctx.font = overlayFont(px);
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = cssColor(colors.textDim);
+  const text = "https://combinate.app";
+  ctx.fillText(text, settings.width - pad - ctx.measureText(text).width, settings.height - pad);
+}
+
 function drawSourceCanvas(ctx: CanvasRenderingContext2D, source: HTMLCanvasElement, settings: RecordSettings, overlay: OverlayState): void {
   const rect = renderRect(settings, overlay);
   if (settings.view !== "3d" || (rect.y === 0 && rect.h === settings.height)) {
@@ -634,6 +645,7 @@ function createCompositor(settings: RecordSettings, overlay: OverlayState): Comp
       ctx.fillRect(0, 0, settings.width, settings.height);
       drawSourceCanvas(ctx, source, settings, overlay);
       drawInfoOverlay(ctx, settings, overlay, stats, colors);
+      drawAttribution(ctx, settings, colors);
       return canvas;
     },
   };
