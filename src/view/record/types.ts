@@ -32,6 +32,10 @@ export interface RecordSettings {
   maxSteps: number;
   /** Record under this theme regardless of the live app's mode. */
   theme: "light" | "dark";
+  /** Per-combinator hues (the Colour-4096 look) instead of 1-bit mono. */
+  color: boolean;
+  /** Turntable speed: revolutions over the whole clip (rotate must be on). */
+  spinRevs: number;
   /** Camera: a single initial fit, or re-fit following the tree as it reduces. */
   camera: "fixed" | "follow";
   /** 3D turntable: one full revolution over the clip (ignored in 2D). */

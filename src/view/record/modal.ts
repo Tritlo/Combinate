@@ -642,6 +642,8 @@ export class RecordModal extends Modal {
       audio,
       maxSteps: graph ? GRAPH_MAX_STEPS : MAX_STEPS,
       theme: this.selectedTheme(),
+      color: false,
+      spinRevs: 1,
       camera: this.selectedCamera(),
       rotate: this.view3d.checked && this.rotate.checked,
       overlayInfo: this.overlayInfo.checked,
