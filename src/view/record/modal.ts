@@ -4,7 +4,6 @@
  */
 import type { Node } from "../../core/term";
 import type { NativeOpts } from "../../core/native";
-import { resolveAutoLayout } from "../../core/layout";
 import { Modal } from "../modal";
 import type { LayoutKey } from "../layoutControls";
 import { currentMode, ensureFont, INK, MONO, onThemeChange, PAPER, type Mode } from "../theme";
@@ -30,6 +29,12 @@ const BASE_NOTES = [
   { label: "C3", value: "48" },
   { label: "G3", value: "55" },
   { label: "C4", value: "60" },
+] as const;
+const SPIN_REVS = [
+  { label: "1/2x", value: "0.5" },
+  { label: "1x", value: "1" },
+  { label: "2x", value: "2" },
+  { label: "4x", value: "4" },
 ] as const;
 
 const PALETTE: Record<Mode, { paper: string; ink: string; shadow: string; red: string; dim: string }> = {
@@ -133,6 +138,7 @@ export interface RecordModalDeps {
   rules: () => boolean;
   graph: () => boolean;
   primitives: () => boolean;
+  color: () => boolean;
   onRecord: (term: Node, settings: RecordSettings, plan: RecordPlan) => void;
   onError: (message: string) => void;
 }
@@ -205,7 +211,10 @@ export class RecordModal extends Modal {
   private readonly view3d = radio("rm-view", "3d");
   private readonly rotate = checkbox();
   private readonly rotateLabel: HTMLLabelElement;
+  private readonly spinRevs = document.createElement("select");
+  private readonly spinLabel: HTMLLabelElement;
   private readonly themeRadios = new Map<Mode, HTMLInputElement>();
+  private readonly color = checkbox();
   private readonly layoutRadios = new Map<RecordLayoutKey, HTMLInputElement>();
   private readonly expand = checkbox();
   private readonly rules = checkbox();
@@ -263,11 +272,15 @@ export class RecordModal extends Modal {
     const view = section("View");
     const viewRow = document.createElement("div");
     viewRow.className = "rm-row";
-    this.rotateLabel = this.hinted(label("Rotate", this.rotate), "Turntable: one full revolution over the clip.");
+    this.rotateLabel = this.hinted(label("Rotate", this.rotate), "Turntable camera orbit.");
+    this.spinRevs.className = "rm-select";
+    for (const spin of SPIN_REVS) this.spinRevs.append(selectOption(spin.value, spin.label, spin.value === "1"));
+    this.spinLabel = this.field("Spin", this.spinRevs, "Turntable speed: revolutions per clip.");
     viewRow.append(
       this.hinted(label("2D", this.view2d), "Render the flat canvas view."),
       this.hinted(label("3D", this.view3d), "Render the 3D tree view."),
       this.rotateLabel,
+      this.spinLabel,
     );
     const themeRow = document.createElement("div");
     themeRow.className = "rm-row";
@@ -276,6 +289,7 @@ export class RecordModal extends Modal {
       this.themeRadios.set(mode, input);
       themeRow.append(this.hinted(label(mode === "light" ? "Light" : "Dark", input), "Record in either theme without changing the app."));
     }
+    themeRow.append(this.hinted(label("Colour", this.color), "Per-combinator hues (Colour 4096)."));
     view.append(
       viewRow,
       themeRow,
@@ -446,7 +460,9 @@ export class RecordModal extends Modal {
       this.view2d,
       this.view3d,
       this.rotate,
+      this.spinRevs,
       ...this.themeRadios.values(),
+      this.color,
       ...this.layoutRadios.values(),
       this.expand,
       this.rules,
@@ -480,7 +496,9 @@ export class RecordModal extends Modal {
     this.view2d.checked = !is3D;
     this.view3d.checked = is3D;
     this.rotate.checked = false;
+    this.spinRevs.value = "1";
     this.themeRadios.get(currentMode())!.checked = true;
+    this.color.checked = this.deps.color();
     this.layoutRadios.get(this.prefillLayout())!.checked = true;
     this.expand.checked = this.deps.expandIota();
     this.rules.checked = this.deps.rules();
@@ -500,7 +518,7 @@ export class RecordModal extends Modal {
   private prefillLayout(): RecordLayoutKey {
     const current = this.deps.layout();
     if (current !== "auto") return current;
-    return this.term ? resolveAutoLayout(this.term) : "topdown";
+    return "htree";
   }
 
   private showTermState(): void {
@@ -520,6 +538,9 @@ export class RecordModal extends Modal {
     const is3D = this.view3d.checked;
     this.rotate.disabled = !is3D;
     this.rotateLabel.classList.toggle("disabled", !is3D);
+    const spinEnabled = is3D && this.rotate.checked;
+    this.spinRevs.disabled = !spinEnabled;
+    this.spinLabel.classList.toggle("disabled", !spinEnabled);
   }
 
   private queuePlanRefresh(): void {
@@ -642,8 +663,8 @@ export class RecordModal extends Modal {
       audio,
       maxSteps: graph ? GRAPH_MAX_STEPS : MAX_STEPS,
       theme: this.selectedTheme(),
-      color: false,
-      spinRevs: 1,
+      color: this.color.checked,
+      spinRevs: Number(this.spinRevs.value) || 1,
       camera: this.selectedCamera(),
       rotate: this.view3d.checked && this.rotate.checked,
       overlayInfo: this.overlayInfo.checked,

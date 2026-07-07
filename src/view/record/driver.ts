@@ -100,7 +100,7 @@ interface RecordingPipeline {
 }
 
 async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<RecordingPipeline> {
-  const colors = themeForMode(settings.theme);
+  const colors = themeForMode(settings.theme, settings.color);
   const canvas = document.createElement("canvas");
   canvas.width = settings.width;
   canvas.height = settings.height;
@@ -128,6 +128,7 @@ async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<Re
     tree = new TreeView(term, 0, 0, ticker, () => true, layoutFor(settings), () => settings.expandIota, null, (sym) => sym, {
       deterministicEdges: true,
       themeMode: settings.theme,
+      color: settings.color,
     });
     stage.addChild(tree.container);
     fitStage(stage, tree, settings);
@@ -173,6 +174,7 @@ async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec
     failOnMorphSnap: true,
     unlimited: true,
     themeMode: settings.theme,
+    color: settings.color,
   });
   let displayCount = countNodes(displayTerm(term, settings));
   try {
@@ -195,7 +197,7 @@ async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec
     advanceTo: (timeMS) => {
       const dt = timeMS - clockMS;
       if (dt > 0) sphere.advanceMorph(dt);
-      if (settings.rotate && durationSec > 0 && dt > 0) sphere.rotateBy((dt / 1000 / durationSec) * Math.PI * 2);
+      if (settings.rotate && durationSec > 0 && dt > 0) sphere.rotateBy((settings.spinRevs * dt * Math.PI * 2) / 1000 / durationSec);
       if (settings.camera === "follow") sphere.followFrame(followAlpha(dt));
       clockMS = timeMS;
     },
@@ -299,7 +301,7 @@ function createCompositor(settings: RecordSettings): Compositor {
   canvas.height = settings.height;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("record: unable to create compositor canvas");
-  const colors = themeForMode(settings.theme);
+  const colors = themeForMode(settings.theme, settings.color);
   return {
     canvas,
     compose: (source, stats) => {

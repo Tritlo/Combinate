@@ -3,7 +3,7 @@ import { type Node, type NodeId, IOTA_ID_SPAN } from "../core/term";
 import { expandDisplay } from "../core/catalog";
 import { type Layout, type LayoutFn, layoutHTreeSubtree } from "../core/layout";
 import { type StepPatch } from "../core/reduce";
-import { theme, combinatorColor, glyphOn, edgeTierColor, MONO, monoFontReady, themeForMode, edgeTierColorForMode, type Mode, type Theme } from "./theme";
+import { theme, combinatorColor, combinatorColorForMode, glyphOn, edgeTierColor, MONO, monoFontReady, themeForMode, edgeTierColorForMode, type Mode, type Theme } from "./theme";
 import { EdgeBuffer, edgeKey } from "./edgeBuffer";
 import { tween, easeInOut } from "./anim";
 
@@ -78,14 +78,14 @@ const COMB_GLYPH_STYLE = new TextStyle({ fontFamily: MONO, fontSize: 15 });
 function visSpec(
   n: Node,
   labelFor: (sym: string) => string,
-  palette: { mode: Mode; colors: Theme } | null,
+  palette: { mode: Mode; color: boolean; colors: Theme } | null,
 ): { radius: number; tint: number; glyph: { text: string; color: number; size: number } | null; boxed: boolean } {
   const colors = palette?.colors ?? theme;
   switch (n.kind) {
     case "iota":
       return { radius: RADIUS.iota, tint: colors.mutedDot, glyph: { text: "ι", color: colors.text, size: 10 }, boxed: false }; // grey dot + ink ι (no longer gold)
     case "comb": {
-      const tint = palette ? colors.node : combinatorColor(n.sym); // per-combinator hue in Colour mode, ink in mono
+      const tint = palette ? (palette.color ? combinatorColorForMode(n.sym, palette.mode) : colors.node) : combinatorColor(n.sym); // per-combinator hue in Colour mode, ink in mono
       const text = labelFor(n.sym);
       return { radius: RADIUS.comb, tint, glyph: { text, color: glyphOn(tint), size: 15 }, boxed: text.length >= PILL_MIN_LEN };
     }
@@ -154,8 +154,10 @@ interface Anim {
 export interface TreeViewOptions {
   /** Draw settled edge styles synchronously without `performance.now`/`setTimeout`. */
   deterministicEdges?: boolean;
-  /** Fixed mono theme mode for recorder-owned views; omitted views follow the live theme. */
+  /** Fixed theme mode for recorder-owned views; omitted views follow the live theme. */
   themeMode?: Mode;
+  /** Use Colour-4096 combinator hues under `themeMode`. */
+  color?: boolean;
 }
 
 /**
@@ -207,7 +209,7 @@ export class TreeView {
   private ticking = false;
   private cancelPop: (() => void) | null = null; // the pop-in tween's canceller — stopped on destroy so it can't tick a freed container
   private readonly tick = (t: Ticker): void => this.advance(t.deltaMS);
-  private readonly recordTheme: { mode: Mode; colors: Theme } | null;
+  private readonly recordTheme: { mode: Mode; color: boolean; colors: Theme } | null;
   // The glyph resolution level (see glyphResLevel) currently baked into every live glyph's bitmap.
   // Checked every frame — cheap (one comparison) — but only re-rasterizes glyphs on the rare frame
   // the quantized level actually changes, so a pan/zoom on an otherwise-settled tree still sharpens
@@ -248,7 +250,7 @@ export class TreeView {
     private readonly labelFor: (sym: string) => string = (sym) => sym,
     private readonly options: TreeViewOptions = {},
   ) {
-    this.recordTheme = options.themeMode ? { mode: options.themeMode, colors: themeForMode(options.themeMode) } : null;
+    this.recordTheme = options.themeMode ? { mode: options.themeMode, color: !!options.color, colors: themeForMode(options.themeMode, !!options.color) } : null;
     this.node = node;
     this.display = this.expand(node);
     this.lay = this.layoutFn(this.display);
