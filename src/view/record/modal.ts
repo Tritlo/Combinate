@@ -584,6 +584,11 @@ export class RecordModal extends Modal {
       baseNote: audio ? Number(this.baseNote.value) : 48,
       audio,
       maxSteps: graph ? GRAPH_MAX_STEPS : MAX_STEPS,
+      theme: currentMode(),
+      camera: "fixed",
+      rotate: false,
+      overlayInfo: false,
+      overlayStats: false,
     };
   }
 
