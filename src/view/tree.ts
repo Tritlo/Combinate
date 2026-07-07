@@ -145,6 +145,12 @@ interface Anim {
   remove: boolean;
 }
 
+/** Extra rendering knobs for non-live TreeView owners such as the recorder. */
+export interface TreeViewOptions {
+  /** Draw settled edge styles synchronously without `performance.now`/`setTimeout`. */
+  deterministicEdges?: boolean;
+}
+
 /**
  * Renders one connected term tree into a draggable Pixi container (§5.3). Nodes
  * are drawn as a single instanced {@link ParticleContainer} (one particle per
@@ -232,6 +238,7 @@ export class TreeView {
      *  transitively, the pill/circle sizing) follows this. Call {@link refresh} after it would return
      *  a different answer (e.g. the hotbar's open page changed) to re-render with the new labels. */
     private readonly labelFor: (sym: string) => string = (sym) => sym,
+    private readonly options: TreeViewOptions = {},
   ) {
     this.node = node;
     this.display = this.expand(node);
@@ -781,10 +788,13 @@ export class TreeView {
     // while it's being redrawn rapidly (a running reduction jump-cuts a step every few ms — dashing
     // thousands of edges per step is slow) and DASHED once it settles: this draw follows a quiet gap,
     // or the trailing timer below fired after one. So an expanded / inspected ι-tree shows its dashes.
-    const now = performance.now();
-    const settled = now - this.lastEdgeDrawAt > SETTLE_DASH_MS;
-    this.lastEdgeDrawAt = now;
-    const dash = this.objs.size <= HEAVY || settled;
+    let dash = true;
+    if (!this.options.deterministicEdges) {
+      const now = performance.now();
+      const settled = now - this.lastEdgeDrawAt > SETTLE_DASH_MS;
+      this.lastEdgeDrawAt = now;
+      dash = this.objs.size <= HEAVY || settled;
+    }
     // Colour = depth TIER (red/black), style = fn solid / arg dashed. Each tier is a separate stroke
     // (one colour per Graphics stroke), so 4 strokes: {arg,fn} × {even,odd}. A node's parent-edge is
     // the opposite colour of its child-edges → you can trace direction even in a dense tree.
@@ -816,7 +826,7 @@ export class TreeView {
     this.placeRootMark();
     // Drew a big tree solid because it's being redrawn rapidly (still reducing) → schedule a one-shot
     // dashed redraw for once it goes idle. A later draw (next step) cancels and reschedules it.
-    if (this.objs.size > HEAVY && !dash) {
+    if (this.objs.size > HEAVY && !dash && !this.options.deterministicEdges) {
       clearTimeout(this.settleDashTimer);
       this.settleDashTimer = window.setTimeout(() => {
         if (!this.container.destroyed) this.drawEdges();
