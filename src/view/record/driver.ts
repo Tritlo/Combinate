@@ -67,6 +67,12 @@ interface FrameStats {
 
 interface HeaderOverlayMetrics {
   inlineLaw: boolean;
+  cardPadX: number;
+  cardPadY: number;
+  contentCap: number;
+  cardW: number;
+  cardH: number;
+  shadow: number;
   reservedTop: number;
 }
 
@@ -77,7 +83,6 @@ interface OverlayMetrics {
   lawPx: number;
   exprPx: number;
   statsPx: number;
-  topCap: number;
   header: HeaderOverlayMetrics | null;
   reservedBottom: number;
 }
@@ -114,24 +119,39 @@ function overlayMetrics(settings: RecordSettings): OverlayMetrics {
   const lawPx = Math.max(11, Math.round(h * 0.014));
   const exprPx = Math.max(12, Math.round(h * 0.017));
   const statsPx = Math.max(12, Math.round(h * 0.016));
-  const topCap = Math.max(40, settings.width - pad * 2);
+  const cardPadX = Math.max(10, Math.round(h * 0.015));
+  const cardPadY = Math.max(8, Math.round(h * 0.012));
+  const shadow = Math.max(2, Math.round(h * 0.004));
+  const maxCardW = Math.max(40, settings.width - pad * 2 - shadow);
+  const topCap = Math.max(24, maxCardW - cardPadX * 2);
   let header: HeaderOverlayMetrics | null = null;
   if (settings.overlayInfo && settings.info) {
     const law = settings.info.law;
+    const titleW = measureOverlayText(settings.info.title, overlayFont(titlePx, 700));
+    const lawW = law ? measureOverlayText(law, overlayFont(lawPx)) : 0;
     let inlineLaw = true;
     if (law) {
-      const inlineW =
-        measureOverlayText(settings.info.title, overlayFont(titlePx, 700)) +
-        measureOverlayText(" · ", overlayFont(lawPx)) +
-        measureOverlayText(law, overlayFont(lawPx));
+      const inlineW = titleW + measureOverlayText(" · ", overlayFont(lawPx)) + lawW;
       inlineLaw = inlineW <= topCap;
     }
+    const contentW = law && !inlineLaw ? Math.max(titleW, lawW) : titleW + (law ? measureOverlayText(" · ", overlayFont(lawPx)) + lawW : 0);
     const textH = lineHeight(titlePx) + (law && !inlineLaw ? gap + lineHeight(lawPx) : 0);
-    header = { inlineLaw, reservedTop: pad + textH + gap };
+    const cardW = Math.ceil(Math.min(contentW, topCap) + cardPadX * 2);
+    const cardH = textH + cardPadY * 2;
+    header = {
+      inlineLaw,
+      cardPadX,
+      cardPadY,
+      contentCap: topCap,
+      cardW,
+      cardH,
+      shadow,
+      reservedTop: pad + cardH + shadow + gap,
+    };
   }
   const bottomPx = Math.max(settings.overlayInfo ? exprPx : 0, settings.overlayStats ? statsPx : 0);
   const reservedBottom = bottomPx > 0 ? gap + lineHeight(bottomPx) + pad : 0;
-  return { pad, gap, titlePx, lawPx, exprPx, statsPx, topCap, header, reservedBottom };
+  return { pad, gap, titlePx, lawPx, exprPx, statsPx, header, reservedBottom };
 }
 
 function renderRect(settings: RecordSettings): RenderRect {
@@ -426,13 +446,24 @@ function drawCenteredRuns(
 function drawInfoOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettings, colors: Theme): void {
   const metrics = overlayMetrics(settings);
   if (!metrics.header || !settings.info) return;
+  const cardX = Math.round((settings.width - metrics.header.cardW) / 2);
+  const cardY = metrics.pad;
   const centerX = settings.width / 2;
-  const y = metrics.pad;
+  const y = cardY + metrics.header.cardPadY;
   const titleFont = overlayFont(metrics.titlePx, 700);
   const lawFont = overlayFont(metrics.lawPx);
   const text = cssColor(colors.text);
   const dim = cssColor(colors.textDim);
   const law = settings.info.law;
+
+  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  ctx.fillRect(cardX + metrics.header.shadow, cardY + metrics.header.shadow, metrics.header.cardW, metrics.header.cardH);
+  ctx.fillStyle = cssColor(colors.panel);
+  ctx.fillRect(cardX, cardY, metrics.header.cardW, metrics.header.cardH);
+  ctx.strokeStyle = cssColor(colors.border);
+  ctx.lineWidth = 1;
+  ctx.strokeRect(cardX + 0.5, cardY + 0.5, metrics.header.cardW - 1, metrics.header.cardH - 1);
+
   if (law && metrics.header.inlineLaw) {
     drawCenteredRuns(
       ctx,
@@ -447,8 +478,8 @@ function drawInfoOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettings
     );
     return;
   }
-  drawCenteredText(ctx, settings.info.title, titleFont, text, centerX, y, metrics.topCap);
-  if (law) drawCenteredText(ctx, law, lawFont, dim, centerX, y + lineHeight(metrics.titlePx) + metrics.gap, metrics.topCap);
+  drawCenteredText(ctx, settings.info.title, titleFont, text, centerX, y, metrics.header.contentCap);
+  if (law) drawCenteredText(ctx, law, lawFont, dim, centerX, y + lineHeight(metrics.titlePx) + metrics.gap, metrics.header.contentCap);
 }
 
 function drawBottomOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettings, stats: FrameStats, colors: Theme): void {
@@ -457,32 +488,26 @@ function drawBottomOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettin
   ctx.textBaseline = "alphabetic";
   const text = cssColor(colors.text);
   const baseline = settings.height - metrics.pad;
-  let statsLeft = settings.width - metrics.pad;
+  let statsW = 0;
 
   if (settings.overlayStats) {
     const statsText = `step ${stats.step}/${stats.totalSteps} · nodes ${stats.nodes}`;
     ctx.font = overlayFont(metrics.statsPx);
-    const statsW = ctx.measureText(statsText).width;
-    statsLeft = Math.max(metrics.pad, settings.width - metrics.pad - statsW);
+    statsW = ctx.measureText(statsText).width;
+    const statsLeft = Math.max(metrics.pad, settings.width - metrics.pad - statsW);
     ctx.fillStyle = text;
     ctx.fillText(statsText, statsLeft, baseline, settings.width - metrics.pad * 2);
   }
 
   if (!settings.overlayInfo) return;
-  const gap = metrics.gap * 2;
-  const left = metrics.pad;
-  const right = settings.overlayStats ? Math.max(left, statsLeft - gap) : settings.width - metrics.pad;
-  const fullCap = settings.width - metrics.pad * 2;
-  const centeredCap = Math.min(fullCap, Math.max(0, 2 * (right - settings.width / 2)));
-  const useFrameCenter = centeredCap >= Math.min(160, settings.width * 0.28);
-  const centerX = useFrameCenter ? settings.width / 2 : left + Math.max(0, right - left) / 2;
-  const maxWidth = useFrameCenter ? centeredCap : Math.max(0, right - left);
+  const clearance = settings.overlayStats ? statsW + metrics.pad + metrics.gap : metrics.pad;
+  const maxWidth = Math.max(0, settings.width - 2 * clearance);
   ctx.font = overlayFont(metrics.exprPx);
   const expr = fitText(ctx, stats.expression, maxWidth);
   if (!expr) return;
   const exprW = ctx.measureText(expr).width;
   ctx.fillStyle = text;
-  ctx.fillText(expr, centerX - exprW / 2, baseline, maxWidth);
+  ctx.fillText(expr, settings.width / 2 - exprW / 2, baseline, maxWidth);
 }
 
 interface Compositor {
