@@ -13,6 +13,8 @@ const MARGIN = 80; // keep the row clear of the screen edges
 const ARROW = 28; // width of a ‹ / › page button
 const PAD = 14; // palette-window inner padding
 const NARROW = 560; // phone layout: smaller tabs + tighter margins
+const IOTA_DOT = 0xffffff;
+const IOTA_GLYPH = 0x000000;
 
 /**
  * The hotbar (§8.1), bottom-centre — styled as an early-Photoshop tool palette: a
@@ -272,12 +274,13 @@ export class Hotbar {
 
   private slot(sym: string, cx: number, cy: number): Container {
     const { paper, ink } = paperInk();
-    const glyphColor = sym === "ι" ? theme.iota : theme.node; // ι gold; other combinators ink (mono) / accent (colour) — kept one colour for text-on-cell contrast
+    const glyphColor = sym === "ι" ? IOTA_GLYPH : theme.node; // ι is fixed black-on-white; other combinators keep the current node role.
     const v = new Container() as Container & { sym: string };
     v.sym = sym;
     v.addChild(new Graphics().rect(-SLOT / 2, -SLOT / 2, SLOT, SLOT).fill({ color: paper }).stroke({ width: 1, color: ink }));
+    if (sym === "ι") v.addChild(new Graphics().circle(0, 0, 15).fill({ color: IOTA_DOT }));
     if (sym === this.cursorSymCache) {
-      // game-mode cursor: a gold selection ring around the cell (ADR 17)
+      // game-mode cursor: an accent selection ring around the cell (ADR 17)
       v.addChild(new Graphics().rect(-SLOT / 2 - 3, -SLOT / 2 - 3, SLOT + 6, SLOT + 6).stroke({ width: 2.5, color: theme.iota }));
     }
     const glyph = new Text({ text: this.labelOf(sym), style: { fontFamily: "monospace", fontSize: 22, fill: glyphColor } });

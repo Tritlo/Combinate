@@ -73,12 +73,11 @@ interface FrameStats {
   expression: string;
 }
 
-interface HeaderOverlayMetrics {
+interface CardOverlayMetrics {
   inlineLaw: boolean;
   cardPadX: number;
   cardPadY: number;
   contentCap: number;
-  cardW: number;
   cardH: number;
   shadow: number;
   reservedTop: number;
@@ -91,8 +90,7 @@ interface OverlayMetrics {
   lawPx: number;
   exprPx: number;
   statsPx: number;
-  header: HeaderOverlayMetrics | null;
-  reservedBottom: number;
+  card: CardOverlayMetrics | null;
 }
 
 function abortError(): Error {
@@ -126,47 +124,48 @@ function overlayMetrics(settings: RecordSettings): OverlayMetrics {
   const titlePx = Math.max(15, Math.round(h * 0.023));
   const lawPx = Math.max(11, Math.round(h * 0.014));
   const exprPx = Math.max(12, Math.round(h * 0.017));
-  const statsPx = Math.max(12, Math.round(h * 0.016));
+  const statsPx = Math.max(11, Math.round(h * 0.014));
   const cardPadX = Math.max(10, Math.round(h * 0.015));
   const cardPadY = Math.max(8, Math.round(h * 0.012));
   const shadow = Math.max(2, Math.round(h * 0.004));
-  const maxCardW = Math.max(40, settings.width - pad * 2 - shadow);
+  const maxCardW = Math.max(40, Math.min(settings.width * 0.86, settings.width - pad * 2 - shadow));
   const topCap = Math.max(24, maxCardW - cardPadX * 2);
-  let header: HeaderOverlayMetrics | null = null;
-  if (settings.overlayInfo && settings.info) {
-    const law = settings.info.law;
-    const titleW = measureOverlayText(settings.info.title, overlayFont(titlePx, 700));
+  let card: CardOverlayMetrics | null = null;
+  if (settings.overlayInfo || settings.overlayStats) {
+    const law = settings.info?.law;
+    const titleW = settings.info ? measureOverlayText(settings.info.title, overlayFont(titlePx, 700)) : 0;
     const lawW = law ? measureOverlayText(law, overlayFont(lawPx)) : 0;
     let inlineLaw = true;
-    if (law) {
+    if (settings.overlayInfo && settings.info && law) {
       const inlineW = titleW + measureOverlayText(" · ", overlayFont(lawPx)) + lawW;
       inlineLaw = inlineW <= topCap;
     }
-    const contentW = law && !inlineLaw ? Math.max(titleW, lawW) : titleW + (law ? measureOverlayText(" · ", overlayFont(lawPx)) + lawW : 0);
-    const textH = lineHeight(titlePx) + (law && !inlineLaw ? gap + lineHeight(lawPx) : 0);
-    const cardW = Math.ceil(Math.min(contentW, topCap) + cardPadX * 2);
+    const linePxs: number[] = [];
+    if (settings.overlayInfo && settings.info) {
+      linePxs.push(titlePx);
+      if (law && !inlineLaw) linePxs.push(lawPx);
+    }
+    if (settings.overlayInfo) linePxs.push(exprPx);
+    if (settings.overlayStats) linePxs.push(statsPx);
+    const textH = linePxs.reduce((sum, px, i) => sum + lineHeight(px) + (i === 0 ? 0 : gap), 0);
     const cardH = textH + cardPadY * 2;
-    header = {
+    card = {
       inlineLaw,
       cardPadX,
       cardPadY,
       contentCap: topCap,
-      cardW,
       cardH,
       shadow,
       reservedTop: pad + cardH + shadow + gap,
     };
   }
-  const bottomPx = Math.max(settings.overlayInfo ? exprPx : 0, settings.overlayStats ? statsPx : 0);
-  const reservedBottom = bottomPx > 0 ? gap + lineHeight(bottomPx) + pad : 0;
-  return { pad, gap, titlePx, lawPx, exprPx, statsPx, header, reservedBottom };
+  return { pad, gap, titlePx, lawPx, exprPx, statsPx, card };
 }
 
 function renderRect(settings: RecordSettings): RenderRect {
   const metrics = overlayMetrics(settings);
-  const top = metrics.header?.reservedTop ?? 0;
-  const bottom = metrics.reservedBottom;
-  return { x: 0, y: top, w: settings.width, h: Math.max(1, settings.height - top - bottom) };
+  const top = metrics.card?.reservedTop ?? 0;
+  return { x: 0, y: top, w: settings.width, h: Math.max(1, settings.height - top) };
 }
 
 function stageFitFromExtents(root: { x: number; y: number }, extents: RootExtents, settings: RecordSettings): StageFit {
@@ -451,16 +450,6 @@ function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number):
   return text.slice(0, lo) + ellipsis;
 }
 
-function drawCenteredText(ctx: CanvasRenderingContext2D, text: string, font: string, color: string, centerX: number, y: number, maxWidth: number): void {
-  ctx.font = font;
-  ctx.textBaseline = "top";
-  ctx.fillStyle = color;
-  const fitted = fitText(ctx, text, maxWidth);
-  if (!fitted) return;
-  const width = ctx.measureText(fitted).width;
-  ctx.fillText(fitted, centerX - width / 2, y);
-}
-
 function drawCenteredRuns(
   ctx: CanvasRenderingContext2D,
   runs: Array<{ text: string; font: string; color: string }>,
@@ -483,71 +472,69 @@ function drawCenteredRuns(
   });
 }
 
-function drawInfoOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettings, colors: Theme): void {
+function drawInfoOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettings, stats: FrameStats, colors: Theme): void {
   const metrics = overlayMetrics(settings);
-  if (!metrics.header || !settings.info) return;
-  const cardX = Math.round((settings.width - metrics.header.cardW) / 2);
-  const cardY = metrics.pad;
+  if (!metrics.card) return;
   const centerX = settings.width / 2;
-  const y = cardY + metrics.header.cardPadY;
-  const titleFont = overlayFont(metrics.titlePx, 700);
-  const lawFont = overlayFont(metrics.lawPx);
   const text = cssColor(colors.text);
   const dim = cssColor(colors.textDim);
-  const law = settings.info.law;
+  const lines: Array<{ px: number; width: number; draw: (y: number) => void }> = [];
+  const textLine = (value: string, font: string, color: string, px: number): void => {
+    ctx.font = font;
+    const fitted = fitText(ctx, value, metrics.card!.contentCap);
+    const width = fitted ? ctx.measureText(fitted).width : 0;
+    lines.push({
+      px,
+      width,
+      draw: (y) => {
+        if (!fitted) return;
+        ctx.font = font;
+        ctx.textBaseline = "top";
+        ctx.fillStyle = color;
+        ctx.fillText(fitted, centerX - width / 2, y);
+      },
+    });
+  };
 
-  ctx.fillStyle = "rgba(0,0,0,0.65)";
-  ctx.fillRect(cardX + metrics.header.shadow, cardY + metrics.header.shadow, metrics.header.cardW, metrics.header.cardH);
-  ctx.fillStyle = cssColor(colors.panel);
-  ctx.fillRect(cardX, cardY, metrics.header.cardW, metrics.header.cardH);
-  ctx.strokeStyle = cssColor(colors.border);
-  ctx.lineWidth = 1;
-  ctx.strokeRect(cardX + 0.5, cardY + 0.5, metrics.header.cardW - 1, metrics.header.cardH - 1);
-
-  if (law && metrics.header.inlineLaw) {
-    drawCenteredRuns(
-      ctx,
-      [
+  if (settings.overlayInfo && settings.info) {
+    const titleFont = overlayFont(metrics.titlePx, 700);
+    const lawFont = overlayFont(metrics.lawPx);
+    const law = settings.info.law;
+    if (law && metrics.card.inlineLaw) {
+      const runs = [
         { text: settings.info.title, font: titleFont, color: text },
         { text: " · ", font: lawFont, color: dim },
         { text: law, font: lawFont, color: dim },
-      ],
-      centerX,
-      y,
-      metrics.titlePx,
-    );
-    return;
+      ];
+      const width = runs.reduce((sum, run) => sum + measureOverlayText(run.text, run.font), 0);
+      lines.push({ px: metrics.titlePx, width, draw: (y) => drawCenteredRuns(ctx, runs, centerX, y, metrics.titlePx) });
+    } else {
+      textLine(settings.info.title, titleFont, text, metrics.titlePx);
+      if (law) textLine(law, lawFont, dim, metrics.lawPx);
+    }
   }
-  drawCenteredText(ctx, settings.info.title, titleFont, text, centerX, y, metrics.header.contentCap);
-  if (law) drawCenteredText(ctx, law, lawFont, dim, centerX, y + lineHeight(metrics.titlePx) + metrics.gap, metrics.header.contentCap);
-}
+  if (settings.overlayInfo) textLine(stats.expression, overlayFont(metrics.exprPx), text, metrics.exprPx);
+  if (settings.overlayStats) textLine(`step ${stats.step}/${stats.totalSteps} · nodes ${stats.nodes}`, overlayFont(metrics.statsPx), dim, metrics.statsPx);
+  if (lines.length === 0) return;
 
-function drawBottomOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettings, stats: FrameStats, colors: Theme): void {
-  if (!settings.overlayInfo && !settings.overlayStats) return;
-  const metrics = overlayMetrics(settings);
-  ctx.textBaseline = "alphabetic";
-  const text = cssColor(colors.text);
-  const baseline = settings.height - metrics.pad;
-  let statsW = 0;
+  const contentW = Math.max(...lines.map((line) => line.width));
+  const cardW = Math.ceil(Math.min(contentW, metrics.card.contentCap) + metrics.card.cardPadX * 2);
+  const cardX = Math.round((settings.width - cardW) / 2);
+  const cardY = metrics.pad;
 
-  if (settings.overlayStats) {
-    const statsText = `step ${stats.step}/${stats.totalSteps} · nodes ${stats.nodes}`;
-    ctx.font = overlayFont(metrics.statsPx);
-    statsW = ctx.measureText(statsText).width;
-    const statsLeft = Math.max(metrics.pad, settings.width - metrics.pad - statsW);
-    ctx.fillStyle = text;
-    ctx.fillText(statsText, statsLeft, baseline, settings.width - metrics.pad * 2);
+  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  ctx.fillRect(cardX + metrics.card.shadow, cardY + metrics.card.shadow, cardW, metrics.card.cardH);
+  ctx.fillStyle = cssColor(colors.panel);
+  ctx.fillRect(cardX, cardY, cardW, metrics.card.cardH);
+  ctx.strokeStyle = cssColor(colors.border);
+  ctx.lineWidth = 1;
+  ctx.strokeRect(cardX + 0.5, cardY + 0.5, cardW - 1, metrics.card.cardH - 1);
+
+  let y = cardY + metrics.card.cardPadY;
+  for (const line of lines) {
+    line.draw(y);
+    y += lineHeight(line.px) + metrics.gap;
   }
-
-  if (!settings.overlayInfo) return;
-  const clearance = settings.overlayStats ? statsW + metrics.pad + metrics.gap : metrics.pad;
-  const maxWidth = Math.max(0, settings.width - 2 * clearance);
-  ctx.font = overlayFont(metrics.exprPx);
-  const expr = fitText(ctx, stats.expression, maxWidth);
-  if (!expr) return;
-  const exprW = ctx.measureText(expr).width;
-  ctx.fillStyle = text;
-  ctx.fillText(expr, settings.width / 2 - exprW / 2, baseline, maxWidth);
 }
 
 interface Compositor {
@@ -580,8 +567,7 @@ function createCompositor(settings: RecordSettings): Compositor {
       ctx.fillStyle = cssColor(colors.bg);
       ctx.fillRect(0, 0, settings.width, settings.height);
       drawSourceCanvas(ctx, source, settings);
-      drawInfoOverlay(ctx, settings, colors);
-      drawBottomOverlay(ctx, settings, stats, colors);
+      drawInfoOverlay(ctx, settings, stats, colors);
       return canvas;
     },
   };
