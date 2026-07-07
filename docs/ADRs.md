@@ -515,3 +515,6 @@ when the tab actually changes) so a page switch re-renders every live tree's gly
 `refresh()` path the webfont-load and theme-change repaints already use. The long-name pill/circle
 choice (H2) re-measures off the *displayed* label, not the raw sym — so `cons` shown as ":" is a
 circle again, while an unmapped long sym (e.g. `uncons` on Programs) still boxes.
+
+## 24: MP4 recording — offline frame-perfect, with audio
+[docs/adr/0024-mp4-recording-offline-frame-perfect.md](adr/0024-mp4-recording-offline-frame-perfect.md)
