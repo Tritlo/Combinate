@@ -2,11 +2,12 @@ import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text } from
 import { CATALOG, countIotas, displayLabel, iotaTreeOf, type Law, META, PAGES } from "../core/catalog";
 import { iota, type Node, type NodeId } from "../core/term";
 import { layoutHTree } from "../core/layout";
-import { theme, edgeTierColor } from "./theme";
+import { theme, currentMode, edgeTierColor, type Mode } from "./theme";
 import { wirePanelChrome, placeCard } from "./pixiPanel";
 
 const LIST_W = 248;
 const LIST_TOP = 88; // list/detail start below the title + tab row
+const iotaDot = (mode: Mode): number => (mode === "light" ? 0x000000 : 0xffffff);
 
 interface Entry {
   num: number;
@@ -401,7 +402,7 @@ function renderPicture(tree: Node, size: number): Container {
   const dots = new Graphics();
   const drawDots = (n: Node): void => {
     const p = at(n.id);
-    if (n.kind === "iota") dots.circle(p.x, p.y, 3).fill(theme.iota);
+    if (n.kind === "iota") dots.circle(p.x, p.y, 3).fill(iotaDot(currentMode()));
     else if (n.kind === "comb") dots.circle(p.x, p.y, 3).fill(theme.node);
     else dots.circle(p.x, p.y, 2).fill(theme.mutedDot);
     if (n.kind === "app") {

@@ -74,6 +74,17 @@ export type Mode = "light" | "dark";
 /** The live theme — mutated in place so existing references stay valid. */
 export const theme: Theme = { ...MONO_DARK };
 
+/** A fixed theme for an offline render; unlike {@link theme}, this never tracks the live app. */
+export function themeForMode(m: Mode, color = false): Theme {
+  const palette = color ? (m === "dark" ? COLOR_DARK : COLOR_LIGHT) : m === "dark" ? MONO_DARK : MONO_LIGHT;
+  return color ? quantize(palette) : { ...palette };
+}
+
+/** Edge tier colour under a fixed theme. */
+export function edgeTierColorForMode(depth: number, m: Mode, colors = themeForMode(m)): number {
+  return depth % 2 === 0 ? colors.text : EDGE_RED[m];
+}
+
 let mode: Mode = "dark";
 let colorMode = false; // false = 1-bit mono (default); true = the 4096-colour palette
 let userOverride = false;
@@ -142,8 +153,13 @@ function hsl(h: number, s: number, l: number): number {
  *  hashed), ink in 1-bit mono. */
 export function combinatorColor(sym: string): number {
   if (!colorMode) return theme.node; // 1-bit: ink dots
-  const l = mode === "dark" ? 0.6 : 0.42;
-  const s = mode === "dark" ? 0.7 : 0.62;
+  return combinatorColorForMode(sym, mode);
+}
+
+/** A combinator's Colour-4096 dot colour under a fixed mode, independent of the live colour toggle. */
+export function combinatorColorForMode(sym: string, m: Mode): number {
+  const l = m === "dark" ? 0.6 : 0.42;
+  const s = m === "dark" ? 0.7 : 0.62;
   return q4(hsl(hueOf(sym), s, l));
 }
 

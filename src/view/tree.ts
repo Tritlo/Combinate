@@ -3,7 +3,7 @@ import { type Node, type NodeId, IOTA_ID_SPAN } from "../core/term";
 import { expandDisplay } from "../core/catalog";
 import { type Layout, type LayoutFn, layoutHTreeSubtree } from "../core/layout";
 import { type StepPatch } from "../core/reduce";
-import { theme, combinatorColor, glyphOn, edgeTierColor, MONO, monoFontReady } from "./theme";
+import { theme, combinatorColor, combinatorColorForMode, currentMode, glyphOn, edgeTierColor, MONO, monoFontReady, themeForMode, edgeTierColorForMode, type Mode, type Theme } from "./theme";
 import { EdgeBuffer, edgeKey } from "./edgeBuffer";
 import { tween, easeInOut } from "./anim";
 
@@ -61,6 +61,7 @@ function nodeTexture(): Texture {
 
 /** The disc radius per node kind — the one source of truth {@link visSpec} and {@link radiusOf} share. */
 const RADIUS: Record<Node["kind"], number> = { iota: 7, comb: 15, free: 13, app: 5 };
+const iotaDot = (mode: Mode): number => (mode === "light" ? 0x000000 : 0xffffff);
 
 // A combinator sym this long or longer overflows the comb disc: IoskeleyMono at fontSize 15 (the comb
 // glyph size) is a 9px/char monospace, and the 30px disc (2×RADIUS.comb) only comfortably fits 3
@@ -75,21 +76,26 @@ const COMB_GLYPH_STYLE = new TextStyle({ fontFamily: MONO, fontSize: 15 });
  *  instead. `labelFor` resolves a comb node's glyph text (ADR 23: context-sensitive on the hotbar's
  *  open page, e.g. `K` reads "[]" with Lists open) — `n.sym` stays the tint/identity key, only the
  *  glyph text and (transitively) the boxed measurement follow the resolved label. */
-function visSpec(n: Node, labelFor: (sym: string) => string): { radius: number; tint: number; glyph: { text: string; color: number; size: number } | null; boxed: boolean } {
+function visSpec(
+  n: Node,
+  labelFor: (sym: string) => string,
+  palette: { mode: Mode; color: boolean; colors: Theme } | null,
+): { radius: number; tint: number; glyph: { text: string; color: number; size: number } | null; boxed: boolean } {
+  const colors = palette?.colors ?? theme;
   switch (n.kind) {
     case "iota":
-      return { radius: RADIUS.iota, tint: theme.mutedDot, glyph: { text: "ι", color: theme.text, size: 10 }, boxed: false }; // grey dot + ink ι (no longer gold)
+      return { radius: RADIUS.iota, tint: iotaDot(palette?.mode ?? currentMode()), glyph: null, boxed: false };
     case "comb": {
-      const tint = combinatorColor(n.sym); // per-combinator hue in Colour mode, ink in mono
+      const tint = palette ? (palette.color ? combinatorColorForMode(n.sym, palette.mode) : colors.node) : combinatorColor(n.sym); // per-combinator hue in Colour mode, ink in mono
       const text = labelFor(n.sym);
       return { radius: RADIUS.comb, tint, glyph: { text, color: glyphOn(tint), size: 15 }, boxed: text.length >= PILL_MIN_LEN };
     }
     case "free":
       // a free var sits on a muted (grey) dot, so its glyph is ink (text), not
       // paper — paper-on-grey is too low-contrast.
-      return { radius: RADIUS.free, tint: theme.mutedDot, glyph: { text: n.name, color: theme.text, size: 14 }, boxed: false };
+      return { radius: RADIUS.free, tint: colors.mutedDot, glyph: { text: n.name, color: colors.text, size: 14 }, boxed: false };
     default:
-      return { radius: RADIUS.app, tint: theme.mutedDot, glyph: null, boxed: false }; // app junction dot
+      return { radius: RADIUS.app, tint: colors.mutedDot, glyph: null, boxed: false }; // app junction dot
   }
 }
 const radiusOf = (kind: Node["kind"]): number => RADIUS[kind];
@@ -145,6 +151,16 @@ interface Anim {
   remove: boolean;
 }
 
+/** Extra rendering knobs for non-live TreeView owners such as the recorder. */
+export interface TreeViewOptions {
+  /** Draw settled edge styles synchronously without `performance.now`/`setTimeout`. */
+  deterministicEdges?: boolean;
+  /** Fixed theme mode for recorder-owned views; omitted views follow the live theme. */
+  themeMode?: Mode;
+  /** Use Colour-4096 combinator hues under `themeMode`. */
+  color?: boolean;
+}
+
 /**
  * Renders one connected term tree into a draggable Pixi container (§5.3). Nodes
  * are drawn as a single instanced {@link ParticleContainer} (one particle per
@@ -194,6 +210,7 @@ export class TreeView {
   private ticking = false;
   private cancelPop: (() => void) | null = null; // the pop-in tween's canceller — stopped on destroy so it can't tick a freed container
   private readonly tick = (t: Ticker): void => this.advance(t.deltaMS);
+  private readonly recordTheme: { mode: Mode; color: boolean; colors: Theme } | null;
   // The glyph resolution level (see glyphResLevel) currently baked into every live glyph's bitmap.
   // Checked every frame — cheap (one comparison) — but only re-rasterizes glyphs on the rare frame
   // the quantized level actually changes, so a pan/zoom on an otherwise-settled tree still sharpens
@@ -232,7 +249,9 @@ export class TreeView {
      *  transitively, the pill/circle sizing) follows this. Call {@link refresh} after it would return
      *  a different answer (e.g. the hotbar's open page changed) to re-render with the new labels. */
     private readonly labelFor: (sym: string) => string = (sym) => sym,
+    private readonly options: TreeViewOptions = {},
   ) {
+    this.recordTheme = options.themeMode ? { mode: options.themeMode, color: !!options.color, colors: themeForMode(options.themeMode, !!options.color) } : null;
     this.node = node;
     this.display = this.expand(node);
     this.lay = this.layoutFn(this.display);
@@ -254,10 +273,24 @@ export class TreeView {
     return { x: this.container.position.x, y: this.container.position.y };
   }
 
+  /** The current layout root position, in the same world-container coordinates as {@link worldBounds}. */
+  get layoutRootWorld(): { x: number; y: number } {
+    const p = this.lay.pos.get(this.display.id);
+    return { x: this.container.position.x + (p?.x ?? 0), y: this.container.position.y + (p?.y ?? 0) };
+  }
+
   /** The tree's world-space bounding box (from the layout — animation-independent), for
    *  zoom-to-fit. */
   worldBounds(): { x: number; y: number; w: number; h: number } {
     return { x: this.container.position.x + this.lay.minX, y: this.container.position.y + this.lay.minY, w: this.lay.width, h: this.lay.height };
+  }
+
+  private colors(): Theme {
+    return this.recordTheme?.colors ?? theme;
+  }
+
+  private edgeTierColor(depth: number): number {
+    return this.recordTheme ? edgeTierColorForMode(depth, this.recordTheme.mode, this.recordTheme.colors) : edgeTierColor(depth);
   }
 
   destroy(): void {
@@ -550,7 +583,7 @@ export class TreeView {
       const ap = pos.get(n.arg.id)!;
       eb.set(edgeKey(id, 0), tier, p.x, p.y, fp.x, fp.y);
       eb.set(edgeKey(id, 1), tier, p.x, p.y, ap.x, ap.y);
-      const childTint = edgeTierColor(d);
+      const childTint = this.edgeTierColor(d);
       if (n.fn.kind === "app") this.objs.get(n.fn.id)!.particle.tint = childTint;
       if (n.arg.kind === "app") this.objs.get(n.arg.id)!.particle.tint = childTint;
     }
@@ -559,10 +592,10 @@ export class TreeView {
     // stays a valid tree for the root mark / picking — O(path), not O(n).
     if (patch.path.length === 0) {
       const rv = this.objs.get(newDisp.id);
-      if (rv) rv.particle.tint = theme.text;
+      if (rv) rv.particle.tint = this.colors().text;
     } else if (newDisp.kind === "app") {
       const rv = this.objs.get(newDisp.id);
-      if (rv) rv.particle.tint = edgeTierColor(anchorDepth);
+      if (rv) rv.particle.tint = this.edgeTierColor(anchorDepth);
     }
     this.display = spliceDisplay(this.display, patch.path, newDisp);
     this.node = patch.root;
@@ -751,7 +784,7 @@ export class TreeView {
       if (pv && lv && rv) {
         this.edgeList.push({ pv, lv, rv, depth }); // depth → the red/black tier colour
         // an app child takes the colour of its incoming edge (the tier edge leaving n at this depth)
-        const tier = edgeTierColor(depth);
+        const tier = this.edgeTierColor(depth);
         if (n.fn.kind === "app") lv.particle.tint = tier;
         if (n.arg.kind === "app") rv.particle.tint = tier;
       }
@@ -760,7 +793,7 @@ export class TreeView {
     };
     walk(this.display, 0);
     const rootVis = this.display.kind === "app" ? this.objs.get(this.display.id) : null;
-    if (rootVis) rootVis.particle.tint = theme.text; // root: no incoming edge → ink
+    if (rootVis) rootVis.particle.tint = this.colors().text; // root: no incoming edge → ink
   }
 
   // Edges are drawn from the live particle positions (so they follow tweens),
@@ -781,10 +814,13 @@ export class TreeView {
     // while it's being redrawn rapidly (a running reduction jump-cuts a step every few ms — dashing
     // thousands of edges per step is slow) and DASHED once it settles: this draw follows a quiet gap,
     // or the trailing timer below fired after one. So an expanded / inspected ι-tree shows its dashes.
-    const now = performance.now();
-    const settled = now - this.lastEdgeDrawAt > SETTLE_DASH_MS;
-    this.lastEdgeDrawAt = now;
-    const dash = this.objs.size <= HEAVY || settled;
+    let dash = true;
+    if (!this.options.deterministicEdges) {
+      const now = performance.now();
+      const settled = now - this.lastEdgeDrawAt > SETTLE_DASH_MS;
+      this.lastEdgeDrawAt = now;
+      dash = this.objs.size <= HEAVY || settled;
+    }
     // Colour = depth TIER (red/black), style = fn solid / arg dashed. Each tier is a separate stroke
     // (one colour per Graphics stroke), so 4 strokes: {arg,fn} × {even,odd}. A node's parent-edge is
     // the opposite colour of its child-edges → you can trace direction even in a dense tree.
@@ -800,7 +836,7 @@ export class TreeView {
           else this.edges.moveTo(p.x, p.y).lineTo(rp.x, rp.y);
         }
       }
-      this.edges.stroke({ width: 2.5, color: edgeTierColor(parity) });
+      this.edges.stroke({ width: 2.5, color: this.edgeTierColor(parity) });
     }
     for (const parity of [0, 1]) {
       for (const e of this.edgeList) {
@@ -811,12 +847,12 @@ export class TreeView {
         if (fdx * fdx + fdy * fdy < minLen2) continue; // LOD: sub-pixel edge
         if (!v || overlaps(p, lp, v)) this.edges.moveTo(p.x, p.y).lineTo(lp.x, lp.y); // function edge: solid
       }
-      this.edges.stroke({ width: 3, color: edgeTierColor(parity) });
+      this.edges.stroke({ width: 3, color: this.edgeTierColor(parity) });
     }
     this.placeRootMark();
     // Drew a big tree solid because it's being redrawn rapidly (still reducing) → schedule a one-shot
     // dashed redraw for once it goes idle. A later draw (next step) cancels and reschedules it.
-    if (this.objs.size > HEAVY && !dash) {
+    if (this.objs.size > HEAVY && !dash && !this.options.deterministicEdges) {
       clearTimeout(this.settleDashTimer);
       this.settleDashTimer = window.setTimeout(() => {
         if (!this.container.destroyed) this.drawEdges();
@@ -856,7 +892,7 @@ export class TreeView {
   // the batch) plus the glyph spec for the LOD layer. The display term only ever
   // contains discovered combinators (undiscovered S/K/I are expanded to ι-trees).
   private makeVis(n: Node): NodeVis {
-    const spec = visSpec(n, this.labelFor);
+    const spec = visSpec(n, this.labelFor, this.recordTheme);
     const particle = this.recycled.pop() ?? this.addParticle();
     particle.tint = spec.tint;
     particle.alpha = 1;
@@ -928,7 +964,7 @@ export class TreeView {
   private rootMarkKind: Node["kind"] | null = null;
   private redrawRootMark(): void {
     this.rootMark.clear();
-    this.rootMark.circle(0, 0, radiusOf(this.display.kind) + 6).stroke({ width: 3, color: theme.root });
+    this.rootMark.circle(0, 0, radiusOf(this.display.kind) + 6).stroke({ width: 3, color: this.colors().root });
     this.rootMarkKind = this.display.kind;
   }
   private placeRootMark(): void {

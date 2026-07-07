@@ -1,7 +1,7 @@
 /**
- * The transport bar (top-right): a single [♪] sound on/off toggle, a Step action, a segmented speed
- * bar (Pause / Play / Fast-forward / Max) with a paper slider that slides onto the active mode, and a
- * System-1 "display" panel showing the live reduction rate — sitting to the RIGHT of the speed
+ * The transport bar (top-right): a single [♪] sound on/off toggle, Step and Record actions, a segmented
+ * speed bar (Pause / Play / Fast-forward / Max) with a paper slider that slides onto the active mode,
+ * and a System-1 "display" panel showing the live reduction rate — sitting to the RIGHT of the speed
  * controls. A thin DOM view over the {@link ReductionController}: the cells drive it, the slider +
  * the rate panel reflect it. System-1 chrome (ink track, paper slider) to match the layout bar.
  *
@@ -18,9 +18,9 @@ import { type ReductionController, type Transport, TRANSPORT_MODES } from "./red
 import { type Sound } from "./sound";
 import { MENUBAR_HEIGHT } from "./menubar";
 
-const PALETTE: Record<Mode, { paper: string; ink: string }> = {
-  light: { paper: PAPER.light, ink: INK.light },
-  dark: { paper: PAPER.dark, ink: INK.dark },
+const PALETTE: Record<Mode, { paper: string; ink: string; record: string }> = {
+  light: { paper: PAPER.light, ink: INK.light, record: "#b42318" },
+  dark: { paper: PAPER.dark, ink: INK.dark, record: "#ff6b5f" },
 };
 const TOP = MENUBAR_HEIGHT + 8; // clear of the menu bar, using its existing 8px spacing rhythm
 
@@ -42,6 +42,10 @@ function injectStyles(): void {
 .tp-cell.on { color: var(--tp-ink); }
 .tp-cell.fill.on { background: var(--tp-paper); } /* single toggles fill (no sliding knob) */
 .tp-cell.muted { color: var(--tp-paper); opacity: 0.45; }
+.tp-cell:not(.on):hover { background: color-mix(in srgb, var(--tp-paper) 18%, transparent); }
+.tp-cell.record { color: var(--tp-record); }
+.tp-cell.record:hover { background: color-mix(in srgb, var(--tp-record) 18%, transparent); }
+.tp-cell.record:active { color: var(--tp-paper); background: var(--tp-record); }
 .tp-icon { width: 12px; height: 12px; fill: currentColor; display: block; }
 .tp-rate { display: flex; flex: 1 1 auto; align-items: center; justify-content: flex-end; height: 26px; padding: 0 9px;
   width: 124px; box-sizing: border-box; /* fixed: fits the widest SI reading ("999T red/s", 122.3px measured) so the bar never resizes between paused and running */
@@ -53,10 +57,10 @@ function injectStyles(): void {
   document.head.appendChild(style);
 }
 
-/** An icon cell's identity — the four transport modes, plus the step action. */
-type IconKind = Transport | "step";
+/** An icon cell's identity — the four transport modes, plus the step and record actions. */
+type IconKind = Transport | "step" | "record";
 
-const ICON_LABEL: Record<IconKind, string> = { pause: "Pause", play: "Play", ff: "Fast-forward", max: "Max speed", step: "Step" };
+const ICON_LABEL: Record<IconKind, string> = { pause: "Pause", play: "Play", ff: "Fast-forward", max: "Max speed", step: "Step", record: "Record" };
 
 // Each icon's shapes (rects/polygons) within a shared 0 0 16 16 viewBox — bars for pause/step,
 // right-pointing triangles (1/2/3 of them) for play/ff/max/step. y spans 2..14 throughout so every
@@ -68,6 +72,7 @@ const ICON_SHAPES: Record<IconKind, string> = {
   ff: `<polygon points="1,2 1,14 7,8"/><polygon points="9,2 9,14 15,8"/>`,
   max: `<polygon points="1,2 1,14 5,8"/><polygon points="6,2 6,14 10,8"/><polygon points="11,2 11,14 15,8"/>`,
   step: `<polygon points="1,2 1,14 8,8"/><rect x="11" y="2" width="3" height="12"/>`,
+  record: `<circle cx="8" cy="8" r="5"/>`,
 };
 
 /** Build the `.tp-icon` SVG for `kind` — `fill: currentColor` (set in CSS), so it inherits the
@@ -141,7 +146,7 @@ export class TransportBar {
   private lastTotal = 0;
   private redPerSec = 0;
 
-  constructor(ticker: Ticker, private readonly reduce: ReductionController, private readonly snd: Sound) {
+  constructor(ticker: Ticker, private readonly reduce: ReductionController, private readonly snd: Sound, private readonly onRecord?: () => void) {
     injectStyles();
     this.modes = TRANSPORT_MODES;
     this.root.className = "tp-root";
@@ -168,6 +173,16 @@ export class TransportBar {
       this.reduce.stepOnce();
     });
 
+    // Record: another lone action segment, kept outside the speed grid so the slider tracks stay equal.
+    const recordSeg = iconSegment(["record"]);
+    recordSeg.slider.remove();
+    recordSeg.cells[0].classList.add("record");
+    recordSeg.cells[0].title = "Record… (MP4)";
+    recordSeg.cells[0].addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      this.onRecord?.();
+    });
+
     // Speed: the segmented playback modes with a sliding paper knob on the active one. `.tp-speed`
     // is a CSS grid with N equal (minmax(0,1fr)) columns — genuinely equal-width cells, unlike flex's
     // content-driven basis, which is what the knob's %-based transform math (below) requires to land
@@ -189,7 +204,7 @@ export class TransportBar {
     this.rateEl.className = "tp-rate";
     this.rateEl.textContent = "paused";
 
-    this.root.append(soundSeg.el, stepSeg.el, this.speed.el, this.rateEl);
+    this.root.append(soundSeg.el, stepSeg.el, recordSeg.el, this.speed.el, this.rateEl);
     document.body.append(this.root);
     onThemeChange(() => {
       this.applyPalette();
@@ -230,5 +245,6 @@ export class TransportBar {
     const p = PALETTE[currentMode()];
     this.root.style.setProperty("--tp-paper", p.paper);
     this.root.style.setProperty("--tp-ink", p.ink);
+    this.root.style.setProperty("--tp-record", p.record);
   }
 }

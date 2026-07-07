@@ -15,7 +15,7 @@ import { ChallengePanel } from "./view/challenge";
 import { QuestPanel } from "./view/quest";
 import { QuestTracker } from "./view/questTracker";
 import { Sound } from "./view/sound";
-import { CATALOG, type Law, expandDisplay, PAGES, displayLabel } from "./core/catalog";
+import { CATALOG, type Law, expandDisplay, PAGES, displayLabel, countIotas, iotaTreeOf } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutAuto, layoutRadial, layoutHTree, layoutTopDown, type LayoutFn } from "./core/layout";
 import { layoutHTree3D, layoutSphere } from "./core/layout3d";
@@ -43,6 +43,9 @@ import { Help } from "./view/help";
 import { withMotion } from "./view/motion";
 import { OPT_SETTINGS, isOpt, setOpt, onOptChange, type OptKey } from "./view/optimize";
 import { type NativeOpts } from "./core/native";
+import { runRecording } from "./view/record/driver";
+import { RecordModal, RecordPreviewOverlay } from "./view/record/modal";
+import type { RecordInfo, RecordPlan, RecordSettings } from "./view/record/types";
 import { GameInputController } from "./view/gameInput";
 import { ContextMenu } from "./view/contextMenu";
 import { NameKeyboard } from "./view/nameKeyboard";
@@ -205,6 +208,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // toggleLayout() (the __combinate.toggleLayout dev seam) — no key is bound to either.
   let layoutFn: LayoutFn = layoutAuto;
   let layoutControls: LayoutControls | undefined; // the top-right toggle bar (wired once the shell is built)
+  let recordModal: RecordModal | undefined; // built after the layout/optimization getters exist
+  let recording = false;
 
   // What a recognised tree collapses into: a single named node. I/K/S reduce by
   // built-in rules; the rest carry their definition (law.def) for the reducer
@@ -403,7 +408,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   // Transport bar (top-right): rate read-out + Pause/Step/Play/FF — a thin view over the
   // ReductionController (extracted to view/transportBar.ts, ADR 12).
-  const transportBar = new TransportBar(pixi.ticker, reduce, sound);
+  const transportBar = new TransportBar(pixi.ticker, reduce, sound, () => openRecord());
 
   // Reduction progress bar (plan 02): a thin fill along the top edge of the hotbar box, showing how
   // far the focused tree's reduction has played vs the background same-mode total. Shown only when
@@ -917,12 +922,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     },
   });
 
-  // Set the layout for every tree (and trees spawned afterward). Picking a 2D layout leaves 3D.
+  // Set the layout for every tree (and trees spawned afterward). Preserve the chosen view mode:
+  // when 3D is open, the sphere re-lays out through the current 2D→3D mapping.
   const setLayoutMode = (fn: LayoutFn): void => {
-    if (sphere.active()) sphere.exit(); // a 2D layout choice exits the 3D view
     if (layoutFn !== fn) {
       layoutFn = fn;
       for (const t of trees) t.setLayout(fn);
+      sphere.rerender();
       paintRail();
     }
     layoutControls?.refresh();
@@ -1049,6 +1055,20 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const setAllNative = (on: boolean): void => {
     for (const k of NATIVE_KEYS) setOpt(k, on);
   };
+  const recordPreview = new RecordPreviewOverlay();
+  recordModal = new RecordModal({
+    is3D: () => sphere.active(),
+    layout: () => layoutName(),
+    expandIota: () => expandAll,
+    rules: () => isOpt("rules"),
+    graph: () => isOpt("graph"),
+    primitives: () => nativeAllOn(),
+    color: () => colorOn(),
+    onRecord: (term, settings, plan) => {
+      void startRecording(term, settings, plan);
+    },
+    onError: (message) => toast.show(message),
+  });
   // The top-right layout toggle bar (under the transport): [2D|3D], [Top-Down|Radial|H-tree], [Auto].
   layoutControls = new LayoutControls({
     is3D: () => sphere.active(),
@@ -1184,6 +1204,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "sep" },
       { kind: "action", label: "Compile Haskell…", title: "Compile a Haskell expression into a combinator tree, using Micro Haskell.", run: () => mhsPanel.open() },
       { kind: "action", label: "Share Link", title: "Copy a permalink to the current canvas.", run: () => shareFocused() },
+      { kind: "action", label: "Record…", title: "Render the focused reduction to an MP4.", run: () => openRecord() },
     ] },
     { title: "Edit", items: [
       { kind: "action", label: "Clear Canvas", title: "Remove every tree from the canvas.", run: () => clearCanvas() },
@@ -1276,6 +1297,69 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       return;
     }
     shareToken(encodePermalink(focus.node, currentModes()));
+  }
+
+  /** Small overlay card payload for recording: recognized bird if available,
+   *  otherwise a compact s-expression and the visible term's ι count. */
+  function recordInfoFor(term: Node): RecordInfo {
+    const direct = term.kind === "comb" ? CATALOG.find((l) => l.sym === term.sym) ?? null : null;
+    const law = direct ?? recognize(term);
+    if (law) {
+      return { title: law.sym, subtitle: `${countIotas(iotaTreeOf(law))} ι-nodes`, law: law.lawText };
+    }
+    const s = sexp(term);
+    const title = s.length > 40 ? s.slice(0, 39) + "…" : s;
+    return { title, subtitle: `${countIotas(term)} ι-nodes` };
+  }
+
+  /** Pause live playback and open the record modal on a fresh snapshot of the focused term. */
+  function openRecord(): void {
+    if (recording) {
+      toast.show("recording already in progress");
+      return;
+    }
+    reduce.setTransport("pause");
+    const term = focus && trees.includes(focus) ? cloneTerm(focus.node) : null;
+    recordModal?.openFor(term, term ? recordInfoFor(term) : undefined);
+  }
+
+  /** Run the offline recorder behind the preview window, then download the finished MP4. */
+  async function startRecording(term: Node, settings: RecordSettings, plan: RecordPlan): Promise<void> {
+    if (recording) {
+      toast.show("recording already in progress");
+      return;
+    }
+    recording = true;
+    const abort = new AbortController();
+    recordPreview.show(settings.width, settings.height, plan.totalFrames, () => abort.abort());
+    try {
+      const blob = await runRecording(term, settings, plan, {
+        signal: abort.signal,
+        onFrame: (canvas, progress) => recordPreview.blit(canvas, progress),
+      });
+      if (abort.signal.aborted) throw new Error("recording cancelled");
+      downloadRecording(blob);
+      toast.show("recording downloaded");
+    } catch (err) {
+      const message = err instanceof Error && err.message ? err.message : abort.signal.aborted ? "recording cancelled" : String(err);
+      toast.show(message);
+    } finally {
+      recordPreview.close();
+      recording = false;
+    }
+  }
+
+  /** Download an MP4 with the ADR 24 timestamped filename format. */
+  function downloadRecording(blob: Blob): void {
+    const d = new Date();
+    const pad = (n: number): string => String(n).padStart(2, "0");
+    const name = `combinate-record-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.mp4`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   // On load, a permalink in the URL hash restores its tree + modes.
@@ -1424,7 +1508,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     // overlay or text field is up, and modifier combos (Ctrl/Cmd/Alt — browser shortcuts like Ctrl-R)
     // always pass through.
     const typing = (el: Element | null): boolean => !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || (el as HTMLElement).isContentEditable);
-    const overlayUp = (): boolean => zoo.isOpen || challenges.isOpen || [...document.querySelectorAll<HTMLElement>(".md-root")].some((el) => el.style.display === "flex");
+    const overlayUp = (): boolean => zoo.isOpen || challenges.isOpen || [...document.querySelectorAll<HTMLElement>(".md-root, .rp-root")].some((el) => el.style.display === "flex");
     const blocked = e.ctrlKey || e.metaKey || e.altKey || overlayUp() || typing(document.activeElement);
     if (blocked) return; // typing / an overlay / a modifier combo → leave it to the browser + modals
     noteKeyboard(); // keyboard activity → keyboard hint glyphs (last-input-wins)

@@ -7,20 +7,38 @@
  */
 
 const SCALE = [0, 2, 4, 7, 9]; // major pentatonic — any subset sounds consonant
-const FUNDAMENTAL: Record<string, number> = { "ι": 48, I: 52, K: 55, S: 59 }; // MIDI notes
+const FUNDAMENTAL_OFFSETS: Record<string, number> = { "ι": 0, I: 4, K: 7, S: 11 };
+
+/** The reduction-tone envelope shared by live WebAudio and offline recording. */
+export const REDUCTION_TONE = {
+  type: "triangle" as OscillatorType,
+  attackSec: 0.01,
+  peak: 0.14,
+  decaySec: 0.18,
+  floor: 0.0001,
+  stopPaddingSec: 0.02,
+};
 
 const midiToFreq = (m: number): number => 440 * 2 ** ((m - 69) / 12);
 
-/** Map a firing-rule symbol to a frequency: fundamentals are fixed, named birds
- *  are hashed into the pentatonic scale across two octaves. */
-function pitchFor(sym: string): number {
-  let midi = FUNDAMENTAL[sym];
+/** Map a firing-rule symbol to a MIDI note at `base`: fundamentals are offsets,
+ *  named birds are hashed into the pentatonic scale across two octaves. */
+export function midiFor(sym: string, base: number): number {
+  let midi = FUNDAMENTAL_OFFSETS[sym];
   if (midi === undefined) {
     let h = 0;
     for (let i = 0; i < sym.length; i++) h = (h * 31 + sym.charCodeAt(i)) >>> 0;
     const oct = Math.floor(h / SCALE.length) % 2;
-    midi = 60 + SCALE[h % SCALE.length] + 12 * oct;
+    midi = base + 12 + SCALE[h % SCALE.length] + 12 * oct;
+  } else {
+    midi += base;
   }
+  return midi;
+}
+
+/** Map a firing-rule symbol to a frequency for the chosen MIDI base note. */
+export function pitchFor(sym: string, base = 48): number {
+  const midi = midiFor(sym, base);
   return midiToFreq(midi);
 }
 
@@ -66,7 +84,7 @@ export class Sound {
    *  for explicit plays (the Zoo "play tone" button, discovery chirp). The call
    *  must originate from a user gesture so the AudioContext can start. */
   play(sym: string): void {
-    this.tone(pitchFor(sym), "triangle", 0.14, 0.18);
+    this.tone(pitchFor(sym, 48), REDUCTION_TONE.type, REDUCTION_TONE.peak, REDUCTION_TONE.decaySec);
   }
 
   /** A soft, low, round cue for dropping a tree — distinct from the (triangle) bird tones. The call
@@ -84,11 +102,11 @@ export class Sound {
     const gain = this.ctx.createGain();
     osc.type = type;
     osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(peak, t + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+    gain.gain.setValueAtTime(REDUCTION_TONE.floor, t);
+    gain.gain.exponentialRampToValueAtTime(peak, t + REDUCTION_TONE.attackSec);
+    gain.gain.exponentialRampToValueAtTime(REDUCTION_TONE.floor, t + decay);
     osc.connect(gain).connect(this.ctx.destination);
     osc.start(t);
-    osc.stop(t + decay + 0.02);
+    osc.stop(t + decay + REDUCTION_TONE.stopPaddingSec);
   }
 }
