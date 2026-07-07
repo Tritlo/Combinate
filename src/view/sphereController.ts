@@ -42,6 +42,8 @@ export interface SphereControllerDeps {
 /** The dev-seam readout (`__combinate.view3d.info()`), kept source-compatible with the old inline seam. */
 export interface SphereInfo {
   count: number;
+  rimInstances: number;
+  sharedRims: number;
   buildMs: number;
   drawMs: number;
   morphMs: number;
@@ -248,7 +250,16 @@ export class SphereController {
 
   info(): SphereInfo {
     const s = this.sphere;
-    return { count: s.lastCount, buildMs: s.lastBuildMs, drawMs: s.lastDrawMs, morphMs: s.lastMorphFrameMs, az: s.azimuth, pan: s.panSum };
+    return {
+      count: s.lastCount,
+      rimInstances: s.lastRimInstanceCount,
+      sharedRims: s.lastSharedRimCount,
+      buildMs: s.lastBuildMs,
+      drawMs: s.lastDrawMs,
+      morphMs: s.lastMorphFrameMs,
+      az: s.azimuth,
+      pan: s.panSum,
+    };
   }
   debugMorph(): ReturnType<Sphere3D["debugMorph"]> {
     return this.sphere.debugMorph();
