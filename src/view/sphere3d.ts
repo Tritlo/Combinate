@@ -17,22 +17,12 @@ import { layoutHTree3D, type Layout3Fn } from "../core/layout3d";
 import { theme, combinatorColor, combinatorColorForMode, currentMode, edgeTierColor, themeForMode, edgeTierColorForMode, type Mode, type Theme } from "./theme";
 import { easeInOut } from "./anim";
 
-/** Beyond this node count the static scene gets heavy to build/draw — the app preflights this
- *  (iteratively, deep-safe) before entering 3D. */
-export const NODE_CAP = 20_000;
 const SPHERE_SEGMENTS = 12; // low-poly node sphere (instanced thousands of times)
 const ROT = 0.008; // orbit radians per pixel of drag
 const PAN = 0.0016; // pan world-units per pixel, scaled by orbit radius (consistent at any zoom)
 const POLAR_MIN = 0.08;
 const POLAR_MAX = Math.PI - 0.08;
 const DPR_CAP = 1.5; // cap the 3D canvas DPR — the texture re-upload per orbit step is the cost, not the draw
-// Above this combined node count the per-step morph jump-cuts (snap) instead of tweening. Raised
-// from 600 once the reduction loop paces itself to the morph (3D mode hides the 2D view, so the
-// focused tree only advances when its morph completes — see ReductionController). Measured: the
-// per-frame CPU morph cost (matrices + edge rewrite + dash recompute) stays under ~5 ms up to ~5–6k
-// nodes, which covers the ballooned middle of small Scott arithmetic (e.g. (+) 1 1 peaks ~1.6k,
-// (+) 2 2 ~5.2k). Bigger blow-ups still snap (and anything past NODE_CAP exits to 2D).
-const MORPH_CAP = 6000;
 // Clamp the per-frame morph advance: a single huge tick (a frame hitch, a backgrounded tab, a slow
 // machine) must not jump the tween straight to its end — that reads as the snap we're removing. Above
 // ~20 fps this never bites (deltaMS < 50); below it the morph plays in slight slow-motion instead of
@@ -118,10 +108,6 @@ export interface Sphere3DOptions {
   pixelRatio?: number;
   /** Preserve the WebGL drawing buffer for snapshot copying/encoding. */
   preserveDrawingBuffer?: boolean;
-  /** Throw instead of jump-cutting a morph that exceeds the morph cap. */
-  failOnMorphSnap?: boolean;
-  /** Build and morph trees past the live app's interactive caps. */
-  unlimited?: boolean;
   /** Fixed theme mode for recorder-owned spheres; omitted spheres follow the live theme. */
   themeMode?: Mode;
   /** Use Color-4096 combinator hues under `themeMode`. */
@@ -147,10 +133,9 @@ export class Sphere3D {
   private w = 1;
   private h = 1;
   lastCount = 0;
-  lastCapped = false;
   lastBuildMs = 0;
   lastDrawMs = 0; // wall-clock of the last orbit render + texture re-upload (the per-frame cost)
-  lastMorphFrameMs = 0; // CPU cost of the last advanceMorph frame (matrices + edge rewrite + dash recompute), excl. the GPU draw — the metric the MORPH_CAP is tuned against
+  lastMorphFrameMs = 0; // CPU cost of the last advanceMorph frame (matrices + edge rewrite + dash recompute), excl. the GPU draw
   drawCount = 0; // renders since boot (dev seam: confirms the morph render loop actually advanced)
   private layout3: Layout3Fn = layoutHTree3D; // the active 3D layout (cubic H-tree by default; sphere via setLayout3 for radial)
   private lastPos = new Map<number, Pos3>(); // currently-displayed node positions — the next morph's `from`
@@ -234,7 +219,6 @@ export class Sphere3D {
     }
     if (!node) {
       this.lastCount = 0;
-      this.lastCapped = false;
       this.lastPos = new Map();
       this.lastNodes = new Map();
       this.lastDepth = new Map();
@@ -244,14 +228,6 @@ export class Sphere3D {
     const t0 = this.now();
     const { pos, radius } = this.layout3(node);
     this.lastCount = pos.size;
-    this.lastCapped = !this.options.unlimited && pos.size > NODE_CAP;
-    if (this.lastCapped) {
-      this.lastPos = new Map(); // can't morph from a tree we never laid out — the next step snaps
-      this.lastNodes = new Map();
-      this.lastDepth = new Map();
-      this.draw();
-      return; // too big to build a static scene — blank (the toast lives in app.ts)
-    }
     const group = new three.Group();
     group.add(this.buildNodes(three, node, pos));
     const edges = this.buildEdges(three, node, pos);
@@ -300,7 +276,7 @@ export class Sphere3D {
 
   /** Animate one reduction step (plan 06): persisting nodes (same id) glide old→new, new nodes
    *  scale in, dropped nodes scale out. The 3D analog of TreeView.animateTo. Frame-stepped by the
-   *  host via {@link advanceMorph}; snaps (jump-cut) above MORPH_CAP or with nothing to glide from. */
+   *  host via {@link advanceMorph}; snaps only when there is no settled scene to glide from. */
   animateTo(node: Node, durationMS: number): void {
     if (!this.on || !THREE || !this.scene) return;
     const three = THREE;
@@ -312,12 +288,8 @@ export class Sphere3D {
     }
     const { pos: newPos, radius } = this.layout3(node);
     const ids = new Set<number>([...this.lastPos.keys(), ...newPos.keys()]);
-    if (this.lastPos.size === 0 || (!this.options.unlimited && ids.size > MORPH_CAP)) {
-      if (this.options.failOnMorphSnap) {
-        const reason = this.lastPos.size === 0 ? "no settled 3D scene to morph from" : `morph would touch ${ids.size} nodes (cap ${MORPH_CAP})`;
-        throw new Error(`record: ${reason}`);
-      }
-      this.update(node, true); // nothing to glide from, or too big to tween — snap to the steady scene
+    if (this.lastPos.size === 0) {
+      this.update(node, true); // nothing to glide from
       return;
     }
     const newNodes = this.collect(node);
@@ -603,6 +575,19 @@ export class Sphere3D {
     this.target.y += (0 - this.target.y) * a;
     this.target.z += (0 - this.target.z) * a;
     this.rad += (targetRad - this.rad) * a;
+    this.syncCameraRange();
+    this.place();
+    this.draw();
+  }
+  /** Root-centered recorder hold camera: zoom out when the current/morphing layout outgrows the frame. */
+  zoomOutToFrame(): void {
+    if (!this.camera) return;
+    const radius = this.morph?.radius ?? this.lastRadius;
+    const targetRad = this.frameDistance(radius);
+    if (targetRad <= this.rad) return;
+    this.lastRadius = radius;
+    this.target = { x: 0, y: 0, z: 0 };
+    this.rad = targetRad;
     this.syncCameraRange();
     this.place();
     this.draw();

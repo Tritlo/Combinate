@@ -1,6 +1,6 @@
 /**
  * The record-pipeline contract (ADR 24): what the record modal hands the
- * offline driver, what the pre-run pass yields, and the progress shapes.
+ * offline driver, what cheap planning yields, and the progress shapes.
  * Types only — no Pixi/DOM/WebCodecs imports belong here.
  */
 import type { Sym } from "../../core/term";
@@ -21,7 +21,7 @@ export interface RecordSettings {
   width: number;
   height: number;
   fps: 30 | 60;
-  /** Pacing: output-time between reduction step starts, ms (ADR 22: player-chosen). */
+  /** Initial output-time between reduction step starts, ms; long clips accelerate deterministically. */
   stepMs: number;
   /** Trailing hold on the final frame, ms. */
   holdMs: number;
@@ -36,8 +36,7 @@ export interface RecordSettings {
   color: boolean;
   /** Turntable speed: revolutions over the whole clip (rotate must be on). */
   spinRevs: number;
-  /** Camera: "hold" = one zoom fitting the whole reduction (default); "fixed" =
-   *  fit the first frame only; "follow" = re-fit per frame as the tree changes. */
+  /** Camera: "hold" = root-anchored monotonic zoom-out; "fixed" = fit the first frame only; "follow" = re-fit per frame. */
   camera: "hold" | "fixed" | "follow";
   /** 3D turntable enabled; `spinRevs` controls revolutions over the clip. */
   rotate: boolean;
@@ -62,7 +61,7 @@ export interface ToneEvent {
   timeSec: number;
 }
 
-/** What the pre-run pass learns before any frame is rendered. */
+/** What cheap planning learns before frames are rendered. */
 export interface RecordPlan {
   steps: number;
   totalFrames: number;
@@ -89,8 +88,5 @@ export interface CodecSupport {
 export interface RecordHooks {
   /** Called after each frame is encoded, with the offscreen canvas to blit from. */
   onFrame?: (canvas: HTMLCanvasElement, progress: RecordProgress) => void;
-  /** Pre-render setup progress (the hold camera's layout pre-pass over every
-   *  step) — long clips spend real time here before the first frame lands. */
-  onPrepare?: (done: number, total: number) => void;
   signal?: AbortSignal;
 }
