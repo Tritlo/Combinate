@@ -11,7 +11,7 @@ import { currentMode, ensureFont, INK, MONO, onThemeChange, PAPER, type Mode } f
 import { renderFirstFrame } from "./driver";
 import { probeSupport } from "./encoder";
 import { precount } from "./precount";
-import type { CodecSupport, RecordPlan, RecordProgress, RecordSettings } from "./types";
+import type { CodecSupport, RecordInfo, RecordPlan, RecordProgress, RecordSettings } from "./types";
 
 type RecordLayoutKey = Exclude<LayoutKey, "auto">;
 
@@ -203,6 +203,9 @@ export class RecordModal extends Modal {
   private readonly thumb = document.createElement("canvas");
   private readonly view2d = radio("rm-view", "2d");
   private readonly view3d = radio("rm-view", "3d");
+  private readonly rotate = checkbox();
+  private readonly rotateLabel: HTMLLabelElement;
+  private readonly themeRadios = new Map<Mode, HTMLInputElement>();
   private readonly layoutRadios = new Map<RecordLayoutKey, HTMLInputElement>();
   private readonly expand = checkbox();
   private readonly rules = checkbox();
@@ -210,16 +213,20 @@ export class RecordModal extends Modal {
   private readonly primitives = checkbox();
   private readonly primitivesLabel: HTMLLabelElement;
   private readonly primitivesNote = document.createElement("div");
+  private readonly cameraRadios = new Map<RecordSettings["camera"], HTMLInputElement>();
   private readonly resolution = document.createElement("select");
   private readonly fps = document.createElement("select");
   private readonly stepMs = document.createElement("input");
   private readonly holdMs = document.createElement("input");
   private readonly baseNote = document.createElement("select");
+  private readonly overlayInfo = checkbox();
+  private readonly overlayStats = checkbox();
   private readonly estimate = document.createElement("div");
   private readonly warning = document.createElement("div");
   private readonly codecStatus = document.createElement("div");
   private readonly record = document.createElement("button");
   private term: Node | null = null;
+  private info: RecordInfo | undefined;
   private plan: RecordPlan | null = null;
   private codec: CodecSupport | undefined;
   private codecError = "";
@@ -254,9 +261,24 @@ export class RecordModal extends Modal {
     preview.append(previewBox);
 
     const view = section("View");
-    view.append(
+    const viewRow = document.createElement("div");
+    viewRow.className = "rm-row";
+    this.rotateLabel = this.hinted(label("Rotate", this.rotate), "Turntable: one full revolution over the clip.");
+    viewRow.append(
       this.hinted(label("2D", this.view2d), "Render the flat canvas view."),
       this.hinted(label("3D", this.view3d), "Render the 3D tree view."),
+      this.rotateLabel,
+    );
+    const themeRow = document.createElement("div");
+    themeRow.className = "rm-row";
+    for (const mode of ["light", "dark"] as const) {
+      const input = radio("rm-theme", mode);
+      this.themeRadios.set(mode, input);
+      themeRow.append(this.hinted(label(mode === "light" ? "Light" : "Dark", input), "Record in either theme without changing the app."));
+    }
+    view.append(
+      viewRow,
+      themeRow,
     );
 
     const layout = section("Layout");
@@ -292,7 +314,17 @@ export class RecordModal extends Modal {
     this.fps.className = "rm-select";
     this.fps.append(selectOption("30", "30 fps"), selectOption("60", "60 fps", true));
     this.hinted(this.fps, "Pick the output frame rate.");
-    video.append(this.field("Resolution", this.resolution, "Pick the output pixel size."), this.field("FPS", this.fps, "Pick the output frame rate."));
+    const cameraRow = document.createElement("div");
+    cameraRow.className = "rm-row";
+    for (const [key, text, hint] of [
+      ["fixed", "Fixed", "Keep the initial shot framing."],
+      ["follow", "Follow", "Re-frames the shot as the tree reduces."],
+    ] as const) {
+      const input = radio("rm-camera", key);
+      this.cameraRadios.set(key, input);
+      cameraRow.append(this.hinted(label(text, input), hint));
+    }
+    video.append(this.field("Resolution", this.resolution, "Pick the output pixel size."), this.field("FPS", this.fps, "Pick the output frame rate."), cameraRow);
 
     const pacing = section("Pacing");
     this.stepMs.className = "rm-input";
@@ -315,7 +347,13 @@ export class RecordModal extends Modal {
     for (const n of BASE_NOTES) this.baseNote.append(selectOption(n.value, n.label, n.value === "48"));
     sound.append(this.field("Base note", this.baseNote, "Root pitch of the tone track; None = silent."));
 
-    grid.append(preview, view, layout, video, pacing, sound, engines);
+    const overlays = section("Overlays");
+    overlays.append(
+      this.hinted(label("Info card", this.overlayInfo), "Burn the combinator's name and law into the video."),
+      this.hinted(label("Stats", this.overlayStats), "Step counter and node count, bottom-right."),
+    );
+
+    grid.append(preview, view, layout, video, pacing, sound, overlays, engines);
 
     const footer = document.createElement("div");
     footer.className = "rm-footer";
@@ -345,8 +383,9 @@ export class RecordModal extends Modal {
   }
 
   /** Open with the already-snapshotted focused term, or null for the empty state. */
-  openFor(term: Node | null): void {
+  openFor(term: Node | null, info?: RecordInfo): void {
     this.term = term;
+    this.info = info;
     super.open();
   }
 
@@ -406,16 +445,21 @@ export class RecordModal extends Modal {
     const controls: HTMLElement[] = [
       this.view2d,
       this.view3d,
+      this.rotate,
+      ...this.themeRadios.values(),
       ...this.layoutRadios.values(),
       this.expand,
       this.rules,
       this.graph,
       this.primitives,
+      ...this.cameraRadios.values(),
       this.resolution,
       this.fps,
       this.stepMs,
       this.holdMs,
       this.baseNote,
+      this.overlayInfo,
+      this.overlayStats,
     ];
     for (const el of controls) {
       el.addEventListener("change", () => this.settingsChanged());
@@ -424,6 +468,7 @@ export class RecordModal extends Modal {
   }
 
   private settingsChanged(): void {
+    this.syncViewControls();
     this.syncGraphNative();
     this.queuePlanRefresh();
     this.queuePreviewRefresh();
@@ -434,16 +479,22 @@ export class RecordModal extends Modal {
     const is3D = this.deps.is3D();
     this.view2d.checked = !is3D;
     this.view3d.checked = is3D;
+    this.rotate.checked = false;
+    this.themeRadios.get(currentMode())!.checked = true;
     this.layoutRadios.get(this.prefillLayout())!.checked = true;
     this.expand.checked = this.deps.expandIota();
     this.rules.checked = this.deps.rules();
     this.graph.checked = this.deps.graph();
     this.primitives.checked = this.deps.primitives();
+    this.cameraRadios.get("fixed")!.checked = true;
     this.resolution.value = "1920x1080";
     this.fps.value = "60";
     this.stepMs.value = "300";
     this.holdMs.value = "1000";
     this.baseNote.value = "48";
+    this.overlayInfo.checked = false;
+    this.overlayStats.checked = false;
+    this.syncViewControls();
   }
 
   private prefillLayout(): RecordLayoutKey {
@@ -463,6 +514,12 @@ export class RecordModal extends Modal {
     this.primitives.disabled = graphOn;
     this.primitivesLabel.classList.toggle("disabled", graphOn);
     this.primitivesNote.textContent = graphOn ? "Graph mode ignores primitives, matching live reduction." : "";
+  }
+
+  private syncViewControls(): void {
+    const is3D = this.view3d.checked;
+    this.rotate.disabled = !is3D;
+    this.rotateLabel.classList.toggle("disabled", !is3D);
   }
 
   private queuePlanRefresh(): void {
@@ -584,12 +641,23 @@ export class RecordModal extends Modal {
       baseNote: audio ? Number(this.baseNote.value) : 48,
       audio,
       maxSteps: graph ? GRAPH_MAX_STEPS : MAX_STEPS,
-      theme: currentMode(),
-      camera: "fixed",
-      rotate: false,
-      overlayInfo: false,
-      overlayStats: false,
+      theme: this.selectedTheme(),
+      camera: this.selectedCamera(),
+      rotate: this.view3d.checked && this.rotate.checked,
+      overlayInfo: this.overlayInfo.checked,
+      overlayStats: this.overlayStats.checked,
+      info: this.overlayInfo.checked ? this.info : undefined,
     };
+  }
+
+  private selectedTheme(): Mode {
+    for (const [mode, input] of this.themeRadios) if (input.checked) return mode;
+    return currentMode();
+  }
+
+  private selectedCamera(): RecordSettings["camera"] {
+    for (const [camera, input] of this.cameraRadios) if (input.checked) return camera;
+    return "fixed";
   }
 
   private selectedLayout(): RecordLayoutKey {

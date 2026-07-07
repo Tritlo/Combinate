@@ -15,7 +15,7 @@ import { ChallengePanel } from "./view/challenge";
 import { QuestPanel } from "./view/quest";
 import { QuestTracker } from "./view/questTracker";
 import { Sound } from "./view/sound";
-import { CATALOG, type Law, expandDisplay, PAGES, displayLabel } from "./core/catalog";
+import { CATALOG, type Law, expandDisplay, PAGES, displayLabel, countIotas, iotaTreeOf } from "./core/catalog";
 import { recognize } from "./core/probe";
 import { layoutAuto, layoutRadial, layoutHTree, layoutTopDown, type LayoutFn } from "./core/layout";
 import { layoutHTree3D, layoutSphere } from "./core/layout3d";
@@ -45,7 +45,7 @@ import { OPT_SETTINGS, isOpt, setOpt, onOptChange, type OptKey } from "./view/op
 import { type NativeOpts } from "./core/native";
 import { runRecording } from "./view/record/driver";
 import { RecordModal, RecordPreviewOverlay } from "./view/record/modal";
-import type { RecordPlan, RecordSettings } from "./view/record/types";
+import type { RecordInfo, RecordPlan, RecordSettings } from "./view/record/types";
 import { GameInputController } from "./view/gameInput";
 import { ContextMenu } from "./view/contextMenu";
 import { NameKeyboard } from "./view/nameKeyboard";
@@ -1297,6 +1297,19 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     shareToken(encodePermalink(focus.node, currentModes()));
   }
 
+  /** Small overlay card payload for recording: recognized bird if available,
+   *  otherwise a compact s-expression and the visible term's ι count. */
+  function recordInfoFor(term: Node): RecordInfo {
+    const direct = term.kind === "comb" ? CATALOG.find((l) => l.sym === term.sym) ?? null : null;
+    const law = direct ?? recognize(term);
+    if (law) {
+      return { title: law.sym, subtitle: `${countIotas(iotaTreeOf(law))} ι-nodes`, law: law.lawText };
+    }
+    const s = sexp(term);
+    const title = s.length > 40 ? s.slice(0, 39) + "…" : s;
+    return { title, subtitle: `${countIotas(term)} ι-nodes` };
+  }
+
   /** Pause live playback and open the record modal on a fresh snapshot of the focused term. */
   function openRecord(): void {
     if (recording) {
@@ -1304,7 +1317,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       return;
     }
     reduce.setTransport("pause");
-    recordModal?.openFor(focus && trees.includes(focus) ? cloneTerm(focus.node) : null);
+    const term = focus && trees.includes(focus) ? cloneTerm(focus.node) : null;
+    recordModal?.openFor(term, term ? recordInfoFor(term) : undefined);
   }
 
   /** Run the offline recorder behind the preview window, then download the finished MP4. */
