@@ -548,13 +548,14 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // lens (Int/List/Char/Bool) is set by jumping to the matching hotbar page.
   const TY_PAGE: Record<Ty, string> = { Int: "Arithmetic", Bool: "Booleans", List: "Lists", Char: "Char" };
   const mhsPanel = new MhsPanel(
-    (tree, read) => {
+    (tree, read, sourceTitle) => {
       // Reduce under the user's current settings (no auto-enabling optimizations — Turbo / native
       // numbers stay opt-in via the Optimizations menu). Compiled programs get big, so lay out as an
       // H-tree (path-local → incremental O(changed) reflow, ADR 18) + zoom to fit; the progress bar
       // shows how the reduction is going.
       setLayoutMode(layoutHTree);
       const view = spawnTree(tree, window.innerWidth / 2, window.innerHeight / 2);
+      view.sourceTitle = sourceTitle; // provenance for the recorder title (e.g. `qs [3, 1, 2]`)
       if (read) hotbar.selectPage(TY_PAGE[read]);
       fitTree(view);
       reduce.schedule(view); // start it reducing under the current settings (was a side effect of the old auto-Turbo)
@@ -605,6 +606,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       removeTree(tree); // deleted the root → the whole tree goes (releases its bucket too)
     } else {
       focus = tree;
+      tree.sourceTitle = undefined; // a structural edit — the term no longer matches its compiled source
       tree.animateTo(next, DELETE_MS, () => {});
       reduce.schedule(tree); // re-reduce the edited tree once it's left alone
     }
@@ -1316,15 +1318,15 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   /** Small overlay card payload for recording: recognized bird if available,
    *  otherwise a compact s-expression and the visible term's ι count. */
-  function recordInfoFor(term: Node): RecordInfo {
+  function recordInfoFor(term: Node, source?: string): RecordInfo {
     const direct = term.kind === "comb" ? CATALOG.find((l) => l.sym === term.sym) ?? null : null;
     const law = direct ?? recognize(term);
     if (law) {
-      return { title: law.sym, subtitle: `${countIotas(iotaTreeOf(law))} ι-nodes`, law: law.lawText };
+      return { title: law.sym, subtitle: `${countIotas(iotaTreeOf(law))} ι-nodes`, law: law.lawText, source };
     }
     const s = sexp(term);
     const title = s.length > 40 ? s.slice(0, 39) + "…" : s;
-    return { title, subtitle: `${countIotas(term)} ι-nodes` };
+    return { title, subtitle: `${countIotas(term)} ι-nodes`, source };
   }
 
   /** Pause live playback and open the record modal on a fresh snapshot of the focused term. */
@@ -1337,7 +1339,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     const term = focus && trees.includes(focus) ? cloneTerm(focus.node) : null;
     try {
       const modal = await ensureRecordModal();
-      modal.openFor(term, term ? recordInfoFor(term) : undefined);
+      modal.openFor(term, term ? recordInfoFor(term, focus?.sourceTitle) : undefined);
     } catch (err) {
       toast.show(err instanceof Error && err.message ? err.message : "recording UI unavailable");
     }

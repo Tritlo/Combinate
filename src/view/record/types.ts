@@ -61,6 +61,9 @@ export interface RecordInfo {
   title: string;
   law?: string;
   subtitle?: string;
+  /** Authoritative source expression (e.g. the Haskell that compiled to this term). Wins
+   *  over the structural readout lens for the card title; the per-step readout is unaffected. */
+  source?: string;
 }
 
 /** One scheduled sonification event, in output-time seconds. */

@@ -28,6 +28,14 @@ export interface Example {
 
 const mod = (body: string): string => `module Ex(out) where\n${body}\n`;
 
+/** The RHS of the entry point (`out = …`, or `main = …`) — the expression a recording of
+ *  this program is "of", e.g. `qs [3, 1, 2]`. Undefined if there's no single-line binding
+ *  to lift, in which case the recorder falls back to its structural readout lens. */
+export function exprOf(source: string): string | undefined {
+  const m = source.match(/^\s*(?:out|main)\s*=\s*(.+?)\s*$/m);
+  return m ? m[1] : undefined;
+}
+
 export const EXAMPLES: Example[] = [
   {
     name: "arith",

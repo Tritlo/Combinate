@@ -63,6 +63,15 @@ is ephemeral live state; a source-retention seam is a possible follow-up). A che
 headless reducer pass counts steps (capped — Ω must not hang the modal), sizes the
 progress bar, and schedules the tone track without doing layout.
 
+**Title provenance (2026-07-08):** the header-card title is normally the structural
+read-out lens over the (reduced) term — which names catalog combinators and Scott data
+but *not* a user function like quicksort's `qs` (inlined away, reduces to its list). So a
+MicroHs-compiled term now carries its **source expression** (the `out =`/`main =` RHS,
+e.g. `qs [3, 1, 2]`) as provenance on the spawned `TreeView`; it flows into
+`RecordInfo.source` and **wins over the lens for the title only** (the per-step readout
+still tracks the live reduction). Provenance survives reduction but is cleared on a user
+structural edit; hand-placed terms keep the lens-derived title.
+
 **Pacing** is a record-time choice (correction, 2026-07-07 — the maintainer flipped the
 earlier always-on time-lapse). The **default is Fixed**: the clip runs at exactly
 `stepMs` per step start to finish — plain `steps·stepMs + holdMs` frame math (a sub-frame

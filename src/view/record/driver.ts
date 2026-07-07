@@ -290,6 +290,8 @@ function readoutExpression(node: Node, settings: RecordSettings): string {
 }
 
 function initialOverlayTitle(term: Node, settings: RecordSettings): string {
+  const source = settings.info?.source?.trim();
+  if (source) return source; // authoritative source expression (e.g. compiled Haskell) wins over the lens
   try {
     const title = readoutExpression(term, settings).trim();
     return title || defaultOverlayTitle(settings);
