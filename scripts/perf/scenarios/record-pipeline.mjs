@@ -29,6 +29,7 @@ export async function run(page, ctx) {
       fps: 30,
       stepMs: 120,
       holdMs: 240,
+      pacing: "fixed",
       baseNote: 48,
       audio: false,
       maxSteps: 200,
