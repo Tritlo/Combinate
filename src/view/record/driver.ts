@@ -44,11 +44,19 @@ function displayTerm(term: Node, settings: RecordSettings): Node {
 const FOLLOW_TAU_MS = 180;
 const READOUT_PROBE_MAX = 3000;
 const READOUT_TEXT_MAX = 512;
+const FIT_MARGIN = 0.82;
+const MIN_SCALE = 0.04;
+const MAX_SCALE = 2.5;
 
 interface StageFit {
   x: number;
   y: number;
   scale: number;
+}
+
+interface RootExtents {
+  halfW: number;
+  halfH: number;
 }
 
 interface RenderRect {
@@ -161,15 +169,23 @@ function renderRect(settings: RecordSettings): RenderRect {
   return { x: 0, y: top, w: settings.width, h: Math.max(1, settings.height - top - bottom) };
 }
 
-function stageFitFor(tree: TreeView, settings: RecordSettings): StageFit {
+function stageFitFromExtents(root: { x: number; y: number }, extents: RootExtents, settings: RecordSettings): StageFit {
+  const rect = renderRect(settings);
+  const scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, Math.min((rect.w * FIT_MARGIN) / (2 * extents.halfW), (rect.h * FIT_MARGIN) / (2 * extents.halfH))));
+  return { x: rect.x + rect.w / 2 - root.x * scale, y: rect.y + rect.h / 2 - root.y * scale, scale };
+}
+
+function rootExtents(minX: number, maxX: number, minY: number, maxY: number, root: { x: number; y: number }): RootExtents {
+  return {
+    halfW: Math.max(1, Math.max(Math.abs(root.x - minX), Math.abs(maxX - root.x))),
+    halfH: Math.max(1, Math.max(Math.abs(root.y - minY), Math.abs(maxY - root.y))),
+  };
+}
+
+function stageFitFor(tree: TreeView, settings: RecordSettings, extents?: RootExtents): StageFit {
   const b = tree.worldBounds();
   const root = tree.layoutRootWorld;
-  const rect = renderRect(settings);
-  const margin = 0.82;
-  const halfW = Math.max(1, Math.max(Math.abs(root.x - b.x), Math.abs(b.x + b.w - root.x)));
-  const halfH = Math.max(1, Math.max(Math.abs(root.y - b.y), Math.abs(b.y + b.h - root.y)));
-  const scale = Math.max(0.04, Math.min(2.5, Math.min((rect.w * margin) / (2 * halfW), (rect.h * margin) / (2 * halfH))));
-  return { x: rect.x + rect.w / 2 - root.x * scale, y: rect.y + rect.h / 2 - root.y * scale, scale };
+  return stageFitFromExtents(root, extents ?? rootExtents(b.x, b.x + b.w, b.y, b.y + b.h, root), settings);
 }
 
 function applyStageFit(stage: Container, fit: StageFit): void {
@@ -189,8 +205,31 @@ function followStage(stage: Container, target: StageFit, deltaMS: number): void 
   stage.position.set(stage.position.x + (target.x - stage.position.x) * a, stage.position.y + (target.y - stage.position.y) * a);
 }
 
-function fitStage(stage: Container, tree: TreeView, settings: RecordSettings): void {
-  applyStageFit(stage, stageFitFor(tree, settings));
+function fitStage(stage: Container, tree: TreeView, settings: RecordSettings, extents?: RootExtents): void {
+  applyStageFit(stage, stageFitFor(tree, settings, extents));
+}
+
+function layoutRootExtents(term: Node, settings: RecordSettings, layout: LayoutFn, frozen?: { l0?: number }): { extents: RootExtents; l0?: number } {
+  const display = displayTerm(term, settings);
+  const lay = layout(display, frozen);
+  const root = lay.pos.get(display.id) ?? { x: 0, y: 0 };
+  return { extents: rootExtents(lay.minX, lay.maxX, lay.minY, lay.maxY, root), l0: lay.l0 };
+}
+
+function holdExtentsFor(term: Node, settings: RecordSettings, steps: number): RootExtents {
+  const layout = layoutFor(settings);
+  const first = layoutRootExtents(term, settings, layout);
+  const frozen = { l0: first.l0 };
+  const best = { ...first.extents };
+  const replay = createReductionReplay(term, settings);
+  for (let i = 0; i < steps; i++) {
+    const next = replay.step();
+    if (!next) break;
+    const e = layoutRootExtents(next.node, settings, layout, frozen).extents;
+    best.halfW = Math.max(best.halfW, e.halfW);
+    best.halfH = Math.max(best.halfH, e.halfH);
+  }
+  return best;
 }
 
 function nativeReadMode(settings: RecordSettings): Ty | undefined {
@@ -259,8 +298,9 @@ interface RecordingPipeline {
   destroy: () => void;
 }
 
-async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<RecordingPipeline> {
+async function setup2DPipeline(term: Node, settings: RecordSettings, holdSteps = 0): Promise<RecordingPipeline> {
   const colors = themeForMode(settings.theme, settings.color);
+  const holdExtents = settings.camera === "hold" ? holdExtentsFor(term, settings, holdSteps) : undefined;
   const canvas = document.createElement("canvas");
   canvas.width = settings.width;
   canvas.height = settings.height;
@@ -292,7 +332,7 @@ async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<Re
       color: settings.color,
     });
     stage.addChild(tree.container);
-    fitStage(stage, tree, settings);
+    fitStage(stage, tree, settings, holdExtents);
     renderer.render(stage);
   } catch (err) {
     tree?.destroy();
@@ -373,8 +413,8 @@ async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec
   };
 }
 
-async function setupPipeline(term: Node, settings: RecordSettings, durationSec = 0): Promise<RecordingPipeline> {
-  return settings.view === "3d" ? setup3DPipeline(term, settings, durationSec) : setup2DPipeline(term, settings);
+async function setupPipeline(term: Node, settings: RecordSettings, plan?: Pick<RecordPlan, "durationSec" | "steps">): Promise<RecordingPipeline> {
+  return settings.view === "3d" ? setup3DPipeline(term, settings, plan?.durationSec ?? 0) : setup2DPipeline(term, settings, plan?.steps ?? 0);
 }
 
 function cssColor(color: number): string {
@@ -587,7 +627,7 @@ export async function runRecording(
     throwIfAborted(hooks.signal);
     await prepareOverlayFont(settings);
     throwIfAborted(hooks.signal);
-    pipeline = await setupPipeline(term, settings, plan.durationSec);
+    pipeline = await setupPipeline(term, settings, plan);
     const compositor = createCompositor(settings);
 
     const audioBuffer = settings.audio && plan.tones.length > 0 ? await renderAudio(plan, settings) : null;

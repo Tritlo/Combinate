@@ -45,6 +45,15 @@ fixed mono palettes; deliberately ignores Colour-4096), **Camera** Fixed/Follow
 (smoothed re-fit per frame, deterministic), and burn-in **overlays** composited onto
 the encode canvas: an info card (name/law/ι-count from the shell's lenses) and a
 stats line (step n/total · node count).
+
+Later same-day refinements: the info card became a **live readout** (the current
+expression through the named/native lens, cached per step); framing is **root-anchored**
+inside an overlay-safe rect (centered System-1 header card up top, frame-centred lens
+line + right-aligned stats below); camera default is **hold** — one zoom fitting the
+whole reduction, from a pure layout pre-pass over every step — with fixed/follow still
+available (3D hold falls back to fixed framing); a **Zen** preset records clean frames
+with all overlays off; offline 3D is uncapped with a spin-speed setting; Colour-4096
+and base-note-None round out the modal.
 Recording captures the **current focused term to normal form** (the pre-reduction source
 is ephemeral live state; a source-retention seam is a possible follow-up). A pre-run
 pass counts steps (capped — Ω must not hang the modal), sizes the progress bar, and

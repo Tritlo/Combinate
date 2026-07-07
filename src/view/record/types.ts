@@ -36,8 +36,9 @@ export interface RecordSettings {
   color: boolean;
   /** Turntable speed: revolutions over the whole clip (rotate must be on). */
   spinRevs: number;
-  /** Camera: a single initial fit, or re-fit following the tree as it reduces. */
-  camera: "fixed" | "follow";
+  /** Camera: "hold" = one zoom fitting the whole reduction (default); "fixed" =
+   *  fit the first frame only; "follow" = re-fit per frame as the tree changes. */
+  camera: "hold" | "fixed" | "follow";
   /** 3D turntable enabled; `spinRevs` controls revolutions over the clip. */
   rotate: boolean;
   /** Burn a System-1 info card (optional name/law plus live named/native expression) into the frames. */
