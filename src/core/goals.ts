@@ -2,7 +2,7 @@
  * Shared goal predicates over a built tree — "does it behave as combinator X /
  * reduce to value V / map these inputs to those outputs?" — used by the Golf
  * challenges (the Quest has its own goal predicate, skiq/engine.ts's makeGoal).
- * The behavioural probe + the Scott value matchers, in one place (pure; no
+ * The behavioral probe + the Scott value matchers, in one place (pure; no
  * DOM/Pixi).
  */
 import { type Node, app } from "./term";
@@ -14,7 +14,7 @@ import { natTree } from "./native";
 
 const LAW_BY_SYM = new Map(CATALOG.map((l) => [l.sym, l] as const));
 
-/** Goal: the tree behaves as the named combinator (behavioural probe). */
+/** Goal: the tree behaves as the named combinator (behavioral probe). */
 export function behavesAs(sym: string): (n: Node) => boolean {
   const law = LAW_BY_SYM.get(sym) as Law;
   return (n) => probe(n, law);
@@ -31,7 +31,7 @@ export const reducesToList = (nums: number[]) => (n: Node): boolean => {
 };
 
 // ---- function goals: apply the built tree to concrete Scott inputs (Z/nil/False
-// = K, Succ = S, cons, True = A) and read the output. Several cases pin behaviour
+// = K, Succ = S, cons, True = A) and read the output. Several cases pin behavior
 // so you can't hard-code one answer. ----
 const FN_BUDGET = 120_000; // bounds a real computation (a compact sort needs ~1.3k steps)
 /** The Scott Peano numeral `Succ^k Z` (Z = K) — re-exported under the golf/quest name. */

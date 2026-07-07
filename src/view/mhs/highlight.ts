@@ -2,7 +2,7 @@
  * A tiny, dependency-free Haskell tokenizer for the panel's editor overlay. The
  * source snippets are small (a module head + a few defs), so a single-pass lexer
  * over comments / strings / chars / numbers / keywords / type-constructors is
- * plenty — no TextMate grammar needed. Colours come from GitHub's high-contrast
+ * plenty — no TextMate grammar needed. Colors come from GitHub's high-contrast
  * themes (light/dark), so the read-out matches GitHub's syntax palette.
  */
 export type TokKind = "comment" | "string" | "number" | "keyword" | "type" | "plain";
@@ -18,7 +18,7 @@ const KEYWORDS = new Set([
   "infixr", "infix", "foreign", "default", "as", "hiding", "qualified", "family",
 ]);
 
-/** GitHub high-contrast token colours (`tm-themes`: github-{light,dark}-high-contrast). */
+/** GitHub high-contrast token colors (`tm-themes`: github-{light,dark}-high-contrast). */
 export const HL_LIGHT: Record<Exclude<TokKind, "plain">, string> = {
   comment: "#66707b",
   string: "#032563",
@@ -37,7 +37,7 @@ export const HL_DARK: Record<Exclude<TokKind, "plain">, string> = {
 const isWordStart = (c: string): boolean => /[A-Za-z_]/.test(c);
 const isWord = (c: string): boolean => /[A-Za-z0-9_']/.test(c);
 
-/** Lex Haskell source into coloured tokens (adjacent uncoloured text is merged). */
+/** Lex Haskell source into colored tokens (adjacent uncolored text is merged). */
 function tokenizeHaskell(src: string): Tok[] {
   const out: Tok[] = [];
   let plain = "";
@@ -122,7 +122,7 @@ function tokenizeHaskell(src: string): Tok[] {
 
 const esc = (s: string): string => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]!));
 
-/** Render Haskell source to HTML spans using the given kind→colour map. */
+/** Render Haskell source to HTML spans using the given kind→color map. */
 export function highlightHaskell(src: string, colors: Record<Exclude<TokKind, "plain">, string>): string {
   return tokenizeHaskell(src)
     .map((tok) => (tok.kind === "plain" ? esc(tok.text) : `<span style="color:${colors[tok.kind]}">${esc(tok.text)}</span>`))

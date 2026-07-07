@@ -11,8 +11,8 @@ import { layoutHTree } from "../core/layout";
 import { currentMode, type Mode, MONO, PAPER, INK, ensureFont } from "./theme";
 
 /** Draw a term's ι-tree onto a 2D canvas (the discovery card's picture — reliable everywhere, no
- *  WebGL). Colours come from the per-mode {@link Viewport} palette so the picture tracks light/dark
- *  like the rest of the card; fit + centred. */
+ *  WebGL). Colors come from the per-mode {@link Viewport} palette so the picture tracks light/dark
+ *  like the rest of the card; fit + centered. */
 function draw2DTree(canvas: HTMLCanvasElement, node: Node, px: number, v: Viewport): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;

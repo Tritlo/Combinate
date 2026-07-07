@@ -1,8 +1,8 @@
 /**
  * Structural matchers for the **Scott** encodings (the encoding MicroHs compiles
- * data to — `EncodeData.hs`), recognising a normal form as a Peano numeral, list,
+ * data to — `EncodeData.hs`), recognizing a normal form as a Peano numeral, list,
  * pair, or boolean by applying the term to fresh free-variable eliminators and
- * inspecting the result (the same behavioural trick as `probe.ts`). Pure (no
+ * inspecting the result (the same behavioral trick as `probe.ts`). Pure (no
  * Pixi/DOM) and bounded.
  *
  * Scott data is a *case-on-itself*: a value applies the eliminator arm for its
@@ -26,7 +26,7 @@ import { normalize } from "./reduce";
 // fires its catalog rule in one step instead of unfolding its huge SKI tree and
 // grinding to the cap — the result is identical but reading a partial application
 // like `((<) K)` is instant rather than ~400ms (which, run by the read-out +
-// recognise on every edit, froze the app). The budget is a *total* across the
+// recognize on every edit, froze the app). The budget is a *total* across the
 // peeling loop, so a pathological "infinite numeral" can't run MAX_NUM × cap.
 const NORM_BUDGET = 50_000; // total reduction budget per match (fast mode)
 const MAX_LIST = 64; // longest list we spell out

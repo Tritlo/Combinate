@@ -87,14 +87,14 @@ function cell(label: string, title: string, onClick: () => void): HTMLButtonElem
 const LAYOUTS: { key: LayoutKey; label: string; title: string }[] = [
   { key: "auto", label: "Auto", title: "Auto — top-down for small trees, the compact H-tree once they get big" },
   { key: "topdown", label: "Top-Down", title: "Top-down — leaves on a row, depth grows downward" },
-  { key: "radial", label: "Radial", title: "Radial — the root at the centre, depth as radius" },
+  { key: "radial", label: "Radial", title: "Radial — the root at the center, depth as radius" },
   { key: "htree", label: "H-Tree", title: "H-tree — a nested square antenna, arms shrinking with depth" },
 ];
 
 const OPTS: { key: OptCell; label: string; title: string }[] = [
   { key: "rules", label: "Rules", title: "Rule-based reduction — reduce a named bird by its law in one step, not its raw ι/SKI tree" },
   { key: "graph", label: "Graph", title: "Graph reduction — call-by-need sharing; a shared subterm is drawn and reduced once" },
-  { key: "primitives", label: "Primitives", title: "Primitives — compute recognised numbers, lists, and booleans directly" },
+  { key: "primitives", label: "Primitives", title: "Primitives — compute recognized numbers, lists, and booleans directly" },
   { key: "turbo", label: "Turbo", title: "Turbo — reduce big trees in WebAssembly (fast, no blow-up); auto-engages once a tree is big" },
 ];
 

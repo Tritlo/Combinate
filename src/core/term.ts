@@ -38,7 +38,7 @@ export const comb = (sym: Sym, def?: Node, arity?: number): Node => ({ id: fresh
 export const app = (fn: Node, arg: Node): Node => ({ id: freshId(), kind: "app", fn, arg });
 
 /** A free variable — an inert opaque leaf with no reduction rule, used by the
- * behavioural probe (§7.1) to test what a term does to fresh arguments. */
+ * behavioral probe (§7.1) to test what a term does to fresh arguments. */
 export const freeVar = (name: string): Node => ({ id: freshId(), kind: "free", name });
 
 /**

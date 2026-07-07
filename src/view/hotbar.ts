@@ -17,7 +17,7 @@ const iotaDot = (mode: Mode): number => (mode === "light" ? 0x000000 : 0xffffff)
 const iotaGlyph = (mode: Mode): number => (mode === "light" ? 0xffffff : 0x000000);
 
 /**
- * The hotbar (§8.1), bottom-centre — styled as an early-Photoshop tool palette: a
+ * The hotbar (§8.1), bottom-center — styled as an early-Photoshop tool palette: a
  * 1px-bordered black-and-white window whose title strip is the category tabs
  * (Programs / Booleans / Arithmetic / …), over a grid of draggable tool cells for
  * the *discovered* combinators on that tab (paginated with ‹ / › when they don't
@@ -174,13 +174,13 @@ export class Hotbar {
     for (const c of this.tabBar.removeChildren()) c.destroy({ children: true });
     for (const c of this.slotRow.removeChildren()) c.destroy({ children: true });
     const { paper, ink } = paperInk();
-    const yB = window.innerHeight - 50; // bottom row centre
-    const yT = yB - (SLOT + GAP); // top row centre
+    const yB = window.innerHeight - 50; // bottom row center
+    const yT = yB - (SLOT + GAP); // top row center
     const mid = (yB + yT) / 2;
     const tabY = yT - SLOT / 2 - 28; // tab row — the palette's title strip
     this.top = tabY - 4; // the toolbar's top edge (for the hint bar above it)
 
-    // ---- title strip: the category tabs (centred; smaller + tighter on phones,
+    // ---- title strip: the category tabs (centered; smaller + tighter on phones,
     // where six names won't fit at full size) ----
     const narrow = window.innerWidth < NARROW;
     const tabFont = narrow ? 11 : 13;

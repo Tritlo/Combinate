@@ -29,7 +29,7 @@ import { recognizeDeep } from "./refold";
 export type Ty = "Int" | "Bool" | "List" | "Char";
 
 /** A decoded value: the data shapes, plus a `comb` escape hatch for any subterm
- *  that isn't data (named as far as a behavioural pass can fold it). */
+ *  that isn't data (named as far as a behavioral pass can fold it). */
 export type Val =
   | { t: "int"; n: number }
   | { t: "bool"; b: boolean }
@@ -56,7 +56,7 @@ function tyOf(v: Val): Ty | null {
   }
 }
 
-/** A non-data subterm, named as far as the behavioural pass reaches (S(KS)K → B). */
+/** A non-data subterm, named as far as the behavioral pass reaches (S(KS)K → B). */
 const routed = (n: Node): Val => ({ t: "comb", sexp: sexp(recognizeDeep(n)) });
 
 /** Does a term mention a free variable? Real data is closed; a component that

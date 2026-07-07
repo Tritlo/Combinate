@@ -5,7 +5,7 @@
  * canvas — and offers a free-type editor that compiles live through the stock
  * MicroHs blob (best-effort). The post-processing is the same `core/mhs.ts`.
  *
- * The editor is syntax-highlighted: a transparent `<textarea>` over a coloured
+ * The editor is syntax-highlighted: a transparent `<textarea>` over a colored
  * `<pre>` (the standard overlay trick), tokenized by `highlight.ts` and painted in
  * GitHub's high-contrast palette, set in IoskeleyMono. The whole panel follows the
  * app's light/dark mode via CSS variables (re-themed on `onThemeChange`).

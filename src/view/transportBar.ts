@@ -10,7 +10,7 @@
  * block: IoskeleyMono doesn't cover those codepoints, so they fell back to a system symbol font —
  * blurry and oversized at 12px, and synthetically bolded (changing the cell's width) on `.on`. The
  * sound toggle stays a plain [♪] text glyph (with a trailing U+FE0E — some platforms substitute a
- * colour-emoji note there otherwise) since it's the one glyph not shared with a selected/idle pair.
+ * color-emoji note there otherwise) since it's the one glyph not shared with a selected/idle pair.
  */
 import { type Ticker } from "pixi.js";
 import { currentMode, onThemeChange, type Mode, MONO, PAPER, INK } from "./theme";
@@ -76,7 +76,7 @@ const ICON_SHAPES: Record<IconKind, string> = {
 };
 
 /** Build the `.tp-icon` SVG for `kind` — `fill: currentColor` (set in CSS), so it inherits the
- *  cell's paper-on-ink (idle) / ink-on-paper (selected) colour flip for free. */
+ *  cell's paper-on-ink (idle) / ink-on-paper (selected) color flip for free. */
 function icon(kind: IconKind): SVGSVGElement {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 16 16");
