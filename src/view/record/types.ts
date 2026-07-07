@@ -30,6 +30,25 @@ export interface RecordSettings {
   audio: boolean;
   /** Divergence guard: stop after this many steps (Ω never normalizes). */
   maxSteps: number;
+  /** Record under this theme regardless of the live app's mode. */
+  theme: "light" | "dark";
+  /** Camera: a single initial fit, or re-fit following the tree as it reduces. */
+  camera: "fixed" | "follow";
+  /** 3D turntable: one full revolution over the clip (ignored in 2D). */
+  rotate: boolean;
+  /** Burn a System-1 info card (name/law/ι-count) into the frames. */
+  overlayInfo: boolean;
+  /** Burn a live stats line (step n/total, node count) into the frames. */
+  overlayStats: boolean;
+  /** What the info overlay prints; the shell fills it from its readout lenses. */
+  info?: RecordInfo;
+}
+
+/** The info-card content — computed by the shell, drawn by the driver. */
+export interface RecordInfo {
+  title: string;
+  law?: string;
+  subtitle?: string;
 }
 
 /** One scheduled sonification event, in output-time seconds. */
