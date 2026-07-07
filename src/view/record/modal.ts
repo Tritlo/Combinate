@@ -363,7 +363,7 @@ export class RecordModal extends Modal {
 
     const overlays = section("Overlays");
     overlays.append(
-      this.hinted(label("Info card", this.overlayInfo), "Burn the combinator's name and law into the video."),
+      this.hinted(label("Info card", this.overlayInfo), "Burn the term's name and live value into the video."),
       this.hinted(label("Stats", this.overlayStats), "Step counter and node count, bottom-right."),
     );
 

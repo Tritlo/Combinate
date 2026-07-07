@@ -5,10 +5,13 @@
  * handing every frame to the preview hook.
  */
 import { Container, Ticker, autoDetectRenderer } from "pixi.js";
-import { expandDisplay } from "../../core/catalog";
+import { expandDisplay, sugar } from "../../core/catalog";
 import { countNodes, layoutAuto, layoutHTree, layoutRadial, layoutTopDown, type LayoutFn } from "../../core/layout";
 import { layoutHTree3D, layoutSphere, type Layout3Fn } from "../../core/layout3d";
-import { type Node } from "../../core/term";
+import { exceedsNodes, type Node } from "../../core/term";
+import { redexAt } from "../../core/reduce";
+import { behavioralRefolder } from "../../core/refold";
+import { read, render, type Ty } from "../../core/types";
 import { Sphere3D } from "../sphere3d";
 import { TreeView } from "../tree";
 import { ensureFont, monoFontReady, MONO, themeForMode, type Theme } from "../theme";
@@ -39,6 +42,8 @@ function displayTerm(term: Node, settings: RecordSettings): Node {
 }
 
 const FOLLOW_TAU_MS = 180;
+const READOUT_PROBE_MAX = 3000;
+const READOUT_TEXT_MAX = 512;
 
 interface StageFit {
   x: number;
@@ -50,6 +55,7 @@ interface FrameStats {
   step: number;
   totalSteps: number;
   nodes: number;
+  expression: string;
 }
 
 function abortError(): Error {
@@ -90,12 +96,69 @@ function fitStage(stage: Container, tree: TreeView, settings: RecordSettings): v
   applyStageFit(stage, stageFitFor(tree, settings));
 }
 
+function nativeReadMode(settings: RecordSettings): Ty | undefined {
+  const modes: Ty[] = [];
+  if (settings.native.numbers) modes.push("Int");
+  if (settings.native.lists) modes.push("List");
+  if (settings.native.booleans) modes.push("Bool");
+  return modes.length === 1 ? modes[0] : undefined;
+}
+
+function boundedSexp(root: Node, maxChars = READOUT_TEXT_MAX): string {
+  let out = "";
+  let truncated = false;
+  const emit = (s: string): void => {
+    if (truncated) return;
+    const room = maxChars - out.length;
+    if (s.length > room) {
+      out += s.slice(0, Math.max(0, room));
+      truncated = true;
+    } else out += s;
+  };
+  const stack: Array<Node | string> = [root];
+  while (stack.length && !truncated) {
+    const item = stack.pop()!;
+    if (typeof item === "string") {
+      emit(item);
+      continue;
+    }
+    switch (item.kind) {
+      case "iota":
+        emit("ι");
+        break;
+      case "comb":
+        emit(item.sym);
+        break;
+      case "free":
+        emit(item.name);
+        break;
+      case "app":
+        stack.push(")", item.arg, " ", item.fn, "(");
+        break;
+    }
+  }
+  return truncated ? out + "…" : out;
+}
+
+function readoutExpression(node: Node, settings: RecordSettings): string {
+  const mode = nativeReadMode(settings);
+  const opts = { isDiscovered: () => true, mode };
+  if (exceedsNodes(node, READOUT_PROBE_MAX)) return boundedSexp(node);
+  if (redexAt(node) === null) {
+    const value = read(node, mode ?? null);
+    if (value) return render(value);
+    return sugar(behavioralRefolder(node) ?? node, opts, READOUT_TEXT_MAX);
+  }
+  return sugar(node, opts, READOUT_TEXT_MAX);
+}
+
 interface RecordingPipeline {
   readonly canvas: HTMLCanvasElement;
   stepTo: (node: Node, durationMS: number) => void;
   advanceTo: (timeMS: number) => void;
   render: () => void;
   nodeCount: () => number;
+  expression: () => string;
   destroy: () => void;
 }
 
@@ -119,6 +182,7 @@ async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<Re
   const ticker = new Ticker();
   let tree: TreeView | null = null;
   let displayCount = countNodes(displayTerm(term, settings));
+  let expression = readoutExpression(term, settings);
   let clockMS = 0;
   try {
     ticker.autoStart = false;
@@ -146,6 +210,7 @@ async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<Re
     canvas,
     stepTo: (node, durationMS) => {
       displayCount = countNodes(displayTerm(node, settings));
+      expression = readoutExpression(node, settings);
       view.animateTo(node, durationMS, () => {});
     },
     advanceTo: (timeMS) => {
@@ -156,6 +221,7 @@ async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<Re
     },
     render: () => renderer.render(stage),
     nodeCount: () => displayCount,
+    expression: () => expression,
     destroy: () => {
       stage.removeChild(view.container);
       view.destroy();
@@ -177,6 +243,7 @@ async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec
     color: settings.color,
   });
   let displayCount = countNodes(displayTerm(term, settings));
+  let expression = readoutExpression(term, settings);
   try {
     sphere.setLayout3(layout3For(settings));
     const first = displayTerm(term, settings);
@@ -192,6 +259,7 @@ async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec
     stepTo: (node, durationMS) => {
       const next = displayTerm(node, settings);
       displayCount = countNodes(next);
+      expression = readoutExpression(node, settings);
       sphere.animateTo(next, durationMS);
     },
     advanceTo: (timeMS) => {
@@ -203,6 +271,7 @@ async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec
     },
     render: () => {},
     nodeCount: () => displayCount,
+    expression: () => expression,
     destroy: () => sphere.destroy(),
   };
 }
@@ -220,7 +289,7 @@ function overlayFont(size: number, weight = 400): string {
 }
 
 function needsOverlay(settings: RecordSettings): boolean {
-  return (settings.overlayInfo && !!settings.info) || settings.overlayStats;
+  return settings.overlayInfo || settings.overlayStats;
 }
 
 async function prepareOverlayFont(settings: RecordSettings): Promise<void> {
@@ -230,29 +299,48 @@ async function prepareOverlayFont(settings: RecordSettings): Promise<void> {
   await monoFontReady(px).catch(() => {});
 }
 
-function drawInfoOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettings, colors: Theme): void {
-  if (!settings.overlayInfo || !settings.info) return;
+function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  const ellipsis = "…";
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (ctx.measureText(text.slice(0, mid) + ellipsis).width <= maxWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  return text.slice(0, lo) + ellipsis;
+}
+
+function drawInfoOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettings, stats: FrameStats, colors: Theme): void {
+  if (!settings.overlayInfo) return;
   const h = settings.height;
   const pad = Math.max(12, Math.round(h * 0.018));
   const gap = Math.max(4, Math.round(h * 0.006));
   const titlePx = Math.max(16, Math.round(h * 0.026));
   const smallPx = Math.max(11, Math.round(h * 0.016));
-  const lines: Array<{ text: string; font: string; color: string }> = [{ text: settings.info.title, font: overlayFont(titlePx, 700), color: cssColor(colors.text) }];
-  if (settings.info.law) lines.push({ text: settings.info.law, font: overlayFont(smallPx), color: cssColor(colors.textDim) });
-  if (settings.info.subtitle) lines.push({ text: settings.info.subtitle, font: overlayFont(smallPx), color: cssColor(colors.textDim) });
-
-  let width = 0;
-  for (const line of lines) {
-    ctx.font = line.font;
-    width = Math.max(width, ctx.measureText(line.text).width);
-  }
+  const exprPx = Math.max(12, Math.round(h * 0.018));
   const innerX = pad;
   const innerY = pad;
   const cardPadX = Math.max(10, Math.round(h * 0.015));
   const cardPadY = Math.max(8, Math.round(h * 0.012));
+  const maxTextW = Math.max(40, Math.min(settings.width * 0.62, settings.width - pad * 2 - cardPadX * 2));
+  const lines: Array<{ text: string; font: string; color: string; px: number }> = [];
+  if (settings.info) {
+    lines.push({ text: settings.info.title, font: overlayFont(titlePx, 700), color: cssColor(colors.text), px: titlePx });
+    if (settings.info.law) lines.push({ text: settings.info.law, font: overlayFont(smallPx), color: cssColor(colors.textDim), px: smallPx });
+    if (settings.info.subtitle) lines.push({ text: settings.info.subtitle, font: overlayFont(smallPx), color: cssColor(colors.textDim), px: smallPx });
+  }
+  lines.push({ text: stats.expression, font: overlayFont(exprPx), color: cssColor(colors.text), px: exprPx });
+  let width = 0;
+  const fitted = lines.map((line) => {
+    ctx.font = line.font;
+    const text = fitText(ctx, line.text, maxTextW);
+    width = Math.max(width, ctx.measureText(text).width);
+    return { ...line, text };
+  });
   const lineH = (px: number): number => Math.round(px * 1.22);
-  const textH = lines.reduce((sum, line, i) => sum + lineH(line.font === lines[0].font ? titlePx : smallPx) + (i === 0 && lines.length > 1 ? gap : 0), 0);
-  const maxTextW = Math.max(40, settings.width - pad * 2 - cardPadX * 2);
+  const textH = fitted.reduce((sum, line, i) => sum + lineH(line.px) + (i === 0 && fitted.length > 1 ? gap : 0), 0);
   const cardW = Math.ceil(Math.min(width, maxTextW) + cardPadX * 2);
   const cardH = textH + cardPadY * 2;
   const shadow = Math.max(2, Math.round(h * 0.004));
@@ -267,13 +355,12 @@ function drawInfoOverlay(ctx: CanvasRenderingContext2D, settings: RecordSettings
 
   ctx.textBaseline = "top";
   let y = innerY + cardPadY;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const px = i === 0 ? titlePx : smallPx;
+  for (let i = 0; i < fitted.length; i++) {
+    const line = fitted[i];
     ctx.font = line.font;
     ctx.fillStyle = line.color;
-    ctx.fillText(line.text, innerX + cardPadX, y, maxTextW);
-    y += lineH(px) + (i === 0 && lines.length > 1 ? gap : 0);
+    ctx.fillText(line.text, innerX + cardPadX, y);
+    y += lineH(line.px) + (i === 0 && fitted.length > 1 ? gap : 0);
   }
 }
 
@@ -308,7 +395,7 @@ function createCompositor(settings: RecordSettings): Compositor {
       ctx.fillStyle = cssColor(colors.bg);
       ctx.fillRect(0, 0, settings.width, settings.height);
       ctx.drawImage(source, 0, 0, settings.width, settings.height);
-      drawInfoOverlay(ctx, settings, colors);
+      drawInfoOverlay(ctx, settings, stats, colors);
       drawStatsOverlay(ctx, settings, stats, colors);
       return canvas;
     },
@@ -325,7 +412,7 @@ export async function renderFirstFrame(term: Node, settings: RecordSettings): Pr
   const compositor = createCompositor(settings);
   try {
     pipeline.render();
-    return compositor.compose(pipeline.canvas, { step: 0, totalSteps: 0, nodes: pipeline.nodeCount() });
+    return compositor.compose(pipeline.canvas, { step: 0, totalSteps: 0, nodes: pipeline.nodeCount(), expression: pipeline.expression() });
   } finally {
     pipeline.destroy();
   }
@@ -391,7 +478,7 @@ export async function runRecording(
       throwIfAborted(hooks.signal);
       advanceTo(frame * frameDurationMs);
       pipeline.render();
-      const frameCanvas = compositor.compose(pipeline.canvas, { step: nextStep, totalSteps: plan.steps, nodes: pipeline.nodeCount() });
+      const frameCanvas = compositor.compose(pipeline.canvas, { step: nextStep, totalSteps: plan.steps, nodes: pipeline.nodeCount(), expression: pipeline.expression() });
       await encoder.addFrame(frame * frameDurationSec, frameDurationSec);
       encodedFrames++;
       hooks.onFrame?.(frameCanvas, { frame: frame + 1, totalFrames: plan.totalFrames });

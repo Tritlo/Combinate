@@ -38,9 +38,9 @@ export interface RecordSettings {
   spinRevs: number;
   /** Camera: a single initial fit, or re-fit following the tree as it reduces. */
   camera: "fixed" | "follow";
-  /** 3D turntable: one full revolution over the clip (ignored in 2D). */
+  /** 3D turntable enabled; `spinRevs` controls revolutions over the clip. */
   rotate: boolean;
-  /** Burn a System-1 info card (name/law/ι-count) into the frames. */
+  /** Burn a System-1 info card (optional name/law plus live named/native expression) into the frames. */
   overlayInfo: boolean;
   /** Burn a live stats line (step n/total, node count) into the frames. */
   overlayStats: boolean;
