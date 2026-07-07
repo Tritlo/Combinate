@@ -18,6 +18,7 @@ const SCHEDULE_EPS = 1e-7;
 interface ScheduleSettings {
   fps: RecordSettings["fps"];
   stepMs: number;
+  pacing: RecordSettings["pacing"];
 }
 
 /** One batch of reduction steps that lands on the same output frame. */
@@ -45,6 +46,10 @@ function floorHalfIndex(settings: ScheduleSettings): number {
 }
 
 function paceAt(outputMs: number, settings: ScheduleSettings): { durationMs: number; stepsPerFrame: number } {
+  // Fixed pacing: every step occupies exactly stepMs of output time, start to
+  // finish. One step per group; a sub-frame step batches naturally in the
+  // driver's frame loop (many groups land inside one rendered frame).
+  if (settings.pacing !== "timelapse") return { durationMs: settings.stepMs, stepsPerFrame: 1 };
   const frameDurationMs = frameMs(settings);
   const half = Math.max(0, Math.floor((outputMs + SCHEDULE_EPS) / ACCEL_HALF_LIFE_MS));
   const floorHalf = floorHalfIndex(settings);
@@ -80,7 +85,7 @@ export function createScheduleCursor(settings: ScheduleSettings): ScheduleCursor
 }
 
 /** The deterministic frame budget for a reduction step count and recording pace. */
-export function frameBudget(steps: number, settings: Pick<RecordSettings, "fps" | "stepMs" | "holdMs">): Pick<RecordPlan, "totalFrames" | "durationSec"> {
+export function frameBudget(steps: number, settings: Pick<RecordSettings, "fps" | "stepMs" | "holdMs" | "pacing">): Pick<RecordPlan, "totalFrames" | "durationSec"> {
   const schedule = createScheduleCursor(settings);
   const totalSteps = Math.max(0, Math.floor(steps));
   while (schedule.step < totalSteps) schedule.next(totalSteps - schedule.step);
@@ -145,11 +150,30 @@ export function createReductionReplay(term: Node, settings: RecordSettings): Red
   };
 }
 
+/**
+ * One-tone-per-output-frame collector shared by both precount paths. A group's
+ * lead step contributes a tone unless an earlier step already sounded in the
+ * same output frame — the cap matters under fixed pacing, where several
+ * sub-frame steps can land inside one rendered frame. Timelapse groups are
+ * always ≥ one frame apart, so this never drops one of theirs.
+ */
+function toneCollector(settings: ScheduleSettings): (tones: ToneEvent[], group: ScheduledStepGroup, sym: string) => void {
+  const frameDurationMs = frameMs(settings);
+  let lastFrame = -1;
+  return (tones, group, sym) => {
+    const frame = Math.floor((group.timeMs + SCHEDULE_EPS) / frameDurationMs);
+    if (frame === lastFrame) return;
+    lastFrame = frame;
+    tones.push({ sym, timeSec: group.timeMs / 1000 });
+  };
+}
+
 /** Count steps / collect tones for `term` under `settings`. Capped by maxSteps. */
 export function precount(term: Node, settings: RecordSettings): RecordPlan {
   const replay = createReductionReplay(term, settings);
   const schedule = createScheduleCursor(settings);
   const tones: ToneEvent[] = [];
+  const collectTone = toneCollector(settings);
   let steps = 0;
   while (steps < settings.maxSteps) {
     const group = schedule.next(settings.maxSteps - steps);
@@ -160,7 +184,7 @@ export function precount(term: Node, settings: RecordSettings): RecordPlan {
         const budget = frameBudget(steps, settings);
         return { steps, ...budget, capped: false, tones };
       }
-      if (i === 0 && next.sym !== null) tones.push({ sym: next.sym, timeSec: group.timeMs / 1000 });
+      if (i === 0 && next.sym !== null) collectTone(tones, group, next.sym);
       steps++;
     }
   }
@@ -188,6 +212,7 @@ export async function precountAsync(
   const replay = createReductionReplay(term, settings);
   const schedule = createScheduleCursor(settings);
   const tones: ToneEvent[] = [];
+  const collectTone = toneCollector(settings);
   let steps = 0;
   let sinceYield = 0;
   while (steps < settings.maxSteps) {
@@ -199,7 +224,7 @@ export async function precountAsync(
         const budget = frameBudget(steps, settings);
         return { steps, ...budget, capped: false, tones };
       }
-      if (i === 0 && next.sym !== null) tones.push({ sym: next.sym, timeSec: group.timeMs / 1000 });
+      if (i === 0 && next.sym !== null) collectTone(tones, group, next.sym);
       steps++;
       if (++sinceYield >= yieldEvery) {
         sinceYield = 0;

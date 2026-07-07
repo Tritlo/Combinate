@@ -11,8 +11,10 @@ drops and jank and can't do perfect loops; one deterministic path is less to mai
 and it doubles as a replay harness.
 
 The render is **displayed as it goes** — frames are rendered offline (offscreen target
-at the chosen resolution) but each one is blitted to the main canvas as it's encoded, so
-recording *is* watching the reduction; a progress read-out on top, not a headless export.
+at the chosen resolution); the preview canvas is refreshed at most **once every ~5s of
+wall-clock** (plus the first and final frame) while the progress read-out updates every
+frame, so watching the reduction never burdens the encode loop; a progress read-out on
+top, not a headless export.
 
 The modal opens **prefilled from the current canvas settings** — 2D vs 3D view,
 expand-ι, layout (radial vs H-tree) — so recording captures what you're looking at.
@@ -20,11 +22,10 @@ Engine options: **rules, graph, and native are allowed; Turbo is not** — Turbo
 the normal form wholesale in wasm with no per-step animation, so there's nothing to
 render frame-by-frame.
 
-**Parameters are tunable at record time**: initial pacing (`stepMs`), final hold,
+**Parameters are tunable at record time**: per-step pacing (`stepMs`), final hold,
 resolution/fps, and a **"base note"** — the root pitch the per-rule tones are derived
 from, so recordings can be tuned musically. Record-time pacing is an explicit player
-choice, so this stays consistent with ADR 22 (no display-cost heuristic may change it);
-long recordings then accelerate by a fixed deterministic schedule, not by runtime cost.
+choice, so this stays consistent with ADR 22 (no display-cost heuristic may change it).
 Audio is rendered offline too
 (`OfflineAudioContext`, tones scheduled at exact frame timestamps — the live WebAudio
 path can't be captured deterministically), then muxed with the video via **Mediabunny**
@@ -60,9 +61,15 @@ briefly and was dropped — unticked overlays already mean clean frames.)
 Recording captures the **current focused term to normal form** (the pre-reduction source
 is ephemeral live state; a source-retention seam is a possible follow-up). A cheap
 headless reducer pass counts steps (capped — Ω must not hang the modal), sizes the
-progress bar, and schedules the tone track without doing layout. The output schedule
-starts at `stepMs`, halves the per-step duration every 5s of output time until it hits
-one frame, then doubles steps-per-frame (1, 2, 4, ... capped at 1024); tones are limited
-to the first reduction step landing in each output frame. Graph mode ignores native
-opts, exactly as live reduction does. One recording at a time; the live transport is
-paused while recording.
+progress bar, and schedules the tone track without doing layout.
+
+**Pacing** is a record-time choice (correction, 2026-07-07 — the maintainer flipped the
+earlier always-on time-lapse). The **default is Fixed**: the clip runs at exactly
+`stepMs` per step start to finish — plain `steps·stepMs + holdMs` frame math (a sub-frame
+step batches inside one rendered frame). The opt-in **Time-lapse** keeps the accelerating
+schedule: start at `stepMs`, halve the per-step duration every 5s of output time until it
+hits one frame, then double steps-per-frame (1, 2, 4, ... capped at 1024). Both regimes
+cap tones to the first reduction step landing in each output frame, and both keep the
+exact precount==driver frame-budget assert (one `createScheduleCursor` drives planning and
+rendering). Graph mode ignores native opts, exactly as live reduction does. One recording
+at a time; the live transport is paused while recording.

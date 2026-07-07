@@ -16,6 +16,8 @@ type RecordLayoutKey = Exclude<LayoutKey, "auto">;
 
 const MAX_STEPS = 100_000;
 const THUMB_W = 320;
+/** Wall-clock gap between preview blits — keeps per-frame drawImage off the encode loop. */
+const PREVIEW_BLIT_INTERVAL_MS = 5000;
 const RESOLUTIONS = [
   { label: "1080×1080", width: 1080, height: 1080 },
   { label: "1920×1080", width: 1920, height: 1080 },
@@ -229,6 +231,7 @@ export class RecordModal extends Modal {
   private readonly primitivesLabel: HTMLLabelElement;
   private readonly primitivesNote = document.createElement("div");
   private readonly cameraRadios = new Map<RecordSettings["camera"], HTMLInputElement>();
+  private readonly pacingRadios = new Map<RecordSettings["pacing"], HTMLInputElement>();
   private readonly resolution = document.createElement("select");
   private readonly fps = document.createElement("select");
   private readonly stepMs = document.createElement("input");
@@ -365,9 +368,22 @@ export class RecordModal extends Modal {
     const timingRow = document.createElement("div");
     timingRow.className = "rm-row";
     timingRow.append(
-      this.field("Step ms", this.stepMs, "Initial output-time per reduction step; long clips accelerate automatically."),
+      this.field("Step ms", this.stepMs, "Output time per reduction step (the starting pace under Time-lapse)."),
       this.field("Hold ms", this.holdMs, "Freeze on the final frame."),
     );
+    const pacingRow = document.createElement("div");
+    pacingRow.className = "rm-row";
+    const pacingCaption = document.createElement("span");
+    pacingCaption.textContent = "Pacing";
+    pacingRow.append(pacingCaption);
+    for (const [key, text, hint] of [
+      ["fixed", "Fixed", "Every step takes exactly Step ms."],
+      ["timelapse", "Time-lapse", "Accelerates: long reductions become a time-lapse."],
+    ] as const) {
+      const input = radio("rm-pacing", key);
+      this.pacingRadios.set(key, input);
+      pacingRow.append(this.hinted(label(text, input), hint));
+    }
     const cameraRow = document.createElement("div");
     cameraRow.className = "rm-row";
     for (const [key, text, hint] of [
@@ -379,7 +395,7 @@ export class RecordModal extends Modal {
       this.cameraRadios.set(key, input);
       cameraRow.append(this.hinted(label(text, input), hint));
     }
-    video.append(videoRow, timingRow, cameraRow);
+    video.append(videoRow, timingRow, pacingRow, cameraRow);
 
     const sound = section("Audio");
     sound.classList.add("rm-audio");
@@ -504,6 +520,7 @@ export class RecordModal extends Modal {
       this.graph,
       this.primitives,
       ...this.cameraRadios.values(),
+      ...this.pacingRadios.values(),
       this.resolution,
       this.fps,
       this.stepMs,
@@ -539,6 +556,7 @@ export class RecordModal extends Modal {
     this.graph.checked = this.deps.graph();
     this.primitives.checked = this.deps.primitives();
     this.cameraRadios.get("hold")!.checked = true;
+    this.pacingRadios.get("fixed")!.checked = true;
     this.resolution.value = "1080x1080";
     this.fps.value = "60";
     this.stepMs.value = "300";
@@ -716,6 +734,7 @@ export class RecordModal extends Modal {
       fps: this.fps.value === "30" ? 30 : 60,
       stepMs,
       holdMs,
+      pacing: this.selectedPacing(),
       baseNote: audio ? Number(this.baseNote.value) : 48,
       audio,
       maxSteps: MAX_STEPS,
@@ -738,6 +757,11 @@ export class RecordModal extends Modal {
   private selectedCamera(): RecordSettings["camera"] {
     for (const [camera, input] of this.cameraRadios) if (input.checked) return camera;
     return "hold";
+  }
+
+  private selectedPacing(): RecordSettings["pacing"] {
+    for (const [pacing, input] of this.pacingRadios) if (input.checked) return pacing;
+    return "fixed";
   }
 
   private selectedLayout(): RecordLayoutKey {
@@ -798,6 +822,7 @@ export class RecordPreviewOverlay {
   private readonly frame = document.createElement("div");
   private readonly fill = document.createElement("div");
   private cancel: (() => void) | undefined;
+  private lastBlitMs = 0;
 
   constructor() {
     injectPreviewStyles();
@@ -851,11 +876,21 @@ export class RecordPreviewOverlay {
     }
     this.frame.textContent = `frame 0 / ${Math.max(1, totalFrames)}`;
     this.fill.style.width = "0%";
+    this.lastBlitMs = 0;
     this.root.style.display = "flex";
   }
 
-  /** Blit the latest encoded frame into the preview and update progress. */
+  /** Update progress every frame (cheap), but only copy the frame image into the
+   *  preview at most once per {@link PREVIEW_BLIT_INTERVAL_MS} wall-clock — plus
+   *  always the first and last frame — so per-frame drawImage never burdens the
+   *  encode loop. */
   blit(source: HTMLCanvasElement, progress: RecordProgress): void {
+    this.update(progress);
+    const now = performance.now();
+    const first = progress.frame <= 1;
+    const last = progress.frame >= progress.totalFrames;
+    if (!first && !last && now - this.lastBlitMs < PREVIEW_BLIT_INTERVAL_MS) return;
+    this.lastBlitMs = now;
     if (this.canvas.width !== source.width || this.canvas.height !== source.height) {
       this.canvas.width = source.width;
       this.canvas.height = source.height;
@@ -863,7 +898,6 @@ export class RecordPreviewOverlay {
     }
     const ctx = this.canvas.getContext("2d");
     if (ctx) ctx.drawImage(source, 0, 0, this.canvas.width, this.canvas.height);
-    this.update(progress);
   }
 
   /** Hide the preview and drop the cancel callback. */

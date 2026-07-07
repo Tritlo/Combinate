@@ -25,6 +25,14 @@ export interface RecordSettings {
   stepMs: number;
   /** Trailing hold on the final frame, ms. */
   holdMs: number;
+  /**
+   * Reduction-to-video pacing. "fixed" (default): the clip runs at exactly
+   * `stepMs` per step start to finish — plain `steps·stepMs + holdMs` frame math
+   * (a step shorter than a frame batches naturally). "timelapse": the output
+   * time per step halves every {@link ACCEL_HALF_LIFE_SEC}s, so long reductions
+   * accelerate into a time-lapse.
+   */
+  pacing: "fixed" | "timelapse";
   /** Root pitch of the tone track as a MIDI note (live sonification is 48 = C3). */
   baseNote: number;
   audio: boolean;
