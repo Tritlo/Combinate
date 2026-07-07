@@ -186,6 +186,9 @@ export class TreeView {
   private readonly pills = new Container();
   private readonly glyphs = new Container();
   node: Node; // the logical term (used for reduction)
+  /** Source expression this term was compiled from (e.g. `qs [3, 1, 2]`), for the recorder
+   *  title. Provenance — survives reduction morphs; cleared on a user structural edit. */
+  sourceTitle?: string;
   private display: Node; // node with undiscovered S/K/I expanded to their ι-trees
   private lay: Layout;
   // The H-tree arm scale, frozen while the tree reduces so a max-depth change doesn't rescale every node

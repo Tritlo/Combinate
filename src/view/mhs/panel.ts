@@ -12,7 +12,7 @@
  */
 import type { Node } from "../../core/term";
 import type { Ty } from "../../core/types";
-import { EXAMPLES, type Example } from "./examples";
+import { EXAMPLES, exprOf, type Example } from "./examples";
 import { exampleDump, liveCompile, toTree } from "./compiler";
 import { highlightHaskell, HL_DARK, HL_LIGHT } from "./highlight";
 import { currentMode, onThemeChange, type Mode, ensureFont } from "../theme";
@@ -88,10 +88,11 @@ export class MhsPanel {
   private current: Example = EXAMPLES[0];
   private open_ = false;
 
-  /** @param onRun spawn a compiled tree, with the read-out lens to view it under.
+  /** @param onRun spawn a compiled tree, with the read-out lens to view it under and the
+   *  source expression it compiled from (for the recorder title).
    *  @param onToggle repaint the shell rail (so the button reflects open state). */
   constructor(
-    private readonly onRun: (tree: Node, read: Ty | null) => void,
+    private readonly onRun: (tree: Node, read: Ty | null, sourceTitle?: string) => void,
     private readonly onToggle: () => void,
   ) {
     injectStyles();
@@ -237,7 +238,7 @@ export class MhsPanel {
         this.setStatus(res.error, "#cf222e");
         return;
       }
-      this.onRun(res.tree, ex.read);
+      this.onRun(res.tree, ex.read, exprOf(ex.source));
       this.setStatus(`compiled ${ex.title} — watch it reduce`, "#1a7f37");
       this.close();
     } catch (e) {
@@ -258,7 +259,7 @@ export class MhsPanel {
         this.setStatus(res.error, "#cf222e");
         return;
       }
-      this.onRun(res.tree, null);
+      this.onRun(res.tree, null, exprOf(src));
       this.setStatus("compiled — watch it reduce", "#1a7f37");
       this.close();
     } catch (e) {
