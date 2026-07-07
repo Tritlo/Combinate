@@ -233,7 +233,11 @@ function layoutRootExtents(term: Node, settings: RecordSettings, layout: LayoutF
   return { extents: rootExtents(lay.minX, lay.maxX, lay.minY, lay.maxY, root), l0: lay.l0 };
 }
 
-function holdExtentsFor(term: Node, settings: RecordSettings, steps: number): RootExtents {
+// Yield to the event loop every this many pre-pass steps so the preview overlay
+// can actually paint its "preparing" progress during a 100k-step layout pre-pass.
+const PREPASS_YIELD_EVERY = 512;
+
+async function holdExtentsFor(term: Node, settings: RecordSettings, steps: number, onPrepare?: (done: number, total: number) => void, signal?: AbortSignal): Promise<RootExtents> {
   const layout = layoutFor(settings);
   const first = layoutRootExtents(term, settings, layout);
   const frozen = { l0: first.l0 };
@@ -245,7 +249,13 @@ function holdExtentsFor(term: Node, settings: RecordSettings, steps: number): Ro
     const e = layoutRootExtents(next.node, settings, layout, frozen).extents;
     best.halfW = Math.max(best.halfW, e.halfW);
     best.halfH = Math.max(best.halfH, e.halfH);
+    if ((i + 1) % PREPASS_YIELD_EVERY === 0) {
+      throwIfAborted(signal);
+      onPrepare?.(i + 1, steps);
+      await new Promise((r) => setTimeout(r, 0));
+    }
   }
+  onPrepare?.(steps, steps);
   return best;
 }
 
@@ -344,9 +354,9 @@ interface RecordingPipeline {
   destroy: () => void;
 }
 
-async function setup2DPipeline(term: Node, settings: RecordSettings, holdSteps = 0): Promise<RecordingPipeline> {
+async function setup2DPipeline(term: Node, settings: RecordSettings, holdSteps = 0, hooks?: RecordHooks): Promise<RecordingPipeline> {
   const colors = themeForMode(settings.theme, settings.color);
-  const holdExtents = settings.camera === "hold" ? holdExtentsFor(term, settings, holdSteps) : undefined;
+  const holdExtents = settings.camera === "hold" ? await holdExtentsFor(term, settings, holdSteps, hooks?.onPrepare, hooks?.signal) : undefined;
   const initialExtents = holdExtents ?? layoutRootExtents(term, settings, layoutFor(settings)).extents;
   const overlay = overlayStateFor(term, settings, initialExtents);
   const canvas = document.createElement("canvas");
@@ -466,8 +476,8 @@ async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec
   };
 }
 
-async function setupPipeline(term: Node, settings: RecordSettings, plan?: Pick<RecordPlan, "durationSec" | "steps">): Promise<RecordingPipeline> {
-  return settings.view === "3d" ? setup3DPipeline(term, settings, plan?.durationSec ?? 0) : setup2DPipeline(term, settings, plan?.steps ?? 0);
+async function setupPipeline(term: Node, settings: RecordSettings, plan?: Pick<RecordPlan, "durationSec" | "steps">, hooks?: RecordHooks): Promise<RecordingPipeline> {
+  return settings.view === "3d" ? setup3DPipeline(term, settings, plan?.durationSec ?? 0) : setup2DPipeline(term, settings, plan?.steps ?? 0, hooks);
 }
 
 function cssColor(color: number): string {
@@ -652,7 +662,7 @@ export async function runRecording(
     throwIfAborted(hooks.signal);
     await prepareOverlayFont(settings);
     throwIfAborted(hooks.signal);
-    pipeline = await setupPipeline(term, settings, plan);
+    pipeline = await setupPipeline(term, settings, plan, hooks);
     const compositor = createCompositor(settings, pipeline.overlay);
 
     const audioBuffer = settings.audio && plan.tones.length > 0 ? await renderAudio(plan, settings) : null;

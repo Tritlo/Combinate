@@ -815,8 +815,17 @@ export class RecordPreviewOverlay {
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, width, height);
     }
-    this.update({ frame: 0, totalFrames });
+    this.frame.textContent = "preparing\u2026";
+    this.fill.style.width = "0%";
     this.root.style.display = "flex";
+    void totalFrames;
+  }
+
+  /** Pre-render setup progress — shown until the first frame lands. */
+  prepare(done: number, total: number): void {
+    if (total <= 0) return;
+    this.frame.textContent = `preparing\u2026 laying out step ${Math.min(done, total)} / ${total}`;
+    this.fill.style.width = `${Math.max(0, Math.min(100, (done / total) * 100))}%`;
   }
 
   /** Blit the latest encoded frame into the preview and update progress. */
