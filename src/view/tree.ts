@@ -272,6 +272,12 @@ export class TreeView {
     return { x: this.container.position.x, y: this.container.position.y };
   }
 
+  /** The current layout root position, in the same world-container coordinates as {@link worldBounds}. */
+  get layoutRootWorld(): { x: number; y: number } {
+    const p = this.lay.pos.get(this.display.id);
+    return { x: this.container.position.x + (p?.x ?? 0), y: this.container.position.y + (p?.y ?? 0) };
+  }
+
   /** The tree's world-space bounding box (from the layout — animation-independent), for
    *  zoom-to-fit. */
   worldBounds(): { x: number; y: number; w: number; h: number } {
