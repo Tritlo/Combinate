@@ -43,8 +43,7 @@ import { Help } from "./view/help";
 import { withMotion } from "./view/motion";
 import { OPT_SETTINGS, isOpt, setOpt, onOptChange, type OptKey } from "./view/optimize";
 import { type NativeOpts } from "./core/native";
-import { runRecording } from "./view/record/driver";
-import { RecordModal, RecordPreviewOverlay } from "./view/record/modal";
+import type { RecordModal, RecordPreviewOverlay } from "./view/record/modal";
 import type { RecordInfo, RecordPlan, RecordSettings } from "./view/record/types";
 import { GameInputController } from "./view/gameInput";
 import { ContextMenu } from "./view/contextMenu";
@@ -208,7 +207,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // toggleLayout() (the __combinate.toggleLayout dev seam) — no key is bound to either.
   let layoutFn: LayoutFn = layoutAuto;
   let layoutControls: LayoutControls | undefined; // the top-right toggle bar (wired once the shell is built)
-  let recordModal: RecordModal | undefined; // built after the layout/optimization getters exist
+  let recordModal: RecordModal | undefined; // lazy: the MP4 recorder lives off the first-load path
+  let recordPreview: RecordPreviewOverlay | undefined;
+  let recordModalLoad: Promise<typeof import("./view/record/modal")> | undefined;
+  let recordDriverLoad: Promise<typeof import("./view/record/driver")> | undefined;
   let recording = false;
 
   // What a recognised tree collapses into: a single named node. I/K/S reduce by
@@ -408,7 +410,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   // Transport bar (top-right): rate read-out + Pause/Step/Play/FF — a thin view over the
   // ReductionController (extracted to view/transportBar.ts, ADR 12).
-  const transportBar = new TransportBar(pixi.ticker, reduce, sound, () => openRecord());
+  const transportBar = new TransportBar(pixi.ticker, reduce, sound, () => void openRecord());
 
   // Reduction progress bar (plan 02): a thin fill along the top edge of the hotbar box, showing how
   // far the focused tree's reduction has played vs the background same-mode total. Shown only when
@@ -1055,20 +1057,33 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const setAllNative = (on: boolean): void => {
     for (const k of NATIVE_KEYS) setOpt(k, on);
   };
-  const recordPreview = new RecordPreviewOverlay();
-  recordModal = new RecordModal({
-    is3D: () => sphere.active(),
-    layout: () => layoutName(),
-    expandIota: () => expandAll,
-    rules: () => isOpt("rules"),
-    graph: () => isOpt("graph"),
-    primitives: () => nativeAllOn(),
-    color: () => colorOn(),
-    onRecord: (term, settings, plan) => {
-      void startRecording(term, settings, plan);
-    },
-    onError: (message) => toast.show(message),
-  });
+  const loadRecordModal = (): Promise<typeof import("./view/record/modal")> => (recordModalLoad ??= import("./view/record/modal"));
+  const loadRecordDriver = (): Promise<typeof import("./view/record/driver")> => (recordDriverLoad ??= import("./view/record/driver"));
+  const ensureRecordPreview = async (): Promise<RecordPreviewOverlay> => {
+    if (recordPreview) return recordPreview;
+    const mod = await loadRecordModal();
+    recordPreview = new mod.RecordPreviewOverlay();
+    return recordPreview;
+  };
+  const ensureRecordModal = async (): Promise<RecordModal> => {
+    if (recordModal) return recordModal;
+    const mod = await loadRecordModal();
+    recordPreview ??= new mod.RecordPreviewOverlay();
+    recordModal = new mod.RecordModal({
+      is3D: () => sphere.active(),
+      layout: () => layoutName(),
+      expandIota: () => expandAll,
+      rules: () => isOpt("rules"),
+      graph: () => isOpt("graph"),
+      primitives: () => nativeAllOn(),
+      color: () => colorOn(),
+      onRecord: (term, settings, plan) => {
+        void startRecording(term, settings, plan);
+      },
+      onError: (message) => toast.show(message),
+    });
+    return recordModal;
+  };
   // The top-right layout toggle bar (under the transport): [2D|3D], [Top-Down|Radial|H-tree], [Auto].
   layoutControls = new LayoutControls({
     is3D: () => sphere.active(),
@@ -1204,7 +1219,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "sep" },
       { kind: "action", label: "Compile Haskell…", title: "Compile a Haskell expression into a combinator tree, using Micro Haskell.", run: () => mhsPanel.open() },
       { kind: "action", label: "Share Link", title: "Copy a permalink to the current canvas.", run: () => shareFocused() },
-      { kind: "action", label: "Record…", title: "Render the focused reduction to an MP4.", run: () => openRecord() },
+      { kind: "action", label: "Record…", title: "Render the focused reduction to an MP4.", run: () => void openRecord() },
     ] },
     { title: "Edit", items: [
       { kind: "action", label: "Clear Canvas", title: "Remove every tree from the canvas.", run: () => clearCanvas() },
@@ -1313,14 +1328,19 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
 
   /** Pause live playback and open the record modal on a fresh snapshot of the focused term. */
-  function openRecord(): void {
+  async function openRecord(): Promise<void> {
     if (recording) {
       toast.show("recording already in progress");
       return;
     }
     reduce.setTransport("pause");
     const term = focus && trees.includes(focus) ? cloneTerm(focus.node) : null;
-    recordModal?.openFor(term, term ? recordInfoFor(term) : undefined);
+    try {
+      const modal = await ensureRecordModal();
+      modal.openFor(term, term ? recordInfoFor(term) : undefined);
+    } catch (err) {
+      toast.show(err instanceof Error && err.message ? err.message : "recording UI unavailable");
+    }
   }
 
   /** Run the offline recorder behind the preview window, then download the finished MP4. */
@@ -1331,11 +1351,14 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
     recording = true;
     const abort = new AbortController();
-    recordPreview.show(settings.width, settings.height, plan.totalFrames, () => abort.abort());
+    let preview: RecordPreviewOverlay | undefined;
     try {
+      preview = await ensureRecordPreview();
+      preview.show(settings.width, settings.height, plan.totalFrames, () => abort.abort());
+      const { runRecording } = await loadRecordDriver();
       const blob = await runRecording(term, settings, plan, {
         signal: abort.signal,
-        onFrame: (canvas, progress) => recordPreview.blit(canvas, progress),
+        onFrame: (canvas, progress) => preview?.blit(canvas, progress),
       });
       if (abort.signal.aborted) throw new Error("recording cancelled");
       downloadRecording(blob);
@@ -1344,7 +1367,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       const message = err instanceof Error && err.message ? err.message : abort.signal.aborted ? "recording cancelled" : String(err);
       toast.show(message);
     } finally {
-      recordPreview.close();
+      preview?.close();
       recording = false;
     }
   }
@@ -1568,6 +1591,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // the behavioural-only re-folder bridges until it's ready.
   if (isOpt("wasm")) void loadWasmReducer(); // persisted Turbo → warm the wasm so the first reduction uses it
   void preloadSphere3D(); // warm the Three.js chunk so the first 3D view is instant
+  void loadRecordModal(); // warm the recorder chunks during boot — the ● must be instant,
+  void loadRecordDriver(); // but their weight stays out of the main chunk's first paint
   onStep("lenses"); // splash step 3/4
 
   // Warm the MicroHs live-compile blob + cache (the 3 MB compiler), so the Haskell
