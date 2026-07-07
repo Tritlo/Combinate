@@ -4,9 +4,12 @@
  * rendering each frame at the chosen resolution, encoding as it goes, and
  * handing every frame to the preview hook.
  */
-import { Container, Ticker, autoDetectRenderer, type Renderer } from "pixi.js";
-import type { Node } from "../../core/term";
+import { Container, Ticker, autoDetectRenderer } from "pixi.js";
+import { expandDisplay } from "../../core/catalog";
 import { layoutAuto, layoutHTree, layoutRadial, layoutTopDown, type LayoutFn } from "../../core/layout";
+import { layoutHTree3D, layoutSphere, type Layout3Fn } from "../../core/layout3d";
+import { exceedsNodes, type Node } from "../../core/term";
+import { Sphere3D, NODE_CAP } from "../sphere3d";
 import { TreeView } from "../tree";
 import { theme } from "../theme";
 import { renderAudio } from "./audio";
@@ -27,6 +30,14 @@ function layoutFor(settings: RecordSettings): LayoutFn {
   }
 }
 
+function layout3For(settings: RecordSettings): Layout3Fn {
+  return settings.layout === "radial" ? layoutSphere : layoutHTree3D;
+}
+
+function displayTerm(term: Node, settings: RecordSettings): Node {
+  return expandDisplay(term, { expandAll: settings.expandIota, isDiscovered: () => true });
+}
+
 function abortError(): Error {
   return new Error("recording cancelled");
 }
@@ -45,14 +56,122 @@ function fitStage(stage: Container, tree: TreeView, settings: RecordSettings): v
   stage.position.set(settings.width / 2 - cx * scale, settings.height / 2 - cy * scale);
 }
 
+interface RecordingPipeline {
+  readonly canvas: HTMLCanvasElement;
+  stepTo: (node: Node, durationMS: number) => void;
+  advanceTo: (timeMS: number) => void;
+  render: () => void;
+  destroy: () => void;
+}
+
+async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<RecordingPipeline> {
+  const canvas = document.createElement("canvas");
+  canvas.width = settings.width;
+  canvas.height = settings.height;
+  const renderer = await autoDetectRenderer({
+    canvas,
+    width: settings.width,
+    height: settings.height,
+    resolution: 1,
+    autoDensity: false,
+    background: theme.bg,
+    antialias: true,
+    preserveDrawingBuffer: true,
+    preference: ["webgl", "canvas"],
+  });
+  const stage = new Container();
+  const ticker = new Ticker();
+  let tree: TreeView | null = null;
+  try {
+    ticker.autoStart = false;
+    ticker.maxFPS = 0;
+    ticker.lastTime = 0;
+
+    tree = new TreeView(term, 0, 0, ticker, () => true, layoutFor(settings), () => settings.expandIota, null, (sym) => sym, { deterministicEdges: true });
+    stage.addChild(tree.container);
+    fitStage(stage, tree, settings);
+    renderer.render(stage);
+  } catch (err) {
+    tree?.destroy();
+    stage.destroy({ children: true });
+    ticker.destroy();
+    renderer.destroy({ removeView: true });
+    throw err;
+  }
+  const view = tree;
+
+  return {
+    canvas,
+    stepTo: (node, durationMS) => view.animateTo(node, durationMS, () => {}),
+    advanceTo: (timeMS) => ticker.update(timeMS),
+    render: () => renderer.render(stage),
+    destroy: () => {
+      stage.removeChild(view.container);
+      view.destroy();
+      stage.destroy({ children: true });
+      ticker.destroy();
+      renderer.destroy({ removeView: true });
+    },
+  };
+}
+
+async function setup3DPipeline(term: Node, settings: RecordSettings): Promise<RecordingPipeline> {
+  const sphere = new Sphere3D({ now: () => 0, pixelRatio: 1, preserveDrawingBuffer: true, failOnMorphSnap: true });
+  try {
+    sphere.setLayout3(layout3For(settings));
+    const first = displayTerm(term, settings);
+    if (exceedsNodes(first, NODE_CAP)) throw new Error(`record: tree too large for 3D (over ${NODE_CAP} nodes)`);
+    await sphere.show(first, settings.width, settings.height);
+    if (sphere.lastCapped) throw new Error(`record: tree too large for 3D (over ${NODE_CAP} nodes)`);
+  } catch (err) {
+    sphere.destroy();
+    throw err;
+  }
+  let clockMS = 0;
+
+  return {
+    canvas: sphere.canvas,
+    stepTo: (node, durationMS) => {
+      const next = displayTerm(node, settings);
+      if (exceedsNodes(next, NODE_CAP)) throw new Error(`record: tree too large for 3D (over ${NODE_CAP} nodes)`);
+      sphere.animateTo(next, durationMS);
+    },
+    advanceTo: (timeMS) => {
+      const dt = timeMS - clockMS;
+      if (dt > 0) sphere.advanceMorph(dt);
+      clockMS = timeMS;
+    },
+    render: () => {},
+    destroy: () => sphere.destroy(),
+  };
+}
+
+async function setupPipeline(term: Node, settings: RecordSettings): Promise<RecordingPipeline> {
+  return settings.view === "3d" ? setup3DPipeline(term, settings) : setup2DPipeline(term, settings);
+}
+
+function copyCanvas(source: HTMLCanvasElement, settings: RecordSettings): HTMLCanvasElement {
+  const out = document.createElement("canvas");
+  out.width = settings.width;
+  out.height = settings.height;
+  const ctx = out.getContext("2d");
+  if (!ctx) throw new Error("record: unable to create preview canvas");
+  ctx.drawImage(source, 0, 0, settings.width, settings.height);
+  return out;
+}
+
 /**
  * Render just the first frame (the term as laid out, no reduction) at the
  * chosen resolution — the modal's "layout feel" preview thumbnail.
  */
 export async function renderFirstFrame(term: Node, settings: RecordSettings): Promise<HTMLCanvasElement> {
-  void term;
-  void settings;
-  throw new Error("record: renderFirstFrame not implemented yet");
+  const pipeline = await setupPipeline(term, settings);
+  try {
+    pipeline.render();
+    return copyCanvas(pipeline.canvas, settings);
+  } finally {
+    pipeline.destroy();
+  }
 }
 
 /**
@@ -65,48 +184,22 @@ export async function runRecording(
   plan: RecordPlan,
   hooks: RecordHooks = {},
 ): Promise<Blob> {
-  if (settings.view !== "2d") throw new Error("record: 3D recording is not implemented yet");
   const budget = frameBudget(plan.steps, settings);
   if (budget.totalFrames !== plan.totalFrames) {
     throw new Error(`record: frame budget drifted (${budget.totalFrames} !== ${plan.totalFrames})`);
   }
   if (plan.totalFrames <= 0) throw new Error("record: no frames to encode");
 
-  let renderer: Renderer | null = null;
-  let stage: Container | null = null;
-  let ticker: Ticker | null = null;
-  let tree: TreeView | null = null;
+  let pipeline: RecordingPipeline | null = null;
   let encoder: RecordingEncoder | null = null;
   let finalized = false;
 
   try {
     throwIfAborted(hooks.signal);
-    const canvas = document.createElement("canvas");
-    canvas.width = settings.width;
-    canvas.height = settings.height;
-    renderer = await autoDetectRenderer({
-      canvas,
-      width: settings.width,
-      height: settings.height,
-      resolution: 1,
-      autoDensity: false,
-      background: theme.bg,
-      antialias: true,
-      preference: ["webgl", "canvas"],
-    });
-    stage = new Container();
-    ticker = new Ticker();
-    ticker.autoStart = false;
-    ticker.maxFPS = 0;
-    ticker.lastTime = 0;
-
-    tree = new TreeView(term, 0, 0, ticker, () => true, layoutFor(settings), () => settings.expandIota, null, (sym) => sym, { deterministicEdges: true });
-    stage.addChild(tree.container);
-    fitStage(stage, tree, settings);
-    renderer.render(stage);
+    pipeline = await setupPipeline(term, settings);
 
     const audioBuffer = settings.audio && plan.tones.length > 0 ? await renderAudio(plan, settings) : null;
-    encoder = await createRecordingEncoder(canvas, settings, plan, audioBuffer);
+    encoder = await createRecordingEncoder(pipeline.canvas, settings, plan, audioBuffer);
 
     const replay = createReductionReplay(term, settings);
     const frameDurationSec = 1 / settings.fps;
@@ -120,16 +213,16 @@ export async function runRecording(
         const stepStartMs = nextStep * settings.stepMs;
         if (stepStartMs > targetMs + 1e-7) break;
         if (stepStartMs > clockMs) {
-          ticker!.update(stepStartMs);
+          pipeline!.advanceTo(stepStartMs);
           clockMs = stepStartMs;
         }
         const step = replay.step();
         if (!step) throw new Error(`record: replay ended after ${nextStep} of ${plan.steps} planned steps`);
-        tree!.animateTo(step.node, settings.stepMs, () => {});
+        pipeline!.stepTo(step.node, settings.stepMs);
         nextStep++;
       }
       if (targetMs > clockMs) {
-        ticker!.update(targetMs);
+        pipeline!.advanceTo(targetMs);
         clockMs = targetMs;
       }
     };
@@ -137,10 +230,10 @@ export async function runRecording(
     for (let frame = 0; frame < plan.totalFrames; frame++) {
       throwIfAborted(hooks.signal);
       advanceTo(frame * frameDurationMs);
-      renderer.render(stage);
+      pipeline.render();
       await encoder.addFrame(frame * frameDurationSec, frameDurationSec);
       encodedFrames++;
-      hooks.onFrame?.(canvas, { frame: frame + 1, totalFrames: plan.totalFrames });
+      hooks.onFrame?.(pipeline.canvas, { frame: frame + 1, totalFrames: plan.totalFrames });
     }
 
     if (encodedFrames !== plan.totalFrames) {
@@ -154,10 +247,6 @@ export async function runRecording(
     if (hooks.signal?.aborted) throw abortError();
     throw err;
   } finally {
-    if (stage && tree) stage.removeChild(tree.container);
-    tree?.destroy();
-    stage?.destroy({ children: true });
-    ticker?.destroy();
-    renderer?.destroy({ removeView: true });
+    pipeline?.destroy();
   }
 }
