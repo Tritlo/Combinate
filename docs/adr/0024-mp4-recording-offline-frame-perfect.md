@@ -51,9 +51,10 @@ expression through the named/native lens, cached per step); framing is **root-an
 inside an overlay-safe rect (centered System-1 header card up top, frame-centred lens
 line + right-aligned stats below); camera default is **hold** — one zoom fitting the
 whole reduction, from a pure layout pre-pass over every step — with fixed/follow still
-available (3D hold falls back to fixed framing); a **Zen** preset records clean frames
-with all overlays off; offline 3D is uncapped with a spin-speed setting; Colour-4096
-and base-note-None round out the modal.
+available (3D hold falls back to fixed framing); offline 3D is uncapped with a
+spin-speed setting (whole revolutions only — the turn completes at the clip's end);
+Colour-4096 and base-note-None round out the modal. (A separate Zen preset existed
+briefly and was dropped — unticked overlays already mean clean frames.)
 Recording captures the **current focused term to normal form** (the pre-reduction source
 is ephemeral live state; a source-retention seam is a possible follow-up). A pre-run
 pass counts steps (capped — Ω must not hang the modal), sizes the progress bar, and
