@@ -1356,11 +1356,12 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     let preview: RecordPreviewOverlay | undefined;
     try {
       preview = await ensureRecordPreview();
-      preview.show(settings.width, settings.height, plan.totalFrames, () => abort.abort());
+      preview.show(settings.width, settings.height, () => abort.abort());
       const { runRecording } = await loadRecordDriver();
       const blob = await runRecording(term, settings, plan, {
         signal: abort.signal,
         onFrame: (canvas, progress) => preview?.blit(canvas, progress),
+        onPhase: (label) => preview?.setPhase(label),
       });
       if (abort.signal.aborted) throw new Error("recording canceled");
       downloadRecording(blob);

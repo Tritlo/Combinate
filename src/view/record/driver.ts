@@ -47,6 +47,9 @@ const READOUT_TEXT_MAX = 512;
 const FIT_MARGIN = 0.82;
 const MIN_SCALE = 0.04;
 const MAX_SCALE = 2.5;
+/** Wall-clock gap between paint yields in the encode loop — lets the browser
+ *  repaint the preview's progress bar/ETA without materially slowing encoding. */
+const YIELD_INTERVAL_MS = 250;
 
 interface StageFit {
   x: number;
@@ -205,6 +208,14 @@ function stageFitFor(tree: TreeView, settings: RecordSettings, extents?: RootExt
   return stageFitFromExtents(root, extents ?? rootExtents(b.x, b.x + b.w, b.y, b.y + b.h, root), settings, overlay);
 }
 
+/** Root extents straight from a built tree's layout — no re-expanding the term
+ *  (the tree already laid out every node). */
+function treeRootExtents(tree: TreeView): RootExtents {
+  const b = tree.worldBounds();
+  const root = tree.layoutRootWorld;
+  return rootExtents(b.x, b.x + b.w, b.y, b.y + b.h, root);
+}
+
 function applyStageFit(stage: Container, fit: StageFit): void {
   stage.scale.set(fit.scale);
   stage.position.set(fit.x, fit.y);
@@ -224,13 +235,6 @@ function followStage(stage: Container, target: StageFit, deltaMS: number): void 
 
 function fitStage(stage: Container, tree: TreeView, settings: RecordSettings, extents?: RootExtents, overlay?: OverlayState): void {
   applyStageFit(stage, stageFitFor(tree, settings, extents, overlay));
-}
-
-function layoutRootExtents(term: Node, settings: RecordSettings, layout: LayoutFn, frozen?: { l0?: number }): { extents: RootExtents; l0?: number } {
-  const display = displayTerm(term, settings);
-  const lay = layout(display, frozen);
-  const root = lay.pos.get(display.id) ?? { x: 0, y: 0 };
-  return { extents: rootExtents(lay.minX, lay.maxX, lay.minY, lay.maxY, root), l0: lay.l0 };
 }
 
 function nativeReadMode(settings: RecordSettings): Ty | undefined {
@@ -330,13 +334,12 @@ interface RecordingPipeline {
   destroy: () => void;
 }
 
-async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<RecordingPipeline> {
+async function setup2DPipeline(term: Node, settings: RecordSettings, onPhase?: (label: string) => void): Promise<RecordingPipeline> {
   const colors = themeForMode(settings.theme, settings.color);
-  let holdExtents = layoutRootExtents(term, settings, layoutFor(settings)).extents;
-  const overlay = overlayStateFor(term, settings, holdExtents);
   const canvas = document.createElement("canvas");
   canvas.width = settings.width;
   canvas.height = settings.height;
+  onPhase?.("Starting renderer…");
   const renderer = await autoDetectRenderer({
     canvas,
     width: settings.width,
@@ -351,20 +354,30 @@ async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<Re
   const stage = new Container();
   const ticker = new Ticker();
   let tree: TreeView | null = null;
-  let displayCount = countNodes(displayTerm(term, settings));
-  let expression = readoutExpression(term, settings);
+  // Derived from the built tree below — the term is expanded/laid out exactly
+  // once (by TreeView), not three times (extents + count + tree).
+  let holdExtents!: RootExtents;
+  let overlay!: OverlayState;
+  let displayCount = 0;
+  let expression = "";
   let clockMS = 0;
   try {
     ticker.autoStart = false;
     ticker.maxFPS = 0;
     ticker.lastTime = 0;
 
+    onPhase?.("Building scene…");
     tree = new TreeView(term, 0, 0, ticker, () => true, layoutFor(settings), () => settings.expandIota, null, (sym) => sym, {
       deterministicEdges: true,
       themeMode: settings.theme,
       color: settings.color,
     });
     stage.addChild(tree.container);
+    onPhase?.("Fitting camera…");
+    holdExtents = treeRootExtents(tree);
+    overlay = overlayStateFor(term, settings, holdExtents);
+    displayCount = tree.nodeCount();
+    expression = readoutExpression(term, settings);
     fitStage(stage, tree, settings, holdExtents, overlay);
     renderer.render(stage);
   } catch (err) {
@@ -391,10 +404,11 @@ async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<Re
     canvas,
     overlay,
     stepTo: (node, durationMS) => {
-      displayCount = countNodes(displayTerm(node, settings));
-      expression = readoutExpression(node, settings);
       view.animateTo(node, durationMS, () => {});
       if (durationMS <= 0) view.stopAnimation();
+      // Read the count off the tree we just laid out — no second expansion.
+      displayCount = view.nodeCount();
+      expression = readoutExpression(node, settings);
       if (settings.camera === "hold") zoomOutToHoldExtents();
     },
     advanceTo: (timeMS) => {
@@ -416,7 +430,7 @@ async function setup2DPipeline(term: Node, settings: RecordSettings): Promise<Re
   };
 }
 
-async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec = 0): Promise<RecordingPipeline> {
+async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec = 0, onPhase?: (label: string) => void): Promise<RecordingPipeline> {
   const overlay = overlayStateFor(term, settings);
   const sphere = new Sphere3D({
     now: () => 0,
@@ -429,6 +443,7 @@ async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec
   let expression = readoutExpression(term, settings);
   try {
     sphere.setLayout3(layout3For(settings));
+    onPhase?.("Building scene…");
     const first = displayTerm(term, settings);
     await sphere.show(first, settings.width, settings.height);
   } catch (err) {
@@ -464,8 +479,13 @@ async function setup3DPipeline(term: Node, settings: RecordSettings, durationSec
   };
 }
 
-async function setupPipeline(term: Node, settings: RecordSettings, plan?: Pick<RecordPlan, "durationSec">): Promise<RecordingPipeline> {
-  return settings.view === "3d" ? setup3DPipeline(term, settings, plan?.durationSec ?? 0) : setup2DPipeline(term, settings);
+async function setupPipeline(
+  term: Node,
+  settings: RecordSettings,
+  plan?: Pick<RecordPlan, "durationSec">,
+  onPhase?: (label: string) => void,
+): Promise<RecordingPipeline> {
+  return settings.view === "3d" ? setup3DPipeline(term, settings, plan?.durationSec ?? 0, onPhase) : setup2DPipeline(term, settings, onPhase);
 }
 
 function cssColor(color: number): string {
@@ -648,14 +668,18 @@ export async function runRecording(
 
   try {
     throwIfAborted(hooks.signal);
+    hooks.onPhase?.("Preparing…");
     await prepareOverlayFont(settings);
     throwIfAborted(hooks.signal);
-    pipeline = await setupPipeline(term, settings, plan);
+    pipeline = await setupPipeline(term, settings, plan, hooks.onPhase);
     const compositor = createCompositor(settings, pipeline.overlay);
 
+    if (settings.audio && plan.tones.length > 0) hooks.onPhase?.("Rendering audio…");
     const audioBuffer = settings.audio && plan.tones.length > 0 ? await renderAudio(plan, settings) : null;
+    hooks.onPhase?.("Starting encoder…");
     encoder = await createRecordingEncoder(compositor.canvas, settings, plan, audioBuffer);
 
+    hooks.onPhase?.("Rendering…");
     const replay = createReductionReplay(term, settings);
     const schedule = createScheduleCursor(settings);
     const frameDurationSec = 1 / settings.fps;
@@ -691,6 +715,7 @@ export async function runRecording(
       }
     };
 
+    let lastYieldMs = performance.now();
     for (let frame = 0; frame < plan.totalFrames; frame++) {
       throwIfAborted(hooks.signal);
       advanceTo(frame * frameDurationMs);
@@ -699,6 +724,14 @@ export async function runRecording(
       await encoder.addFrame(frame * frameDurationSec, frameDurationSec);
       encodedFrames++;
       hooks.onFrame?.(frameCanvas, { frame: frame + 1, totalFrames: plan.totalFrames });
+      // Mediabunny's backpressure `await` isn't a paint boundary, so hand the
+      // browser a real macrotask every ~250ms to repaint the progress bar/ETA.
+      const nowMs = performance.now();
+      if (nowMs - lastYieldMs >= YIELD_INTERVAL_MS) {
+        lastYieldMs = nowMs;
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        throwIfAborted(hooks.signal);
+      }
     }
 
     if (encodedFrames !== plan.totalFrames) {

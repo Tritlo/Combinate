@@ -823,6 +823,11 @@ export class RecordPreviewOverlay {
   private readonly fill = document.createElement("div");
   private cancel: (() => void) | undefined;
   private lastBlitMs = 0;
+  // Render-time ETA: an EMA of wall-clock ms per encoded frame, extrapolated over
+  // the frames still to go. Distinct from the modal's output-length estimate.
+  private lastFrameNum = 0;
+  private lastFrameMs = 0;
+  private emaFrameMs = 0;
 
   constructor() {
     injectPreviewStyles();
@@ -864,20 +869,34 @@ export class RecordPreviewOverlay {
   }
 
   /** Show a fresh preview canvas sized to the recording output. */
-  show(width: number, height: number, totalFrames: number, onCancel: () => void): void {
+  show(width: number, height: number, onCancel: () => void): void {
     this.cancel = onCancel;
     this.canvas.width = width;
     this.canvas.height = height;
     this.canvas.style.aspectRatio = `${width} / ${height}`;
-    const ctx = this.canvas.getContext("2d");
-    if (ctx) {
-      ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, width, height);
-    }
-    this.frame.textContent = `frame 0 / ${Math.max(1, totalFrames)}`;
     this.fill.style.width = "0%";
     this.lastBlitMs = 0;
+    this.lastFrameNum = 0;
+    this.lastFrameMs = 0;
+    this.emaFrameMs = 0;
     this.root.style.display = "flex";
+    this.setPhase("Preparing…");
+  }
+
+  /** Announce a setup milestone (before frames flow) — shown in place of the
+   *  frame counter and painted onto the otherwise-black preview canvas, so the
+   *  pre-render pause isn't a silent black screen. */
+  setPhase(label: string): void {
+    this.frame.textContent = label;
+    const ctx = this.canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.fillStyle = "rgba(255,255,255,0.72)";
+    ctx.font = `${Math.max(14, Math.round(this.canvas.height * 0.03))}px ${MONO}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, this.canvas.width / 2, this.canvas.height / 2);
   }
 
   /** Update progress every frame (cheap), but only copy the frame image into the
@@ -909,8 +928,26 @@ export class RecordPreviewOverlay {
   private update(progress: RecordProgress): void {
     const total = Math.max(1, progress.totalFrames);
     const frame = Math.max(0, Math.min(progress.frame, total));
-    this.frame.textContent = `frame ${frame} / ${total}`;
     this.fill.style.width = `${Math.max(0, Math.min(100, (frame / total) * 100))}%`;
+    this.frame.textContent = `frame ${frame} / ${total}${this.etaSuffix(frame, total)}`;
+  }
+
+  /** " · ~12s left" once a stable per-frame render rate is known; "" before that.
+   *  This is render (encode) time — not the clip's playback length. */
+  private etaSuffix(frame: number, total: number): string {
+    const now = performance.now();
+    if (frame > this.lastFrameNum) {
+      const dFrames = frame - this.lastFrameNum;
+      if (this.lastFrameMs > 0) {
+        const inst = (now - this.lastFrameMs) / dFrames;
+        this.emaFrameMs = this.emaFrameMs > 0 ? this.emaFrameMs * 0.8 + inst * 0.2 : inst;
+      }
+      this.lastFrameNum = frame;
+      this.lastFrameMs = now;
+    }
+    const remaining = total - frame;
+    if (this.emaFrameMs <= 0 || remaining <= 0) return "";
+    return ` · ~${formatDuration((this.emaFrameMs * remaining) / 1000)} left`;
   }
 
   private applyPalette(): void {
