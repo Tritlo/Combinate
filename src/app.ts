@@ -1359,7 +1359,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       const blob = await runRecording(term, settings, plan, {
         signal: abort.signal,
         onFrame: (canvas, progress) => preview?.blit(canvas, progress),
-        onPrepare: (done, total) => preview?.prepare(done, total),
       });
       if (abort.signal.aborted) throw new Error("recording canceled");
       downloadRecording(blob);
