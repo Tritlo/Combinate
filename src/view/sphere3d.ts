@@ -43,7 +43,7 @@ const DASH_SIZE = 16; // arg (right) edges are DASHED, fn (left) solid — the 3
 const GAP_SIZE = 11; // (layout shells are ~92 units apart, so ~3 dashes per edge)
 const FRAME_MARGIN = 1.6; // camera pull-back factor when framing (smaller = the ball fills more of the view)
 const FRAME_FLOOR = 120; // min framing radius (keeps a tiny tree from clipping)
-const iotaDot = (mode: Mode): number => mode === "light" ? 0xffffff : 0x000000;
+const iotaDot = (mode: Mode): number => (mode === "light" ? 0x000000 : 0xffffff);
 
 type Pos3 = { x: number; y: number; z: number };
 // One node's tween across a reduction step: instance slot, from→to position, base radius, scale 0/1.
