@@ -1062,6 +1062,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     rules: () => isOpt("rules"),
     graph: () => isOpt("graph"),
     primitives: () => nativeAllOn(),
+    color: () => colorOn(),
     onRecord: (term, settings, plan) => {
       void startRecording(term, settings, plan);
     },

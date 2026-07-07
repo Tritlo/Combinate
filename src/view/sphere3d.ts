@@ -14,7 +14,7 @@
 import type * as T from "three";
 import { type Node } from "../core/term";
 import { layoutHTree3D, type Layout3Fn } from "../core/layout3d";
-import { theme, combinatorColor, edgeTierColor, themeForMode, edgeTierColorForMode, type Mode, type Theme } from "./theme";
+import { theme, combinatorColor, combinatorColorForMode, edgeTierColor, themeForMode, edgeTierColorForMode, type Mode, type Theme } from "./theme";
 import { easeInOut } from "./anim";
 
 /** Beyond this node count the static scene gets heavy to build/draw — the app preflights this
@@ -92,14 +92,14 @@ export function preloadSphere3D(): Promise<void> {
 }
 
 // Per-kind node radius + colour (a 3D echo of tree.ts's visSpec, reusing the theme).
-function nodeStyle(n: Node, depth: number, palette: { mode: Mode; colors: Theme } | null): { radius: number; color: number } {
+function nodeStyle(n: Node, depth: number, palette: { mode: Mode; color: boolean; colors: Theme } | null): { radius: number; color: number } {
   const colors = palette?.colors ?? theme;
   const tier = (d: number): number => (palette ? edgeTierColorForMode(d, palette.mode, colors) : edgeTierColor(d));
   switch (n.kind) {
     case "iota":
       return { radius: 9, color: colors.mutedDot }; // grey sphere — ι is the bare generator (no longer gold)
     case "comb":
-      return { radius: 18, color: palette ? colors.node : combinatorColor(n.sym) };
+      return { radius: 18, color: palette ? (palette.color ? combinatorColorForMode(n.sym, palette.mode) : colors.node) : combinatorColor(n.sym) };
     case "free":
       return { radius: 15, color: colors.mutedDot };
     default:
@@ -121,8 +121,10 @@ export interface Sphere3DOptions {
   failOnMorphSnap?: boolean;
   /** Build and morph trees past the live app's interactive caps. */
   unlimited?: boolean;
-  /** Fixed mono theme mode for recorder-owned spheres; omitted spheres follow the live theme. */
+  /** Fixed theme mode for recorder-owned spheres; omitted spheres follow the live theme. */
   themeMode?: Mode;
+  /** Use Colour-4096 combinator hues under `themeMode`. */
+  color?: boolean;
 }
 
 export class Sphere3D {
@@ -155,11 +157,11 @@ export class Sphere3D {
   private lastDepth = new Map<number, number>(); // currently-displayed node depths (app nodes take their incoming-edge tier)
   private morph: Morph | null = null;
   private readonly now: () => number;
-  private readonly recordTheme: { mode: Mode; colors: Theme } | null;
+  private readonly recordTheme: { mode: Mode; color: boolean; colors: Theme } | null;
 
   constructor(private readonly options: Sphere3DOptions = {}) {
     this.now = options.now ?? (() => performance.now());
-    this.recordTheme = options.themeMode ? { mode: options.themeMode, colors: themeForMode(options.themeMode) } : null;
+    this.recordTheme = options.themeMode ? { mode: options.themeMode, color: !!options.color, colors: themeForMode(options.themeMode, !!options.color) } : null;
   }
 
   /** Current orbit azimuth (for the dev seam / E2E — confirms rotation). */
