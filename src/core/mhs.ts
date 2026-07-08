@@ -399,13 +399,19 @@ export function dumpToTree(dump: string, root?: string): DumpResult {
   } catch (e) {
     return { error: (e as Error).message };
   }
-  // Reject by reachability: reduce (optimize mode) and see which sentinels remain.
-  // A clean program drops the dead ones (e.g. the unused `primIntNeg` in every Num
-  // dictionary); one that *forces* a primitive keeps it in the normal form. The
-  // probe is bounded by steps *and* tree size: without graph sharing, recursive
-  // multiplication blows up (`fac` is exponential), so if the term balloons or the
-  // budget runs out we accept and let the shell's capped reduction surface any
-  // genuinely-forced primitive. Only a *completed* small reduction is conclusive.
+  return rejectForcedSentinels(tree, sink);
+}
+
+/**
+ * Reject by reachability: reduce (optimize mode) and see which sentinels remain.
+ * A clean program drops the dead ones (e.g. the unused `primIntNeg` in every Num
+ * dictionary); one that *forces* a primitive keeps it in the normal form. The
+ * probe is bounded by steps *and* tree size: without graph sharing, recursive
+ * multiplication blows up (`fac` is exponential), so if the term balloons or the
+ * budget runs out we accept and let the shell's capped reduction surface any
+ * genuinely-forced primitive. Only a *completed* small reduction is conclusive.
+ */
+function rejectForcedSentinels(tree: Node, sink: Set<string>): DumpResult {
   if (sink.size > 0) {
     let cur = tree;
     let conclusive = false;
@@ -425,5 +431,149 @@ export function dumpToTree(dump: string, root?: string): DumpResult {
     }
   }
   return { tree };
+}
+
+// ---------------------------------------------------------------------------
+// `toCombinators` (`--entry`) JSON → tree. Upstream now compiles a main-less value
+// module cleanly and returns the entry's *pruned, rooted* combinator closure as
+// structured JSON (see rust/microhs-runtime/docs/javascript-ffi.md), replacing the
+// scrape-a-failed-text-dump path. Same primitive substitution + reachability
+// rejection; the text `dumpToTree` above stays only for the (still text) gallery.
+
+/** A JSON combinator expression from `--entry`. `lam` never appears in compiled
+ *  output (defs are bracket-abstracted, recursion pre-`Y`'d) but is in the schema. */
+type Expr =
+  | { var: string }
+  | { app: [Expr, Expr] }
+  | { lam: [string, Expr] }
+  | { int: number }
+  | { int64: number }
+  | { integer: string }
+  | { double: number }
+  | { float: number }
+  | { rat: string }
+  | { char: string }
+  | { string: string }
+  | { bstr: string }
+  | { prim: string }
+  | { forimp: string }
+  | { exn: string }
+  | { tick: string }
+  | { ctype: string };
+
+/** One entry of a `toCombinators` closure: a qualified name and its combinator body. */
+export interface CombDef {
+  name: string;
+  body: Expr;
+}
+
+/** JSON primitive tokens (short, from `prims.rs`) for the arithmetic / comparison
+ *  ops → the catalog combinator that computes them. Char ops reuse the Int tokens
+ *  (Char ≡ Int at runtime). Everything not here and not a basis combinator becomes
+ *  a sentinel — rejected iff the program forces it. */
+const JSON_PRIM_OP: Record<string, string> = {
+  "+": "(+)",
+  "-": "(-)", // truncated subtraction (monus) — naturals only
+  "*": "(*)",
+  "==": "(==)",
+  "/=": "(/=)",
+  "<": "(<)",
+  "<=": "(<=)",
+  ">": "(>)",
+  ">=": "(>=)",
+  icmp: "compare",
+};
+
+/** A `String` (given as a decoded JS string) as the Scott list of its char codes,
+ *  by Unicode code point (astral chars arrive as surrogate pairs). */
+function scottStringOf(s: string): Node {
+  const cps = Array.from(s); // iterate by code point, not UTF-16 unit
+  let list = named("K"); // nil
+  for (let i = cps.length - 1; i >= 0; i--) list = app(app(named("cons"), natTree(cps[i].codePointAt(0)!)), list);
+  return list;
+}
+
+/** Does the free variable `x` occur in `e`? (A `lam` binding `x` shadows it.) */
+function occursExpr(x: string, e: Expr): boolean {
+  if ("var" in e) return e.var === x;
+  if ("app" in e) return occursExpr(x, e.app[0]) || occursExpr(x, e.app[1]);
+  if ("lam" in e) return e.lam[0] !== x && occursExpr(x, e.lam[1]);
+  return false;
+}
+
+/** Naive bracket abstraction `\x. e` over a variable, as an `Expr` of `S`/`K`/`I`
+ *  prims — mirrors the text path's `absTm`, so a self-recursive top-level def
+ *  `f = …f…` becomes `Y (\f. body)` (a finite tree) instead of a rejected cycle. */
+function absExpr(x: string, e: Expr): Expr {
+  if ("var" in e && e.var === x) return { prim: "I" }; // \x. x
+  if (!occursExpr(x, e)) return { app: [{ prim: "K" }, e] }; // \x. e  (x not free)
+  if ("app" in e) return { app: [{ app: [{ prim: "S" }, absExpr(x, e.app[0])] }, absExpr(x, e.app[1])] };
+  return { app: [{ prim: "K" }, e] }; // unreachable for bracket-abstracted defs
+}
+
+/** A JSON `{prim:t}` token → its Combinate node: a basis combinator (SKI-expanded,
+ *  catalog-symbol remapped), a supported arithmetic/comparison op, else a sentinel. */
+function primNode(t: string, sink: Set<string>): Node {
+  if (isBasis(t)) return basisNode(t);
+  if (JSON_PRIM_OP[t]) return named(JSON_PRIM_OP[t]);
+  return sentinel(t, sink); // Tn / TAGn / KA / seq / neg / IO.* / … — rejected iff forced
+}
+
+/**
+ * Turn a `toCombinators` pruned closure (`defs`, rooted at `root`) into a Combinate
+ * tree. Resolves `var` references from the root as a memoised shared DAG (only the
+ * *reachable* defs are materialised, so dead dictionary/GMP/IO methods never enter
+ * the tree); a mutual-recursion cycle becomes a `<rec:>` sentinel and is rejected
+ * downstream (no finite ι tree — same as the text path). Primitives substitute as
+ * for the dump; rejection is by reachability.
+ */
+export function combinatorsToTree(defs: CombDef[], root: string): DumpResult {
+  const map = new Map(defs.map((d) => [d.name, d.body]));
+  if (!map.has(root)) return { error: `mhs: entry '${root}' not in the compiled closure` };
+
+  const sink = new Set<string>();
+  const memo = new Map<string, Node>(); // name → its shared sub-DAG
+  const inProgress = new Set<string>();
+
+  const conv = (e: Expr): Node => {
+    if ("app" in e) return app(conv(e.app[0]), conv(e.app[1]));
+    if ("var" in e) return resolve(e.var);
+    if ("prim" in e) return primNode(e.prim, sink);
+    if ("int" in e) return e.int >= 0 ? natTree(e.int) : sentinel(`int:${e.int}`, sink);
+    if ("int64" in e) return e.int64 >= 0 ? natTree(e.int64) : sentinel(`int64:${e.int64}`, sink);
+    if ("integer" in e) {
+      const n = Number(e.integer);
+      return Number.isSafeInteger(n) && n >= 0 ? natTree(n) : sentinel(`integer:${e.integer}`, sink);
+    }
+    if ("char" in e) return natTree(e.char.codePointAt(0) ?? 0);
+    if ("string" in e) return scottStringOf(e.string);
+    if ("lam" in e) throw new Error("mhs: unexpected lambda in compiled output");
+    const [k, v] = Object.entries(e)[0]; // double / float / rat / bstr / forimp / exn / tick / ctype
+    return sentinel(`${k}:${String(v)}`, sink);
+  };
+
+  const resolve = (name: string): Node => {
+    const hit = memo.get(name);
+    if (hit) return hit;
+    const body = map.get(name);
+    if (body === undefined) return sentinel(name, sink); // free var / not in the closure
+    if (inProgress.has(name)) return sentinel(`<rec:${name}>`, sink); // top-level mutual cycle
+    inProgress.add(name);
+    // Self-recursive top-level def `f = …f…` → `Y (\f. body)`; `f` is abstracted
+    // out, so `conv` never re-enters `name` (only a mutual cycle trips <rec:>).
+    const wrapped: Expr = occursExpr(name, body) ? { app: [{ prim: "Y" }, absExpr(name, body)] } : body;
+    const out = conv(wrapped);
+    inProgress.delete(name);
+    memo.set(name, out);
+    return out;
+  };
+
+  let tree: Node;
+  try {
+    tree = resolve(root);
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+  return rejectForcedSentinels(tree, sink);
 }
 
