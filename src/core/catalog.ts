@@ -14,6 +14,11 @@ export const IOTA_CODE: Record<string, string> = {
   A: "01011",
   K: "0101011",
   S: "010101011",
+  // Census-born birds (ADR 27): these codes are their PROVEN-minimal ι-forms — certified by
+  // exhaustive enumeration + the TS re-proof (spec/minimal-forms.md), canonical from birth.
+  Pe: "0010101011010101011",
+  O2: "001010101101010101011",
+  M3: "0001010101101010101011011",
 };
 
 /**
@@ -258,8 +263,11 @@ export const CATALOG: Law[] = [
   bird("L", "L x y = x (y y)", 2, (v) => app(v[0], app(v[1], v[1]))), // Lark
   bird("M", "M x = x x", 1, (v) => app(v[0], v[0])), // Mockingbird
   bird("M2", "M2 x y = x y (x y)", 2, (v) => app(app(v[0], v[1]), app(v[0], v[1]))), // Double Mockingbird
+  bird("M3", "M3 x = x x x", 1, (v) => app(app(v[0], v[0]), v[0])), // Triple Mockingbird — surfaced by the minimal-forms census (ADR 27): enters the pure-ι universe at exactly 13 ι
   bird("N", "N x y z = z x", 3, (v) => app(v[2], v[0])), // Nuthatch (small arg-shuffling helper)
   bird("O", "O x y = y (x y)", 2, (v) => app(v[1], app(v[0], v[1]))), // Owl
+  bird("O2", "O2 x y = y (x y) y", 2, (v) => app(app(v[1], app(v[0], v[1])), v[1])), // Horned Owl (= B W O — the Owl doubled on its argument); minimal-forms census find
+  bird("Pe", "Pe x y z = y z (x y z)", 3, (v) => app(app(v[1], v[2]), app(app(v[0], v[1]), v[2]))), // Pelican — feeds the pair the whole catch; the census's strongest properly-new attractor (105 of 290k terms ≤13ι land here). Sym "Pe": bare "P" belongs to the linear-basis quest puzzle (the player declares their own P)
   bird("Pred", "Pred (S p) = p;  Pred Z = Z", 1, predBody), // strips one successor (Z stays Z)
   bird("Q", "Q x y z = y (x z)", 3, (v) => app(v[1], app(v[0], v[2]))), // Queer
   bird("Q1", "Q1 x y z = x (z y)", 3, (v) => app(v[0], app(v[2], v[1]))), // Quixotic
