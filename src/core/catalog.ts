@@ -7,7 +7,11 @@ import { bracket } from "./church";
  * ι-tree (rather than a placeholder) until it's discovered.
  */
 export const IOTA_CODE: Record<string, string> = {
+  // The canonical ladder — each rung is ι applied to the previous: I = ιι, A = ι I (= S K),
+  // K = ι A, S = ι K (exactly the quest prologue's constructions). Without A's entry here it
+  // fell back to skToIota(K I) — a 7-ι picture for a 3-ι bird.
   I: "011",
+  A: "01011",
   K: "0101011",
   S: "010101011",
 };
