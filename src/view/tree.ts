@@ -112,9 +112,11 @@ function makePill(text: string, tint: number): Graphics {
 }
 
 // A glyph's canvas bitmap is rasterized once at Text-creation time; the camera then scales the whole
-// tree as a transform (up to 4×, Camera.MAX_SCALE), which smears a bitmap rasterized for 1×. So each
-// glyph's `resolution` tracks the camera zoom, quantized to 4 discrete levels (not a continuous
-// value) so a live zoom re-rasterizes at most 3 times, not every frame.
+// tree as a transform, which smears a bitmap rasterized for 1×. So each glyph's `resolution` tracks
+// the camera zoom, quantized to (at most) 4 discrete levels — both to avoid re-rasterizing every
+// frame of a live zoom AND as a hard cap now that deep zoom reaches 1e7× (an uncapped resolution
+// would try to rasterize gigapixel glyphs; past 4× a deep-zoomed glyph's on-screen size is governed
+// by its tiny node scale anyway, so 4× density suffices).
 const MAX_GLYPH_RES = 4;
 /** The `Text.resolution` for a glyph drawn at camera zoom `zoom` (quantized, see above). Exported so
  *  the drag-snap ghost preview label can match a tree's node glyphs instead of staying fixed at 1×. */
@@ -276,7 +278,9 @@ export class TreeView {
   }
 
   get rootWorld(): { x: number; y: number } {
-    return { x: this.container.position.x, y: this.container.position.y };
+    // The ROOT NODE's world position (snap anchor, fn/arg ordering). Not the container origin:
+    // after a floating-origin {@link rebase} the root's local position is no longer (0,0).
+    return this.layoutRootWorld;
   }
 
   /** The current layout root position, in the same world-container coordinates as {@link worldBounds}. */
@@ -296,6 +300,67 @@ export class TreeView {
    *  without re-expanding. Lets the recorder read the stat straight off the tree. */
   nodeCount(): number {
     return this.lay.pos.size;
+  }
+
+  /** Cumulative local-origin shift (floating origin, deep zoom). Pristine layouts put the root at
+   *  (0,0); {@link rebase} offsets the local frame, so every FRESH layout result is re-expressed in
+   *  the current frame via {@link shiftLay} before use. */
+  private readonly originShift = { x: 0, y: 0 };
+
+  /** Express a freshly-computed layout in the current (possibly rebased) local frame. In place. */
+  private shiftLay(lay: Layout): Layout {
+    const { x, y } = this.originShift;
+    if (x === 0 && y === 0) return lay;
+    for (const p of lay.pos.values()) {
+      p.x -= x;
+      p.y -= y;
+    }
+    lay.minX -= x;
+    lay.maxX -= x;
+    lay.minY -= y;
+    lay.maxY -= y;
+    return lay;
+  }
+
+  /** Floating origin (deep zoom): move the local origin to the local point (px,py) — every local
+   *  coordinate shrinks by the pivot while the container advances by it, so world positions are
+   *  unchanged but the float32 magnitudes the GPU sees near the viewport stay small (uploaded
+   *  matrices/vertices jitter past ~1e7 px). O(nodes) — the shell calls this on threshold
+   *  crossings only (see the camera.onChange hook in app.ts). */
+  rebase(px: number, py: number): void {
+    if (px === 0 && py === 0) return;
+    this.originShift.x += px;
+    this.originShift.y += py;
+    for (const vis of this.objs.values()) {
+      vis.particle.x -= px;
+      vis.particle.y -= py;
+      if (vis.glyph) vis.glyph.position.set(vis.glyph.position.x - px, vis.glyph.position.y - py);
+      if (vis.pill) vis.pill.position.set(vis.pill.position.x - px, vis.pill.position.y - py);
+    }
+    for (const p of this.lay.pos.values()) {
+      p.x -= px;
+      p.y -= py;
+    }
+    this.lay.minX -= px;
+    this.lay.maxX -= px;
+    this.lay.minY -= py;
+    this.lay.maxY -= py;
+    for (const a of this.anims) {
+      a.fromX -= px;
+      a.toX -= px;
+      a.fromY -= py;
+      a.toY -= py;
+    }
+    this.container.position.set(this.container.position.x + px, this.container.position.y + py);
+    if (this.incMode && this.edgeBuffer) {
+      this.rebuildEdgeBuffer(); // the retained buffer stores absolute locals — reload in the new frame
+      this.edgeBuffer.commit();
+      this.placeRootMark();
+      this.placeSharedMarks();
+    } else {
+      this.drawEdges(); // redraws from the (shifted) live particles, incl. the root/shared marks
+    }
+    this.updateHitArea();
   }
 
   private colors(): Theme {
@@ -323,7 +388,7 @@ export class TreeView {
     this.exitIncremental(); // display expansion may change (discovery / Expand toggle) → full recompute
     if (this.ticking) this.finish();
     this.display = this.expand(this.node);
-    this.lay = this.layoutFn(this.display);
+    this.lay = this.shiftLay(this.layoutFn(this.display));
     this.frozenL0 = this.lay.l0; // (re-)fit the H-tree arm scale
     this.rebuild();
   }
@@ -334,7 +399,7 @@ export class TreeView {
     this.layoutFn = fn;
     this.onDone = null;
     this.finish();
-    const newLay = fn(this.display);
+    const newLay = this.shiftLay(fn(this.display));
     this.frozenL0 = newLay.l0; // layout switch → re-fit the arm scale
     this.anims = [];
     for (const [id, vis] of this.objs) {
@@ -437,7 +502,7 @@ export class TreeView {
     for (const [id, vis] of this.objs) from.set(id, { x: vis.particle.x, y: vis.particle.y });
 
     const newDisplay = this.expand(node);
-    const newLay = this.layoutFn(newDisplay, { l0: this.frozenL0 }); // freeze the H-tree arm scale across the step
+    const newLay = this.shiftLay(this.layoutFn(newDisplay, { l0: this.frozenL0 })); // freeze the H-tree arm scale across the step
     const newNodes = collectNodes(newDisplay);
     this.anims = [];
 
@@ -622,7 +687,7 @@ export class TreeView {
   /** DEV/test seam: does the incrementally-maintained layout match a full recompute of the current
    *  term? All zero ⇒ the O(changed) path landed every node exactly where a full relayout would. */
   debugLayoutParity(): { total: number; mismatched: number; missing: number; extra: number } {
-    const full = this.layoutFn(this.expand(this.node), { l0: this.frozenL0 });
+    const full = this.shiftLay(this.layoutFn(this.expand(this.node), { l0: this.frozenL0 }));
     let mismatched = 0;
     let missing = 0;
     for (const [id, p] of full.pos) {
