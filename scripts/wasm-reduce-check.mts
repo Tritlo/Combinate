@@ -399,7 +399,8 @@ if (fs.existsSync(EX_DIR)) {
     const { root, defs } = JSON.parse(fs.readFileSync(path, "utf8")) as Closure;
     const r = combinatorsToTree(defs, root);
     if ("error" in r) {
-      eSkip++;
+      eFail++; // a *vendored* example that stops post-processing is a regression, not a skip
+      if (fails.length < 24) fails.push(`example ${name}: rejected — ${r.error}`);
       continue;
     }
     const ts = normalize(r.tree, 5_000_000, true, ALLN);

@@ -304,12 +304,20 @@ const JSON_PRIM_OP: Record<string, string> = {
   icmp: "compare",
 };
 
+/** Scott numerals are unary, so a large literal — even a *dead* one — would build a
+ *  giant tree during conversion, before reachability rejection can drop it (freezing
+ *  the tab). Cap it: a negative, non-integer, or over-`MAX_LIT` value becomes a
+ *  sentinel (rejected iff forced), so dead huge literals still vanish. */
+const MAX_LIT = 100_000;
+const natOrSentinel = (n: number, tag: string, sink: Set<string>): Node =>
+  Number.isInteger(n) && n >= 0 && n <= MAX_LIT ? natTree(n) : sentinel(`${tag}:${n}`, sink);
+
 /** A `String` (given as a decoded JS string) as the Scott list of its char codes,
  *  by Unicode code point (astral chars arrive as surrogate pairs). */
-function scottStringOf(s: string): Node {
+function scottStringOf(s: string, sink: Set<string>): Node {
   const cps = Array.from(s); // iterate by code point, not UTF-16 unit
   let list = named("K"); // nil
-  for (let i = cps.length - 1; i >= 0; i--) list = app(app(named("cons"), natTree(cps[i].codePointAt(0)!)), list);
+  for (let i = cps.length - 1; i >= 0; i--) list = app(app(named("cons"), natOrSentinel(cps[i].codePointAt(0)!, "char", sink)), list);
   return list;
 }
 
@@ -359,14 +367,11 @@ export function combinatorsToTree(defs: CombDef[], root: string): DumpResult {
     if ("app" in e) return app(conv(e.app[0]), conv(e.app[1]));
     if ("var" in e) return resolve(e.var);
     if ("prim" in e) return primNode(e.prim, sink);
-    if ("int" in e) return e.int >= 0 ? natTree(e.int) : sentinel(`int:${e.int}`, sink);
-    if ("int64" in e) return e.int64 >= 0 ? natTree(e.int64) : sentinel(`int64:${e.int64}`, sink);
-    if ("integer" in e) {
-      const n = Number(e.integer);
-      return Number.isSafeInteger(n) && n >= 0 ? natTree(n) : sentinel(`integer:${e.integer}`, sink);
-    }
-    if ("char" in e) return natTree(e.char.codePointAt(0) ?? 0);
-    if ("string" in e) return scottStringOf(e.string);
+    if ("int" in e) return natOrSentinel(e.int, "int", sink);
+    if ("int64" in e) return natOrSentinel(e.int64, "int64", sink);
+    if ("integer" in e) return natOrSentinel(Number(e.integer), "integer", sink);
+    if ("char" in e) return natOrSentinel(e.char.codePointAt(0) ?? 0, "char", sink);
+    if ("string" in e) return scottStringOf(e.string, sink);
     if ("lam" in e) throw new Error("mhs: unexpected lambda in compiled output");
     const [k, v] = Object.entries(e)[0]; // double / float / rat / bstr / forimp / exn / tick / ctype
     return sentinel(`${k}:${String(v)}`, sink);
