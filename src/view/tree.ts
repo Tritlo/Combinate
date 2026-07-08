@@ -818,6 +818,8 @@ export class TreeView {
       walk(n.arg, depth + 1);
     };
     walk(this.display, 0);
+    // depth-sorted so drawEdges can stroke one contiguous width/color batch per depth run
+    this.edgeList.sort((a, b) => a.depth - b.depth);
     const rootVis = this.display.kind === "app" ? this.objs.get(this.display.id) : null;
     if (rootVis) rootVis.particle.tint = this.colors().text; // root: no incoming edge → ink
   }
@@ -847,33 +849,65 @@ export class TreeView {
       this.lastEdgeDrawAt = now;
       dash = this.objs.size <= HEAVY || settled;
     }
-    // Color = depth TIER (red/black), style = fn solid / arg dashed. Each tier is a separate stroke
-    // (one color per Graphics stroke), so 4 strokes: {arg,fn} × {even,odd}. A node's parent-edge is
-    // the opposite color of its child-edges → you can trace direction even in a dense tree.
-    for (const parity of [0, 1]) {
-      for (const e of this.edgeList) {
-        if (e.depth % 2 !== parity) continue;
-        const p = e.pv.particle;
-        const rp = e.rv.particle;
-        const adx = p.x - rp.x, ady = p.y - rp.y;
-        if (adx * adx + ady * ady < minLen2) continue; // LOD: sub-pixel edge
-        if (!v || overlaps(p, rp, v)) {
-          if (dash) dashedSegment(this.edges, p.x, p.y, rp.x, rp.y); // argument edge: dashed
-          else this.edges.moveTo(p.x, p.y).lineTo(rp.x, rp.y);
+    // Color = depth TIER (red/black), style = fn solid / arg dashed. A node's parent-edge is the
+    // opposite color of its child-edges → you can trace direction even in a dense tree.
+    if (!this.lay.scale) {
+      // No per-node scale (top-down/radial): the classic 4 strokes, {arg,fn} × {even,odd}.
+      for (const parity of [0, 1]) {
+        for (const e of this.edgeList) {
+          if (e.depth % 2 !== parity) continue;
+          const p = e.pv.particle;
+          const rp = e.rv.particle;
+          const adx = p.x - rp.x, ady = p.y - rp.y;
+          if (adx * adx + ady * ady < minLen2) continue; // LOD: sub-pixel edge
+          if (!v || overlaps(p, rp, v)) {
+            if (dash) dashedSegment(this.edges, p.x, p.y, rp.x, rp.y); // argument edge: dashed
+            else this.edges.moveTo(p.x, p.y).lineTo(rp.x, rp.y);
+          }
         }
+        this.edges.stroke({ width: 2.5, color: this.edgeTierColor(parity) });
       }
-      this.edges.stroke({ width: 2.5, color: this.edgeTierColor(parity) });
-    }
-    for (const parity of [0, 1]) {
-      for (const e of this.edgeList) {
-        if (e.depth % 2 !== parity) continue;
-        const p = e.pv.particle;
-        const lp = e.lv.particle;
-        const fdx = p.x - lp.x, fdy = p.y - lp.y;
-        if (fdx * fdx + fdy * fdy < minLen2) continue; // LOD: sub-pixel edge
-        if (!v || overlaps(p, lp, v)) this.edges.moveTo(p.x, p.y).lineTo(lp.x, lp.y); // function edge: solid
+      for (const parity of [0, 1]) {
+        for (const e of this.edgeList) {
+          if (e.depth % 2 !== parity) continue;
+          const p = e.pv.particle;
+          const lp = e.lv.particle;
+          const fdx = p.x - lp.x, fdy = p.y - lp.y;
+          if (fdx * fdx + fdy * fdy < minLen2) continue; // LOD: sub-pixel edge
+          if (!v || overlaps(p, lp, v)) this.edges.moveTo(p.x, p.y).lineTo(lp.x, lp.y); // function edge: solid
+        }
+        this.edges.stroke({ width: 3, color: this.edgeTierColor(parity) });
       }
-      this.edges.stroke({ width: 3, color: this.edgeTierColor(parity) });
+    } else {
+      // H-tree: edge width (and the dash pattern) follows the parent's node scale — the edge IS the
+      // parent's arm, so lines thin out exactly like the nodes and distances do and a deep spiral
+      // fades instead of inking a blob. edgeList is depth-sorted (indexEdges), so each {style,depth}
+      // batch is one contiguous run and one stroke.
+      for (const pass of [0, 1]) {
+        let runDepth = -1;
+        let runF = 1;
+        let drew = false;
+        const flush = (): void => {
+          if (drew) this.edges.stroke({ width: (pass === 0 ? 2.5 : 3) * runF, color: this.edgeTierColor(runDepth) });
+          drew = false;
+        };
+        for (const e of this.edgeList) {
+          if (e.depth !== runDepth) {
+            flush();
+            runDepth = e.depth;
+            runF = this.lay.scale.get(e.pv.id) ?? 1;
+          }
+          const p = e.pv.particle;
+          const c = pass === 0 ? e.rv.particle : e.lv.particle;
+          const dx = p.x - c.x, dy = p.y - c.y;
+          if (dx * dx + dy * dy < minLen2) continue; // LOD: sub-pixel edge
+          if (v && !overlaps(p, c, v)) continue;
+          if (pass === 0 && dash) dashedSegment(this.edges, p.x, p.y, c.x, c.y, 8 * runF, 6 * runF); // argument edge: dashed
+          else this.edges.moveTo(p.x, p.y).lineTo(c.x, c.y); // function edge (or rapid-redraw arg): solid
+          drew = true;
+        }
+        flush();
+      }
     }
     this.placeRootMark();
     this.placeSharedMarks();
