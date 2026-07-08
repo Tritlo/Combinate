@@ -375,36 +375,30 @@ function renderPicture(tree: Node, size: number): Container {
 
   const edges = new Graphics();
   // Edge color = depth TIER (red/black), width = fn (thicker) vs arg — the tricolor tree convention,
-  // sized down for the thumbnail. One color per stroke, so 4 strokes: {arg,fn} × {even,odd tier}.
-  const fn: Array<[number, number, number, number, number]> = [];
-  const arg: Array<[number, number, number, number, number]> = [];
+  // sized down for the thumbnail. Widths TAPER with the child's layout scale (deep-spine edges thin
+  // out exactly like the main tree, ADR 25's no-blob rule), so strokes are per-edge.
+  const sc = (id: NodeId): number => lay.scale?.get(id) ?? 1;
   const walk = (n: Node, depth: number): void => {
     if (n.kind !== "app") return;
     const p = at(n.id);
     const l = at(n.fn.id);
     const r = at(n.arg.id);
-    fn.push([p.x, p.y, l.x, l.y, depth]);
-    arg.push([p.x, p.y, r.x, r.y, depth]);
+    const color = edgeTierColor(depth % 2);
+    edges.moveTo(p.x, p.y).lineTo(r.x, r.y).stroke({ width: Math.max(0.3, 1 * sc(n.arg.id)), color, alpha: 0.85 });
+    edges.moveTo(p.x, p.y).lineTo(l.x, l.y).stroke({ width: Math.max(0.3, 1.4 * sc(n.fn.id)), color, alpha: 0.95 });
     walk(n.fn, depth + 1);
     walk(n.arg, depth + 1);
   };
   walk(tree, 0);
-  for (const parity of [0, 1]) {
-    for (const [x1, y1, x2, y2, d] of arg) if (d % 2 === parity) edges.moveTo(x1, y1).lineTo(x2, y2);
-    edges.stroke({ width: 1, color: edgeTierColor(parity), alpha: 0.85 });
-  }
-  for (const parity of [0, 1]) {
-    for (const [x1, y1, x2, y2, d] of fn) if (d % 2 === parity) edges.moveTo(x1, y1).lineTo(x2, y2);
-    edges.stroke({ width: 1.4, color: edgeTierColor(parity), alpha: 0.95 });
-  }
   c.addChild(edges);
 
   const dots = new Graphics();
   const drawDots = (n: Node): void => {
     const p = at(n.id);
-    if (n.kind === "iota") dots.circle(p.x, p.y, 3).fill(iotaDot(currentMode()));
-    else if (n.kind === "comb") dots.circle(p.x, p.y, 3).fill(theme.node);
-    else dots.circle(p.x, p.y, 2).fill(theme.mutedDot);
+    const k = Math.max(0.25, lay.scale?.get(n.id) ?? 1); // taper dots with their arm (floor keeps them visible at thumb size)
+    if (n.kind === "iota") dots.circle(p.x, p.y, 3 * k).fill(iotaDot(currentMode()));
+    else if (n.kind === "comb") dots.circle(p.x, p.y, 3 * k).fill(theme.node);
+    else dots.circle(p.x, p.y, 2 * k).fill(theme.mutedDot);
     if (n.kind === "app") {
       drawDots(n.fn);
       drawDots(n.arg);
