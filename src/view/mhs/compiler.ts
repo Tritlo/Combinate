@@ -30,7 +30,14 @@ type WorkerReply = {
   defs?: CombDef[];
   error?: string;
   stats?: RustStats | null;
+  phase?: string;
 };
+
+/** The panel's status console subscribes here; init/compile phase notes stream through it. */
+let progressListener: ((phase: string) => void) | null = null;
+export function onCompileProgress(fn: ((phase: string) => void) | null): void {
+  progressListener = fn;
+}
 
 type Pending = {
   resolve: (result: DumpResult) => void;
@@ -104,6 +111,10 @@ function compilerReady(): Promise<void> {
 
     worker.onmessage = (event: MessageEvent<WorkerReply>) => {
       const msg = event.data;
+      if (msg.status === "progress") {
+        progressListener?.(msg.phase ?? "working…"); // a phase note, not a settlement
+        return;
+      }
       if (msg.id === initId) {
         window.clearTimeout(initTimer);
         if (msg.status === "ready") {

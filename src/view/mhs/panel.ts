@@ -15,7 +15,7 @@ import type { Node } from "../../core/term";
 import type { Ty } from "../../core/types";
 import type { DumpResult } from "../../core/mhs";
 import { EXAMPLES, exprOf, type Example } from "./examples";
-import { exampleTree, liveCompile } from "./compiler";
+import { exampleTree, liveCompile, onCompileProgress } from "./compiler";
 import { highlightHaskell, HL_DARK, HL_LIGHT } from "./highlight";
 import { currentMode, onThemeChange, type Mode, ensureFont } from "../theme";
 
@@ -76,6 +76,27 @@ function injectStyles(): void {
   border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: mhs-spin 0.7s linear infinite; }
 @keyframes mhs-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .mhs-status.mhs-busy::before { animation: none; } }
+/* Output console: progress phases while a compile runs, the FULL error text when one fails.
+   Hidden until it has something to say; capped + scrollable so long errors never blow the card. */
+.mhs-out { display: none; flex: 0 0 auto; max-height: 132px; overflow-y: auto; margin: 0;
+  border: 1px solid var(--mhs-border); border-radius: 8px; background: var(--mhs-editorBg);
+  color: var(--mhs-muted); font-family: ${MONO}; font-size: 12px; line-height: 1.5; padding: 8px 10px;
+  white-space: pre-wrap; word-break: break-word; }
+.mhs-out.mhs-show { display: block; }
+.mhs-out .mhs-err { color: #cf222e; }
+/* Phones: the card fills the screen, the examples become a horizontal chip row above the
+   editor, and touch targets get taller. 100dvh keeps the bar reachable over the keyboard. */
+@media (max-width: 640px) {
+  .mhs-card { width: 100vw; height: 100dvh; border-radius: 0; border: 0; }
+  .mhs-body { flex-direction: column; }
+  .mhs-list { width: auto; flex: 0 0 auto; display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden;
+    border-right: 0; border-bottom: 1px solid var(--mhs-border); padding: 8px; }
+  .mhs-list-label { display: none; }
+  .mhs-row { flex: 0 0 auto; max-width: 190px; margin-bottom: 0; border: 1px solid var(--mhs-border); }
+  .mhs-row-blurb { display: none; }
+  .mhs-run { padding: 12px 16px; }
+  .mhs-out { max-height: 30dvh; }
+}
 `;
   const style = document.createElement("style");
   style.textContent = css;
@@ -87,8 +108,12 @@ export class MhsPanel {
   private readonly editor = document.createElement("textarea");
   private readonly pre = document.createElement("pre");
   private readonly status = document.createElement("div");
+  private readonly out = document.createElement("pre");
   private current: Example = EXAMPLES[0];
   private open_ = false;
+  private busySince = 0; // performance.now() when the running compile started (0 = idle)
+  private elapsedTimer = 0;
+  private busyPhase = "";
 
   /** @param onRun spawn a compiled tree, with the read-out lens to view it under and the
    *  source expression it compiled from (for the recorder title).
@@ -190,6 +215,9 @@ export class MhsPanel {
     wrap.appendChild(this.editor);
     right.appendChild(wrap);
 
+    this.out.className = "mhs-out";
+    right.appendChild(this.out);
+
     const bar = div("mhs-bar");
     const run = divText("mhs-run", "Compile & run ▶︎"); // trailing U+FE0E — ▶ is emoji-eligible, forces text presentation
     run.addEventListener("pointerdown", () => this.runEditor());
@@ -198,6 +226,14 @@ export class MhsPanel {
     bar.appendChild(this.status);
     right.appendChild(bar);
     body.appendChild(right);
+
+    // Stream the worker's init/compile phases into the console + status while a compile runs.
+    onCompileProgress((phase) => {
+      if (!this.busySince) return;
+      this.busyPhase = phase;
+      this.pushOut(phase);
+      this.paintBusy();
+    });
 
     card.appendChild(body);
     this.root.appendChild(card);
@@ -225,7 +261,7 @@ export class MhsPanel {
     this.editor.value = ex.source.trimEnd();
     this.updateHighlight();
     if (!run) return;
-    this.setStatus(`compiling ${ex.title}…`, "accent", true);
+    this.beginBusy(`compiling ${ex.title}…`);
     try {
       // Fast path: the vendored pre-compiled closure. If it isn't vendored (e.g. a newer
       // example on the deployed site), fall back to compiling it live through the Rust worker.
@@ -233,39 +269,82 @@ export class MhsPanel {
       try {
         res = await exampleTree(ex.name);
       } catch {
-        this.setStatus(`compiling ${ex.title} live in-browser — this takes ~30s…`, "accent", true);
+        this.busyPhase = `compiling ${ex.title} live in-browser…`;
+        this.pushOut("no vendored closure — compiling live through the Rust worker");
         res = await liveCompile(ex.source);
       }
-      if ("error" in res) {
-        this.setStatus(res.error, "#cf222e");
-        return;
-      }
+      if ("error" in res) return this.showError(res.error);
       this.onRun(res.tree, ex.read, exprOf(ex.source));
-      this.setStatus(`compiled ${ex.title} — watch it reduce`, "#1a7f37");
+      this.endBusy(`compiled ${ex.title} — watch it reduce`, "#1a7f37");
       this.close();
     } catch (e) {
-      this.setStatus((e as Error).message, "#cf222e");
+      this.showError((e as Error).message);
     }
   }
 
   /** Compile whatever is in the editor. If it's the unchanged example source, use
    *  the fast pre-compiled closure; otherwise compile live through the Rust worker. */
   private async runEditor(): Promise<void> {
+    if (this.busySince) return; // one compile at a time — the worker is a single warm instance
     const src = this.editor.value;
     if (src.trim() === this.current.source.trim()) return this.loadExample(this.current);
-    this.setStatus("compiling live in-browser — this takes ~30s…", "accent", true);
+    this.beginBusy("compiling live in-browser…");
     try {
       const res = await liveCompile(src);
-      if ("error" in res) {
-        this.setStatus(res.error, "#cf222e");
-        return;
-      }
+      if ("error" in res) return this.showError(res.error);
       this.onRun(res.tree, null, exprOf(src));
-      this.setStatus("compiled — watch it reduce", "#1a7f37");
+      this.endBusy("compiled — watch it reduce", "#1a7f37");
       this.close();
     } catch (e) {
-      this.setStatus(`live compile: ${(e as Error).message}. Pick an example to compile offline.`, "#cf222e");
+      this.showError(`${(e as Error).message}\n\nPick an example for the instant pre-compiled path.`);
     }
+  }
+
+  // ---- busy lifecycle: status spinner + elapsed clock + the output console ----
+
+  /** Enter the busy state: clear the console, start the elapsed clock, spin the status. */
+  private beginBusy(phase: string): void {
+    this.busySince = performance.now();
+    this.busyPhase = phase;
+    this.out.textContent = "";
+    this.out.classList.add("mhs-show");
+    this.pushOut(phase);
+    this.paintBusy();
+    this.elapsedTimer = window.setInterval(() => this.paintBusy(), 1000);
+  }
+
+  /** Leave the busy state with a final status line (the console keeps its log). */
+  private endBusy(msg: string, color: string): void {
+    window.clearInterval(this.elapsedTimer);
+    this.busySince = 0;
+    this.setStatus(msg, color);
+  }
+
+  /** Compile failure: full message into the console (scrollable), short status line. */
+  private showError(message: string): void {
+    const secs = this.busySince ? ` after ${Math.round((performance.now() - this.busySince) / 1000)}s` : "";
+    this.endBusy(`compile failed${secs} — details below`, "#cf222e");
+    const line = document.createElement("span");
+    line.className = "mhs-err";
+    line.textContent = message.trimEnd();
+    this.out.appendChild(line);
+    this.out.appendChild(document.createTextNode("\n"));
+    this.out.classList.add("mhs-show");
+    this.out.scrollTop = this.out.scrollHeight;
+  }
+
+  /** Append a timestamped progress line to the console. */
+  private pushOut(text: string): void {
+    const secs = this.busySince ? `[${Math.round((performance.now() - this.busySince) / 1000).toString().padStart(3)}s] ` : "";
+    this.out.appendChild(document.createTextNode(`${secs}${text}\n`));
+    this.out.scrollTop = this.out.scrollHeight;
+  }
+
+  /** Repaint the busy status line with the current phase + elapsed seconds. */
+  private paintBusy(): void {
+    if (!this.busySince) return;
+    const secs = Math.round((performance.now() - this.busySince) / 1000);
+    this.setStatus(`${this.busyPhase} ${secs}s`, "accent", true);
   }
 
   /** Set the status line. `color` is a literal hex, or a palette key (muted/accent). */
