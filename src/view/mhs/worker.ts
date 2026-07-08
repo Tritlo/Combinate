@@ -113,17 +113,25 @@ async function init(msg: InitMessage): Promise<void> {
     const files: Record<string, Uint8Array> = {};
     const packages = (manifest.packages ?? []).map((p) => p.vfs);
 
-    for (const [distRel, vfsPath] of Object.entries(manifest.includeFiles)) {
-      files[vfsPath] = new Uint8Array(await fetchBytes(new URL(distRel, msg.baseUrl).href));
-    }
-    for (const p of manifest.packages ?? []) {
-      files[p.vfs] = new Uint8Array(await fetchBytes(new URL(p.dist, msg.baseUrl).href));
-    }
+    // Fetch every VFS file (247 lib sources + base.pkg) plus the wasm/comb IN PARALLEL.
+    // Sequential awaits made warming crawl on a real network — 247 round-trips one at a
+    // time; the browser still caps its own connection concurrency (HTTP/2 multiplexes).
+    const vfsFiles = [
+      ...Object.entries(manifest.includeFiles).map(([distRel, vfs]) => ({ vfs, distRel })),
+      ...(manifest.packages ?? []).map((p) => ({ vfs: p.vfs, distRel: p.dist })),
+    ];
+    const filesReady = Promise.all(
+      vfsFiles.map(async ({ vfs, distRel }) => {
+        files[vfs] = new Uint8Array(await fetchBytes(new URL(distRel, msg.baseUrl).href));
+      }),
+    );
+    const [wasm, comb] = await Promise.all([fetchBytes(msg.wasmUrl), fetchBytes(msg.combUrl)]);
+    await filesReady;
 
     compiler?.close();
     compiler = await mod.createCompiler({
-      wasm: await fetchBytes(msg.wasmUrl),
-      comb: await fetchBytes(msg.combUrl),
+      wasm,
+      comb,
       files,
       packages,
       onPoll: () => active !== null && performance.now() >= active.deadline,

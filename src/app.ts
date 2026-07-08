@@ -1598,9 +1598,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   void loadRecordDriver(); // but their weight stays out of the main chunk's first paint
   onStep("lenses"); // splash step 3/4
 
-  // Warm the MicroHs live-compile blob + cache (the 3 MB compiler), so the Haskell
-  // panel is ready and its first compile doesn't pay the download. Best-effort.
-  await preloadCompiler();
+  // Warm the MicroHs live-compile runtime in the BACKGROUND (like the reducer / 3D /
+  // record warmers above) — the Haskell panel's first compile then skips the ~3 MB
+  // download, but the app stays interactive instead of blocking boot on it. Best-effort.
+  void preloadCompiler();
   onStep("compiler"); // splash step 4/4
 
   // First launch: open the Help window once (then never auto-open again — it stays in the ι menu).
