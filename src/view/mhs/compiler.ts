@@ -1,17 +1,17 @@
 /**
  * The compile surface for the Haskell panel (ADR 0007, post-process approach).
- * Two paths, both ending in a `core/mhs.ts` post-processor:
+ * Both paths end in `core/mhs.ts`'s `combinatorsToTree` over a `toCombinators`
+ * JSON closure (`{ root, defs }`):
  *
  *  - **gallery** (always available): fetch a curated example's pre-compiled,
- *    pruned combinator dump (a vendored asset) → `dumpToTree` (text). No wasm.
+ *    pruned closure (a vendored JSON asset). No wasm — the instant path.
  *  - **live**: the Rust MicroHs web dist under `public/vendor/mhs/`. A single
  *    module worker owns one warm runtime instance and reuses it across compiles;
  *    the main thread resolves base-aware asset URLs, forwards init/compile, and
- *    turns the worker's `toCombinators` JSON closure into a tree via
- *    `combinatorsToTree`. Gated on the vendored dist (built by
- *    `scripts/build-mhs-rust.sh`).
+ *    runs the worker's closure through `combinatorsToTree`. Gated on the vendored
+ *    dist (built by `scripts/build-mhs-rust.sh`).
  */
-import { dumpToTree, combinatorsToTree, type CombDef, type DumpResult } from "../../core/mhs";
+import { combinatorsToTree, type CombDef, type DumpResult } from "../../core/mhs";
 import { vendorUrl } from "../../vendorUrl";
 
 type RustStats = {
@@ -38,20 +38,18 @@ type Pending = {
   hardTimer: number;
 };
 
-const exampleUrl = (name: string): string => vendorUrl(`vendor/mhs/examples/${name}.comb`);
+const exampleUrl = (name: string): string => vendorUrl(`vendor/mhs/examples/${name}.json`);
 const distBaseUrl = (): string => vendorUrl("vendor/mhs/");
 const distUrl = (name: string): string => vendorUrl(`vendor/mhs/${name}`);
 
-/** Fetch a curated example's pre-compiled (pruned) combinator dump. */
-export async function exampleDump(name: string): Promise<string> {
+/** Fetch a curated example's pre-compiled (pruned) combinator closure and post-
+ *  process it to a spawnable ι tree (or a reject reason) — the gallery's instant
+ *  path. Throws if the asset isn't vendored (the caller falls back to live compile). */
+export async function exampleTree(name: string): Promise<DumpResult> {
   const r = await fetch(exampleUrl(name));
   if (!r.ok) throw new Error(`example '${name}' not vendored — run scripts/gen-mhs-examples.ts`);
-  return r.text();
-}
-
-/** Post-process a dump into a spawnable ι tree (or a reject reason). Pure. */
-export function toTree(dump: string, root: string): DumpResult {
-  return dumpToTree(dump, root);
+  const { root, defs } = (await r.json()) as { root: string; defs: CombDef[] };
+  return combinatorsToTree(defs, root);
 }
 
 /** Warm the Rust compiler worker during the boot splash (dynamic-import the

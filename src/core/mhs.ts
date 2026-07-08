@@ -1,32 +1,31 @@
 /**
- * MicroHs `-ddump-combinator` → Combinate tree, by **post-processing a stock
- * dump** (ADR 0007). No MicroHs fork: stock `gmhs` (build-time) or the stock web
- * blob (live) emits a parenthesised-prefix combinator program over the fixed basis
+ * MicroHs `toCombinators` closure → Combinate tree, by **post-processing a stock
+ * compile** (ADR 0007). No MicroHs fork: the stock Rust MicroHs, given an entry
+ * value (the `--entry` flag), returns that value's *pruned, rooted* combinator
+ * closure as structured JSON — an ordered `[{name, body}]` over the fixed basis
  * `S K I B C A U Z P R O S' B' C' C'B K2 K3 K4 J Y`, plus *primitive* leaves
- * (machine literals `#n`, packed strings `"…"`, and `Primitives.primIntAdd`-style
- * arithmetic / comparison / IO / FFI). This module rewrites that dump into pure ι:
+ * (`{int}` / `{char}` / `{string}` literals and short `{prim}` tokens for
+ * arithmetic / comparison / IO / FFI). This module rewrites that closure into pure ι:
  *
- *   dump ──parse──► named defs
- *        ──inline (from a root, Y-wrapping self-recursion)──► one term
+ *   closure ──resolve refs from the root (shared DAG, Y-wrapping self-recursion)──►
  *        ──substitute──► a Combinate tree, where
- *            #n          → the Scott numeral  Succ^n Z   (a Char is its ASCII #n)
- *            "abc"       → the Scott list of its char codes
- *            primIntAdd… → the matching Scott combinator (catalog `(+)`, `(<)`, …)
- *            primChr/Ord → identity  (Char ≡ Int)
- *            S K I B C … → the basis combinator, expanded to its SKI definition
- *            anything else (Double/Float/IO/FFI/bitwise/negate, mutual recursion)
+ *            {int:n}     → the Scott numeral  Succ^n Z   (a Char is its code point)
+ *            {string:s}  → the Scott list of its char codes
+ *            {prim:"+"}… → the matching Scott combinator (catalog `(+)`, `(<)`, …)
+ *            {prim:"S"}… → the basis combinator, expanded to its SKI definition
+ *            anything else (Double / Float / IO / FFI / bignum, mutual recursion)
  *                        → an inert `primitive:…` sentinel
  *
  * The substituted Scott combinators come straight from the catalog, so the tree
  * loads via the normal spawn path and reduces (and, in optimize mode, reduces by
  * each combinator's rule — essential, since a Char `'A'` is 65 nested `Succ`s).
  *
- * Rejection is **by reachability, not by text**: a stock dump mentions primitives
- * we can't encode (e.g. `primIntNeg` sits in every `Num` dictionary) even when the
- * program never uses them, so we substitute a sentinel and reject only if one
- * *survives reduction* — i.e. the program actually forces it.
+ * Rejection is **by reachability, not by text**: a closure mentions primitives we
+ * can't encode (e.g. `neg` sits in every `Num` dictionary) even when the program
+ * never uses them, so we substitute a sentinel and reject only if one *survives
+ * reduction* — i.e. the program actually forces it.
  *
- * Pure: no Pixi / DOM / wasm. The wasm blob that produces the dump lives in the
+ * Pure: no Pixi / DOM / wasm. The wasm blob that produces the closure lives in the
  * Worker adapter (`../view/mhs/`).
  */
 
@@ -43,9 +42,10 @@ const lf = (s: string): Tm => ({ tag: "lf", s });
 const ap = (a: Tm, b: Tm): Tm => ({ tag: "ap", a, b });
 
 // ---------------------------------------------------------------------------
-// Tokenizer + parser for the -ddump-combinator format (fully-parenthesised,
-// left-associative applications; quoted string literals are single atoms; `#n`
-// literals, `Primitives.x`, `inst$…@…` and operator names are ordinary atoms).
+// Tokenizer + parser for parenthesised, left-associative combinator expressions.
+// The one consumer is `expandSki`, parsing each basis combinator's `ALGEBRA`
+// S/K/I definition string (e.g. `B = "S (K S) K"`). The quoted-string / `#n` atom
+// cases are inert leftovers (the basis definitions contain neither).
 
 type Tok = { t: "lp" } | { t: "rp" } | { t: "atom"; s: string };
 
@@ -120,89 +120,6 @@ class Parser {
   }
 }
 
-/**
- * Split a dump into an *ordered* map of `name → raw-RHS-string`. Blank lines are
- * dropped and continuation lines (the pretty-printer wraps wide terms onto
- * indented lines) are joined onto their definition.
- *
- * The RHS is **not** parsed here — `inline` parses each reached def lazily. A
- * full-Prelude dump has thousands of defs whose higher-kinded instance *names*
- * carry parens inside the identifier (e.g. `inst$…Functor@(Primitives.->@a)`),
- * which the simple fully-parenthesised application grammar can't tokenise. A
- * first-order arithmetic / list / char program never reaches those, so parsing
- * lazily from the root both sidesteps them and skips ~3500 needless parses.
- */
-export function parseDump(dump: string): Map<string, string> {
-  const raw = dump.split("\n").filter((l) => l.trim() !== "");
-  // Join continuation lines (start with whitespace) onto the preceding def.
-  const lines: string[] = [];
-  for (const l of raw) {
-    if (/^\s/.test(l) && lines.length > 0) lines[lines.length - 1] += " " + l.trim();
-    else lines.push(l.trim());
-  }
-  const defs = new Map<string, string>();
-  for (const line of lines) {
-    const eq = line.indexOf(" = ");
-    if (eq < 0) continue; // skip non-def lines (e.g. gmhs's "combinators:" header)
-    defs.set(line.slice(0, eq).trim(), line.slice(eq + 3));
-  }
-  return defs;
-}
-
-/** Parse one raw RHS string into a parse tree. */
-const parseRhs = (rhs: string): Tm => new Parser(tokenize(rhs)).apps();
-
-// ---------------------------------------------------------------------------
-// Inlining references from a root into a single term.
-
-function occurs(x: string, t: Tm): boolean {
-  return t.tag === "lf" ? t.s === x : occurs(x, t.a) || occurs(x, t.b);
-}
-
-/** Naive bracket abstraction `\x. t` over a leaf variable. */
-function absTm(x: string, t: Tm): Tm {
-  if (t.tag === "lf") return t.s === x ? lf("I") : ap(lf("K"), t);
-  return ap(ap(lf("S"), absTm(x, t.a)), absTm(x, t.b));
-}
-
-/**
- * Inline top-level references reachable from `root` into one finite term — as a
- * **DAG**: each def is inlined exactly once and *shared* at every reference, so a
- * dictionary referenced N times (the `Num`/`Ord` dicts are referenced heavily,
- * recursively) doesn't blow the result up exponentially. Normal-order reduction
- * later clones only the live duplicates (and never touches dead dictionary
- * fields), so sharing the build is safe.
- *
- * MicroHs leaves top-level recursion as self-referential defs (`f = …f…`); each
- * is rewritten into a finite `Y (\f. body)`. A mutual cycle is left as a
- * `<rec:name>` marker (rejected downstream). Defs are parsed lazily — only the
- * ones actually reached — so the multi-thousand-def Prelude isn't materialised.
- */
-function inline(defs: Map<string, string>, root: string): Tm {
-  const memo = new Map<string, Tm>(); // name → its fully-inlined sub-DAG (shared)
-  const inProgress = new Set<string>();
-  const resolve = (name: string): Tm => {
-    const cached = memo.get(name);
-    if (cached) return cached;
-    // The primitive layer is opaque: `Primitives.primIntMul` etc. are themselves
-    // defs aliasing a raw FFI op (`*`), so resolving through them would bury the
-    // op we substitute on. Stop here and let `toNode` map/reject the named prim.
-    if (name.startsWith("Primitives.")) return lf(name);
-    const rhs = defs.get(name);
-    if (rhs === undefined) return lf(name); // a leaf: basis / primitive / literal
-    if (inProgress.has(name)) return lf(`<rec:${name}>`); // mutual cycle
-    inProgress.add(name);
-    const body = parseRhs(rhs);
-    const wrapped = occurs(name, body) ? ap(lf("Y"), absTm(name, body)) : body;
-    const out = subst(wrapped);
-    inProgress.delete(name);
-    memo.set(name, out);
-    return out;
-  };
-  const subst = (t: Tm): Tm => (t.tag === "ap" ? ap(subst(t.a), subst(t.b)) : resolve(t.s));
-  return resolve(root);
-}
-
 // ---------------------------------------------------------------------------
 // The basis: each combinator's arity, S/K/I definition, and the Combinate
 // catalog symbol it displays as (chosen so a same-meaning bird reduces correctly
@@ -266,54 +183,8 @@ function basisNode(name: string): Node {
 }
 
 // ---------------------------------------------------------------------------
-// Substituting MicroHs primitives → catalog Scott combinators. Char ≡ Int (a
-// Char is its ASCII numeral), so every char op maps to its Int counterpart.
-
-/** Supported primitive operations → the catalog combinator that computes them. */
-const PRIM_OP: Record<string, string> = {
-  "Primitives.primIntAdd": "(+)",
-  "Primitives.primIntSub": "(-)", // truncated subtraction (monus) — naturals only
-  "Primitives.primIntMul": "(*)",
-  "Primitives.primIntEQ": "(==)",
-  "Primitives.primIntNE": "(/=)",
-  "Primitives.primIntLT": "(<)",
-  "Primitives.primIntLE": "(<=)",
-  "Primitives.primIntGT": "(>)",
-  "Primitives.primIntGE": "(>=)",
-  "Primitives.primIntCompare": "compare",
-  "Primitives.primCharEQ": "(==)",
-  "Primitives.primCharNE": "(/=)",
-  "Primitives.primCharLT": "(<)",
-  "Primitives.primCharLE": "(<=)",
-  "Primitives.primCharGT": "(>)",
-  "Primitives.primCharGE": "(>=)",
-  "Primitives.primCharCompare": "compare",
-};
-
-/** Primitives that are the identity on our representation (Char ≡ Int, and an
- *  `Int` literal is already the Scott numeral we substitute for it). */
-const PRIM_ID = new Set(["Primitives.primChr", "Primitives.primOrd", "Data.Integer_Type._integerToInt"]);
-
-/** Decode a MicroHs string-literal atom (`"…"`, with \-escapes) to its text. */
-function unescape(atom: string): string {
-  const body = atom.slice(1, -1);
-  try {
-    return JSON.parse('"' + body.replace(/\\(?!["\\/bfnrtu])/g, "\\\\") + '"');
-  } catch {
-    return body.replace(/\\n/g, "\n").replace(/\\t/g, "\t").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-  }
-}
-
-/** A Haskell `String` literal as the Scott list of its char codes (`[Char] = [Nat]`). */
-function scottString(atom: string): Node {
-  const s = unescape(atom);
-  let list = named("K"); // nil
-  for (let i = s.length - 1; i >= 0; i--) list = app(app(named("cons"), natTree(s.charCodeAt(i))), list);
-  return list;
-}
-
-// ---------------------------------------------------------------------------
-// Term → Combinate tree.
+// Term → Combinate tree: primitive sentinels + reachability rejection (shared by
+// the `combinatorsToTree` JSON converter below).
 
 /** An inert sentinel for a leaf with no ι form: a `comb` with no def never
  *  reduces, so it stays in the normal form iff the program actually forces it. */
@@ -322,30 +193,6 @@ const sentinel = (s: string, sink: Set<string>): Node => {
   sink.add(s);
   return comb(PRIM_SENTINEL + s);
 };
-
-/** Convert the inlined DAG to a Combinate-node DAG, substituting primitives.
- *  Memoised on the `Tm` object so a shared sub-DAG becomes a shared sub-tree (the
- *  reducer clones live duplicates as it goes), keeping the build bounded. */
-function toNode(t: Tm, sink: Set<string>, memo: Map<Tm, Node>): Node {
-  const hit = memo.get(t);
-  if (hit) return hit;
-  let out: Node;
-  if (t.tag === "ap") {
-    out = app(toNode(t.a, sink, memo), toNode(t.b, sink, memo));
-  } else {
-    const s = t.s;
-    if (s[0] === "#") {
-      const k = parseInt(s.slice(1), 10);
-      out = !Number.isFinite(k) || k < 0 ? sentinel(s, sink) : natTree(k); // naturals only: no negatives
-    } else if (s[0] === '"') out = scottString(s);
-    else if (PRIM_OP[s]) out = named(PRIM_OP[s]);
-    else if (PRIM_ID.has(s)) out = named("I");
-    else if (isBasis(s)) out = basisNode(s);
-    else out = sentinel(s, sink); // primitive / FFI / IO / Float / mutual recursion
-  }
-  memo.set(t, out);
-  return out;
-}
 
 /** Scan a (reduced) term for surviving primitive sentinels — the primitives the
  *  program actually forces, the genuine ι wall. */
@@ -374,33 +221,6 @@ export type DumpResult = { tree: Node } | { error: string };
 
 const CHECK_STEPS = 6000; // reduction budget for the reachability/reject probe
 const CHECK_SIZE = 8000; // tree-size guard: a program that blows past this is left to the shell
-
-/**
- * Turn a stock `-ddump-combinator` dump into a Combinate tree, inlining from
- * `root` (default: the last definition in the dump) and substituting primitives.
- * Returns `{ error }` if the program *forces* a primitive with no ι form (checked
- * by reducing and looking for surviving sentinels), or the root is missing.
- */
-export function dumpToTree(dump: string, root?: string): DumpResult {
-  let defs: Map<string, string>;
-  try {
-    defs = parseDump(dump);
-  } catch (e) {
-    return { error: (e as Error).message };
-  }
-  if (defs.size === 0) return { error: "mhs: empty dump (no definitions)" };
-  const r = root ?? [...defs.keys()][defs.size - 1];
-  if (!defs.has(r)) return { error: `mhs: no top-level definition '${r}' in the dump` };
-
-  const sink = new Set<string>();
-  let tree: Node;
-  try {
-    tree = toNode(inline(defs, r), sink, new Map());
-  } catch (e) {
-    return { error: (e as Error).message };
-  }
-  return rejectForcedSentinels(tree, sink);
-}
 
 /**
  * Reject by reachability: reduce (optimize mode) and see which sentinels remain.
@@ -434,11 +254,11 @@ function rejectForcedSentinels(tree: Node, sink: Set<string>): DumpResult {
 }
 
 // ---------------------------------------------------------------------------
-// `toCombinators` (`--entry`) JSON → tree. Upstream now compiles a main-less value
-// module cleanly and returns the entry's *pruned, rooted* combinator closure as
-// structured JSON (see rust/microhs-runtime/docs/javascript-ffi.md), replacing the
-// scrape-a-failed-text-dump path. Same primitive substitution + reachability
-// rejection; the text `dumpToTree` above stays only for the (still text) gallery.
+// `toCombinators` (`--entry`) JSON closure → tree — the one compile path (both the
+// live worker and the vendored gallery). MicroHs compiles a main-less value module
+// and returns the entry's *pruned, rooted* combinator closure as structured JSON
+// (see rust/microhs-runtime/docs/javascript-ffi.md). Primitive substitution and
+// reachability rejection reuse the basis / sentinel machinery above.
 
 /** A JSON combinator expression from `--entry`. `lam` never appears in compiled
  *  output (defs are bracket-abstracted, recursion pre-`Y`'d) but is in the schema. */

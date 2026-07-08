@@ -1,84 +1,73 @@
 /**
  * Build-time gallery generator (ADR 0007, post-process approach). For each curated
- * example: compile with stock `gmhs -ddump-combinator`, prune the dump to just the
- * defs reachable from the root, post-process + bounded-reduce to sanity-check, and
- * write the pruned `.comb` to public/vendor/mhs/examples/ (git-ignored, vendored).
+ * example: compile with the **Rust MicroHs dist**'s `toCombinators` (the `--entry`
+ * flag — a pruned, rooted JSON closure), sanity-check it post-processes and reduces
+ * to the expected value, and write the closure (`{ root, defs }`) to
+ * public/vendor/mhs/examples/<name>.json (git-ignored, vendored). The in-browser
+ * gallery fetches these and runs them with no compile — the instant "click an
+ * example" path.
  *
- *   MHS=../MicroHs npx tsx scripts/gen-mhs-examples.ts
+ *   scripts/build-mhs-rust.sh && npx tsx scripts/gen-mhs-examples.ts
  *
- * Needs the stock MicroHs build (`$MHS/bin/gmhs`). The pruned dumps are the
- * gallery assets the in-browser panel fetches and runs with no wasm.
+ * Needs the built dist under public/vendor/mhs/ (compiler.mjs, wasm, comb, base.pkg,
+ * lib). No gmhs / GHC — the same Rust runtime the browser uses.
  */
-import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type Node } from "../src/core/term";
-import { dumpToTree, parseDump } from "../src/core/mhs";
-import { step } from "../src/core/reduce";
-import { read, render, type Ty } from "../src/core/types";
+import { pathToFileURL } from "node:url";
+import { combinatorsToTree, type CombDef } from "../src/core/mhs";
+import { normalize } from "../src/core/reduce";
+import { read, render } from "../src/core/types";
 import { EXAMPLES } from "../src/view/mhs/examples";
 
-const MHS = process.env.MHS ?? "../MicroHs";
-const GMHS = join(MHS, "bin/gmhs");
-const OUT = "public/vendor/mhs/examples";
-mkdirSync(OUT, { recursive: true });
+const DIST = "public/vendor/mhs";
+const OUT = join(DIST, "examples");
+await mkdir(OUT, { recursive: true });
 
-/** Prune a dump to the defs transitively reachable from `root` (keeps it tiny). */
-function prune(dump: string, root: string): string {
-  const defs = parseDump(dump);
-  const nameRe = /[^\s()]+/g;
-  const keep = new Set<string>();
-  const visit = (name: string): void => {
-    if (keep.has(name) || !defs.has(name)) return;
-    keep.add(name);
-    if (name.startsWith("Primitives.")) return;
-    for (const m of defs.get(name)!.match(nameRe) ?? []) visit(m);
-  };
-  visit(root);
-  return [...keep].filter((n) => defs.has(n)).map((n) => `${n} = ${defs.get(n)}`).join("\n") + "\n";
-}
+type Manifest = { includeFiles: Record<string, string>; packages?: { dist: string; vfs: string }[] };
+type Combinators = { status: string; root: string; defs: CombDef[]; error: string };
+type Compiler = { toCombinators(src: string, entry: string, opts?: { module?: string }): Combinators; close(): void };
 
-const exceeds = (n: Node, max: number): boolean => {
-  let c = 0;
-  const go = (m: Node): boolean => (++c > max ? true : m.kind === "app" && (go(m.fn) || go(m.arg)));
-  return go(n);
+const manifest = JSON.parse(await readFile(join(DIST, "manifest.json"), "utf8")) as Manifest;
+const { createCompiler } = (await import(pathToFileURL(join(DIST, "compiler.mjs")).href)) as {
+  createCompiler(input: unknown): Promise<Compiler>;
 };
-const reduceTo = (n: Node, hint: Ty): string => {
-  let cur = n;
-  for (let i = 0; i < 120000; i++) {
-    if (i % 128 === 0 && exceeds(cur, 90000)) return "<blow-up: too big to reduce without sharing>";
-    const nx = step(cur, true);
-    if (!nx) break;
-    cur = nx;
-  }
-  const v = read(cur, hint);
-  return v ? render(v) : "<no value>";
-};
+
+const files: Record<string, Uint8Array> = {};
+for (const [rel, vfs] of Object.entries(manifest.includeFiles)) files[vfs] = await readFile(join(DIST, rel));
+for (const p of manifest.packages ?? []) files[p.vfs] = await readFile(join(DIST, p.dist));
+
+const compiler = await createCompiler({
+  wasm: await readFile(join(DIST, "microhs_runtime.wasm")),
+  comb: await readFile(join(DIST, "mhs.comb")),
+  files,
+  packages: (manifest.packages ?? []).map((p) => p.vfs),
+});
+
+let failed = 0;
 for (const ex of EXAMPLES) {
-  const dir = mkdtempSync(join(tmpdir(), "mhsex-"));
-  writeFileSync(join(dir, "Ex.hs"), ex.source);
-  // gmhs prints the combinator dump to stdout, then errors out trying to link a
-  // library module with no `main` — so the dump is in the throw's `stdout`.
-  let dump: string;
-  try {
-    dump = execFileSync(GMHS, ["-ilib", `-i${dir}`, "-ddump-combinator", "Ex"], { cwd: MHS, encoding: "utf8", maxBuffer: 1 << 28 });
-  } catch (e) {
-    const out = (e as { stdout?: string }).stdout;
-    if (!out || !out.includes(" = ")) {
-      console.log(`✗ ${ex.name}: gmhs failed — ${(e as Error).message.split("\n")[0]}`);
-      continue;
-    }
-    dump = out;
-  }
-  const pruned = prune(dump, ex.root);
-  const res = dumpToTree(pruned, ex.root);
-  if (!("tree" in res)) {
-    console.log(`✗ ${ex.name}: rejected — ${res.error}`);
+  const t0 = Date.now();
+  const r = compiler.toCombinators(ex.source, "out", { module: "Ex" });
+  if (r.status !== "ok") {
+    console.log(`✗ ${ex.name}: toCombinators ${r.status} — ${r.error}`);
+    failed++;
     continue;
   }
-  const t0 = Date.now();
-  const value = reduceTo(res.tree, ex.read);
-  writeFileSync(join(OUT, `${ex.name}.comb`), pruned);
-  console.log(`✓ ${ex.name}: ${pruned.split("\n").length - 1} defs, ${(pruned.length / 1024).toFixed(1)}KB, value=${value} (${Date.now() - t0}ms)`);
+  const res = combinatorsToTree(r.defs, r.root);
+  if ("error" in res) {
+    console.log(`✗ ${ex.name}: rejected — ${res.error}`);
+    failed++;
+    continue;
+  }
+  const nf = normalize(res.tree, 3_000_000, true, undefined, 400_000);
+  const v = read(nf.term, ex.read);
+  const value = v ? render(v) : "<no value>";
+  const json = JSON.stringify({ root: r.root, defs: r.defs });
+  await writeFile(join(OUT, `${ex.name}.json`), json);
+  console.log(`✓ ${ex.name}: ${r.defs.length} defs, ${(json.length / 1024).toFixed(1)}KB, value=${value} (${Date.now() - t0}ms)`);
+}
+compiler.close();
+if (failed > 0) {
+  console.error(`\n${failed} example(s) failed`);
+  process.exit(1);
 }
