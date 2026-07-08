@@ -16,4 +16,8 @@ body {
 canvas {
   display: block;
   touch-action: none;
+  /* iOS: a held finger must not summon the text-select/callout UI over the canvas. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }

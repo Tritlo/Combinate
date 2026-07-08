@@ -584,21 +584,17 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     () => paintRail(),
   );
 
-  // Touch long-press = right-click (no `rightdown` on a touch screen): a touch that grabs a tree
-  // and then stays put opens the node context menu instead. The grab is released (the tree stays
-  // where it is, still frozen from the grab, so node ids are stable under the open menu).
-  const HOLD_MS = 500;
-  const HOLD_SLOP = 10; // CSS px of finger jitter allowed before the hold reads as a drag
-  let hold: { tree: TreeView; x: number; y: number; timer: number } | null = null;
-  function cancelHold(): void {
-    if (hold) window.clearTimeout(hold.timer);
-    hold = null;
-  }
+  // Touch double-tap = right-click (no `rightdown` on a touch screen, and a long-press can't be
+  // the trigger — iOS owns that gesture for its text-select/callout UI). Two quick taps on the
+  // same tree open the node menu: tap 1 grabs as usual (which also freezes the tree, so node ids
+  // are stable under the open menu); tap 2 releases that grab in place and opens the menu.
+  const DOUBLE_TAP_MS = 300;
+  const DOUBLE_TAP_SLOP = 30; // px between the two taps (finger-sized)
+  let lastTap: { tree: TreeView; x: number; y: number; at: number } | null = null;
 
   function onTreeDown(tree: TreeView, e: FederatedPointerEvent): void {
     if (e.button !== 0) return; // left-drag only; right-click is handled separately
     e.stopPropagation();
-    cancelHold();
     // An armed authoring mode consumes the click on a picked node instead of dragging.
     if (authorMode) {
       const id = tree.pickNode(e.global);
@@ -607,6 +603,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       paintRail();
       return;
     }
+    if (maybeDoubleTapMenu(e)) return;
     if (drag.carrying()) return commitDrop(tree); // already carrying → this click drops it onto this tree (apply)
     focus = tree;
     reduce.cancel(tree); // touching a tree freezes it (§6.4)
@@ -614,22 +611,27 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     world.addChild(tree.container); // bring to front
     tree.container.eventMode = "none"; // passive while carried, so the next click reaches what's underneath
     drag.grab(tree, e.global.x, e.global.y);
-    if (e.pointerType === "touch") {
-      const x = e.global.x;
-      const y = e.global.y;
-      hold = {
-        tree,
-        x,
-        y,
-        timer: window.setTimeout(() => {
-          hold = null;
-          drag.cancel(); // release the grab (clears the snap ghost); the tree stays put
-          tree.container.eventMode = "static"; // restore interactivity (the grab made it passive)
-          navigator.vibrate?.(15); // a small haptic "click" where supported
-          openNodeMenu(tree, x, y);
-        }, HOLD_MS),
-      };
+    // Only a tap that GRABBED this tree arms the double-tap — a drop-tap while carrying another
+    // tree must not (its second tap would apply-then-menu, two surprises at once).
+    lastTap = e.pointerType === "touch" ? { tree, x: e.global.x, y: e.global.y, at: performance.now() } : null;
+  }
+
+  /** Tap 2 of a touch double-tap: release the carried tree in place and open its node menu.
+   *  Called from BOTH tree and stage pointerdown — tap 1's grab makes the tree passive
+   *  (`eventMode: "none"`), so tap 2 usually lands on the stage, not the tree. */
+  function maybeDoubleTapMenu(e: FederatedPointerEvent): boolean {
+    if (e.pointerType !== "touch" || !lastTap) return false;
+    if (performance.now() - lastTap.at >= DOUBLE_TAP_MS) return false;
+    if (Math.hypot(e.global.x - lastTap.x, e.global.y - lastTap.y) >= DOUBLE_TAP_SLOP) return false;
+    const tree = lastTap.tree;
+    lastTap = null;
+    if (drag.carrying()) {
+      drag.cancel(); // release tap 1's grab in place (clears the snap ghost)
+      tree.container.eventMode = "static"; // restore interactivity (the grab made it passive)
     }
+    navigator.vibrate?.(15); // a small haptic "click" where supported
+    openNodeMenu(tree, e.global.x, e.global.y);
+    return true;
   }
 
   // Right-click a node to open a Delete/Copy menu on its subtree (the deepest node under the cursor).
@@ -638,7 +640,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     openNodeMenu(tree, e.global.x, e.global.y);
   }
 
-  /** Open the node context menu at screen (sx,sy) on the deepest node there (right-click / long-press). */
+  /** Open the node context menu at screen (sx,sy) on the deepest node there (right-click / double-tap). */
   function openNodeMenu(tree: TreeView, sx: number, sy: number): void {
     const id = tree.pickNode({ x: sx, y: sy });
     if (id === null) return;
@@ -693,6 +695,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       return;
     }
     if (pinch || e.button !== 0) return; // pinching, or a right-click (the menu)
+    if (maybeDoubleTapMenu(e)) return; // tap 2 lands here: tap 1's grab made the tree passive
     if (drag.active()) { if (drag.carrying()) commitDrop(); return; } // carrying → drop it here (free, or snap if near a tree)
     drag.beginPan(e.global.x, e.global.y);
   });
@@ -702,13 +705,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       sphere.dragTo(e.global.x, e.global.y);
       return;
     }
-    // A finger that wanders past the slop is dragging, not holding — the long-press is off.
-    if (hold && Math.hypot(e.global.x - hold.x, e.global.y - hold.y) > HOLD_SLOP) cancelHold();
     drag.moveTo(e.global.x, e.global.y); // no-op when idle; pans the camera or moves the carried tree + snap preview
   });
 
   const onUp = () => {
-    cancelHold(); // lifting the finger before the long-press fires keeps it a normal grab
     sphere.endDrag(); // end a 3D drag (imparts release momentum); no-op in 2D
     drag.endPan(); // end a camera pan; a carried tree keeps following until the next click
   };
@@ -850,7 +850,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       return; // 3D: one finger pans (handled in move)
     }
     if (pointers.size === 2) {
-      cancelHold(); // a second finger means pinch, not a long-press
+      lastTap = null; // a second finger means pinch — don't let its taps arm a double-tap
       drag.cancel(); // hand control to the pinch (also clears the snap ghost)
       pinch = pinchMetrics();
     }
