@@ -2,7 +2,7 @@
   "name": "combinate",
   "private": true,
   "version": "11.0.0",
-  "description": "An interactive ι (iota) / SKI combinator-calculus sandbox.",
+  "description": "An interactive \u03b9 (iota) / SKI combinator-calculus sandbox.",
   "author": "Matthias Pall Gissurarson <mpg@mpg.is>",
   "license": "MIT",
   "type": "module",
@@ -14,7 +14,8 @@
     "gen:rules": "tsx scripts/gen-rules.ts",
     "build:wasm": "npm run gen:rules && (cd crates/refold && wasm-pack build --target web --out-dir pkg --release) && rm -f crates/refold/pkg/.gitignore && (cd crates/reduce && wasm-pack build --target web --out-dir pkg --release) && rm -f crates/reduce/pkg/.gitignore",
     "build:reduce-wasm": "wasm-pack build crates/reduce --target nodejs --release --out-dir pkg-node",
-    "check:reduce-wasm": "npm run build:reduce-wasm && tsx scripts/wasm-reduce-check.mts"
+    "check:reduce-wasm": "npm run build:reduce-wasm && tsx scripts/wasm-reduce-check.mts",
+    "minimal-forms": "tsx scripts/gen-minimal-birds.ts && cargo run --release --manifest-path crates/minimal/Cargo.toml -- --max-iotas 13 && tsx scripts/certify-minimal.ts"
   },
   "dependencies": {
     "@duckdb/duckdb-wasm": "^1.33.1-dev57.0",
