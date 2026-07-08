@@ -375,7 +375,9 @@ export class Zoo {
       const pic = renderPicture(tree, boxSize - 28);
       pic.position.set(dx + dw / 2, dy + boxSize / 2);
       this.detail.addChild(pic);
-      this.placeSpeedToggle(fastCode ? { x: dx + 10, y: dy + 10 } : null);
+      // narrow layout: the detail pane may be hidden behind the list — never float the
+      // DOM toggle over it (Codex-caught release gap)
+      this.placeSpeedToggle(fastCode && (!this.narrow || this.mobileDetail) ? { x: dx + 10, y: dy + 10 } : null);
       // a "play tone" button (top-right of the picture box) — chirps the bird
       const tone = new Text({ text: "♪", style: { fontFamily: "monospace", fontSize: 20, fill: theme.iota } });
       tone.anchor.set(0.5);
