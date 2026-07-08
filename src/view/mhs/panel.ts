@@ -14,7 +14,7 @@ import type { Node } from "../../core/term";
 import type { Ty } from "../../core/types";
 import type { DumpResult } from "../../core/mhs";
 import { EXAMPLES, exprOf, type Example } from "./examples";
-import { exampleDump, liveCompile, toTree } from "./compiler";
+import { exampleTree, liveCompile } from "./compiler";
 import { highlightHaskell, HL_DARK, HL_LIGHT } from "./highlight";
 import { currentMode, onThemeChange, type Mode, ensureFont } from "../theme";
 
@@ -224,11 +224,11 @@ export class MhsPanel {
     if (!run) return;
     this.setStatus(`compiling ${ex.title}…`, "accent", true);
     try {
-      // Fast path: the vendored pre-compiled (text) dump. If it isn't vendored (e.g. a newer
+      // Fast path: the vendored pre-compiled closure. If it isn't vendored (e.g. a newer
       // example on the deployed site), fall back to compiling it live through the Rust worker.
       let res: DumpResult;
       try {
-        res = toTree(await exampleDump(ex.name), ex.root);
+        res = await exampleTree(ex.name);
       } catch {
         this.setStatus(`compiling ${ex.title} live in-browser — this takes ~30s…`, "accent", true);
         res = await liveCompile(ex.source);
