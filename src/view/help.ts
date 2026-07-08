@@ -33,7 +33,7 @@ const BODY = `
       <li>Drag <b>ι</b> from the toolbar at the bottom onto the canvas.</li>
       <li>Drag one tree onto another to <b>snap</b> them together into a bigger term.</li>
       <li>Terms <b>reduce on their own</b> — watch them simplify, step by step.</li>
-      <li><b>Right-click</b> a node to delete it.</li>
+      <li><b>Right-click</b> (or <b>double-tap</b>) a node to delete or copy it.</li>
       <li>Build things that <em>behave</em> like a known combinator and you'll <b>discover</b> it (a named bird).</li>
     </ul>
   </div>
