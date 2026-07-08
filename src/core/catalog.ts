@@ -19,6 +19,35 @@ export const IOTA_CODE: Record<string, string> = {
   Pe: "0010101011010101011",
   O2: "001010101101010101011",
   M3: "0001010101101010101011011",
+  // The great shrinking (ADR 27/28): every entry below is a CERTIFIED-EQUAL form — proven
+  // in TypeScript to share the bird's normal form on fresh variables at its declared arity
+  // (equality at n implies equality above; adoption can never change behavior). Minimality
+  // is proven by exhaustion where marked; otherwise it is the smallest form the class-DP
+  // search has found (32ι bound, minimality modulo bounded-arity congruence). Also extends
+  // the discovery mask: undiscovered birds now render as raw ι like S/K/I always did.
+  // Adoption rule: the form must also RECOGNIZE within the app's own probe caps — Pred's
+  // and tail's minimal forms don't (they need escalated budgets), so they keep their old
+  // encodings until probe caps or smaller forms arrive.
+  X: "01010101011", // 6ι — proven minimal (≤17ι exhaustion)
+  GT: "0010101101011", // 7ι — proven minimal (≤17ι exhaustion)
+  B: "0101001010101011011", // 10ι — proven minimal (≤17ι exhaustion)
+  W: "0100101010110001010101111", // 13ι — proven minimal (≤17ι exhaustion)
+  and: "000101010110010101110101011", // 14ι — proven minimal (≤17ι exhaustion)
+  D: "0000101010111101001010101011011", // 16ι — smallest known (was 36ι)
+  "1": "00101011000101010110010101110101011", // 18ι — smallest known (was 37ι)
+  B1: "0000101010110101010101110101001010101011011", // 22ι — smallest known (was 45ι)
+  U: "000101010110010101011001010110010101011011011", // 23ι — smallest known (was 25ι)
+  Q: "0000010101011101010101101010010101010110110101011", // 25ι — smallest known (was 36ι)
+  head: "000100010101011101010101101100101011001010110101011", // 26ι — smallest known (was 28ι)
+  "Φ": "000010101011010101011100101010101100101011010101011", // 26ι — smallest known (was 41ι)
+  B3: "00001010101100101010110101010101110101001010101011011", // 27ι — smallest known (was 99ι)
+  L: "00101000101010110110101010110010101100010101011011011", // 27ι — smallest known (was 36ι)
+  E: "0000101010111000101010110101010101110101001010101011011", // 28ι — smallest known (was 81ι)
+  Q3: "0010101011010000101010111010101011001010110010101011011", // 28ι — smallest known (was 38ι)
+  B2: "000010101011001000101010111010101011110101001010101011011", // 29ι — smallest known (was 72ι)
+  C: "001000010101011011000101010111100010101011101010110101011", // 29ι — smallest known (was 45ι)
+  H: "00010101011000010101011110001010101110101011001010110101011", // 30ι — smallest known (was 41ι)
+  R: "001010001010101101100010101011101000101010110110101010110101011", // 32ι — smallest known (was 36ι)
 };
 
 /**
