@@ -21,8 +21,9 @@ import { structKey } from "../src/core/probe";
 import { CATALOG, iotaTreeOf, type Law } from "../src/core/catalog";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const JSON_PATH = resolve(HERE, "../spec/minimal-forms.json");
-const MD_PATH = resolve(HERE, "../spec/minimal-forms.md");
+// optional args: certify-minimal.ts [in.json] [out.md] — deep hunts certify without touching canon
+const JSON_PATH = process.argv[2] ? resolve(process.argv[2]) : resolve(HERE, "../spec/minimal-forms.json");
+const MD_PATH = process.argv[3] ? resolve(process.argv[3]) : resolve(HERE, "../spec/minimal-forms.md");
 
 // Same alias table as gen-minimal-birds.ts (birds.txt syms are aliased).
 const TOKEN: Record<string, string> = {
@@ -39,6 +40,10 @@ interface BirdFinding {
   minimal_bits: string | null;
   minimal_iotas: number | null;
   minimal_nf: string | null;
+  fastest_bits?: string | null;
+  fastest_steps?: number | null;
+  current_steps?: number | null;
+  minimal_steps?: number | null;
   status: string;
   class_size: number;
   unresolved_before_winner: number;
@@ -97,6 +102,11 @@ for (const b of data.birds) {
     fail(`${b.sym}: Rust NF string differs from TS structKey\n  rust ${b.minimal_nf}\n  ts   ${candSig}`);
     continue;
   }
+  // fastest form (when present): same equality proof at declared arity
+  if (b.fastest_bits) {
+    const fSig = sig(decode(b.fastest_bits), law.arity);
+    if (fSig === null || fSig !== birdSig) fail(`${b.sym}: fastest form NOT equal at arity ${law.arity}`);
+  }
   certified++;
 }
 
@@ -129,7 +139,8 @@ const rows = data.birds
   .filter((b) => b.minimal_bits !== null || b.status !== "not-found-within-bound")
   .map((b) => {
     const delta = b.minimal_iotas !== null && b.minimal_iotas < b.current_iotas ? ` ← **${b.current_iotas - b.minimal_iotas!} ι smaller**` : "";
-    return `| ${b.sym} | ${b.arity} | ${b.current_iotas} | ${b.minimal_iotas ?? "—"} | \`${b.minimal_bits ?? "—"}\` | ${b.status}${delta} |`;
+    const fast = b.fastest_steps != null ? ` | ${b.current_steps ?? "—"}→${b.fastest_steps} steps${b.fastest_bits && b.fastest_bits !== b.minimal_bits ? " (≠ minimal form)" : ""}` : "";
+    return `| ${b.sym} | ${b.arity} | ${b.current_iotas} | ${b.minimal_iotas ?? "—"} | \`${b.minimal_bits ?? "—"}\` | ${b.status}${delta}${fast} |`;
   })
   .join("\n");
 const md = `# Minimal ι-forms (generated — do not edit)

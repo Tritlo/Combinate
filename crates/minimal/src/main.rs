@@ -642,6 +642,28 @@ struct Bird {
     bits: String,
 }
 
+/// Steps to full NF of `head(·arg) v0..v(arity-1)` — the TS-comparable cost of USING a
+/// term at its declared arity (both reducers are leftmost-outermost to full NF, so the
+/// contraction counts agree). None if capped.
+fn direct_steps<A: Red>(arena: &mut A, head: u32, arg: Option<u32>, arity: usize, caps: &Caps, bufs: &mut ReduceBufs) -> Option<u64> {
+    arena.s_clear();
+    bufs.hmemo.clear();
+    bufs.nf_cache.clear();
+    let mut applied = match arg {
+        Some(x) => arena.mk_app(head, x),
+        None => head,
+    };
+    for v in 0..arity {
+        let fv = arena.mk_leaf(TAG_FREE, v as u32);
+        applied = arena.mk_app(applied, fv);
+    }
+    let mut steps = 0u64;
+    match normalize(arena, applied, caps, &mut steps, bufs) {
+        NfResult::Done(_) => Some(steps),
+        NfResult::Capped => None,
+    }
+}
+
 /// Signature vector at arities 0..=dp_a — the DP's class identity. None if any arity caps.
 /// INCREMENTAL by Church–Rosser: NF(t·v0..vk) = NF(NF(t·v0..v(k-1)) · vk), so each arity
 /// pays only its marginal reduction instead of re-reducing the whole applied term (the
@@ -710,6 +732,7 @@ fn main() {
     let mut dp_arity: usize = 12; // signature-vector arity for --dp (empirically tuned; validated against brute)
     let mut dp_probe: Option<String> = None; // diagnostic: trace why this bitcode's class was(n't) reached
     let mut dp_gate: usize = 10_000; // rep-count stop gate for --dp (guards runaway class growth)
+    let mut dp_fastest = true; // fewest-steps hunt per bird — always on in DP (branch-and-bound makes it ~free); --no-fastest to skip
     let mut dp_slim = false; // --dp-slim: skip class census + samples in the JSON (deep runs; the dump gets fat past ~50k classes)
     let mut dp_opaque_fn = false; // --dp-opaque-fn re-enables capped singletons as HEADS; default skips them (leftmost-outermost does the head's work first, so a capped head stays capped; the arg-side rescue is kept). Validated 0-mismatch vs brute at 17ι.
     let mut esc_mult: u64 = 100; // escalated-cap multiplier for frontier cap-outs (raise to chase down `conditional` statuses)
@@ -729,6 +752,16 @@ fn main() {
             "--dp-no-opaque-fn" => dp_opaque_fn = false, // legacy alias (now the default)
             "--dp-opaque-fn" => dp_opaque_fn = true,
             "--dp-slim" => dp_slim = true,
+            "--fastest" => dp_fastest = true, // default; kept for compat
+            "--no-fastest" => dp_fastest = false,
+            "--smallest" => {
+                // friendly entry: minimal-forms --smallest 34 [--fastest]
+                max_iotas = args.next().unwrap().parse().unwrap();
+                dp = true;
+                dp_arity = 8;
+                dp_slim = true;
+                dp_gate = 50_000_000;
+            }
             other => panic!("unknown arg {other}"),
         }
     }
@@ -794,17 +827,53 @@ fn main() {
         let mut class_of: FastMap<(u64, u64), usize> = FastMap::default();
         let mut reps: Vec<Rep> = Vec::new();
         let mut reps_by_size: Vec<Vec<usize>> = vec![Vec::new(); max_iotas + 1];
+        // --fastest: bird sig vectors up front; classes whose vector SUFFIX (from the
+        // bird's declared arity) matches a bird are "relevant" — every candidate landing
+        // in one gets step-counted at that arity, tracking the running minimum.
+        let bird_vecs: Vec<Option<SigVec>> = if dp_fastest {
+            bird_terms
+                .iter()
+                .map(|&t| match dp_sigvec(&mut arena, t, &esc_caps, dp_a, &mut bufs) {
+                    SigRes::Full(v) => Some(v),
+                    SigRes::Capped(_) => None,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let mut relevant: FastMap<(u64, u64), Vec<u32>> = FastMap::default();
+        let mut best_fast: Vec<Option<(u64, u32, String)>> = vec![None; birds.len()];
+        let mut mark_relevant = |v: &SigVec, key: (u64, u64), relevant: &mut FastMap<(u64, u64), Vec<u32>>| {
+            if bird_vecs.is_empty() {
+                return;
+            }
+            let mut hits: Vec<u32> = Vec::new();
+            for (bi, bv) in bird_vecs.iter().enumerate() {
+                if let Some(bv) = bv {
+                    let a = birds[bi].arity;
+                    if v.slice()[a..] == bv.slice()[a..] {
+                        hits.push(bi as u32);
+                    }
+                }
+            }
+            if !hits.is_empty() {
+                relevant.insert(key, hits);
+            }
+        };
         let iota_id = arena.leaf(TAG_IOTA, 0);
         let iv = match dp_sigvec(&mut arena, iota_id, &caps, dp_a, &mut bufs) {
             SigRes::Full(v) => v,
             SigRes::Capped(_) => panic!("iota signature capped"),
         };
-        class_of.insert(fold_key(iv.slice()), 0);
+        let ikey = fold_key(iv.slice());
+        mark_relevant(&iv, ikey, &mut relevant);
+        class_of.insert(ikey, 0);
         reps.push(Rep { term: iota_id, size: 1, vector: Some(iv), composable: true });
         reps_by_size[1].push(0);
         let mut pair_count: u64 = 0;
         let mut capped_count: usize = 0;
         let mut opaque_seen: FastMap<(u64, u64), ()> = FastMap::default();
+
         let mut gate_tripped = false;
         let workers = std::thread::available_parallelism().map(|v| v.get()).unwrap_or(8);
         'sizes: for n in 2..=max_iotas {
@@ -900,9 +969,31 @@ fn main() {
                         let key = fold_key(v.slice());
                         if !class_of.contains_key(&key) {
                             let t = arena.app(cf, cx); // interned ONLY for winners
+                            mark_relevant(&v, key, &mut relevant);
                             class_of.insert(key, reps.len());
                             reps_by_size[n].push(reps.len());
                             reps.push(Rep { term: t, size: n as u32, vector: Some(v), composable: true });
+                        }
+                        if let Some(hits) = relevant.get(&key) {
+                            for &bi in hits.clone().iter() {
+                                let a = birds[bi as usize].arity;
+                                // branch-and-bound: a reduction that hits the best-so-far step
+                                // count is >= best — the cap doubles as the bail-out
+                                let bound = Caps {
+                                    steps: best_fast[bi as usize].as_ref().map(|(bs, _, _)| *bs).unwrap_or(esc_caps.steps).min(esc_caps.steps),
+                                    nodes: esc_caps.nodes,
+                                };
+                                if let Some(st) = direct_steps(&mut arena, cf, Some(cx), a, &bound, &mut bufs) {
+                                    let better = match &best_fast[bi as usize] {
+                                        None => true,
+                                        Some((bs, bsz, _)) => st < *bs || (st == *bs && (n as u32) < *bsz),
+                                    };
+                                    if better {
+                                        let t2 = arena.app(cf, cx);
+                                        best_fast[bi as usize] = Some((st, n as u32, encode_bits(&arena, t2)));
+                                    }
+                                }
+                            }
                         }
                     }
                     SigRes::Capped(prefix) => {
@@ -1052,6 +1143,8 @@ fn main() {
             table
         };
         let mut findings: Vec<String> = Vec::new();
+        let esc_caps_steps = esc_caps.steps;
+        let _ = esc_caps_steps;
         let mut coin_groups: FastMap<(u64, u64), Vec<usize>> = FastMap::default();
         let mut proven = 0usize;
         let mut conditional = 0usize;
@@ -1141,8 +1234,29 @@ fn main() {
                     }
                 }
             }
+            // --fastest extras: steps of current/minimal encodings + the fewest-steps member
+            let fast_json = if dp_fastest {
+                let cur_steps = direct_steps(&mut arena, term, None, b.arity, &esc_caps, &mut bufs);
+                let min_steps = minimal_bits
+                    .as_ref()
+                    .and_then(|bits| decode_bits(&mut arena, bits))
+                    .and_then(|t2| direct_steps(&mut arena, t2, None, b.arity, &esc_caps, &mut bufs));
+                let (fb, fs) = match &best_fast[bi] {
+                    Some((st, _, bits)) => (jstr(bits), st.to_string()),
+                    None => ("null".to_string(), "null".to_string()),
+                };
+                format!(
+                    ", \"current_steps\": {}, \"minimal_steps\": {}, \"fastest_bits\": {}, \"fastest_steps\": {}",
+                    cur_steps.map(|v| v.to_string()).unwrap_or_else(|| "null".into()),
+                    min_steps.map(|v| v.to_string()).unwrap_or_else(|| "null".into()),
+                    fb,
+                    fs
+                )
+            } else {
+                String::new()
+            };
             findings.push(format!(
-                "    {{ \"sym\": {}, \"arity\": {}, \"current_bits\": {}, \"current_iotas\": {}, \"minimal_bits\": {}, \"minimal_iotas\": {}, \"minimal_nf\": {}, \"status\": {}, \"class_size\": 0, \"unresolved_before_winner\": {} }}",
+                "    {{ \"sym\": {}, \"arity\": {}, \"current_bits\": {}, \"current_iotas\": {}, \"minimal_bits\": {}, \"minimal_iotas\": {}, \"minimal_nf\": {}, \"status\": {}, \"class_size\": 0, \"unresolved_before_winner\": {}{fast_json} }}",
                 jstr(&b.sym),
                 b.arity,
                 jstr(&b.bits),
