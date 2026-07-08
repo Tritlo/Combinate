@@ -67,7 +67,8 @@ trees; golf; etc.
 - Releases: one integer major per release (`vN.0`). Bump `package.json`, add a
   `CHANGELOG.md` section, `--no-ff` merge the feature branch into `main`, tag `vN.0`.
 - Branch before starting work. **Never push/deploy unless explicitly asked.**
-- Run nix/Haskell builds inside `nix-shell` (see below).
+- The Rust → wasm builds (refold/reduce crates, the MicroHs dist) build from source
+  with `cargo`/`wasm-pack` — no nix (see below).
 
 ## Deploy & vendored assets — IMPORTANT
 
@@ -75,50 +76,41 @@ Pushing `main` triggers `.github/workflows/deploy.yml` → build + deploy to Git
 Pages (private repo, custom domain **combinate.app**, served at the domain root).
 
 - **Base-aware URLs.** vite `base: "./"` (relative). Runtime-fetched public assets (the
-  vendored wasm/blobs/font) must go through `src/vendorUrl.ts`, not a bare `/vendor/...` —
+  vendored wasm/dist/font) must go through `src/vendorUrl.ts`, not a bare `/vendor/...` —
   keeping them base-relative so the app stays portable (it deployed on a `/Combinate/`
   subpath historically). The live-compile worker has no `document`, so it receives the
-  blob's absolute URL via `postMessage`.
-- **`public/vendor/` is git-ignored.** The runtime assets we host are on the
-  **`vendor-assets` GitHub Release**, fetched by CI (`gh release download`, authed by
-  the workflow's `GITHUB_TOKEN` / `contents: read`):
-  - `mhs-vendor.tar.gz` = MicroHs blob (`mhs-batch.js`) + prewarmed cache
-    (`base.mhscache`) + gallery dumps (`examples/*.comb`).
-  - `IoskeleyMono-Regular.woff2` = the Haskell editor webfont.
+  dist's absolute asset URLs via `postMessage`.
+- **`public/vendor/` is git-ignored, built from source in CI.** `deploy.yml` checks out
+  the `vendor/microhs` submodule and builds the MicroHs Rust dist + gallery closures (see
+  below) — nothing prebuilt is committed or fetched for it. The one hosted asset is the
+  editor webfont on the **`vendor-assets` GitHub Release** (`IoskeleyMono-Regular.woff2`),
+  fetched by CI (`gh release download`, authed by the workflow's `GITHUB_TOKEN` /
+  `contents: read`).
 - **DuckDB is NOT vendored** (~76 MB, third-party) — loaded from the jsDelivr CDN via
   `getJsDelivrBundles()`.
 
-### Rebuilding the MicroHs blob and uploading to the Release
+### Rebuilding the MicroHs dist (local)
 
-When the MicroHs fork (`vendor/microhs` submodule) or the custom Prelude changes,
-rebuild the runtime and re-host it (heavy; needs nix + a browser):
+CI builds it from source on every deploy, so you rarely need this. When the MicroHs
+fork (`vendor/microhs` submodule) or the custom Prelude changes, rebuild locally
+(needs the Rust toolchain + the `wasm32-unknown-unknown` target; no nix, no emcc):
 
 ```sh
-# 1. Build the batch blob (gmhs + emscripten; path-2, no bin/mhs — it OOMs here).
-nix-shell nix/shell.nix --run ./nix/build-wasm.sh        # → public/vendor/mhs/mhs-batch.js
-# 2. Regenerate the prewarmed Prelude cache (self-serves + drives the blob headless).
-node scripts/gen-mhs-cache.mjs                           # → public/vendor/mhs/base.mhscache
-# 3. Regenerate the gallery dumps (needs the GHC-built gmhs).
-MHS=vendor/microhs npx tsx scripts/gen-mhs-examples.ts   # → public/vendor/mhs/examples/*.comb
-# 4. Bundle + upload to the Release. gh is snap-confined here (can't read /tmp) —
-#    keep the tarball under $HOME (the repo dir is fine).
-tar czf mhs-vendor.tar.gz -C public/vendor/mhs mhs-batch.js base.mhscache examples
-gh release upload vendor-assets mhs-vendor.tar.gz --clobber
-# Font (rarely changes):
-gh release upload vendor-assets public/vendor/fonts/IoskeleyMono-Regular.woff2 --clobber
+git submodule update --init vendor/microhs   # pin lives in .gitmodules (branch rust-js-ffi)
+scripts/build-mhs-rust.sh                     # cargo → public/vendor/mhs/ (wasm, compiler.mjs, mhs.comb, base.pkg, lib)
+npx tsx scripts/gen-mhs-examples.ts           # → public/vendor/mhs/examples/*.json (the gallery closures)
 ```
 
-The next push to `main` redeploys with the new assets — no app code change needed.
+That's the whole live + gallery runtime — no Release upload needed. The webfont is the
+only Release asset (`gh release upload vendor-assets public/vendor/fonts/IoskeleyMono-Regular.woff2 --clobber`;
+gh is snap-confined here — stage under `$HOME`, not `/tmp`).
 
 ## Lessons learned (this environment)
 
 - **`gh` is a snap** (`~/snap/gh/...`) and **cannot read `/tmp`** (incl. the Claude
   scratchpad). Staging a file there for `gh release upload/create` fails with a
   misleading `no matches found for <path>`. Stage under `$HOME` first.
-- **`bin/mhs` (the self-hosted MicroHs) OOMs here** on any program. Use the GHC-built
-  **`gmhs`**; it can't serialize a `.pkg` (`-z`), so the WASM build embeds base as
-  source (`emcc --embed-file`) and the worker compiles with `-i. -i/lib`.
-- **Live-compile timing is environmental on WSL2** — it has ballooned from ~30 s to
-  >180 s with no CPU/memory pressure, reproducing on the committed baseline and the
-  standalone harness alike. It is **not** a code regression; re-verify on a fresh
-  session rather than chasing it.
+- **Live compile is ~13 s** with `base.pkg` (the pre-typechecked base loads as a package
+  instead of recompiling the Prelude each time). Browser compiles can still run slower on
+  WSL2 under load, but it's no longer the old ~1–2 min recompile — the node path
+  (`gen-mhs-examples`, the parity oracle) is the fast way to re-verify.
