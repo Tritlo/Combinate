@@ -1,6 +1,39 @@
 # 7. In-browser MicroHs Haskell→combinator compiler (v8, the wow feature)
 
-**Status:** accepted — **implemented via post-processing a *stock* dump (no fork)**, superseding the original "vendor a forked compile-only slice" decision. Gallery path shipped and verified; live free-typing works via a batch blob (route 2) but is slow. See *Revised decision* and *Live compile* below; the original decision/context is kept beneath them as history.
+**Status:** accepted — **post-process a *stock* compile (no fork)**. Now on the **Rust MicroHs backend** (2026-07): the compiler's `toCombinators` closure replaces the scraped text dump, and `base.pkg` makes live compile fast (~13 s). See *Rust backend* immediately below; the 2026-06 emcc/dump route and the original fork decision are kept beneath it as history.
+
+## Rust backend (2026-07): `toCombinators` closure + `base.pkg`
+
+The emscripten-C route below is retired. Upstream MicroHs grew a **Rust runtime**
+(`cargo` → `microhs_runtime.wasm`, no emcc) and a clean embedder ABI, and the app
+now uses it end-to-end:
+
+- **Compile via `toCombinators`, not a scraped dump.** The worker warms one
+  `createCompiler({wasm, comb, files, packages, onPoll})` instance and calls
+  `toCombinators(source, "out", {module:"Ex"})`, which compiles a main-less value
+  module and returns the entry's **pruned, rooted** combinator closure as structured
+  JSON (`{root, defs:[{name, body}]}`). This replaces the old "compile → fail on the
+  missing `main` → scrape the full `-ddump-combinator` text" flow, whose ~1.25 MB
+  dump the in-browser wasm **truncated**, dropping the entry def. `core/mhs.ts`'s
+  `combinatorsToTree(defs, root)` converts the JSON closure with the same primitive
+  substitution + reachability rejection the dump post-processor used; the text
+  parser (`dumpToTree`) is retired.
+- **`base.pkg` replaces the prewarm `.mhscache`/`-CR`.** A pre-typechecked base
+  library ships in the dist and loads as a package, so Prelude/`Data.*` don't
+  recompile — live compile is **~13 s** (was ~1–2 min), with no native↔wasm cache
+  mismatch. `onPoll` gives cooperative, deadline-based cancellation.
+- **Built from source in CI, not a prebuilt blob.** `deploy.yml` checks out the
+  `vendor/microhs` submodule and runs `scripts/build-mhs-rust.sh` (upstream
+  `build-web-dist.sh`, `cargo build --target wasm32-unknown-unknown`) +
+  `scripts/gen-mhs-examples.ts` (the gallery closures). Only the IoskeleyMono webfont
+  stays on the `vendor-assets` Release; the emcc `mhs-vendor.tar.gz` (batch blob +
+  `.mhscache` + text dumps) and the whole `nix/` slice are gone.
+- **Gallery = JSON closures.** Curated examples are `toCombinators` JSON
+  (`examples/*.json`), generated from the same dist; the reducer parity oracle
+  (`scripts/wasm-reduce-check.mts`) reads them too. Verified: 8/8 examples reduce
+  correctly (node + browser), oracle green (TS == graph).
+
+Everything below is history (the 2026-06 emcc/dump route, then the original fork).
 
 ## Revised decision (2026-06-26): post-process a stock dump, don't fork
 
