@@ -21,17 +21,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive # vendor/microhs — the MicroHs Rust runtime, built below
 
       # ---- Build the Rust → WASM crates from source (the egg re-folder AND the
       # Turbo reducer), so the deployed bundle is reproducible and always matches
       # the catalog. Nothing pre-built is committed. ubuntu-latest ships Rust +
-      # rustup; we add the wasm target, cache both crate builds, and pin wasm-pack. ----
+      # rustup; we add the wasm target, cache all three crate builds, and pin wasm-pack. ----
       - run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             crates/refold
             crates/reduce
+            vendor/microhs/rust/microhs-runtime
       - name: Install wasm-pack (pinned)
         run: |
           curl -sSL https://github.com/rustwasm/wasm-pack/releases/download/v0.15.0/wasm-pack-v0.15.0-x86_64-unknown-linux-musl.tar.gz | tar -xz
@@ -44,23 +47,29 @@ jobs:
       - run: npm ci
       - run: npm run build:wasm # gen rules from the catalog, then wasm-pack build both crates → crates/{refold,reduce}/pkg/
 
-      # ---- Fetch the vendored runtime assets we host ourselves: the MicroHs
-      # live-compile runtime (batch blob, prewarmed cache, gallery dumps) and the
-      # IoskeleyMono webfont. These are too heavy to build/regenerate here and
-      # aren't committed, so they live on the `vendor-assets` Release and we pull
-      # them in at deploy time. The private repo's assets need auth — the workflow's
-      # GITHUB_TOKEN (contents: read) suffices. DuckDB is NOT vendored: it loads from
-      # the jsDelivr CDN at runtime. ----
-      - name: Fetch vendored runtime assets
+      # ---- Build the MicroHs live-compile runtime (the Rust web dist) from the
+      # vendored submodule: the wasm runtime, compiler.mjs/host.mjs, mhs.comb,
+      # base.pkg, and the lib sources → public/vendor/mhs/. No emcc — cargo builds
+      # the wasm directly; this replaced the emscripten batch blob + prewarm cache
+      # (the mhs-vendor.tar.gz Release asset is retired). ----
+      - name: Build the MicroHs Rust web dist
+        run: scripts/build-mhs-rust.sh
+      # The curated gallery closures (examples/*.json) — compiled from the dist we
+      # just built (node, not the browser), so "click an example" is instant instead
+      # of a live compile. Fails the deploy if any example stops compiling.
+      - name: Generate the gallery example closures
+        run: npx tsx scripts/gen-mhs-examples.ts
+
+      # ---- The IoskeleyMono editor webfont is still too heavy to regenerate here,
+      # so it stays on the `vendor-assets` Release (auth: the workflow's GITHUB_TOKEN,
+      # contents: read). DuckDB is NOT vendored — it loads from the jsDelivr CDN. ----
+      - name: Fetch the editor webfont
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p public/vendor/mhs public/vendor/fonts
-          gh release download vendor-assets --repo "$GITHUB_REPOSITORY" --pattern 'mhs-vendor.tar.gz' --dir .
-          tar xzf mhs-vendor.tar.gz -C public/vendor/mhs
-          rm mhs-vendor.tar.gz
+          mkdir -p public/vendor/fonts
           gh release download vendor-assets --repo "$GITHUB_REPOSITORY" --pattern 'IoskeleyMono-Regular.woff2' --dir public/vendor/fonts
-          ls -la public/vendor/mhs public/vendor/mhs/examples public/vendor/fonts
+          ls -la public/vendor/mhs public/vendor/fonts
 
       - run: npm run build # tsc --noEmit && vite build → dist/ (base "./" works at the combinate.app root or any subpath; public/ — incl. CNAME, og.png, vendor — is copied in)
       - uses: actions/configure-pages@v5

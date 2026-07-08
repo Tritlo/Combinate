@@ -14,12 +14,13 @@ travel with it.
 Copyright 2023–2026 Lennart Augustsson.
 <https://github.com/augustss/MicroHs>
 
-Combinate distributes a WebAssembly build of a **fork** of MicroHs
-(`mhs-batch.js`) for the in-browser Haskell compiler, and the reducer, the
-Scott-encoded primitive handling, and the custom Prelude are adapted from it.
-Modifications: forked (the `vendor/microhs` submodule, <https://github.com/Tritlo/MicroHs>),
-built to WebAssembly, and the `-ddump-combinator` output is post-processed into ι
-trees rather than the compiler being changed. Full text:
+Combinate distributes a WebAssembly build of a **fork** of MicroHs (the Rust
+runtime `microhs_runtime.wasm` + `mhs.comb`) for the in-browser Haskell compiler,
+and the reducer, the Scott-encoded primitive handling, and the custom Prelude are
+adapted from it. Modifications: forked (the `vendor/microhs` submodule,
+<https://github.com/Tritlo/MicroHs>), built to WebAssembly, and the compiler's
+`toCombinators` output is post-processed into ι trees rather than the compiler
+being changed. Full text:
 [`licenses/MicroHs-Apache-2.0.txt`](licenses/MicroHs-Apache-2.0.txt).
 
 ### egg — MIT
