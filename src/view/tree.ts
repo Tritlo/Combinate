@@ -832,7 +832,7 @@ export class TreeView {
     // camera) draws everything.
     const cam = this.getCamera?.();
     const minLen2 = cam ? (1.4 / (cam.scale || 1)) ** 2 : 0;
-    // Style = fn (left) solid, arg (right) dashed. Small trees always dash. A big tree draws SOLID
+    // Style = fn solid, arg dashed. Small trees always dash. A big tree draws SOLID
     // while it's being redrawn rapidly (a running reduction jump-cuts a step every few ms — dashing
     // thousands of edges per step is slow) and DASHED once it settles: this draw follows a quiet gap,
     // or the trailing timer below fired after one. So an expanded / inspected ι-tree shows its dashes.

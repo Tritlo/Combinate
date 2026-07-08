@@ -93,7 +93,7 @@ const listeners: Array<() => void> = [];
 // Edge TIER color (red/black-tree style): edges alternate color by depth, so a node's parent-edge
 // is always the OPPOSITE color of its child-edges — that's what lets you trace parent→child
 // direction (and tell "a's argument" from "b's argument") in a busy 2D/3D tree. Pairs with the
-// solid(fn)/dashed(arg) STYLE, which encodes left vs right. Even tiers = ink, odd tiers = red — the
+// solid(fn)/dashed(arg) STYLE, which encodes fn vs arg. Even tiers = ink, odd tiers = red — the
 // red of the tricolor (red/black/white) identity, a fixed hue applied directly in every mode.
 const EDGE_RED: Record<Mode, number> = { dark: 0xee4444, light: 0xcc2222 };
 export function edgeTierColor(depth: number): number {
