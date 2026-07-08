@@ -106,9 +106,14 @@ function compilerReady(): Promise<void> {
       const msg = event.data;
       if (msg.id === initId) {
         window.clearTimeout(initTimer);
-        initReject = null;
-        if (msg.status === "ready") resolve();
-        else resetWorker(new Error(msg.error || "compiler failed to initialize"));
+        if (msg.status === "ready") {
+          initReject = null;
+          resolve();
+        } else {
+          // resetWorker rejects the init promise via `initReject`, then clears it —
+          // so DON'T null it first, or a failed init would never settle (boot hang).
+          resetWorker(new Error(msg.error || "compiler failed to initialize"));
+        }
         return;
       }
       const entry = pending.get(msg.id);
