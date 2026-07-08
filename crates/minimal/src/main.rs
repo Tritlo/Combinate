@@ -73,16 +73,14 @@ struct Node {
 }
 
 struct Arena {
-    /// Max spine length ever applied to a FREE-VAR head across the whole run — the
-    /// observed-demand certificate: if this never exceeds the DP's signature arity,
-    /// bounded-arity equivalence acted as an application congruence for everything
-    /// this run reduced (arguments were never interrogated deeper than observed).
+    /// Max spine length ever applied to a FREE-VAR head across the whole run.
+    /// DIAGNOSTIC ONLY (it includes the probe's own arity, so it scales with the
+    /// signature arity — it is not a congruence certificate).
     max_var_demand: usize,
     p_nodes: Vec<Node>,
     p_dedup: FastMap<u64, u32>,
     s_nodes: Vec<Node>,
     s_dedup: FastMap<u64, u32>,
-    scratch: bool, // where do NEW nodes go?
 }
 
 impl Arena {
@@ -93,30 +91,19 @@ impl Arena {
             p_dedup: FastMap::default(),
             s_nodes: Vec::new(),
             s_dedup: FastMap::default(),
-            scratch: false,
         }
     }
+    /// Persistent intern — serial phases only (enumeration, DP composition, decode).
     fn intern(&mut self, tag: u8, a: u32, b: u32) -> u32 {
         let key = ((tag as u64) << 60) | ((a as u64) << 30) | b as u64;
-        // Persistent nodes are always reusable; scratch nodes only while scratch lives.
         if let Some(&id) = self.p_dedup.get(&key) {
             return id;
         }
-        if self.scratch {
-            if let Some(&id) = self.s_dedup.get(&key) {
-                return id;
-            }
-            let id = SCRATCH_BASE + self.s_nodes.len() as u32;
-            self.s_nodes.push(Node { tag, a, b });
-            self.s_dedup.insert(key, id);
-            id
-        } else {
-            debug_assert!(a < SCRATCH_BASE && b < SCRATCH_BASE, "persistent node referencing scratch");
-            let id = self.p_nodes.len() as u32;
-            self.p_nodes.push(Node { tag, a, b });
-            self.p_dedup.insert(key, id);
-            id
-        }
+        debug_assert!(a < SCRATCH_BASE && b < SCRATCH_BASE, "persistent node referencing scratch");
+        let id = self.p_nodes.len() as u32;
+        self.p_nodes.push(Node { tag, a, b });
+        self.p_dedup.insert(key, id);
+        id
     }
     fn leaf(&mut self, tag: u8, a: u32) -> u32 {
         self.intern(tag, a, 0)
@@ -131,9 +118,94 @@ impl Arena {
             self.p_nodes[id as usize]
         }
     }
-    fn clear_scratch(&mut self) {
+}
+
+/// What reduction needs: read any node, allocate into SCRATCH (persistent stays
+/// immutable during reduction — that is what makes signature computation safe to
+/// fan out across threads), plus scratch bookkeeping. Implemented by the serial
+/// `Arena` façade and by per-thread `Worker` views.
+trait Red {
+    fn nd(&self, id: u32) -> Node;
+    fn mk(&mut self, tag: u8, a: u32, b: u32) -> u32;
+    fn s_len(&self) -> usize;
+    fn s_clear(&mut self);
+    fn demand(&mut self, d: usize);
+    fn mk_leaf(&mut self, tag: u8, a: u32) -> u32 {
+        self.mk(tag, a, 0)
+    }
+    fn mk_app(&mut self, f: u32, x: u32) -> u32 {
+        self.mk(TAG_APP, f, x)
+    }
+}
+
+/// Shared scratch-intern logic: persistent dedup first (read-only), then private scratch.
+#[inline]
+fn scratch_intern(p_dedup: &FastMap<u64, u32>, s_nodes: &mut Vec<Node>, s_dedup: &mut FastMap<u64, u32>, tag: u8, a: u32, b: u32) -> u32 {
+    let key = ((tag as u64) << 60) | ((a as u64) << 30) | b as u64;
+    if let Some(&id) = p_dedup.get(&key) {
+        return id;
+    }
+    if let Some(&id) = s_dedup.get(&key) {
+        return id;
+    }
+    let id = SCRATCH_BASE + s_nodes.len() as u32;
+    s_nodes.push(Node { tag, a, b });
+    s_dedup.insert(key, id);
+    id
+}
+
+impl Red for Arena {
+    fn nd(&self, id: u32) -> Node {
+        self.node(id)
+    }
+    fn mk(&mut self, tag: u8, a: u32, b: u32) -> u32 {
+        scratch_intern(&self.p_dedup, &mut self.s_nodes, &mut self.s_dedup, tag, a, b)
+    }
+    fn s_len(&self) -> usize {
+        self.s_nodes.len()
+    }
+    fn s_clear(&mut self) {
         self.s_nodes.clear();
         self.s_dedup.clear();
+    }
+    fn demand(&mut self, d: usize) {
+        if d > self.max_var_demand {
+            self.max_var_demand = d;
+        }
+    }
+}
+
+/// A parallel worker's view: shared immutable persistent arena + private scratch.
+struct Worker<'a> {
+    p_nodes: &'a [Node],
+    p_dedup: &'a FastMap<u64, u32>,
+    s_nodes: Vec<Node>,
+    s_dedup: FastMap<u64, u32>,
+    max_var_demand: usize,
+}
+
+impl<'a> Red for Worker<'a> {
+    fn nd(&self, id: u32) -> Node {
+        if id >= SCRATCH_BASE {
+            self.s_nodes[(id - SCRATCH_BASE) as usize]
+        } else {
+            self.p_nodes[id as usize]
+        }
+    }
+    fn mk(&mut self, tag: u8, a: u32, b: u32) -> u32 {
+        scratch_intern(self.p_dedup, &mut self.s_nodes, &mut self.s_dedup, tag, a, b)
+    }
+    fn s_len(&self) -> usize {
+        self.s_nodes.len()
+    }
+    fn s_clear(&mut self) {
+        self.s_nodes.clear();
+        self.s_dedup.clear();
+    }
+    fn demand(&mut self, d: usize) {
+        if d > self.max_var_demand {
+            self.max_var_demand = d;
+        }
     }
 }
 
@@ -153,7 +225,7 @@ enum NfResult {
 /// head-reduction loop, and an explicit frame stack for normalizing the arguments of
 /// a stuck head. Caps: total contractions + scratch nodes allocated (the caller runs
 /// this inside a fresh scratch window, so both are deterministic per term).
-fn normalize(arena: &mut Arena, root: u32, caps: &Caps, steps_used: &mut u64) -> NfResult {
+fn normalize<A: Red>(arena: &mut A, root: u32, caps: &Caps, steps_used: &mut u64) -> NfResult {
     enum Frame {
         Norm(u32),
         Rebuild(u32, usize),
@@ -168,7 +240,7 @@ fn normalize(arena: &mut Arena, root: u32, caps: &Caps, steps_used: &mut u64) ->
                 // Head-reduce: unwind the application spine, contract at the head until stuck.
                 spine.clear();
                 loop {
-                    let n = arena.node(t);
+                    let n = arena.nd(t);
                     if n.tag == TAG_APP {
                         spine.push(n.b);
                         t = n.a;
@@ -176,15 +248,15 @@ fn normalize(arena: &mut Arena, root: u32, caps: &Caps, steps_used: &mut u64) ->
                     }
                     // Leaf head; spine top = FIRST argument.
                     let argc = spine.len();
-                    if n.tag == TAG_FREE && argc > arena.max_var_demand {
-                        arena.max_var_demand = argc;
+                    if n.tag == TAG_FREE {
+                        arena.demand(argc);
                     }
                     let contracted = match n.tag {
                         TAG_IOTA if argc >= 1 => {
                             // ι x → x S K
                             let x = spine.pop().unwrap();
-                            let s = arena.leaf(TAG_S, 0);
-                            let k = arena.leaf(TAG_K, 0);
+                            let s = arena.mk_leaf(TAG_S, 0);
+                            let k = arena.mk_leaf(TAG_K, 0);
                             spine.push(k);
                             spine.push(s);
                             t = x;
@@ -205,7 +277,7 @@ fn normalize(arena: &mut Arena, root: u32, caps: &Caps, steps_used: &mut u64) ->
                             let f = spine.pop().unwrap();
                             let g = spine.pop().unwrap();
                             let x = spine.pop().unwrap();
-                            let gx = arena.app(g, x);
+                            let gx = arena.mk_app(g, x);
                             spine.push(gx);
                             spine.push(x);
                             t = f;
@@ -215,7 +287,7 @@ fn normalize(arena: &mut Arena, root: u32, caps: &Caps, steps_used: &mut u64) ->
                     };
                     if contracted {
                         *steps_used += 1;
-                        if *steps_used > caps.steps || arena.s_nodes.len() > caps.nodes {
+                        if *steps_used > caps.steps || arena.s_len() > caps.nodes {
                             return NfResult::Capped;
                         }
                         continue;
@@ -239,7 +311,7 @@ fn normalize(arena: &mut Arena, root: u32, caps: &Caps, steps_used: &mut u64) ->
                 let mut t = head;
                 for i in split..results.len() {
                     let a = results[i];
-                    t = arena.app(t, a);
+                    t = arena.mk_app(t, a);
                 }
                 results.truncate(split);
                 results.push(t);
@@ -255,7 +327,7 @@ fn normalize(arena: &mut Arena, root: u32, caps: &Caps, steps_used: &mut u64) ->
 /// Stream the canonical structural string of `t` — byte-identical to probe.ts
 /// structKey: `ι`, `cS`/`cK`/`cI`, `v<name>`, `(fn arg)` — into two FNV/rot
 /// accumulators; optionally materialize the string (reported artifacts only).
-fn struct_hash(arena: &Arena, t: u32, want_string: bool) -> (u64, u64, Option<String>) {
+fn struct_hash<A: Red>(arena: &A, t: u32, want_string: bool) -> (u64, u64, Option<String>) {
     let mut h1: u64 = 0xcbf29ce484222325;
     let mut h2: u64 = 0x9e3779b97f4a7c15;
     let mut s = if want_string { Some(String::new()) } else { None };
@@ -278,7 +350,7 @@ fn struct_hash(arena: &Arena, t: u32, want_string: bool) -> (u64, u64, Option<St
         match w {
             W::Lit(l) => eat(l, &mut s),
             W::T(id) => {
-                let n = arena.node(id);
+                let n = arena.nd(id);
                 match n.tag {
                     TAG_APP => {
                         eat("(", &mut s);
@@ -306,7 +378,7 @@ const SIG_ARITY: usize = 5;
 
 /// NF signature hash of `t v0 … v(arity-1)`, or None if capped. Runs in a fresh
 /// scratch window (cleared on entry) so caps are deterministic per term.
-fn signature(arena: &mut Arena, t: u32, arity: usize, caps: &Caps) -> Option<(u64, u64)> {
+fn signature<A: Red>(arena: &mut A, t: u32, arity: usize, caps: &Caps) -> Option<(u64, u64)> {
     signature_vars(arena, t, arity, caps, true)
 }
 
@@ -314,42 +386,36 @@ fn signature(arena: &mut Arena, t: u32, arity: usize, caps: &Caps) -> Option<(u6
 /// times: t x x … x. Identifying variables is a homomorphic coarsening, so equal
 /// terms MUST collide here — a cheap necessary condition (the QuickSpec prefilter);
 /// only colliding terms need the distinct-variable proof.
-fn signature_vars(arena: &mut Arena, t: u32, arity: usize, caps: &Caps, distinct: bool) -> Option<(u64, u64)> {
-    arena.clear_scratch();
-    arena.scratch = true;
+fn signature_vars<A: Red>(arena: &mut A, t: u32, arity: usize, caps: &Caps, distinct: bool) -> Option<(u64, u64)> {
+    arena.s_clear();
     let mut applied = t;
     for v in 0..arity {
-        let fv = arena.leaf(TAG_FREE, if distinct { v as u32 } else { 0 });
-        applied = arena.app(applied, fv);
+        let fv = arena.mk_leaf(TAG_FREE, if distinct { v as u32 } else { 0 });
+        applied = arena.mk_app(applied, fv);
     }
     let mut steps = 0u64;
-    let out = match normalize(arena, applied, caps, &mut steps) {
+    match normalize(arena, applied, caps, &mut steps) {
         NfResult::Done(nf) => {
             let (h1, h2, _) = struct_hash(arena, nf, false);
             Some((h1, h2))
         }
         NfResult::Capped => None,
-    };
-    arena.scratch = false;
-    out
+    }
 }
 
 /// NF STRING of `t v0 … v(arity-1)` (reported artifacts), or None if capped.
-fn nf_string(arena: &mut Arena, t: u32, arity: usize, caps: &Caps) -> Option<String> {
-    arena.clear_scratch();
-    arena.scratch = true;
+fn nf_string<A: Red>(arena: &mut A, t: u32, arity: usize, caps: &Caps) -> Option<String> {
+    arena.s_clear();
     let mut applied = t;
     for v in 0..arity {
-        let fv = arena.leaf(TAG_FREE, v as u32);
-        applied = arena.app(applied, fv);
+        let fv = arena.mk_leaf(TAG_FREE, v as u32);
+        applied = arena.mk_app(applied, fv);
     }
     let mut steps = 0u64;
-    let out = match normalize(arena, applied, caps, &mut steps) {
+    match normalize(arena, applied, caps, &mut steps) {
         NfResult::Done(nf) => struct_hash(arena, nf, true).2,
         NfResult::Capped => None,
-    };
-    arena.scratch = false;
-    out
+    }
 }
 
 // ---------------- bitcode <-> term (persistent arena) ----------------
@@ -417,6 +483,15 @@ struct Bird {
     bits: String,
 }
 
+/// Signature vector at arities 0..=dp_a — the DP's class identity. None if any arity caps.
+fn dp_sigvec<A: Red>(arena: &mut A, t: u32, caps: &Caps, dp_a: usize) -> Option<Vec<(u64, u64)>> {
+    let mut v = Vec::with_capacity(dp_a + 1);
+    for k in 0..=dp_a {
+        v.push(signature_vars(arena, t, k, caps, true)?);
+    }
+    Some(v)
+}
+
 fn jstr(s: &str) -> String {
     let mut o = String::from("\"");
     for c in s.chars() {
@@ -442,6 +517,7 @@ fn main() {
     let mut dp_arity: usize = 12; // signature-vector arity for --dp (empirically tuned; validated against brute)
     let mut dp_probe: Option<String> = None; // diagnostic: trace why this bitcode's class was(n't) reached
     let mut dp_gate: usize = 10_000; // rep-count stop gate for --dp (guards runaway class growth)
+    let mut dp_opaque_fn = true; // --dp-no-opaque-fn: skip pairs whose FN is a capped singleton (leftmost-outermost does the head's work first, so a capped head stays capped; the rescue case is arg-side)
     let mut esc_mult: u64 = 100; // escalated-cap multiplier for frontier cap-outs (raise to chase down `conditional` statuses)
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -456,6 +532,7 @@ fn main() {
             "--dp-arity" => dp_arity = args.next().unwrap().parse().unwrap(),
             "--dp-probe" => dp_probe = Some(args.next().unwrap()),
             "--dp-gate" => dp_gate = args.next().unwrap().parse().unwrap(),
+            "--dp-no-opaque-fn" => dp_opaque_fn = false,
             other => panic!("unknown arg {other}"),
         }
     }
@@ -499,13 +576,7 @@ fn main() {
     // contexts) and remain frontier blockers for 'proven'.
     if dp {
         let dp_a: usize = dp_arity;
-        let mut sigvec = |arena: &mut Arena, t: u32, caps: &Caps| -> Option<Vec<(u64, u64)>> {
-            let mut v = Vec::with_capacity(dp_a + 1);
-            for k in 0..=dp_a {
-                v.push(signature_vars(arena, t, k, caps, true)?);
-            }
-            Some(v)
-        };
+
         let fold_key = |v: &[(u64, u64)]| -> (u64, u64) {
             let (mut h1, mut h2) = (0xcbf29ce484222325u64, 0x9e3779b97f4a7c15u64);
             for &(a, b) in v {
@@ -525,56 +596,118 @@ fn main() {
         let mut reps: Vec<Rep> = Vec::new();
         let mut reps_by_size: Vec<Vec<usize>> = vec![Vec::new(); max_iotas + 1];
         let iota_id = arena.leaf(TAG_IOTA, 0);
-        let iv = sigvec(&mut arena, iota_id, &caps).expect("iota signature capped");
+        let iv = dp_sigvec(&mut arena, iota_id, &caps, dp_a).expect("iota signature capped");
         class_of.insert(fold_key(&iv), 0);
         reps.push(Rep { term: iota_id, size: 1, vector: Some(iv) });
         reps_by_size[1].push(0);
         let mut pair_count: u64 = 0;
         let mut capped_count: usize = 0;
         let mut gate_tripped = false;
+        let workers = std::thread::available_parallelism().map(|v| v.get()).unwrap_or(8);
         'sizes: for n in 2..=max_iotas {
+            // Phase 1 (serial): compose all size-n candidates persistently.
+            let mut cands: Vec<u32> = Vec::new();
             for i in 1..n {
                 let j = n - i;
                 for fi in 0..reps_by_size[i].len() {
+                    if !dp_opaque_fn && reps[reps_by_size[i][fi]].vector.is_none() {
+                        continue; // capped head: composition caps too (arg-side rescue still explored)
+                    }
                     for xi in 0..reps_by_size[j].len() {
                         let (f, x) = (reps[reps_by_size[i][fi]].term, reps[reps_by_size[j][xi]].term);
-                        let t = arena.app(f, x);
-                        pair_count += 1;
-                        match sigvec(&mut arena, t, &caps) {
-                            Some(v) => {
-                                let key = fold_key(&v);
-                                if !class_of.contains_key(&key) {
-                                    class_of.insert(key, reps.len());
-                                    reps_by_size[n].push(reps.len());
-                                    reps.push(Rep { term: t, size: n as u32, vector: Some(v) });
+                        cands.push(arena.app(f, x));
+                    }
+                }
+            }
+            pair_count += cands.len() as u64;
+            // Phase 2 (parallel): signature vectors — persistent arena is immutable here, each
+            // worker owns its scratch. Stride assignment balances the cost gradient across
+            // candidates; results land at their candidate index, so the merge is deterministic.
+            let mut results: Vec<Option<Option<Vec<(u64, u64)>>>> = vec![None; cands.len()];
+            if cands.len() < 128 {
+                for (ci, &t) in cands.iter().enumerate() {
+                    results[ci] = Some(dp_sigvec(&mut arena, t, &caps, dp_a));
+                }
+            } else {
+                let p_nodes: &[Node] = &arena.p_nodes;
+                let p_dedup = &arena.p_dedup;
+                let cands_ref = &cands;
+                let caps_ref = &caps;
+                let done: Vec<(usize, Vec<(usize, Option<Vec<(u64, u64)>>)>)> = std::thread::scope(|sc| {
+                    (0..workers)
+                        .map(|w| {
+                            sc.spawn(move || {
+                                let mut wk = Worker {
+                                    p_nodes,
+                                    p_dedup,
+                                    s_nodes: Vec::new(),
+                                    s_dedup: FastMap::default(),
+                                    max_var_demand: 0,
+                                };
+                                let mut out = Vec::new();
+                                let mut ci = w;
+                                while ci < cands_ref.len() {
+                                    out.push((ci, dp_sigvec(&mut wk, cands_ref[ci], caps_ref, dp_a)));
+                                    ci += workers;
                                 }
-                            }
-                            None => {
-                                // opaque singleton rep: composable, frontier blocker
-                                reps_by_size[n].push(reps.len());
-                                reps.push(Rep { term: t, size: n as u32, vector: None });
-                                capped_count += 1;
-                            }
-                        }
-                        if reps.len() > dp_gate {
-                            eprintln!("dp stop-gate: >{dp_gate} reps at size {n} — deeper sizes unexplored");
-                            gate_tripped = true;
-                            break 'sizes;
+                                (wk.max_var_demand, out)
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, h)| {
+                            let (d, out) = h.join().expect("worker panicked");
+                            let _ = i;
+                            (d, out)
+                        })
+                        .collect()
+                });
+                for (d, out) in done {
+                    if d > arena.max_var_demand {
+                        arena.max_var_demand = d;
+                    }
+                    for (ci, r) in out {
+                        results[ci] = Some(r);
+                    }
+                }
+            }
+            // Phase 3 (serial, in candidate order): class/rep insertion + gate.
+            for (ci, res) in results.into_iter().enumerate() {
+                let t = cands[ci];
+                match res.expect("missing worker result") {
+                    Some(v) => {
+                        let key = fold_key(&v);
+                        if !class_of.contains_key(&key) {
+                            class_of.insert(key, reps.len());
+                            reps_by_size[n].push(reps.len());
+                            reps.push(Rep { term: t, size: n as u32, vector: Some(v) });
                         }
                     }
+                    None => {
+                        // opaque singleton rep: composable (arg side), frontier blocker
+                        reps_by_size[n].push(reps.len());
+                        reps.push(Rep { term: t, size: n as u32, vector: None });
+                        capped_count += 1;
+                    }
+                }
+                if reps.len() > dp_gate {
+                    eprintln!("dp stop-gate: >{dp_gate} reps at size {n} — deeper sizes unexplored");
+                    gate_tripped = true;
+                    break 'sizes;
                 }
             }
         }
         // diagnostic probe: decompose a known witness, check each subterm's class membership
         if let Some(bits) = &dp_probe {
             let t = decode_bits(&mut arena, bits).expect("bad probe bits");
-            let tkey = sigvec(&mut arena, t, &caps).map(|v| fold_key(&v));
+            let tkey = dp_sigvec(&mut arena, t, &caps, dp_a).map(|v| fold_key(&v));
             eprintln!("probe {bits}: key={tkey:?} in_classes={}", tkey.map(|k| class_of.contains_key(&k)).unwrap_or(false));
             let n = arena.node(t);
             if n.tag == TAG_APP {
                 for (side, sub) in [("fn", n.a), ("arg", n.b)] {
                     let sbits = encode_bits(&arena, sub);
-                    match sigvec(&mut arena, sub, &caps) {
+                    match dp_sigvec(&mut arena, sub, &caps, dp_a) {
                         Some(v) => {
                             let k = fold_key(&v);
                             match class_of.get(&k) {
@@ -589,11 +722,11 @@ fn main() {
                     }
                 }
                 // compose the reps and compare keys
-                let (fk, xk) = (sigvec(&mut arena, n.a, &caps).map(|v| fold_key(&v)), sigvec(&mut arena, n.b, &caps).map(|v| fold_key(&v)));
+                let (fk, xk) = (dp_sigvec(&mut arena, n.a, &caps, dp_a).map(|v| fold_key(&v)), dp_sigvec(&mut arena, n.b, &caps, dp_a).map(|v| fold_key(&v)));
                 if let (Some(fk), Some(xk)) = (fk, xk) {
                     if let (Some(&fi2), Some(&xi2)) = (class_of.get(&fk), class_of.get(&xk)) {
                         let composed = arena.app(reps[fi2].term, reps[xi2].term);
-                        let ck = sigvec(&mut arena, composed, &caps).map(|v| fold_key(&v));
+                        let ck = dp_sigvec(&mut arena, composed, &caps, dp_a).map(|v| fold_key(&v));
                         eprintln!("  app(rep_fn, rep_arg) = {}: key={ck:?} same_as_probe={}", encode_bits(&arena, composed), ck == tkey);
                     }
                 }
@@ -624,7 +757,7 @@ fn main() {
             let mut minimal_nf: Option<String> = None;
             let mut status = "bird-capped".to_string();
             let mut unresolved = 0u64;
-            if let Some(bv) = sigvec(&mut arena, term, &esc_caps) {
+            if let Some(bv) = dp_sigvec(&mut arena, term, &esc_caps, dp_a) {
                 let bkey = fold_key(&bv);
                 coin_groups.entry(bkey).or_default().push(bi);
                 status = "not-found-within-bound".into();
