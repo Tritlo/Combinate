@@ -34,7 +34,7 @@ jobs:
           workspaces: |
             crates/refold
             crates/reduce
-            vendor/microhs/rust/microhs-runtime
+            vendor/microhs
       - name: Install wasm-pack (pinned)
         run: |
           curl -sSL https://github.com/rustwasm/wasm-pack/releases/download/v0.15.0/wasm-pack-v0.15.0-x86_64-unknown-linux-musl.tar.gz | tar -xz
@@ -51,14 +51,36 @@ jobs:
       # vendored submodule: the wasm runtime, compiler.mjs/host.mjs, mhs.comb,
       # base.pkg, and the lib sources → public/vendor/mhs/. No emcc — cargo builds
       # the wasm directly; this replaced the emscripten batch blob + prewarm cache
-      # (the mhs-vendor.tar.gz Release asset is retired). ----
+      # (the mhs-vendor.tar.gz Release asset is retired).
+      #
+      # The expensive part is not cargo (~11s) but *running* the compiler wasm (the
+      # dist smoke + one compile per gallery example, ~5 min), so the whole output —
+      # dist + gallery closures — is cached, keyed on everything that feeds it: the
+      # submodule pin, the build/gen scripts, the curated examples, and src/core
+      # (the gen step re-reduces every closure through the core). An exact hit skips
+      # both steps below; bump v1 to force a rebuild. ----
+      - name: Compute the MicroHs submodule pin
+        id: mhs-rev
+        run: echo "sha=$(git rev-parse HEAD:vendor/microhs)" >> "$GITHUB_OUTPUT"
+      - name: Cache the MicroHs dist + gallery closures
+        id: mhs-dist
+        uses: actions/cache@v4
+        with:
+          path: public/vendor/mhs
+          key: mhs-dist-v1-${{ steps.mhs-rev.outputs.sha }}-${{ hashFiles('scripts/build-mhs-rust.sh', 'scripts/gen-mhs-examples.ts', 'src/view/mhs/examples.ts', 'src/core/**') }}
       - name: Build the MicroHs Rust web dist
+        if: steps.mhs-dist.outputs.cache-hit != 'true'
         run: scripts/build-mhs-rust.sh
       # The curated gallery closures (examples/*.json) — compiled from the dist we
       # just built (node, not the browser), so "click an example" is instant instead
       # of a live compile. Fails the deploy if any example stops compiling.
       - name: Generate the gallery example closures
+        if: steps.mhs-dist.outputs.cache-hit != 'true'
         run: npx tsx scripts/gen-mhs-examples.ts
+      # Built or restored, the dist must be complete (wasm magic, manifest entries,
+      # a closure per example) — a corrupt/partial cache restore fails here, cheaply.
+      - name: Verify the MicroHs dist
+        run: npx tsx scripts/check-mhs-dist.ts
 
       # ---- The IoskeleyMono editor webfont is still too heavy to regenerate here,
       # so it stays on the `vendor-assets` Release (auth: the workflow's GITHUB_TOKEN,

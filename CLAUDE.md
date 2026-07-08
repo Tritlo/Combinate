@@ -82,7 +82,10 @@ Pages (private repo, custom domain **combinate.app**, served at the domain root)
   dist's absolute asset URLs via `postMessage`.
 - **`public/vendor/` is git-ignored, built from source in CI.** `deploy.yml` checks out
   the `vendor/microhs` submodule and builds the MicroHs Rust dist + gallery closures (see
-  below) — nothing prebuilt is committed or fetched for it. The one hosted asset is the
+  below) — nothing prebuilt is committed or fetched for it. The dist + closures are
+  cached by inputs (`mhs-dist-v1-…` key: submodule pin, build/gen scripts, examples,
+  `src/core`) since running the compiler wasm costs ~5 min; bump the key's `v1` to force
+  a rebuild, and `scripts/check-mhs-dist.ts` gates every deploy (built or restored). The one hosted asset is the
   editor webfont on the **`vendor-assets` GitHub Release** (`IoskeleyMono-Regular.woff2`),
   fetched by CI (`gh release download`, authed by the workflow's `GITHUB_TOKEN` /
   `contents: read`).
