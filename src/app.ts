@@ -584,9 +584,21 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     () => paintRail(),
   );
 
+  // Touch long-press = right-click (no `rightdown` on a touch screen): a touch that grabs a tree
+  // and then stays put opens the node context menu instead. The grab is released (the tree stays
+  // where it is, still frozen from the grab, so node ids are stable under the open menu).
+  const HOLD_MS = 500;
+  const HOLD_SLOP = 10; // CSS px of finger jitter allowed before the hold reads as a drag
+  let hold: { tree: TreeView; x: number; y: number; timer: number } | null = null;
+  function cancelHold(): void {
+    if (hold) window.clearTimeout(hold.timer);
+    hold = null;
+  }
+
   function onTreeDown(tree: TreeView, e: FederatedPointerEvent): void {
     if (e.button !== 0) return; // left-drag only; right-click is handled separately
     e.stopPropagation();
+    cancelHold();
     // An armed authoring mode consumes the click on a picked node instead of dragging.
     if (authorMode) {
       const id = tree.pickNode(e.global);
@@ -602,15 +614,34 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     world.addChild(tree.container); // bring to front
     tree.container.eventMode = "none"; // passive while carried, so the next click reaches what's underneath
     drag.grab(tree, e.global.x, e.global.y);
+    if (e.pointerType === "touch") {
+      const x = e.global.x;
+      const y = e.global.y;
+      hold = {
+        tree,
+        x,
+        y,
+        timer: window.setTimeout(() => {
+          hold = null;
+          drag.cancel(); // release the grab (clears the snap ghost); the tree stays put
+          tree.container.eventMode = "static"; // restore interactivity (the grab made it passive)
+          navigator.vibrate?.(15); // a small haptic "click" where supported
+          openNodeMenu(tree, x, y);
+        }, HOLD_MS),
+      };
+    }
   }
 
   // Right-click a node to open a Delete/Copy menu on its subtree (the deepest node under the cursor).
   function onTreeRightDown(tree: TreeView, e: FederatedPointerEvent): void {
     e.stopPropagation();
-    const id = tree.pickNode(e.global);
+    openNodeMenu(tree, e.global.x, e.global.y);
+  }
+
+  /** Open the node context menu at screen (sx,sy) on the deepest node there (right-click / long-press). */
+  function openNodeMenu(tree: TreeView, sx: number, sy: number): void {
+    const id = tree.pickNode({ x: sx, y: sy });
     if (id === null) return;
-    const sx = e.global.x;
-    const sy = e.global.y;
     ctxMenu.show(sx, sy, [
       { label: "Name Combinator", run: () => nameCombinator(tree, id) },
       { label: "Delete", run: () => deleteNode(tree, id) },
@@ -671,10 +702,13 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       sphere.dragTo(e.global.x, e.global.y);
       return;
     }
+    // A finger that wanders past the slop is dragging, not holding — the long-press is off.
+    if (hold && Math.hypot(e.global.x - hold.x, e.global.y - hold.y) > HOLD_SLOP) cancelHold();
     drag.moveTo(e.global.x, e.global.y); // no-op when idle; pans the camera or moves the carried tree + snap preview
   });
 
   const onUp = () => {
+    cancelHold(); // lifting the finger before the long-press fires keeps it a normal grab
     sphere.endDrag(); // end a 3D drag (imparts release momentum); no-op in 2D
     drag.endPan(); // end a camera pan; a carried tree keeps following until the next click
   };
@@ -816,6 +850,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       return; // 3D: one finger pans (handled in move)
     }
     if (pointers.size === 2) {
+      cancelHold(); // a second finger means pinch, not a long-press
       drag.cancel(); // hand control to the pinch (also clears the snap ghost)
       pinch = pinchMetrics();
     }
