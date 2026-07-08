@@ -165,7 +165,9 @@ export class MhsPanel {
       const row = div("mhs-row");
       row.appendChild(divText("mhs-row-title", ex.title));
       row.appendChild(divText("mhs-row-blurb", ex.blurb));
-      row.addEventListener("pointerdown", () => this.loadExample(ex));
+      // Selecting an example just loads its source into the editor; compiling
+      // waits for the explicit "Compile & run ▶︎" button.
+      row.addEventListener("pointerdown", () => void this.loadExample(ex, false));
       list.appendChild(row);
     }
     body.appendChild(list);
