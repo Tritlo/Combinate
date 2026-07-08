@@ -32,6 +32,7 @@ const EDGE_OPACITY = 0.85; // edges more opaque than before so the fn/arg cue re
 const DASH_SIZE = 16; // arg (right) edges are DASHED, fn (left) solid — the 3D echo of the 2D solid/dashed legend
 const GAP_SIZE = 11; // (layout shells are ~92 units apart, so ~3 dashes per edge)
 const FRAME_MARGIN = 1.6; // camera pull-back factor when framing (smaller = the ball fills more of the view)
+const RECORD_FRAME_MARGIN = 1.25; // tighter pull-back for recordings — fill the frame (the live view keeps 1.6 for orbit headroom)
 const FRAME_FLOOR = 120; // min framing radius (keeps a tiny tree from clipping)
 const RIM_SPACER_SCALE = 1.15; // paper gap between a node and its inverted-hull rim
 const RIM_SCALE = 1.3; // colored inverted-hull rim around the root and graph-shared nodes
@@ -711,7 +712,8 @@ export class Sphere3D {
   }
   private frameDistance(radius: number): number {
     const r = Math.max(radius, FRAME_FLOOR);
-    return (r * FRAME_MARGIN) / Math.tan((this.camera!.fov * Math.PI) / 360);
+    const margin = this.recordTheme ? RECORD_FRAME_MARGIN : FRAME_MARGIN; // recordings frame tighter
+    return (r * margin) / Math.tan((this.camera!.fov * Math.PI) / 360);
   }
   private syncCameraRange(): void {
     if (!this.camera) return;
