@@ -98,7 +98,11 @@ const post = (msg: {
   defs?: unknown[];
   error?: string;
   stats?: CompileStats | null;
+  phase?: string;
 }): void => self.postMessage(msg);
+
+/** Non-terminal progress note for the main thread's status console (never settles a pending). */
+const progress = (id: number, phase: string): void => post({ id, status: "progress", phase });
 
 self.onmessage = (event: MessageEvent<InMessage>): void => {
   const msg = event.data;
@@ -108,6 +112,7 @@ self.onmessage = (event: MessageEvent<InMessage>): void => {
 
 async function init(msg: InitMessage): Promise<void> {
   try {
+    progress(msg.id, "loading compiler runtime…");
     const mod = (await import(/* @vite-ignore */ msg.compilerUrl)) as CompilerModule;
     const manifest = (await fetchJson(msg.manifestUrl)) as Manifest;
     const files: Record<string, Uint8Array> = {};
@@ -120,14 +125,26 @@ async function init(msg: InitMessage): Promise<void> {
       ...Object.entries(manifest.includeFiles).map(([distRel, vfs]) => ({ vfs, distRel })),
       ...(manifest.packages ?? []).map((p) => ({ vfs: p.vfs, distRel: p.dist })),
     ];
+    let fetched = 0;
+    progress(msg.id, `fetching toolchain (0/${vfsFiles.length + 2})…`);
+    const noteFetch = (): void => {
+      fetched++;
+      // every 25th file (and the last) — enough motion to read as progress, not spam
+      if (fetched % 25 === 0 || fetched === vfsFiles.length + 2) progress(msg.id, `fetching toolchain (${fetched}/${vfsFiles.length + 2})…`);
+    };
     const filesReady = Promise.all(
       vfsFiles.map(async ({ vfs, distRel }) => {
         files[vfs] = new Uint8Array(await fetchBytes(new URL(distRel, msg.baseUrl).href));
+        noteFetch();
       }),
     );
-    const [wasm, comb] = await Promise.all([fetchBytes(msg.wasmUrl), fetchBytes(msg.combUrl)]);
+    const [wasm, comb] = await Promise.all([
+      fetchBytes(msg.wasmUrl).then((b) => (noteFetch(), b)),
+      fetchBytes(msg.combUrl).then((b) => (noteFetch(), b)),
+    ]);
     await filesReady;
 
+    progress(msg.id, "warming the compiler (base.pkg)…");
     compiler?.close();
     compiler = await mod.createCompiler({
       wasm,
@@ -148,6 +165,7 @@ function compile(msg: CompileMessage): void {
     return;
   }
   active = { id: msg.id, deadline: performance.now() + msg.timeoutMs };
+  progress(msg.id, "compiling (the worker blocks until the compiler returns)…");
   try {
     const out = compiler.toCombinators(msg.source, msg.entry ?? "out", { module: msg.module ?? "Ex", flags: ["-q"] });
     post({ id: msg.id, status: out.status, root: out.root, defs: out.defs, error: out.error, stats: out.stats });
