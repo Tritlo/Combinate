@@ -28,6 +28,7 @@
 
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 /// Zero-dep splitmix64 hasher — keys are already well-mixed integers; SipHash
@@ -802,6 +803,7 @@ fn main() {
                 }
             }
             pair_count += cands.len() as u64;
+            let t_build = Instant::now();
             // Phase 2 (parallel): signature vectors — persistent arena is immutable here, each
             // worker owns its scratch. Stride assignment balances the cost gradient across
             // candidates; results land at their candidate index, so the merge is deterministic.
@@ -815,6 +817,8 @@ fn main() {
                 let p_dedup = &arena.p_dedup;
                 let cands_ref = &cands;
                 let caps_ref = &caps;
+                let next = std::sync::atomic::AtomicUsize::new(0);
+                let next = &next;
                 let done: Vec<(usize, Vec<(usize, SigRes)>)> = std::thread::scope(|sc| {
                     (0..workers)
                         .map(|w| {
@@ -829,12 +833,16 @@ fn main() {
                                 };
                                 let mut wbufs = ReduceBufs::default();
                                 let mut out = Vec::new();
-                                let mut ci = w;
-                                while ci < cands_ref.len() {
+                                let t0 = Instant::now();
+                                loop {
+                                    let ci = next.fetch_add(1, Ordering::Relaxed);
+                                    if ci >= cands_ref.len() {
+                                        break;
+                                    }
                                     let (f, x) = cands_ref[ci];
                                     out.push((ci, dp_sigvec_headarg(&mut wk, f, Some(x), caps_ref, dp_a, &mut wbufs)));
-                                    ci += workers;
                                 }
+                                eprintln!("    worker {w}: {} cands in {}ms", out.len(), t0.elapsed().as_millis());
                                 (wk.max_var_demand, out)
                             })
                         })
@@ -857,6 +865,8 @@ fn main() {
                     }
                 }
             }
+            let t_par = t_build.elapsed();
+            let t_merge0 = Instant::now();
             // Phase 3 (serial, in candidate order): class/rep insertion + gate.
             for (ci, res) in results.into_iter().enumerate() {
                 let (cf, cx) = cands[ci];
@@ -893,11 +903,13 @@ fn main() {
             }
             let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri].vector.is_some()).count();
             eprintln!(
-                "  size {n}: {} cands → +{} classes, +{} opaque ({} total reps)",
+                "  size {n}: {} cands → +{} classes, +{} opaque ({} total reps) · par {}ms merge {}ms",
                 cands.len(),
                 newc,
                 reps_by_size[n].len() - newc,
-                reps.len()
+                reps.len(),
+                t_par.as_millis(),
+                t_merge0.elapsed().as_millis()
             );
         }
         // diagnostic probe: decompose a known witness, check each subterm's class membership
@@ -967,6 +979,8 @@ fn main() {
                 let jobs_ref = &jobs;
                 let tier1_ref = &tier1;
                 let esc_ref = &esc_caps;
+                let enext = std::sync::atomic::AtomicUsize::new(0);
+                let enext = &enext;
                 let done: Vec<(usize, Vec<(usize, Option<(u64, u64)>)>)> = std::thread::scope(|sc| {
                     (0..workers)
                         .map(|w| {
@@ -981,13 +995,16 @@ fn main() {
                                 };
                                 let mut wbufs = ReduceBufs::default();
                                 let mut out = Vec::new();
-                                let mut ji = w;
-                                while ji < jobs_ref.len() {
+                                let _ = w;
+                                loop {
+                                    let ji = enext.fetch_add(1, Ordering::Relaxed);
+                                    if ji >= jobs_ref.len() {
+                                        break;
+                                    }
                                     let (t, a) = jobs_ref[ji];
                                     let r = signature_vars(&mut wk, t, a as usize, tier1_ref, true, &mut wbufs)
                                         .or_else(|| signature_vars(&mut wk, t, a as usize, esc_ref, true, &mut wbufs));
                                     out.push((ji, r));
-                                    ji += workers;
                                 }
                                 (wk.max_var_demand, out)
                             })
