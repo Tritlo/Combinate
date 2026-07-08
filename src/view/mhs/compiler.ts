@@ -1,25 +1,46 @@
 /**
  * The compile surface for the Haskell panel (ADR 0007, post-process approach).
- * Two paths, both ending in `core/mhs.ts` post-processing a stock dump:
+ * Two paths, both ending in a `core/mhs.ts` post-processor:
  *
  *  - **gallery** (always available): fetch a curated example's pre-compiled,
- *    pruned dump (a vendored asset) — no wasm, the reliable cold-start.
- *  - **live** (best-effort): a stock MicroHs blob in a Web Worker batch-compiles
- *    free-typed source to a `-ddump-combinator` dump. Gated on the vendored blob
- *    (the `vendor-assets` GitHub Release, fetched by CI); a fresh worker per compile
- *    keeps it stateless.
- *
- * The dump → ι tree step is the same pure `dumpToTree` for both.
+ *    pruned combinator dump (a vendored asset) → `dumpToTree` (text). No wasm.
+ *  - **live**: the Rust MicroHs web dist under `public/vendor/mhs/`. A single
+ *    module worker owns one warm runtime instance and reuses it across compiles;
+ *    the main thread resolves base-aware asset URLs, forwards init/compile, and
+ *    turns the worker's `toCombinators` JSON closure into a tree via
+ *    `combinatorsToTree`. Gated on the vendored dist (built by
+ *    `scripts/build-mhs-rust.sh`).
  */
-import { dumpToTree, type DumpResult } from "../../core/mhs";
+import { dumpToTree, combinatorsToTree, type CombDef, type DumpResult } from "../../core/mhs";
 import { vendorUrl } from "../../vendorUrl";
 
-// Base-aware URLs for the vendored MicroHs assets (so they resolve on the Pages
-// /Combinate/ subpath, not just at the dev root). The blob URL is absolute, which
-// the worker needs for importScripts (it has no document to resolve against).
+type RustStats = {
+  reductions: bigint;
+  liveNodes: bigint;
+  currentNodes: bigint;
+  gcCollections: bigint;
+  lastLiveNodes: bigint;
+  highWaterNodes: bigint;
+};
+
+type WorkerReply = {
+  id: number;
+  status: string;
+  root?: string;
+  defs?: CombDef[];
+  error?: string;
+  stats?: RustStats | null;
+};
+
+type Pending = {
+  resolve: (result: DumpResult) => void;
+  reject: (error: Error) => void;
+  hardTimer: number;
+};
+
 const exampleUrl = (name: string): string => vendorUrl(`vendor/mhs/examples/${name}.comb`);
-const cacheUrl = (): string => vendorUrl("vendor/mhs/base.mhscache");
-const blobUrl = (): string => vendorUrl("vendor/mhs/mhs-batch.js");
+const distBaseUrl = (): string => vendorUrl("vendor/mhs/");
+const distUrl = (name: string): string => vendorUrl(`vendor/mhs/${name}`);
 
 /** Fetch a curated example's pre-compiled (pruned) combinator dump. */
 export async function exampleDump(name: string): Promise<string> {
@@ -33,48 +54,108 @@ export function toTree(dump: string, root: string): DumpResult {
   return dumpToTree(dump, root);
 }
 
-// The prewarmed Prelude cache, fetched once and reused (copied per compile, not
-// transferred). Resolves to null if it isn't vendored — then the worker compiles
-// cold (slower). Fetched on the main thread, NOT in the worker (an async worker
-// onmessage broke the Emscripten run — see worker.ts).
-let cacheP: Promise<ArrayBuffer | null> | null = null;
-function preludeCache(): Promise<ArrayBuffer | null> {
-  if (!cacheP) cacheP = fetch(cacheUrl()).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null);
-  return cacheP;
-}
-
-/** Warm the live-compile assets during the boot splash: the prewarmed cache (so
- *  the first compile reads it) and the 3 MB blob (so its download is paid up
- *  front, not on the first compile). Best-effort — a missing asset just means a
- *  cold/slower first compile, or the honest "no blob" message if it never loads. */
+/** Warm the Rust compiler worker during the boot splash (dynamic-import the
+ *  runtime, load the lib VFS + `base.pkg`). Best-effort — a missing local dist
+ *  just reports honestly when the user actually compiles. */
 export async function preloadCompiler(): Promise<void> {
-  await Promise.all([preludeCache(), fetch(blobUrl()).catch(() => undefined)]);
+  await compilerReady().catch(() => undefined);
 }
 
-/** Batch-compile free-typed Haskell to a combinator dump via the batch blob in a
- *  Web Worker. Resolves to the dump, or rejects with an honest reason (no blob, a
- *  type error, or a forced primitive). A fresh worker per call avoids the
- *  Emscripten single-`main` / shared-state pitfalls. ~30s with the prewarmed cache,
- *  ~65s cold (the batch blob runs the whole MicroHs compiler in wasm). */
-export async function liveCompile(source: string, timeoutMs = 180_000): Promise<string> {
-  const cache = await preludeCache();
+/** Compile free-typed Haskell through the resident Rust MicroHs worker (one warm
+ *  runtime, `base.pkg`): `toCombinators` returns the entry's pruned closure, which
+ *  `combinatorsToTree` turns into a spawnable ι tree (or an honest reject reason).
+ *  A type/compile error rejects; the runtime self-cancels at its `onPoll` deadline
+ *  (`timeoutMs`); the hard timer only fires if the runtime never returns. */
+export async function liveCompile(source: string, timeoutMs = 180_000): Promise<DumpResult> {
+  await compilerReady();
   return new Promise((resolve, reject) => {
-    let worker: Worker;
-    try {
-      worker = new Worker(new URL("./worker.ts", import.meta.url));
-    } catch (e) {
-      reject(new Error(`live compiler unavailable: ${(e as Error).message}`));
+    const worker = compilerWorker;
+    if (!worker) {
+      reject(new Error("live compiler worker is not running"));
       return;
     }
-    const done = (fn: () => void): void => {
-      clearTimeout(timer);
-      worker.terminate();
-      fn();
-    };
-    const timer = setTimeout(() => done(() => reject(new Error("compile timed out"))), timeoutMs);
-    worker.onmessage = (e: MessageEvent<{ dump?: string; error?: string }>) =>
-      done(() => (e.data.error ? reject(new Error(e.data.error)) : resolve(e.data.dump!)));
-    worker.onerror = (e) => done(() => reject(new Error(e.message || "live compiler failed to load")));
-    worker.postMessage({ source, cache, blob: blobUrl() });
+    const id = ++seq;
+    const hardTimer = window.setTimeout(() => resetWorker(new Error("compile timed out")), timeoutMs + 30_000);
+    pending.set(id, { resolve, reject, hardTimer });
+    worker.postMessage({ type: "compile", id, source, module: "Ex", entry: "out", timeoutMs });
   });
+}
+
+let compilerWorker: Worker | null = null;
+let ready: Promise<void> | null = null;
+let seq = 0;
+const pending = new Map<number, Pending>();
+
+function compilerReady(): Promise<void> {
+  if (ready) return ready;
+  ready = new Promise((resolve, reject) => {
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+    } catch (error) {
+      ready = null;
+      reject(new Error(`live compiler unavailable: ${(error as Error).message}`));
+      return;
+    }
+
+    compilerWorker = worker;
+    const initId = ++seq;
+    const initTimer = window.setTimeout(() => resetWorker(new Error("compiler initialization timed out")), 180_000);
+    // resetWorker rejects `pending`; the init promise is settled here directly.
+    initReject = reject;
+
+    worker.onmessage = (event: MessageEvent<WorkerReply>) => {
+      const msg = event.data;
+      if (msg.id === initId) {
+        window.clearTimeout(initTimer);
+        initReject = null;
+        if (msg.status === "ready") resolve();
+        else resetWorker(new Error(msg.error || "compiler failed to initialize"));
+        return;
+      }
+      const entry = pending.get(msg.id);
+      if (!entry) return; // already settled (e.g. by a hard-timeout reset)
+      pending.delete(msg.id);
+      window.clearTimeout(entry.hardTimer);
+      if (msg.stats) console.debug("MicroHs compile stats", msg.stats);
+      // status "ok" → post-process the JSON closure (which may still reject with a
+      // "no ι form"); any other status is a compile/type error → reject the promise.
+      if (msg.status === "ok" && msg.defs && msg.root) entry.resolve(combinatorsToTree(msg.defs, msg.root));
+      else entry.reject(new Error(msg.error || `compiler returned ${msg.status}`));
+    };
+
+    worker.onerror = (event) => {
+      window.clearTimeout(initTimer);
+      resetWorker(new Error(event.message || "compiler worker failed"));
+    };
+
+    worker.postMessage({
+      type: "init",
+      id: initId,
+      compilerUrl: distUrl("compiler.mjs"),
+      baseUrl: distBaseUrl(),
+      wasmUrl: distUrl("microhs_runtime.wasm"),
+      combUrl: distUrl("mhs.comb"),
+      manifestUrl: distUrl("manifest.json"),
+    });
+  });
+  return ready;
+}
+
+// The pending init promise's reject, so `resetWorker` can fail a stalled init.
+let initReject: ((error: Error) => void) | null = null;
+
+/** Tear down the worker and fail everything in flight — the hard-failure path
+ *  (init/compile timeout or a worker error). The next compile re-inits fresh. */
+function resetWorker(error: Error): void {
+  compilerWorker?.terminate();
+  compilerWorker = null;
+  ready = null;
+  for (const entry of pending.values()) {
+    window.clearTimeout(entry.hardTimer);
+    entry.reject(error);
+  }
+  pending.clear();
+  initReject?.(error);
+  initReject = null;
 }

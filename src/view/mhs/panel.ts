@@ -12,6 +12,7 @@
  */
 import type { Node } from "../../core/term";
 import type { Ty } from "../../core/types";
+import type { DumpResult } from "../../core/mhs";
 import { EXAMPLES, exprOf, type Example } from "./examples";
 import { exampleDump, liveCompile, toTree } from "./compiler";
 import { highlightHaskell, HL_DARK, HL_LIGHT } from "./highlight";
@@ -119,8 +120,7 @@ export class MhsPanel {
   /** Live-compile source through the blob and report the outcome (E2E seam). */
   async compileLive(source: string): Promise<{ ok: boolean; detail: string }> {
     try {
-      const dump = await liveCompile(source);
-      const res = toTree(dump, "Ex.out");
+      const res = await liveCompile(source);
       return "error" in res ? { ok: false, detail: res.error } : { ok: true, detail: "tree" };
     } catch (e) {
       return { ok: false, detail: (e as Error).message };
@@ -224,16 +224,15 @@ export class MhsPanel {
     if (!run) return;
     this.setStatus(`compiling ${ex.title}…`, "accent", true);
     try {
-      // Fast path: the vendored pre-compiled dump. If it isn't vendored (e.g. a newer example on
-      // the deployed site), fall back to compiling it live in-browser through the stock blob.
-      let dump: string;
+      // Fast path: the vendored pre-compiled (text) dump. If it isn't vendored (e.g. a newer
+      // example on the deployed site), fall back to compiling it live through the Rust worker.
+      let res: DumpResult;
       try {
-        dump = await exampleDump(ex.name);
+        res = toTree(await exampleDump(ex.name), ex.root);
       } catch {
         this.setStatus(`compiling ${ex.title} live in-browser — this takes ~30s…`, "accent", true);
-        dump = await liveCompile(ex.source);
+        res = await liveCompile(ex.source);
       }
-      const res = toTree(dump, ex.root);
       if ("error" in res) {
         this.setStatus(res.error, "#cf222e");
         return;
@@ -253,8 +252,7 @@ export class MhsPanel {
     if (src.trim() === this.current.source.trim()) return this.loadExample(this.current);
     this.setStatus("compiling live in-browser — this takes ~30s…", "accent", true);
     try {
-      const dump = await liveCompile(src);
-      const res = toTree(dump, "Ex.out");
+      const res = await liveCompile(src);
       if ("error" in res) {
         this.setStatus(res.error, "#cf222e");
         return;
