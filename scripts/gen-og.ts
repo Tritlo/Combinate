@@ -32,8 +32,9 @@ const heroTerm = (): Node => expandDisplay(app(app(named("(+)"), named("1")), na
 
 const tier = (depth: number): string => (depth % 2 === 0 ? INK : RED);
 
-/** The hero tree as an H-tree SVG fitted to `w`×`h`, nodes sized by the layout's
- *  per-depth scale (so the fractal breathes instead of clumping). */
+/** The hero tree as an H-tree SVG fitted to `w`×`h` — nodes, edge widths, and
+ *  dashes sized by the layout's per-node scale with NO floor, so the deep fringe
+ *  tapers away exactly as the app draws it. */
 function treeSvg(w: number, h: number): string {
   const root = heroTerm();
   console.log(`hero: ${countNodes(root)} nodes`);
@@ -55,14 +56,14 @@ function treeSvg(w: number, h: number): string {
       const f = at(n.fn);
       const a = at(n.arg);
       const col = tier(depth);
-      const sw = Math.max(0.9, 2 * sc(n));
+      const sw = 2 * sc(n); // no floor: edges thin out with their arms (the app's taper)
       edges.push(`<line x1="${p.x}" y1="${p.y}" x2="${f.x}" y2="${f.y}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round"/>`);
       edges.push(`<line x1="${p.x}" y1="${p.y}" x2="${a.x}" y2="${a.y}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${5 * sc(n)} ${3.5 * sc(n)}"/>`);
-      nodes.push(`<circle cx="${p.x}" cy="${p.y}" r="${Math.max(0.9, 1.8 * sc(n))}" fill="${DIM}"/>`);
+      nodes.push(`<circle cx="${p.x}" cy="${p.y}" r="${1.8 * sc(n)}" fill="${DIM}"/>`);
       walk(n.fn, depth + 1);
       walk(n.arg, depth + 1);
     } else {
-      nodes.push(`<circle cx="${p.x}" cy="${p.y}" r="${Math.max(1.8, 4.6 * sc(n))}" fill="${RED}"/>`);
+      nodes.push(`<circle cx="${p.x}" cy="${p.y}" r="${4.6 * sc(n)}" fill="${RED}"/>`);
     }
   };
   walk(root, 0);

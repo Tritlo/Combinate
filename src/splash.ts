@@ -28,8 +28,9 @@ export interface Splash {
 
 /** Render the hero term as an inline SVG H-tree, in the app's mono look: red ι
  *  leaves, edges tiered ink/red by depth (`--sp-ink` even, `--sp-red` odd — the
- *  red/black-tree cue), function edges solid and argument edges dashed. Node
- *  sizes follow the layout's per-depth scale, so the dense fractal breathes. */
+ *  red/black-tree cue), function edges solid and argument edges dashed. Nodes,
+ *  edge widths, and dashes follow the layout's per-node scale with NO floor —
+ *  the deep fringe tapers away exactly as the app draws it. */
 function htreeArtSvg(): string {
   const root = heroTerm();
   const { pos, scale, minX, minY, width, height } = layoutHTree(root);
@@ -55,14 +56,14 @@ function htreeArtSvg(): string {
       const f = at(n.fn);
       const a = at(n.arg);
       const col = tier(depth);
-      const sw = Math.max(0.5, 0.9 * sc(n));
+      const sw = 0.9 * sc(n); // no floor: edges thin out with their arms (the app's taper)
       edges.push(`<line x1="${p.x}" y1="${p.y}" x2="${f.x}" y2="${f.y}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round"/>`);
       edges.push(`<line x1="${p.x}" y1="${p.y}" x2="${a.x}" y2="${a.y}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${3.5 * sc(n)} ${2.5 * sc(n)}"/>`);
-      dots.push(`<circle cx="${p.x}" cy="${p.y}" r="${Math.max(0.5, 0.9 * sc(n))}" fill="var(--sp-dim)"/>`);
+      dots.push(`<circle cx="${p.x}" cy="${p.y}" r="${0.9 * sc(n)}" fill="var(--sp-dim)"/>`);
       walk(n.fn, depth + 1);
       walk(n.arg, depth + 1);
     } else {
-      dots.push(`<circle cx="${p.x}" cy="${p.y}" r="${Math.max(1.1, 2 * sc(n))}" fill="var(--sp-red)"/>`);
+      dots.push(`<circle cx="${p.x}" cy="${p.y}" r="${2 * sc(n)}" fill="var(--sp-red)"/>`);
     }
   };
   walk(root, 0);
