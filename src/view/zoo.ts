@@ -150,7 +150,34 @@ export class Zoo {
     btns[1]!.classList.toggle("on", this.fastMode);
   }
 
+  /** System-1 hover tooltip (the menubar's .mb-tip pattern) for the stats hint. */
+  private tipEl: HTMLDivElement | null = null;
+  private showTip(text: string, at: { x: number; y: number }): void {
+    if (!this.tipEl) {
+      const el = document.createElement("div");
+      el.className = "mb-tip";
+      document.body.appendChild(el);
+      this.tipEl = el;
+    }
+    const el = this.tipEl;
+    const mode = currentMode();
+    el.style.setProperty("--mb-bg", PAPER[mode]);
+    el.style.setProperty("--mb-fg", INK[mode]);
+    el.style.setProperty("--mb-line", INK[mode]);
+    el.style.setProperty("--mb-shadow", "rgba(0,0,0,0.85)");
+    el.textContent = text;
+    el.style.display = "block";
+    const w = el.offsetWidth;
+    const x = Math.min(at.x, window.innerWidth - w - 8);
+    el.style.left = `${Math.max(6, x)}px`;
+    el.style.top = `${at.y + 4}px`;
+  }
+  private hideTip(): void {
+    if (this.tipEl) this.tipEl.style.display = "none";
+  }
+
   close(): void {
+    this.hideTip();
     if (this.speedEl) this.speedEl.style.display = "none";
     this.panel.visible = false;
   }
@@ -207,6 +234,7 @@ export class Zoo {
   /** Rebuild the panel contents (after a discovery, unlock, open, or page switch). */
   refresh(): void {
     this.placeSpeedToggle(null); // hidden unless the detail re-places it (known bird with a fastest form)
+    this.hideTip(); // the hovered stats Text is destroyed on refresh — no pointerout will fire
     if (!this.panel.visible) return;
     this.buildTabs();
     this.buildList();
@@ -403,17 +431,12 @@ export class Zoo {
       stats.eventMode = "static";
       stats.cursor = "help";
       this.detail.addChild(stats);
-      y += stats.height + 3;
-      const hint = new Text({
-        text: `both forms verified by the ≤ ${IOTA_FASTEST_BOUND}ι hunt (every ι-term up to ${IOTA_FASTEST_BOUND} leaves searched) — a deeper hunt may still improve them.`,
-        style: { fontFamily: "monospace", fontSize: 11, fill: theme.mutedDot, wordWrap: true, wordWrapWidth: dw },
-      });
-      hint.position.set(dx, y);
-      hint.visible = false;
-      this.detail.addChild(hint);
-      y += hint.height + 7;
-      stats.on("pointerover", () => { hint.visible = true; });
-      stats.on("pointerout", () => { hint.visible = false; });
+      y += stats.height + 10;
+      stats.on("pointerover", () => this.showTip(
+        `both forms verified by the ≤ ${IOTA_FASTEST_BOUND}ι hunt (every ι-term up to ${IOTA_FASTEST_BOUND} leaves searched) — a deeper hunt may still improve them.`,
+        { x: dx, y: y }
+      ));
+      stats.on("pointerout", () => this.hideTip());
     } else {
       line(`iotas:    ${countIotas(tree)}`, theme.textDim, 14, 10);
     }
