@@ -537,15 +537,6 @@ fn signature_vars<A: Red>(arena: &mut A, t: u32, arity: usize, caps: &Caps, dist
     arena.s_clear();
     bufs.hmemo.clear();
     bufs.nf_cache.clear();
-    signature_vars_resume(arena, t, arity, caps, distinct, bufs)
-}
-
-/// Escalation resume: like signature_vars but KEEPS the current scratch window — the NF
-/// cache hands back every sub-normalization the cheaper tier already completed, so the
-/// escalated tier only re-does the head spine's contractions (MicroHs-style progress
-/// sharing, memo-table form). Node budget is marginal over the retained window.
-fn signature_vars_resume<A: Red>(arena: &mut A, t: u32, arity: usize, caps: &Caps, distinct: bool, bufs: &mut ReduceBufs) -> Option<(u64, u64)> {
-    let caps = &Caps { steps: caps.steps, nodes: arena.s_len() + caps.nodes };
     let mut applied = t;
     for v in 0..arity {
         let fv = arena.mk_leaf(TAG_FREE, if distinct { v as u32 } else { 0 });
@@ -992,7 +983,7 @@ fn main() {
             if jobs.len() < 32 {
                 for &(t, a) in &jobs {
                     let r = signature_vars(&mut arena, t, a as usize, &tier1, true, &mut bufs)
-                        .or_else(|| signature_vars_resume(&mut arena, t, a as usize, &esc_caps, true, &mut bufs));
+                        .or_else(|| signature_vars(&mut arena, t, a as usize, &esc_caps, true, &mut bufs));
                     table.insert((t, a), r);
                 }
             } else {
@@ -1025,7 +1016,7 @@ fn main() {
                                     }
                                     let (t, a) = jobs_ref[ji];
                                     let r = signature_vars(&mut wk, t, a as usize, tier1_ref, true, &mut wbufs)
-                                        .or_else(|| signature_vars_resume(&mut wk, t, a as usize, esc_ref, true, &mut wbufs));
+                                        .or_else(|| signature_vars(&mut wk, t, a as usize, esc_ref, true, &mut wbufs));
                                     out.push((ji, r));
                                 }
                                 eprintln!("    esc worker: {} jobs", out.len());
