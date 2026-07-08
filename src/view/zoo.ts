@@ -1,8 +1,8 @@
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text } from "pixi.js";
-import { CATALOG, countIotas, displayLabel, iotaTreeOf, type Law, META, PAGES } from "../core/catalog";
-import { iota, type Node, type NodeId } from "../core/term";
+import { CATALOG, countIotas, displayLabel, iotaTreeOf, IOTA_FASTEST, IOTA_FASTEST_BOUND, IOTA_STEPS, type Law, META, PAGES } from "../core/catalog";
+import { iota, type Node, type NodeId, decode } from "../core/term";
 import { layoutHTree } from "../core/layout";
-import { theme, currentMode, edgeTierColor, type Mode } from "./theme";
+import { theme, currentMode, edgeTierColor, type Mode, MONO, PAPER, INK } from "./theme";
 import { wirePanelChrome, placeCard } from "./pixiPanel";
 
 const LIST_W = 248;
@@ -48,6 +48,7 @@ export class Zoo {
 
   private readonly pages: Page[];
   private pageIdx = 0;
+  private fastMode = false; // detail picture: minimal form (🐢, canon) vs fastest form (🐇, fewest steps ≤34ι)
   private readonly rowH = 30;
   private selected = 0;
   private listScroll = 0;
@@ -102,7 +103,82 @@ export class Zoo {
     const e = this.entries[this.selected];
     if (e.law === null || this.isDiscovered(e.sym)) this.playTone(e.sym); // known (or ι) only
   }
+  /** The 🐢|🐇 System-1 segmented toggle (DOM, like the 2D|3D control): ink track,
+   *  paper slider, SVG glyphs. Floated over the picture box; hidden when absent/closed. */
+  private speedEl: HTMLDivElement | null = null;
+  private placeSpeedToggle(at: { x: number; y: number } | null): void {
+    if (!at) {
+      if (this.speedEl) this.speedEl.style.display = "none";
+      return;
+    }
+    if (!this.speedEl) {
+      const el = document.createElement("div");
+      el.className = "lc-seg";
+      el.style.position = "fixed";
+      el.style.zIndex = "42";
+      el.style.flex = "none";
+      el.style.fontFamily = MONO;
+      const TURTLE = `<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M3.5 10a4.5 4 0 0 1 9 0z"/><circle cx="13.6" cy="9.3" r="1.4"/><rect x="4.6" y="10" width="2" height="2"/><rect x="9.4" y="10" width="2" height="2"/></svg>`;
+      const HARE = `<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M5.6 7.5 4.2 1.8l2.8 4.6z"/><path d="M8.2 7.2 8.5 1.4l1.6 5.2z"/><ellipse cx="8" cy="10.8" rx="4.6" ry="3"/><circle cx="13" cy="11.6" r="1.1"/></svg>`;
+      for (const [kind, svg] of [["min", TURTLE], ["fast", HARE]] as const) {
+        const b = document.createElement("button");
+        b.className = "lc-btn";
+        b.innerHTML = svg;
+        b.title = kind === "min" ? "Minimal form (canonical)" : `Fastest form found (≤ ${IOTA_FASTEST_BOUND}ι hunt)`;
+        b.style.display = "flex";
+        b.style.alignItems = "center";
+        b.style.padding = "4px 8px";
+        b.addEventListener("pointerdown", (e) => {
+          e.stopPropagation();
+          this.fastMode = kind === "fast";
+          this.refresh();
+        });
+        el.appendChild(b);
+      }
+      document.body.appendChild(el);
+      this.speedEl = el;
+    }
+    const el = this.speedEl;
+    const mode = currentMode();
+    el.style.setProperty("--lc-paper", PAPER[mode]);
+    el.style.setProperty("--lc-ink", INK[mode]);
+    el.style.left = `${at.x}px`;
+    el.style.top = `${at.y}px`;
+    el.style.display = "flex";
+    const btns = el.querySelectorAll(".lc-btn");
+    btns[0]!.classList.toggle("on", !this.fastMode);
+    btns[1]!.classList.toggle("on", this.fastMode);
+  }
+
+  /** System-1 hover tooltip (the menubar's .mb-tip pattern) for the stats hint. */
+  private tipEl: HTMLDivElement | null = null;
+  private showTip(text: string, at: { x: number; y: number }): void {
+    if (!this.tipEl) {
+      const el = document.createElement("div");
+      el.className = "mb-tip";
+      document.body.appendChild(el);
+      this.tipEl = el;
+    }
+    const el = this.tipEl;
+    const mode = currentMode();
+    el.style.setProperty("--mb-bg", PAPER[mode]);
+    el.style.setProperty("--mb-fg", INK[mode]);
+    el.style.setProperty("--mb-line", INK[mode]);
+    el.style.setProperty("--mb-shadow", "rgba(0,0,0,0.85)");
+    el.textContent = text;
+    el.style.display = "block";
+    const w = el.offsetWidth;
+    const x = Math.min(at.x, window.innerWidth - w - 8);
+    el.style.left = `${Math.max(6, x)}px`;
+    el.style.top = `${at.y + 4}px`;
+  }
+  private hideTip(): void {
+    if (this.tipEl) this.tipEl.style.display = "none";
+  }
+
   close(): void {
+    this.hideTip();
+    if (this.speedEl) this.speedEl.style.display = "none";
     this.panel.visible = false;
   }
 
@@ -157,6 +233,8 @@ export class Zoo {
 
   /** Rebuild the panel contents (after a discovery, unlock, open, or page switch). */
   refresh(): void {
+    this.placeSpeedToggle(null); // hidden unless the detail re-places it (known bird with a fastest form)
+    this.hideTip(); // the hovered stats Text is destroyed on refresh — no pointerout will fire
     if (!this.panel.visible) return;
     this.buildTabs();
     this.buildList();
@@ -286,7 +364,8 @@ export class Zoo {
       this.detail.addChild(back);
     }
 
-    const tree: Node = entry.law === null ? iota() : iotaTreeOf(entry.law);
+    const fastCode = entry.law !== null ? IOTA_FASTEST[entry.sym] : undefined;
+    const tree: Node = entry.law === null ? iota() : this.fastMode && fastCode ? decode(fastCode) : iotaTreeOf(entry.law);
     const meta = META[entry.sym];
     const lawText = entry.law === null ? "ι x = x S K" : entry.law.lawText;
 
@@ -296,6 +375,7 @@ export class Zoo {
       const pic = renderPicture(tree, boxSize - 28);
       pic.position.set(dx + dw / 2, dy + boxSize / 2);
       this.detail.addChild(pic);
+      this.placeSpeedToggle(fastCode ? { x: dx + 10, y: dy + 10 } : null);
       // a "play tone" button (top-right of the picture box) — chirps the bird
       const tone = new Text({ text: "♪", style: { fontFamily: "monospace", fontSize: 20, fill: theme.iota } });
       tone.anchor.set(0.5);
@@ -338,7 +418,28 @@ export class Zoo {
     if (entry.role) line(`role:     ${entry.role}`, theme.text, 15);
     line(`law:      ${lawText}`, theme.text, 15);
     line(`formula:  ${meta?.recipe ?? "—"}`, theme.text, 15);
-    line(`iotas:    ${countIotas(tree)}`, theme.textDim, 14, 10);
+    // Stats follow the DISPLAYED form (the 🐢/🐇 toggle): its ι-count and the measured
+    // steps of its reduction at the law's arity — saved hunt data (IOTA_STEPS), never
+    // computed at render time (some forms take thousands of contractions).
+    const steps = IOTA_STEPS[entry.sym];
+    if (fastCode && entry.law !== null && steps) {
+      const stats = new Text({
+        text: `iotas:    ${countIotas(tree)}\nsteps:    ${steps[this.fastMode ? 1 : 0]}`,
+        style: { fontFamily: "monospace", fontSize: 14, fill: theme.textDim, lineHeight: 20 },
+      });
+      stats.position.set(dx, y);
+      stats.eventMode = "static";
+      stats.cursor = "help";
+      this.detail.addChild(stats);
+      y += stats.height + 10;
+      stats.on("pointerover", () => this.showTip(
+        `both forms verified by the ≤ ${IOTA_FASTEST_BOUND}ι hunt (every ι-term up to ${IOTA_FASTEST_BOUND} leaves searched) — a deeper hunt may still improve them.`,
+        { x: dx, y: y }
+      ));
+      stats.on("pointerout", () => this.hideTip());
+    } else {
+      line(`iotas:    ${countIotas(tree)}`, theme.textDim, 14, 10);
+    }
     if (meta?.blurb) line(meta.blurb, theme.text, 15);
   }
 }
@@ -375,36 +476,30 @@ function renderPicture(tree: Node, size: number): Container {
 
   const edges = new Graphics();
   // Edge color = depth TIER (red/black), width = fn (thicker) vs arg — the tricolor tree convention,
-  // sized down for the thumbnail. One color per stroke, so 4 strokes: {arg,fn} × {even,odd tier}.
-  const fn: Array<[number, number, number, number, number]> = [];
-  const arg: Array<[number, number, number, number, number]> = [];
+  // sized down for the thumbnail. Widths TAPER with the child's layout scale (deep-spine edges thin
+  // out exactly like the main tree, ADR 25's no-blob rule), so strokes are per-edge.
+  const sc = (id: NodeId): number => lay.scale?.get(id) ?? 1;
   const walk = (n: Node, depth: number): void => {
     if (n.kind !== "app") return;
     const p = at(n.id);
     const l = at(n.fn.id);
     const r = at(n.arg.id);
-    fn.push([p.x, p.y, l.x, l.y, depth]);
-    arg.push([p.x, p.y, r.x, r.y, depth]);
+    const color = edgeTierColor(depth % 2);
+    edges.moveTo(p.x, p.y).lineTo(r.x, r.y).stroke({ width: Math.max(0.3, 1 * sc(n.arg.id)), color, alpha: 0.85 });
+    edges.moveTo(p.x, p.y).lineTo(l.x, l.y).stroke({ width: Math.max(0.3, 1.4 * sc(n.fn.id)), color, alpha: 0.95 });
     walk(n.fn, depth + 1);
     walk(n.arg, depth + 1);
   };
   walk(tree, 0);
-  for (const parity of [0, 1]) {
-    for (const [x1, y1, x2, y2, d] of arg) if (d % 2 === parity) edges.moveTo(x1, y1).lineTo(x2, y2);
-    edges.stroke({ width: 1, color: edgeTierColor(parity), alpha: 0.85 });
-  }
-  for (const parity of [0, 1]) {
-    for (const [x1, y1, x2, y2, d] of fn) if (d % 2 === parity) edges.moveTo(x1, y1).lineTo(x2, y2);
-    edges.stroke({ width: 1.4, color: edgeTierColor(parity), alpha: 0.95 });
-  }
   c.addChild(edges);
 
   const dots = new Graphics();
   const drawDots = (n: Node): void => {
     const p = at(n.id);
-    if (n.kind === "iota") dots.circle(p.x, p.y, 3).fill(iotaDot(currentMode()));
-    else if (n.kind === "comb") dots.circle(p.x, p.y, 3).fill(theme.node);
-    else dots.circle(p.x, p.y, 2).fill(theme.mutedDot);
+    const k = Math.max(0.25, lay.scale?.get(n.id) ?? 1); // taper dots with their arm (floor keeps them visible at thumb size)
+    if (n.kind === "iota") dots.circle(p.x, p.y, 3 * k).fill(iotaDot(currentMode()));
+    else if (n.kind === "comb") dots.circle(p.x, p.y, 3 * k).fill(theme.node);
+    else dots.circle(p.x, p.y, 2 * k).fill(theme.mutedDot);
     if (n.kind === "app") {
       drawDots(n.fn);
       drawDots(n.arg);

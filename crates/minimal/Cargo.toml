@@ -1,0 +1,13 @@
+[package]
+name = "minimal-forms"
+version = "0.1.0"
+edition = "2021"
+description = "Exhaustively enumerate pure-iota terms, bucket them by symbolic signature, and certify minimal forms for Combinate's catalog birds."
+
+[[bin]]
+name = "minimal-forms"
+path = "src/main.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1

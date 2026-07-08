@@ -14,7 +14,85 @@ export const IOTA_CODE: Record<string, string> = {
   A: "01011",
   K: "0101011",
   S: "010101011",
+  // Census-born birds (ADR 27): these codes are their PROVEN-minimal ι-forms — certified by
+  // exhaustive enumeration + the TS re-proof (spec/minimal-forms.md), canonical from birth.
+  Pe: "0010101011010101011",
+  O2: "001010101101010101011",
+  M3: "0001010101101010101011011",
+  // The great shrinking (ADR 27/28): every entry below is a CERTIFIED-EQUAL form — proven
+  // in TypeScript to share the bird's normal form on fresh variables at its declared arity
+  // (equality at n implies equality above; adoption can never change behavior). Minimality
+  // is proven by exhaustion where marked; otherwise it is the smallest form the class-DP
+  // search has found (32ι bound, minimality modulo bounded-arity congruence). Also extends
+  // the discovery mask: undiscovered birds now render as raw ι like S/K/I always did.
+  // Adoption rule: the form must also RECOGNIZE within the app's own probe caps — Pred's
+  // and tail's minimal forms don't (they need escalated budgets), so they keep their old
+  // encodings until probe caps or smaller forms arrive.
+  X: "01010101011", // 6ι — proven minimal (≤17ι exhaustion)
+  GT: "0010101101011", // 7ι — proven minimal (≤17ι exhaustion)
+  B: "0101001010101011011", // 10ι — proven minimal (≤17ι exhaustion)
+  W: "0100101010110001010101111", // 13ι — proven minimal (≤17ι exhaustion)
+  and: "000101010110010101110101011", // 14ι — proven minimal (≤17ι exhaustion)
+  D: "0000101010111101001010101011011", // 16ι — smallest known (was 36ι)
+  "1": "00101011000101010110010101110101011", // 18ι — smallest known (was 37ι)
+  B1: "0000101010110101010101110101001010101011011", // 22ι — smallest known (was 45ι)
+  U: "000101010110010101011001010110010101011011011", // 23ι — smallest known (was 25ι)
+  Q: "0000010101011101010101101010010101010110110101011", // 25ι — smallest known (was 36ι)
+  head: "000100010101011101010101101100101011001010110101011", // 26ι — smallest known (was 28ι)
+  "Φ": "000010101011010101011100101010101100101011010101011", // 26ι — smallest known (was 41ι)
+  B3: "00001010101100101010110101010101110101001010101011011", // 27ι — smallest known (was 99ι)
+  L: "00101000101010110110101010110010101100010101011011011", // 27ι — smallest known (was 36ι)
+  E: "0000101010111000101010110101010101110101001010101011011", // 28ι — smallest known (was 81ι)
+  Q3: "0010101011010000101010111010101011001010110010101011011", // 28ι — smallest known (was 38ι)
+  B2: "000010101011001000101010111010101011110101001010101011011", // 29ι — smallest known (was 72ι)
+  C: "001000010101011011000101010111100010101011101010110101011", // 29ι — smallest known (was 45ι)
+  H: "00010101011000010101011110001010101110101011001010110101011", // 30ι — smallest known (was 41ι)
+  R: "001010001010101101100010101011101000101010110110101010110101011", // 32ι — smallest known (was 36ι)
 };
+
+/** Fewest-STEPS equivalents (the hare to IOTA_CODE's turtle). Minimal ι ≠ minimal steps:
+ *  golfed forms can unfold slower (C's 29ι form takes 345 contractions; its 34ι sibling
+ *  takes 120). Every entry is TS-certified EQUAL at the declared arity; "fastest" means
+ *  fewest-steps KNOWN at the ≤34ι class-DP bound (2026-07-09 hunt, `--smallest 34`) —
+ *  a deeper/bigger-budget hunt may still beat these. Gameplay expansion (the expand-all
+ *  view, the discovery mask) uses these so unfolds animate snappily; IOTA_CODE stays the
+ *  canonical MINIMAL form (golf costs, Barker readouts, the Zoo's default picture). */
+export const IOTA_FASTEST_BOUND = 34; // the hunt bound the FASTEST claims hold at (see crates/minimal)
+
+/** Measured reduction steps at each bird's declared arity — [minimal form, fastest form] —
+ *  from the ≤34ι hunt (the Rust reducer mirrors the app's exactly; parity-verified). Saved
+ *  as data so the Zoo never pays a reduction at card-render time. */
+export const IOTA_STEPS: Record<string, [number, number]> = {
+  B1: [126, 106],
+  B2: [270, 208],
+  B3: [176, 155],
+  C: [345, 120],
+  D: [76, 54],
+  E: [173, 148],
+  Q: [101, 79],
+  Q3: [134, 81],
+  W: [33, 32],
+  head: [136, 48],
+  Φ: [144, 103],
+};
+
+export const IOTA_FASTEST: Record<string, string> = {
+  B1: "0001010001010101101101010101110101001010101011011", // 106 steps (vs 126)
+  B2: "0000101010110001010101111000101010110001010101111101001010101011011", // 208 (vs 270)
+  B3: "0000101010110101010101101010010101010110110101001010101011011", // 155 (vs 176)
+  C: "0001010101100000101010111101001010101011011010101011001010110101011", // 120 (vs 345)
+  D: "0010101011001010110101001010101011011", // 54 (vs 76)
+  E: "0010101011001010110000101010110101010101110101001010101011011", // 148 (vs 173)
+  Q: "01000101010110110010101100101011010100010101011011010101011", // 79 (vs 101)
+  Q3: "00101001010101011011000101010110010101100101010110110101011", // 81 (vs 134)
+  W: "0001010101101010101101011", // 32 (vs 33) — same size, strictly faster
+  head: "0001010101100010101011011001010110101011001010110101011", // 48 (vs 136)
+  Φ: "00010101011001010101011001010110101010110101001010101011011", // 103 (vs 144)
+};
+
+/** The bitcode gameplay expansion should use for `sym`: fastest when known, else the
+ *  canonical minimal. Display/costing surfaces should keep using IOTA_CODE directly. */
+export const fastestIotaCode = (sym: string): string | undefined => IOTA_FASTEST[sym] ?? IOTA_CODE[sym];
 
 /**
  * A discoverable combinator law (§7.2). Data only — the probe (probe.ts) tests a
@@ -258,8 +336,11 @@ export const CATALOG: Law[] = [
   bird("L", "L x y = x (y y)", 2, (v) => app(v[0], app(v[1], v[1]))), // Lark
   bird("M", "M x = x x", 1, (v) => app(v[0], v[0])), // Mockingbird
   bird("M2", "M2 x y = x y (x y)", 2, (v) => app(app(v[0], v[1]), app(v[0], v[1]))), // Double Mockingbird
+  bird("M3", "M3 x = x x x", 1, (v) => app(app(v[0], v[0]), v[0])), // Triple Mockingbird — surfaced by the minimal-forms census (ADR 27): enters the pure-ι universe at exactly 13 ι
   bird("N", "N x y z = z x", 3, (v) => app(v[2], v[0])), // Nuthatch (small arg-shuffling helper)
   bird("O", "O x y = y (x y)", 2, (v) => app(v[1], app(v[0], v[1]))), // Owl
+  bird("O2", "O2 x y = y (x y) y", 2, (v) => app(app(v[1], app(v[0], v[1])), v[1])), // Horned Owl (= B W O — the Owl doubled on its argument); minimal-forms census find
+  bird("Pe", "Pe x y z = y z (x y z)", 3, (v) => app(app(v[1], v[2]), app(app(v[0], v[1]), v[2]))), // Pelican — feeds the pair the whole catch; the census's strongest properly-new attractor (105 of 290k terms ≤13ι land here). Sym "Pe": bare "P" belongs to the linear-basis quest puzzle (the player declares their own P)
   bird("Pred", "Pred (S p) = p;  Pred Z = Z", 1, predBody), // strips one successor (Z stays Z)
   bird("Q", "Q x y z = y (x z)", 3, (v) => app(v[1], app(v[0], v[2]))), // Queer
   bird("Q1", "Q1 x y z = x (z y)", 3, (v) => app(v[0], app(v[2], v[1]))), // Quixotic
@@ -523,21 +604,32 @@ export function displayLabel(sym: string, entry?: { label?: string; alias?: stri
   return entry?.label ?? LAW_BY_SYM.get(sym)?.label ?? entry?.alias ?? sym;
 }
 
-/** Expand an SK(I) tree into a pure-ι tree (the skToIota gadget, §7.3):
- *  S/K/I leaves become their ι-trees, application stays application. */
-function skToIota(n: Node): Node {
+/** Expand a tree into pure ι (the skToIota gadget, §7.3): canonical-coded leaves (I/A/K/S)
+ *  become their ι-trees, any OTHER comb expands its def recursively — cycle-guarded, so a
+ *  self-referencing def keeps its comb leaf (the tree stays impure and gets no bitcode,
+ *  rather than a lying one). Before the recursion, a def leaf outside IOTA_CODE (e.g. Succ
+ *  inside a Scott numeral) passed through silently and encodeIota stringified it as "1" —
+ *  which made Scott-1's bitcode collide with S's. */
+function skToIota(n: Node, expanding: Set<string> = new Set()): Node {
   switch (n.kind) {
-    case "comb":
-      return IOTA_CODE[n.sym] ? decode(IOTA_CODE[n.sym]) : n;
+    case "comb": {
+      if (IOTA_CODE[n.sym]) return decode(IOTA_CODE[n.sym]);
+      const law = LAW_BY_SYM.get(n.sym);
+      if (!law?.def || expanding.has(n.sym)) return n; // unknown or cyclic → impure leaf
+      expanding.add(n.sym);
+      const out = skToIota(law.def(), expanding);
+      expanding.delete(n.sym);
+      return out;
+    }
     case "app":
-      return app(skToIota(n.fn), skToIota(n.arg));
+      return app(skToIota(n.fn, expanding), skToIota(n.arg, expanding));
     default:
       return n;
   }
 }
 
-/** The pure-ι tree for a law (its picture): I/K/S use their canonical code, the
- *  rest expand their SK definition. */
+/** The pure-ι tree for a law (its picture): I/A/K/S use their canonical code, the
+ *  rest expand their SK definition (recursively through named sub-defs). */
 export function iotaTreeOf(law: Law): Node {
   return IOTA_CODE[law.sym] ? decode(IOTA_CODE[law.sym]) : skToIota(law.def!());
 }
@@ -547,12 +639,29 @@ export function countIotas(n: Node): number {
   return n.kind === "app" ? countIotas(n.fn) + countIotas(n.arg) : n.kind === "iota" ? 1 : 0;
 }
 
-/** Barker bit-code of a pure-ι tree (`1` = ι, `0 <fn> <arg>` = app). */
-const encodeIota = (n: Node): string => (n.kind === "app" ? "0" + encodeIota(n.fn) + encodeIota(n.arg) : "1");
+/** Barker bit-code of a PURE-ι tree (`1` = ι, `0 <fn> <arg>` = app), or undefined if the
+ *  tree still contains comb/free leaves — a code must round-trip through decode, so a
+ *  non-ι leaf must never be written as "1". */
+const tryEncodeIota = (n: Node): string | undefined => {
+  if (n.kind === "app") {
+    const f = tryEncodeIota(n.fn);
+    if (f === undefined) return undefined;
+    const a = tryEncodeIota(n.arg);
+    return a === undefined ? undefined : "0" + f + a;
+  }
+  return n.kind === "iota" ? "1" : undefined;
+};
 
-/** Each combinator's full ι-tree as a bit-code, for the "expand everything to ι"
- *  view — keyed by symbol (includes the transient I/K/S). */
-export const IOTA_BITCODE: Record<string, string> = Object.fromEntries(CATALOG.map((l) => [l.sym, encodeIota(iotaTreeOf(l))]));
+/** Each combinator's full ι-tree as a bit-code, for the "expand everything to ι" view —
+ *  keyed by symbol (includes the transient I/K/S). A law whose expansion isn't pure ι
+ *  (cyclic def) has NO entry; consumers already fall back (expandDisplay keeps the named
+ *  node, barkerCode emits the sym, iotaCost charges 0 as for late-authored birds). */
+export const IOTA_BITCODE: Record<string, string> = Object.fromEntries(
+  CATALOG.flatMap((l) => {
+    const bits = tryEncodeIota(iotaTreeOf(l));
+    return bits ? [[l.sym, bits] as const] : [];
+  }),
+);
 
 /** Bounded Barker bit-code of a term *as displayed* (`1` = ι, `0 <fn> <arg>` = app), expanding each
  *  known combinator inline to its full ι-tree bits. A free variable, or a combinator with no
@@ -672,7 +781,7 @@ export function sugar(root: Node, opts: { isDiscovered: (sym: string) => boolean
       case "iota":
         return emit("ι");
       case "comb": {
-        const code = !isDiscovered(n.sym) ? IOTA_CODE[n.sym] : undefined; // undiscovered → its ι-tree (the discovery mask)
+        const code = !isDiscovered(n.sym) ? fastestIotaCode(n.sym) : undefined; // undiscovered → its ι-tree (the discovery mask; fastest form — see IOTA_FASTEST)
         return code ? go(decode(code), depth + 1) : emit(n.sym);
       }
       case "free":
@@ -699,8 +808,11 @@ export function expandDisplay(root: Node, opts: { expandAll: boolean; isDiscover
     let out: Node;
     switch (n.kind) {
       case "comb": {
-        const code = opts.expandAll ? IOTA_BITCODE[n.sym] : !opts.isDiscovered(n.sym) ? IOTA_CODE[n.sym] : undefined;
-        out = code ? iotaTreeFrom(code, n.id) : n;
+        const code = opts.expandAll ? (IOTA_FASTEST[n.sym] ?? IOTA_BITCODE[n.sym]) : !opts.isDiscovered(n.sym) ? fastestIotaCode(n.sym) : undefined;
+        // Size cap: honest bitcodes for the recursive data ops are Y-based SKI blobs that can
+        // run to thousands of ι — materializing those as display trees would swamp the canvas.
+        // Past the cap (barkerCode's budget) the named node stays, like an absent entry.
+        out = code && code.length <= 4096 ? iotaTreeFrom(code, n.id) : n;
         break;
       }
       case "app":

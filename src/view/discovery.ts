@@ -32,14 +32,14 @@ function draw2DTree(canvas: HTMLCanvasElement, node: Node, px: number, v: Viewpo
   const X = (x: number): number => x * s + ox;
   const Y = (y: number): number => y * s + oy;
   ctx.strokeStyle = v.edge;
-  ctx.lineWidth = 1.4;
+  const sc = (id: number): number => lay.scale?.get(id) ?? 1; // taper widths with the child's arm, like the live tree
   const edges = (n: Node): void => {
     if (n.kind !== "app") return;
     const p = lay.pos.get(n.id);
     const l = lay.pos.get(n.fn.id);
     const r = lay.pos.get(n.arg.id);
-    if (p && l) ctx.beginPath(), ctx.moveTo(X(p.x), Y(p.y)), ctx.lineTo(X(l.x), Y(l.y)), ctx.stroke();
-    if (p && r) ctx.beginPath(), ctx.moveTo(X(p.x), Y(p.y)), ctx.lineTo(X(r.x), Y(r.y)), ctx.stroke();
+    if (p && l) ctx.lineWidth = Math.max(0.3, 1.4 * sc(n.fn.id)), ctx.beginPath(), ctx.moveTo(X(p.x), Y(p.y)), ctx.lineTo(X(l.x), Y(l.y)), ctx.stroke();
+    if (p && r) ctx.lineWidth = Math.max(0.3, 1.1 * sc(n.arg.id)), ctx.beginPath(), ctx.moveTo(X(p.x), Y(p.y)), ctx.lineTo(X(r.x), Y(r.y)), ctx.stroke();
     edges(n.fn);
     edges(n.arg);
   };
@@ -50,9 +50,10 @@ function draw2DTree(canvas: HTMLCanvasElement, node: Node, px: number, v: Viewpo
     seen.add(n.id);
     const p = lay.pos.get(n.id);
     if (p) {
+      const k = Math.max(0.25, lay.scale?.get(n.id) ?? 1); // taper with the arm (floored for card legibility)
       ctx.fillStyle = n.kind === "iota" ? v.iota : n.kind === "app" ? v.app : v.leaf;
       ctx.beginPath();
-      ctx.arc(X(p.x), Y(p.y), n.kind === "iota" ? 3.5 : n.kind === "app" ? 2.5 : 5, 0, Math.PI * 2);
+      ctx.arc(X(p.x), Y(p.y), (n.kind === "iota" ? 3.5 : n.kind === "app" ? 2.5 : 5) * k, 0, Math.PI * 2);
       ctx.fill();
     }
     if (n.kind === "app") nodes(n.fn), nodes(n.arg);
