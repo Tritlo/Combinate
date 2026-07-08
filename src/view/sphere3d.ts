@@ -33,9 +33,13 @@ const MORPH_MAX_DT = 50;
 const EDGE_OPACITY = 0.85; // edges more opaque than before so the fn/arg cue reads (ADR 20 follow-up)
 const DASH_SIZE = 16; // arg (right) edges are DASHED, fn (left) solid — the 3D echo of the 2D solid/dashed legend
 const GAP_SIZE = 11; // (layout shells are ~92 units apart, so ~3 dashes per edge)
-const FRAME_MARGIN = 1.6; // camera pull-back factor when framing (smaller = the ball fills more of the view)
-const RECORD_FRAME_MARGIN = 1.25; // tighter pull-back for recordings — fill the frame (the live view keeps 1.6 for orbit headroom)
-const FRAME_FLOOR = 120; // min framing radius (keeps a tiny tree from clipping)
+// Framing fits the content's PROJECTED extents (yaw-swept, so a turntable never clips), not its
+// bounding sphere — the sphere fit left the hero term at ~50% of the frame's height and a third of
+// its width. Margins are over that tight fit, so they read as real headroom now.
+const FRAME_MARGIN = 1.35; // live: room to orbit (only polar swings can poke past — R recenters)
+const RECORD_FRAME_MARGIN = 1.15; // recordings: fill the frame; the yaw sweep already covers the spin
+const FRAME_FLOOR = 120; // min framing half-extent (keeps a tiny tree from clipping)
+const FIT_YAW_SAMPLES = 12; // yaw angles sampled for the swept projected fit
 const RIM_SPACER_SCALE = 1.15; // paper gap between a node and its inverted-hull rim
 const RIM_SCALE = 1.3; // colored inverted-hull rim around the root and graph-shared nodes
 const iotaDot = (mode: Mode): number => (mode === "light" ? 0x000000 : 0xffffff);
@@ -280,7 +284,7 @@ export class Sphere3D {
     this.lastDepth = this.depthMap(node);
     this.lastRadius = radius;
     if (keepCamera) this.place();
-    else this.frame(radius);
+    else this.frame();
     this.draw();
     this.lastBuildMs = this.now() - t0;
   }
@@ -699,34 +703,34 @@ export class Sphere3D {
     this.place();
     this.draw();
   }
-  /** Reset the camera to frame the whole ball (R / R3 / recenter). */
+  /** Reset the camera to frame the content (R / R3 / recenter). */
   recenter(): void {
-    this.frame(this.lastRadius);
+    this.frame();
     this.draw();
   }
-  /** Smoothly re-frame toward the current layout/morph radius without resetting the orbit angles. */
+  /** Smoothly re-frame toward the current layout/morph fit without resetting the orbit angles. */
   followFrame(alpha: number): void {
     if (!this.camera) return;
     const a = clamp(alpha, 0, 1);
-    const radius = this.morph?.radius ?? this.lastRadius;
-    const targetRad = this.frameDistance(radius);
-    this.lastRadius = radius;
-    this.target.x += (0 - this.target.x) * a;
-    this.target.y += (0 - this.target.y) * a;
-    this.target.z += (0 - this.target.z) * a;
-    this.rad += (targetRad - this.rad) * a;
+    const pos = this.currentPos();
+    const center = this.bboxCenter(pos);
+    this.lastRadius = this.morph?.radius ?? this.lastRadius;
+    this.target.x += (center.x - this.target.x) * a;
+    this.target.y += (center.y - this.target.y) * a;
+    this.target.z += (center.z - this.target.z) * a;
+    this.rad += (this.fitDistance(pos, this.target, false) - this.rad) * a; // current-yaw fit: eased per frame, tracks the spinning silhouette
     this.syncCameraRange();
     this.place();
     this.draw();
   }
-  /** Root-centered recorder hold camera: zoom out when the current/morphing layout outgrows the frame. */
+  /** Recorder hold camera: zoom out when the current/morphing layout outgrows the frame. The
+   *  look-at stays put (set by the initial frame()) so the clip never swims — only the distance
+   *  grows, and the fit is measured about that fixed anchor. */
   zoomOutToFrame(): void {
     if (!this.camera) return;
-    const radius = this.morph?.radius ?? this.lastRadius;
-    const targetRad = this.frameDistance(radius);
+    const targetRad = this.fitDistance(this.currentPos(), this.target);
     if (targetRad <= this.rad) return;
-    this.lastRadius = radius;
-    this.target = { x: 0, y: 0, z: 0 };
+    this.lastRadius = this.morph?.radius ?? this.lastRadius;
     this.rad = targetRad;
     this.syncCameraRange();
     this.place();
@@ -739,10 +743,58 @@ export class Sphere3D {
     this.camera.position.set(t.x + this.rad * sp * Math.cos(this.az), t.y + this.rad * Math.cos(this.pol), t.z + this.rad * sp * Math.sin(this.az));
     this.camera.lookAt(t.x, t.y, t.z);
   }
-  private frameDistance(radius: number): number {
-    const r = Math.max(radius, FRAME_FLOOR);
+  /** The positions currently on screen: the in-flight morph's target layout, else the settled one. */
+  private currentPos(): Map<number, Pos3> {
+    return this.morph?.newPos ?? this.lastPos;
+  }
+
+  /** Bounding-box center of a layout — the natural look-at/orbit pivot. */
+  private bboxCenter(pos: Map<number, Pos3>): Pos3 {
+    let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (const p of pos.values()) {
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+      minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
+    }
+    if (minX > maxX) return { x: 0, y: 0, z: 0 };
+    return { x: (minX + maxX) / 2, y: (minY + maxY) / 2, z: (minZ + maxZ) / 2 };
+  }
+
+  /** Camera distance that fits the content about `about`: project every node onto the camera's
+   *  up/right axes at the current polar angle and fit the worst case of vertical need vs
+   *  horizontal need / aspect. `sweep` samples the full yaw circle (a hold camera must clear
+   *  every turntable/orbit angle); without it only the CURRENT yaw is fit (the follow camera
+   *  re-fits each frame, eased, so it tracks the silhouette instead of the worst case). */
+  private fitDistance(pos: Map<number, Pos3>, about: Pos3, sweep = true): number {
+    const cam = this.camera!;
+    let eu = 0;
+    let er = 0;
+    const cp = Math.cos(this.pol);
+    const sp = Math.sin(this.pol) || 1e-6;
+    const samples = sweep ? FIT_YAW_SAMPLES : 1;
+    for (let i = 0; i < samples; i++) {
+      const az = sweep ? (i * 2 * Math.PI) / FIT_YAW_SAMPLES : this.az;
+      // view dir d = -(sp·cos az, cp, sp·sin az); right = normalize(d × ŷ) (its y is 0); up = right × d
+      const dx = -sp * Math.cos(az);
+      const dy = -cp;
+      const dz = -sp * Math.sin(az);
+      const rm = Math.hypot(dz, dx) || 1e-6;
+      const rx = -dz / rm;
+      const rz = dx / rm;
+      const upx = -rz * dy;
+      const upy = rz * dx - rx * dz;
+      const upz = rx * dy;
+      for (const p of pos.values()) {
+        const x = p.x - about.x;
+        const y = p.y - about.y;
+        const z = p.z - about.z;
+        eu = Math.max(eu, Math.abs(x * upx + y * upy + z * upz));
+        er = Math.max(er, Math.abs(x * rx + z * rz));
+      }
+    }
     const margin = this.recordTheme ? RECORD_FRAME_MARGIN : FRAME_MARGIN; // recordings frame tighter
-    return (r * margin) / Math.tan((this.camera!.fov * Math.PI) / 360);
+    const need = Math.max(Math.max(eu, er / (cam.aspect || 1)), FRAME_FLOOR);
+    return (need * margin) / Math.tan((cam.fov * Math.PI) / 360);
   }
   private syncCameraRange(): void {
     if (!this.camera) return;
@@ -750,14 +802,15 @@ export class Sphere3D {
     this.camera.far = this.rad * 10;
     this.camera.updateProjectionMatrix();
   }
-  // Frame the whole ball: pull the camera back so a sphere of `radius` fills the view.
-  private frame(radius: number): void {
+  // Frame the content: look at its bounding-box center and pull back until the yaw-swept
+  // projected extents fit the view (both axes, aspect-aware).
+  private frame(): void {
     if (!this.camera) return;
-    this.lastRadius = radius;
-    this.target = { x: 0, y: 0, z: 0 }; // re-center the look-at on the ball
-    this.rad = this.frameDistance(radius);
+    const pos = this.currentPos();
+    this.target = this.bboxCenter(pos);
     this.az = 0.6;
     this.pol = 1.05;
+    this.rad = this.fitDistance(pos, this.target);
     this.syncCameraRange();
     this.place();
   }
