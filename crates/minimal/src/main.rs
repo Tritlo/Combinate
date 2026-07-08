@@ -247,7 +247,7 @@ impl<'a> Red for Worker<'a> {
 
 enum Frame {
     Norm(u32),
-    Rebuild(u32, usize),
+    Rebuild(u32, usize, u32), // (stuck head, argc, ORIGIN id — cached to its rebuilt NF)
 }
 
 /// Reusable per-thread work buffers — normalize/struct_hash previously heap-allocated
@@ -261,6 +261,11 @@ struct ReduceBufs {
     /// Merkle-hash memo for the hash-only NF fingerprint, valid for one scratch window
     /// (cleared alongside s_clear — scratch ids recycle; persistent subtrees are tiny).
     hmemo: FastMap<u32, (u64, u64)>,
+    /// Normal-form memo (term id → its NF id), valid for one scratch window. Without it
+    /// normalize walks shared DAGs TREE-EXPANDED — an already-normal 2M-node NF under
+    /// escalated budgets can expand astronomically (observed: single esc jobs burning
+    /// minutes). With it, normalize is O(distinct nodes).
+    nf_cache: FastMap<u32, u32>,
 }
 
 
@@ -310,9 +315,7 @@ enum SigRes {
 /// a stuck head. Caps: total contractions + scratch nodes allocated (the caller runs
 /// this inside a fresh scratch window, so both are deterministic per term).
 fn normalize<A: Red>(arena: &mut A, root: u32, caps: &Caps, steps_used: &mut u64, bufs: &mut ReduceBufs) -> NfResult {
-    let frames = &mut bufs.frames;
-    let results = &mut bufs.results;
-    let spine = &mut bufs.spine;
+    let ReduceBufs { frames, results, spine, nf_cache: bufs_nf, .. } = bufs;
     frames.clear();
     results.clear();
     spine.clear();
@@ -321,6 +324,11 @@ fn normalize<A: Red>(arena: &mut A, root: u32, caps: &Caps, steps_used: &mut u64
     while let Some(frame) = frames.pop() {
         match frame {
             Frame::Norm(mut t) => {
+                if let Some(&nf) = bufs_nf.get(&t) {
+                    results.push(nf);
+                    continue;
+                }
+                let orig = t;
                 // Head-reduce: unwind the application spine, contract at the head until stuck.
                 spine.clear();
                 loop {
@@ -383,13 +391,13 @@ fn normalize<A: Red>(arena: &mut A, root: u32, caps: &Caps, steps_used: &mut u64
                 // arg's Norm frame pops first — leftmost-outermost order — and results
                 // arrive first-arg-first at results[split..].
                 let argc = spine.len();
-                frames.push(Frame::Rebuild(t, argc));
+                frames.push(Frame::Rebuild(t, argc, orig));
                 for i in 0..argc {
                     frames.push(Frame::Norm(spine[i]));
                 }
                 spine.clear();
             }
-            Frame::Rebuild(head, argc) => {
+            Frame::Rebuild(head, argc, orig) => {
                 // results[split..] = normalized args, FIRST arg first — apply in order.
                 let split = results.len() - argc;
                 let mut t = head;
@@ -399,6 +407,7 @@ fn normalize<A: Red>(arena: &mut A, root: u32, caps: &Caps, steps_used: &mut u64
                 }
                 results.truncate(split);
                 results.push(t);
+                bufs_nf.insert(orig, t);
             }
         }
     }
@@ -527,6 +536,7 @@ fn signature<A: Red>(arena: &mut A, t: u32, arity: usize, caps: &Caps, bufs: &mu
 fn signature_vars<A: Red>(arena: &mut A, t: u32, arity: usize, caps: &Caps, distinct: bool, bufs: &mut ReduceBufs) -> Option<(u64, u64)> {
     arena.s_clear();
     bufs.hmemo.clear();
+    bufs.nf_cache.clear();
     let mut applied = t;
     for v in 0..arity {
         let fv = arena.mk_leaf(TAG_FREE, if distinct { v as u32 } else { 0 });
@@ -542,6 +552,7 @@ fn signature_vars<A: Red>(arena: &mut A, t: u32, arity: usize, caps: &Caps, dist
 /// NF STRING of `t v0 … v(arity-1)` (reported artifacts), or None if capped.
 fn nf_string<A: Red>(arena: &mut A, t: u32, arity: usize, caps: &Caps, bufs: &mut ReduceBufs) -> Option<String> {
     arena.s_clear();
+    bufs.nf_cache.clear();
     let mut applied = t;
     for v in 0..arity {
         let fv = arena.mk_leaf(TAG_FREE, v as u32);
@@ -636,6 +647,7 @@ fn dp_sigvec_headarg<A: Red>(arena: &mut A, head: u32, arg: Option<u32>, caps: &
     debug_assert!(dp_a < SIG_MAX);
     arena.s_clear();
     bufs.hmemo.clear();
+    bufs.nf_cache.clear();
     let mut v = SigVec::new();
     let mut cur = match arg {
         Some(x) => arena.mk_app(head, x),
@@ -749,6 +761,7 @@ fn main() {
     // contexts) and remain frontier blockers for 'proven'.
     if dp {
         let dp_a: usize = dp_arity;
+        assert!(dp_a < SIG_MAX, "--dp-arity must be < {SIG_MAX}");
 
         let fold_key = |v: &[(u64, u64)]| -> (u64, u64) {
             let (mut h1, mut h2) = (0xcbf29ce484222325u64, 0x9e3779b97f4a7c15u64);
@@ -1006,6 +1019,7 @@ fn main() {
                                         .or_else(|| signature_vars(&mut wk, t, a as usize, esc_ref, true, &mut wbufs));
                                     out.push((ji, r));
                                 }
+                                eprintln!("    esc worker: {} jobs", out.len());
                                 (wk.max_var_demand, out)
                             })
                         })
