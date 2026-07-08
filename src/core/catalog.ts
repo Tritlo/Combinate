@@ -523,21 +523,32 @@ export function displayLabel(sym: string, entry?: { label?: string; alias?: stri
   return entry?.label ?? LAW_BY_SYM.get(sym)?.label ?? entry?.alias ?? sym;
 }
 
-/** Expand an SK(I) tree into a pure-ι tree (the skToIota gadget, §7.3):
- *  S/K/I leaves become their ι-trees, application stays application. */
-function skToIota(n: Node): Node {
+/** Expand a tree into pure ι (the skToIota gadget, §7.3): canonical-coded leaves (I/A/K/S)
+ *  become their ι-trees, any OTHER comb expands its def recursively — cycle-guarded, so a
+ *  self-referencing def keeps its comb leaf (the tree stays impure and gets no bitcode,
+ *  rather than a lying one). Before the recursion, a def leaf outside IOTA_CODE (e.g. Succ
+ *  inside a Scott numeral) passed through silently and encodeIota stringified it as "1" —
+ *  which made Scott-1's bitcode collide with S's. */
+function skToIota(n: Node, expanding: Set<string> = new Set()): Node {
   switch (n.kind) {
-    case "comb":
-      return IOTA_CODE[n.sym] ? decode(IOTA_CODE[n.sym]) : n;
+    case "comb": {
+      if (IOTA_CODE[n.sym]) return decode(IOTA_CODE[n.sym]);
+      const law = LAW_BY_SYM.get(n.sym);
+      if (!law?.def || expanding.has(n.sym)) return n; // unknown or cyclic → impure leaf
+      expanding.add(n.sym);
+      const out = skToIota(law.def(), expanding);
+      expanding.delete(n.sym);
+      return out;
+    }
     case "app":
-      return app(skToIota(n.fn), skToIota(n.arg));
+      return app(skToIota(n.fn, expanding), skToIota(n.arg, expanding));
     default:
       return n;
   }
 }
 
-/** The pure-ι tree for a law (its picture): I/K/S use their canonical code, the
- *  rest expand their SK definition. */
+/** The pure-ι tree for a law (its picture): I/A/K/S use their canonical code, the
+ *  rest expand their SK definition (recursively through named sub-defs). */
 export function iotaTreeOf(law: Law): Node {
   return IOTA_CODE[law.sym] ? decode(IOTA_CODE[law.sym]) : skToIota(law.def!());
 }
@@ -547,12 +558,29 @@ export function countIotas(n: Node): number {
   return n.kind === "app" ? countIotas(n.fn) + countIotas(n.arg) : n.kind === "iota" ? 1 : 0;
 }
 
-/** Barker bit-code of a pure-ι tree (`1` = ι, `0 <fn> <arg>` = app). */
-const encodeIota = (n: Node): string => (n.kind === "app" ? "0" + encodeIota(n.fn) + encodeIota(n.arg) : "1");
+/** Barker bit-code of a PURE-ι tree (`1` = ι, `0 <fn> <arg>` = app), or undefined if the
+ *  tree still contains comb/free leaves — a code must round-trip through decode, so a
+ *  non-ι leaf must never be written as "1". */
+const tryEncodeIota = (n: Node): string | undefined => {
+  if (n.kind === "app") {
+    const f = tryEncodeIota(n.fn);
+    if (f === undefined) return undefined;
+    const a = tryEncodeIota(n.arg);
+    return a === undefined ? undefined : "0" + f + a;
+  }
+  return n.kind === "iota" ? "1" : undefined;
+};
 
-/** Each combinator's full ι-tree as a bit-code, for the "expand everything to ι"
- *  view — keyed by symbol (includes the transient I/K/S). */
-export const IOTA_BITCODE: Record<string, string> = Object.fromEntries(CATALOG.map((l) => [l.sym, encodeIota(iotaTreeOf(l))]));
+/** Each combinator's full ι-tree as a bit-code, for the "expand everything to ι" view —
+ *  keyed by symbol (includes the transient I/K/S). A law whose expansion isn't pure ι
+ *  (cyclic def) has NO entry; consumers already fall back (expandDisplay keeps the named
+ *  node, barkerCode emits the sym, iotaCost charges 0 as for late-authored birds). */
+export const IOTA_BITCODE: Record<string, string> = Object.fromEntries(
+  CATALOG.flatMap((l) => {
+    const bits = tryEncodeIota(iotaTreeOf(l));
+    return bits ? [[l.sym, bits] as const] : [];
+  }),
+);
 
 /** Bounded Barker bit-code of a term *as displayed* (`1` = ι, `0 <fn> <arg>` = app), expanding each
  *  known combinator inline to its full ι-tree bits. A free variable, or a combinator with no
@@ -700,7 +728,10 @@ export function expandDisplay(root: Node, opts: { expandAll: boolean; isDiscover
     switch (n.kind) {
       case "comb": {
         const code = opts.expandAll ? IOTA_BITCODE[n.sym] : !opts.isDiscovered(n.sym) ? IOTA_CODE[n.sym] : undefined;
-        out = code ? iotaTreeFrom(code, n.id) : n;
+        // Size cap: honest bitcodes for the recursive data ops are Y-based SKI blobs that can
+        // run to thousands of ι — materializing those as display trees would swamp the canvas.
+        // Past the cap (barkerCode's budget) the named node stays, like an absent entry.
+        out = code && code.length <= 4096 ? iotaTreeFrom(code, n.id) : n;
         break;
       }
       case "app":
