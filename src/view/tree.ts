@@ -356,12 +356,16 @@ export class TreeView {
   pickNode(global: { x: number; y: number }): NodeId | null {
     const p = this.container.toLocal(global);
     let best: NodeId | null = null;
-    let bestDist = 26 * 26;
+    let bestDist = Infinity;
     for (const [id, vis] of this.objs) {
       const dx = vis.particle.x - p.x;
       const dy = vis.particle.y - p.y;
       const d = dx * dx + dy * dy;
-      if (d < bestDist) {
+      // Hit disc shrinks with the node (the H-tree scales deep nodes with their arm), floored so
+      // a deep tip stays pickable once zoomed in — without the shrink, a click near a deep
+      // spiral's center would grab a near-invisible node over the visible one beside it.
+      const r = 26 * Math.max(0.3, this.lay.scale?.get(id) ?? 1);
+      if (d < r * r && d < bestDist) {
         bestDist = d;
         best = id;
       }

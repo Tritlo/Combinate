@@ -39,7 +39,8 @@ const RIM_SCALE = 1.3; // colored inverted-hull rim around the root and graph-sh
 const iotaDot = (mode: Mode): number => (mode === "light" ? 0x000000 : 0xffffff);
 
 type Pos3 = { x: number; y: number; z: number };
-// One node's tween across a reduction step: instance slot, from→to position, base radius, scale 0/1.
+// One node's tween across a reduction step: instance slot, from→to position, base radius, from→to
+// scale (the layout node-scale — H-tree shrinks deep nodes — with 0 at an enter start / exit end).
 interface MorphAnim {
   i: number;
   id: number;
@@ -50,8 +51,8 @@ interface MorphAnim {
   ty: number;
   tz: number;
   baseR: number;
-  sFrom: number; // 1 survivor/exit start, 0 enter start
-  sTo: number; // 1 survivor/enter end, 0 exit end
+  sFrom: number; // old layout scale for survivor/exit start, 0 enter start
+  sTo: number; // new layout scale for survivor/enter end, 0 exit end
   rimI?: number; // instance slot in the root/shared rim mesh, if this node is rimmed in the target DAG
 }
 // An in-flight reduction-step morph: its own InstancedMesh + edge buffer, advanced frame by frame.
@@ -167,6 +168,7 @@ export class Sphere3D {
   drawCount = 0; // renders since boot (dev seam: confirms the morph render loop actually advanced)
   private layout3: Layout3Fn = layoutHTree3D; // the active 3D layout (cubic H-tree by default; sphere via setLayout3 for radial)
   private lastPos = new Map<number, Pos3>(); // currently-displayed node positions — the next morph's `from`
+  private lastScale3: Map<number, number> | undefined; // currently-displayed layout node-scales (H-tree shrink) — the next morph's `sFrom`
   private lastNodes = new Map<number, Node>(); // currently-displayed nodes (to color/size dropped nodes)
   private lastDepth = new Map<number, number>(); // currently-displayed node depths (app nodes take their incoming-edge tier)
   private morph: Morph | null = null;
@@ -250,26 +252,28 @@ export class Sphere3D {
       this.lastRimInstanceCount = 0;
       this.lastSharedRimCount = 0;
       this.lastPos = new Map();
+      this.lastScale3 = undefined;
       this.lastNodes = new Map();
       this.lastDepth = new Map();
       this.draw();
       return;
     }
     const t0 = this.now();
-    const { pos, radius } = this.layout3(node);
+    const { pos, radius, scale } = this.layout3(node);
     this.lastCount = pos.size;
     const sharedIds = sharedNodeIds(node);
     this.lastSharedRimCount = sharedIds?.size ?? 0;
     this.lastRimInstanceCount = 1 + this.lastSharedRimCount;
     const group = new three.Group();
-    const rims = this.buildRims(three, node, pos, sharedIds);
+    const rims = this.buildRims(three, node, pos, sharedIds, scale);
     group.add(rims.spacer, rims.rim);
-    group.add(this.buildNodes(three, node, pos));
+    group.add(this.buildNodes(three, node, pos, scale));
     const edges = this.buildEdges(three, node, pos);
     if (edges) group.add(edges);
     this.scene.add(group);
     this.content = group;
     this.lastPos = pos;
+    this.lastScale3 = scale;
     this.lastNodes = this.collect(node);
     this.lastDepth = this.depthMap(node);
     this.lastRadius = radius;
@@ -321,7 +325,7 @@ export class Sphere3D {
       this.lastNodes = this.collect(this.morph.node);
       this.morph = null;
     }
-    const { pos: newPos, radius } = this.layout3(node);
+    const { pos: newPos, radius, scale: newScale } = this.layout3(node);
     const ids = new Set<number>([...this.lastPos.keys(), ...newPos.keys()]);
     if (this.lastPos.size === 0) {
       this.update(node, true); // nothing to glide from
@@ -346,9 +350,13 @@ export class Sphere3D {
       const { radius: baseR, color } = nodeStyle(newNodes.get(id) ?? this.lastNodes.get(id)!, depth, this.recordTheme);
       const rimSlot = id === node.id ? 0 : sharedIds?.has(id) ? rimI++ : undefined;
       if (rimSlot !== undefined) rimMesh.setColorAt(rimSlot, col.set(rimSlot === 0 ? this.colors().text : this.colors().iota));
-      if (np && op) anims.push({ i, id, fx: op.x, fy: op.y, fz: op.z, tx: np.x, ty: np.y, tz: np.z, baseR, sFrom: 1, sTo: 1, rimI: rimSlot });
-      else if (np) anims.push({ i, id, fx: np.x, fy: np.y, fz: np.z, tx: np.x, ty: np.y, tz: np.z, baseR, sFrom: 0, sTo: 1, rimI: rimSlot });
-      else anims.push({ i, id, fx: op!.x, fy: op!.y, fz: op!.z, tx: op!.x, ty: op!.y, tz: op!.z, baseR, sFrom: 1, sTo: 0, rimI: rimSlot });
+      // A survivor tweens between its OLD and NEW layout scales (a node that changed depth in the
+      // H-tree grows/shrinks smoothly instead of popping); enter/exit still scale from/to 0.
+      const so = this.lastScale3?.get(id) ?? 1;
+      const sn = newScale?.get(id) ?? 1;
+      if (np && op) anims.push({ i, id, fx: op.x, fy: op.y, fz: op.z, tx: np.x, ty: np.y, tz: np.z, baseR, sFrom: so, sTo: sn, rimI: rimSlot });
+      else if (np) anims.push({ i, id, fx: np.x, fy: np.y, fz: np.z, tx: np.x, ty: np.y, tz: np.z, baseR, sFrom: 0, sTo: sn, rimI: rimSlot });
+      else anims.push({ i, id, fx: op!.x, fy: op!.y, fz: op!.z, tx: op!.x, ty: op!.y, tz: op!.z, baseR, sFrom: so, sTo: 0, rimI: rimSlot });
       mesh.setColorAt(i, col.set(color));
       i++;
     }
@@ -503,8 +511,8 @@ export class Sphere3D {
     return { active: true, t, drawCount: this.drawCount, survivors, entering, exiting, enterScale: e, exitScale: 1 - e };
   }
 
-  // One instanced sphere per node, positioned + scaled by kind, tinted per kind.
-  private buildNodes(three: typeof T, root: Node, pos: Map<number, { x: number; y: number; z: number }>): T.InstancedMesh {
+  // One instanced sphere per node, positioned + scaled by kind × layout node-scale, tinted per kind.
+  private buildNodes(three: typeof T, root: Node, pos: Map<number, { x: number; y: number; z: number }>, sc?: Map<number, number>): T.InstancedMesh {
     const geo = new three.SphereGeometry(1, SPHERE_SEGMENTS, SPHERE_SEGMENTS);
     const mat = new three.MeshBasicMaterial(); // unlit: per-instance colors read at full saturation, matching the 2D palette
     const mesh = new three.InstancedMesh(geo, mat, pos.size);
@@ -517,7 +525,8 @@ export class Sphere3D {
       seen.add(n.id);
       const p = pos.get(n.id)!;
       const { radius, color } = nodeStyle(n, depth, this.recordTheme);
-      m.makeScale(radius, radius, radius);
+      const r = radius * (sc?.get(n.id) ?? 1); // H-tree shrinks deep nodes with their arm (see Layout3.scale)
+      m.makeScale(r, r, r);
       m.setPosition(p.x, p.y, p.z);
       mesh.setMatrixAt(i, m);
       mesh.setColorAt(i, col.set(color));
@@ -549,7 +558,7 @@ export class Sphere3D {
     );
   }
 
-  private buildRims(three: typeof T, root: Node, pos: Map<number, Pos3>, sharedIds: Set<number> | null): { spacer: T.InstancedMesh; rim: T.InstancedMesh } {
+  private buildRims(three: typeof T, root: Node, pos: Map<number, Pos3>, sharedIds: Set<number> | null, sc?: Map<number, number>): { spacer: T.InstancedMesh; rim: T.InstancedMesh } {
     const count = 1 + (sharedIds?.size ?? 0);
     const spacer = this.newRimSpacerMesh(three, count);
     const rim = this.newRimMesh(three, count);
@@ -558,7 +567,9 @@ export class Sphere3D {
     const seen = new Set<number>();
     const place = (i: number, n: Node, depth: number, color: number): void => {
       const p = pos.get(n.id)!;
-      const base = nodeStyle(n, depth, this.recordTheme).radius;
+      // The halo tracks the node's rendered size: kind radius × layout node-scale, so a
+      // shrunken deep shared node gets a matching small rim, not a full-size one.
+      const base = nodeStyle(n, depth, this.recordTheme).radius * (sc?.get(n.id) ?? 1);
       const gap = base * RIM_SPACER_SCALE;
       m.makeScale(gap, gap, gap);
       m.setPosition(p.x, p.y, p.z);

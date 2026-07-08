@@ -13,7 +13,7 @@
  * the 2D layouts: a shared node is placed once, on first visit.
  */
 import { type Node, type NodeId } from "./term";
-import { countNodes, HTREE_SHRINK } from "./layout";
+import { countNodes, HTREE_MIN_ARM, HTREE_SHRINK } from "./layout";
 
 /** A point in the 3D layout (root anchored at the origin). */
 interface Pos3 {
@@ -26,6 +26,9 @@ export interface Layout3 {
   pos: Map<NodeId, Pos3>;
   /** Distance from the origin to the farthest node — what the camera frames. */
   radius: number;
+  /** Optional per-node size multiplier (H-tree: nodes shrink with their arm, exactly as in 2D, so
+   *  a deep spine converges to a point instead of a blob of full-size spheres). Absent = all 1. */
+  scale?: Map<NodeId, number>;
 }
 
 /** A 3D layout algorithm: term → node positions in 3-space. */
@@ -123,16 +126,22 @@ const AXES3: V[] = [
 export function layoutHTree3D(root: Node): Layout3 {
   const L0 = 70 + 34 * Math.log2(countNodes(root) + 2);
   const pos = new Map<NodeId, Pos3>();
+  const nodeScale = new Map<NodeId, number>();
   let radius = 0;
   const place = (n: Node, p: V, depth: number): void => {
     if (pos.has(n.id)) return; // DAG: position a shared node once, on first visit
     pos.set(n.id, { x: p[0], y: p[1], z: p[2] });
     radius = Math.max(radius, Math.hypot(p[0], p[1], p[2]));
+    // Same rule as the 2D H-tree: shrink a node with its shortest adjacent arm, no floor, so
+    // node size tracks node spacing and deep spines taper instead of blobbing.
+    const childArm = L0 * HTREE_SHRINK ** depth;
+    const minArm = n.kind === "app" ? childArm : L0 * HTREE_SHRINK ** Math.max(0, depth - 1); // leaf → its parent arm
+    nodeScale.set(n.id, Math.min(1, minArm / HTREE_MIN_ARM));
     if (n.kind !== "app") return;
-    const off = scale(AXES3[depth % 3], L0 * HTREE_SHRINK ** depth);
+    const off = scale(AXES3[depth % 3], childArm);
     place(n.fn, add(p, scale(off, -1)), depth + 1); // fn → negative along the axis
     place(n.arg, add(p, off), depth + 1); // arg → positive along the axis
   };
   place(root, [0, 0, 0], 0);
-  return { pos, radius };
+  return { pos, radius, scale: nodeScale };
 }
