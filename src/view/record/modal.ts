@@ -555,7 +555,7 @@ export class RecordModal extends Modal {
     this.rules.checked = this.deps.rules();
     this.graph.checked = this.deps.graph();
     this.primitives.checked = this.deps.primitives();
-    this.cameraRadios.get("hold")!.checked = true;
+    this.cameraRadios.get("follow")!.checked = true; // tracks the silhouette at near-constant fill — the best use of the frame (esp. turntables)
     this.pacingRadios.get("fixed")!.checked = true;
     this.resolution.value = "1080x1080";
     this.fps.value = "60";
