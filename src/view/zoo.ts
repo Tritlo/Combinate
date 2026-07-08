@@ -1,5 +1,5 @@
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text } from "pixi.js";
-import { CATALOG, countIotas, displayLabel, iotaTreeOf, IOTA_FASTEST, IOTA_FASTEST_BOUND, type Law, META, PAGES } from "../core/catalog";
+import { CATALOG, countIotas, displayLabel, iotaTreeOf, IOTA_FASTEST, IOTA_FASTEST_BOUND, IOTA_STEPS, type Law, META, PAGES } from "../core/catalog";
 import { iota, type Node, type NodeId, decode } from "../core/term";
 import { layoutHTree } from "../core/layout";
 import { theme, currentMode, edgeTierColor, type Mode, MONO, PAPER, INK } from "./theme";
@@ -390,14 +390,14 @@ export class Zoo {
     if (entry.role) line(`role:     ${entry.role}`, theme.text, 15);
     line(`law:      ${lawText}`, theme.text, 15);
     line(`formula:  ${meta?.recipe ?? "—"}`, theme.text, 15);
-    if (fastCode && entry.law !== null) {
-      const minI = countIotas(iotaTreeOf(entry.law));
-      const fastI = (fastCode.match(/1/g) ?? []).length;
-      // both claims carry the hunt bound; hovering explains it (the hint keeps its layout
-      // slot so the card doesn't reflow)
+    // Stats follow the DISPLAYED form (the 🐢/🐇 toggle): its ι-count and the measured
+    // steps of its reduction at the law's arity — saved hunt data (IOTA_STEPS), never
+    // computed at render time (some forms take thousands of contractions).
+    const steps = IOTA_STEPS[entry.sym];
+    if (fastCode && entry.law !== null && steps) {
       const stats = new Text({
-        text: `iotas:    ${minI} (minimal ≤ ${IOTA_FASTEST_BOUND})   ${fastI} (fastest ≤ ${IOTA_FASTEST_BOUND})`,
-        style: { fontFamily: "monospace", fontSize: 14, fill: theme.textDim },
+        text: `iotas:    ${countIotas(tree)}\nsteps:    ${steps[this.fastMode ? 1 : 0]}`,
+        style: { fontFamily: "monospace", fontSize: 14, fill: theme.textDim, lineHeight: 20 },
       });
       stats.position.set(dx, y);
       stats.eventMode = "static";
@@ -405,7 +405,7 @@ export class Zoo {
       this.detail.addChild(stats);
       y += stats.height + 3;
       const hint = new Text({
-        text: `≤ ${IOTA_FASTEST_BOUND}: found by searching every ι-term up to ${IOTA_FASTEST_BOUND} leaves — a deeper hunt may still improve these.`,
+        text: `both forms verified by the ≤ ${IOTA_FASTEST_BOUND}ι hunt (every ι-term up to ${IOTA_FASTEST_BOUND} leaves searched) — a deeper hunt may still improve them.`,
         style: { fontFamily: "monospace", fontSize: 11, fill: theme.mutedDot, wordWrap: true, wordWrapWidth: dw },
       });
       hint.position.set(dx, y);
