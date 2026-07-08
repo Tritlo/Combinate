@@ -109,19 +109,31 @@ export function layoutSphere(root: Node): Layout3 {
   return { pos, radius };
 }
 
-/** The three split axes the 3D H-tree cycles through, one per depth level. */
-const AXES3: V[] = [
-  [1, 0, 0], // X — left / right
-  [0, 1, 0], // Y — up / down
-  [0, 0, 1], // Z — in / out
+/** The arg-side split directions the 3D H-tree cycles through, one per depth level: the SIGNED
+ *  6-cycle +X, +Y, +Z, −X, −Y, −Z. The sign flip on the second half makes a deep spine wrap
+ *  around the root (bounded, ≈L0·(1,s,s²)/(1+s³) ≈ one arm away) instead of marching straight out
+ *  along the (1,1,1) diagonal, which is what the unsigned X→Y→Z cycle did — that cycle is a
+ *  rotation ABOUT the diagonal, so the drift never turned. The price (ADR 26): the one-level
+ *  congruence map is now improper (det −1 — chirality alternates per level, as 2D did before
+ *  ADR 25); two levels apart it is a proper rotation again. In 3D you can't have both: a fixed
+ *  proper one-level congruence whose direction orbit covers all three axes necessarily drifts
+ *  along its rotation axis. */
+const DIRS3: V[] = [
+  [1, 0, 0], // +X — arg right
+  [0, 1, 0], // +Y — arg up
+  [0, 0, 1], // +Z — arg out
+  [-1, 0, 0], // −X — arg left
+  [0, -1, 0], // −Y — arg down
+  [0, 0, -1], // −Z — arg in
 ];
 
 /**
  * 3D H-tree: the volumetric generalization of {@link layoutHTree}. Each application places its two
- * children symmetrically offset from the node, CYCLING the split axis by depth — X (left/right),
- * then Y (up/down), then Z (in/out), then back to X … The arm shrinks geometrically per level
- * (`HTREE_SHRINK` < 1/√2 ⇒ sibling subtrees never overlap), so the term fills a shrinking cubic
- * lattice. Initial arm scales with the node count. Root at the origin.
+ * children symmetrically offset from the node along the depth's split direction (`DIRS3`: the axis
+ * cycles X, Y, Z with the sign flipping each half-cycle, so deep spines coil around the root). The
+ * arm shrinks geometrically per level; the same axis recurs every 3 levels, and the extent bound
+ * `s³/(1−s³) < 1` (sign-agnostic, `0.68³ ≈ 0.31`) keeps sibling subtrees from overlapping, so the
+ * term fills a shrinking cubic lattice. Initial arm scales with the node count. Root at the origin.
  */
 export function layoutHTree3D(root: Node): Layout3 {
   const L0 = 70 + 34 * Math.log2(countNodes(root) + 2);
@@ -138,9 +150,9 @@ export function layoutHTree3D(root: Node): Layout3 {
     const minArm = n.kind === "app" ? childArm : L0 * HTREE_SHRINK ** Math.max(0, depth - 1); // leaf → its parent arm
     nodeScale.set(n.id, Math.min(1, minArm / HTREE_MIN_ARM));
     if (n.kind !== "app") return;
-    const off = scale(AXES3[depth % 3], childArm);
-    place(n.fn, add(p, scale(off, -1)), depth + 1); // fn → negative along the axis
-    place(n.arg, add(p, off), depth + 1); // arg → positive along the axis
+    const off = scale(DIRS3[depth % 6], childArm);
+    place(n.fn, add(p, scale(off, -1)), depth + 1); // fn → against the split direction
+    place(n.arg, add(p, off), depth + 1); // arg → along the split direction
   };
   place(root, [0, 0, 0], 0);
   return { pos, radius, scale: nodeScale };

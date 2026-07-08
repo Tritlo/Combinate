@@ -151,8 +151,8 @@ export function countNodes(root: Node): number {
  * split direction ROTATING a quarter-turn clockwise per depth — arg → right, down, left, up (fn
  * opposite), so the split axis still alternates horizontal/vertical, but one level deeper is a true
  * 90° rotation of the same layout, not a mirror. A subterm therefore draws as a rotated copy of its
- * standalone picture (expanded S visibly contains expanded K turned a quarter-turn) — the 2D analog
- * of the 3D H-tree, whose X→Y→Z axis cycle is already a rotation (ADR 25). The arm length shrinks
+ * standalone picture (expanded S visibly contains expanded K turned a quarter-turn) — see ADR 25
+ * (and ADR 26 for the 3D H-tree's signed cousin of this cycle). The arm length shrinks
  * geometrically per level (`HTREE_SHRINK`), so a deep spine coils into a shrinking rectangular
  * spiral with the leaves fringing off it. Because the shrink stays below 1/√2 sibling subtrees
  * never overlap (the extent bound is per split axis, so the sign of the direction doesn't matter).
