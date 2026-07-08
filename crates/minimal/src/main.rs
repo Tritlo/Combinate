@@ -81,6 +81,7 @@ struct Arena {
     p_dedup: FastMap<u64, u32>,
     s_nodes: Vec<Node>,
     s_dedup: FastMap<u64, u32>,
+    l_cache: [u32; 23],
 }
 
 impl Arena {
@@ -91,6 +92,7 @@ impl Arena {
             p_dedup: FastMap::default(),
             s_nodes: Vec::new(),
             s_dedup: FastMap::default(),
+            l_cache: [u32::MAX; 23],
         }
     }
     /// Persistent intern — serial phases only (enumeration, DP composition, decode).
@@ -130,20 +132,42 @@ trait Red {
     fn s_len(&self) -> usize;
     fn s_clear(&mut self);
     fn demand(&mut self, d: usize);
+    fn leaf_cache(&mut self) -> &mut [u32; 23];
+    /// Leaves are the hottest allocations (ι x → x S K mints S+K every step; probes mint
+    /// free vars) — cache their per-window ids so they never touch a map. Slot 0..=2 =
+    /// S/K/I, 3.. = free vars. Ids identical to what the maps would return.
     fn mk_leaf(&mut self, tag: u8, a: u32) -> u32 {
-        self.mk(tag, a, 0)
+        let slot = match tag {
+            TAG_S => 0usize,
+            TAG_K => 1,
+            TAG_I => 2,
+            TAG_FREE => 3 + a as usize,
+            _ => return self.mk(tag, a, 0),
+        };
+        let cached = self.leaf_cache()[slot];
+        if cached != u32::MAX {
+            return cached;
+        }
+        let id = self.mk(tag, a, 0);
+        self.leaf_cache()[slot] = id;
+        id
     }
     fn mk_app(&mut self, f: u32, x: u32) -> u32 {
         self.mk(TAG_APP, f, x)
     }
 }
 
-/// Shared scratch-intern logic: persistent dedup first (read-only), then private scratch.
+/// Shared scratch-intern logic. The persistent map is only probed when BOTH children are
+/// persistent ids — a node referencing scratch provably cannot be in p_dedup (persistent
+/// nodes reference only persistent ids), and skipping that probe removes a big-map lookup
+/// from most reduction allocations.
 #[inline]
 fn scratch_intern(p_dedup: &FastMap<u64, u32>, s_nodes: &mut Vec<Node>, s_dedup: &mut FastMap<u64, u32>, tag: u8, a: u32, b: u32) -> u32 {
     let key = ((tag as u64) << 60) | ((a as u64) << 30) | b as u64;
-    if let Some(&id) = p_dedup.get(&key) {
-        return id;
+    if a < SCRATCH_BASE && b < SCRATCH_BASE {
+        if let Some(&id) = p_dedup.get(&key) {
+            return id;
+        }
     }
     if let Some(&id) = s_dedup.get(&key) {
         return id;
@@ -167,11 +191,15 @@ impl Red for Arena {
     fn s_clear(&mut self) {
         self.s_nodes.clear();
         self.s_dedup.clear();
+        self.l_cache = [u32::MAX; 23];
     }
     fn demand(&mut self, d: usize) {
         if d > self.max_var_demand {
             self.max_var_demand = d;
         }
+    }
+    fn leaf_cache(&mut self) -> &mut [u32; 23] {
+        &mut self.l_cache
     }
 }
 
@@ -182,6 +210,7 @@ struct Worker<'a> {
     s_nodes: Vec<Node>,
     s_dedup: FastMap<u64, u32>,
     max_var_demand: usize,
+    l_cache: [u32; 23],
 }
 
 impl<'a> Red for Worker<'a> {
@@ -201,15 +230,38 @@ impl<'a> Red for Worker<'a> {
     fn s_clear(&mut self) {
         self.s_nodes.clear();
         self.s_dedup.clear();
+        self.l_cache = [u32::MAX; 23];
     }
     fn demand(&mut self, d: usize) {
         if d > self.max_var_demand {
             self.max_var_demand = d;
         }
     }
+    fn leaf_cache(&mut self) -> &mut [u32; 23] {
+        &mut self.l_cache
+    }
 }
 
 // ---------------- reducer: leftmost-outermost to full NF ----------------
+
+enum Frame {
+    Norm(u32),
+    Rebuild(u32, usize),
+}
+
+/// Reusable per-thread work buffers — normalize/struct_hash previously heap-allocated
+/// four fresh Vecs per call (~24M allocs per deep run).
+#[derive(Default)]
+struct ReduceBufs {
+    frames: Vec<Frame>,
+    results: Vec<u32>,
+    spine: Vec<u32>,
+    hstack: Vec<u32>,
+    /// Merkle-hash memo for the hash-only NF fingerprint, valid for one scratch window
+    /// (cleared alongside s_clear — scratch ids recycle; persistent subtrees are tiny).
+    hmemo: FastMap<u32, (u64, u64)>,
+}
+
 
 struct Caps {
     steps: u64,
@@ -225,14 +277,14 @@ enum NfResult {
 /// head-reduction loop, and an explicit frame stack for normalizing the arguments of
 /// a stuck head. Caps: total contractions + scratch nodes allocated (the caller runs
 /// this inside a fresh scratch window, so both are deterministic per term).
-fn normalize<A: Red>(arena: &mut A, root: u32, caps: &Caps, steps_used: &mut u64) -> NfResult {
-    enum Frame {
-        Norm(u32),
-        Rebuild(u32, usize),
-    }
-    let mut frames: Vec<Frame> = vec![Frame::Norm(root)];
-    let mut results: Vec<u32> = Vec::new();
-    let mut spine: Vec<u32> = Vec::new(); // reused arg stack for the head loop
+fn normalize<A: Red>(arena: &mut A, root: u32, caps: &Caps, steps_used: &mut u64, bufs: &mut ReduceBufs) -> NfResult {
+    let frames = &mut bufs.frames;
+    let results = &mut bufs.results;
+    let spine = &mut bufs.spine;
+    frames.clear();
+    results.clear();
+    spine.clear();
+    frames.push(Frame::Norm(root));
 
     while let Some(frame) = frames.pop() {
         match frame {
@@ -372,39 +424,91 @@ fn struct_hash<A: Red>(arena: &A, t: u32, want_string: bool) -> (u64, u64, Optio
     (h1, h2, s)
 }
 
+#[inline]
+fn hmix(tag: u64, l: (u64, u64), r: (u64, u64)) -> (u64, u64) {
+    let mut h1 = 0xcbf29ce484222325u64 ^ tag;
+    let mut h2 = 0x9e3779b97f4a7c15u64 ^ tag.rotate_left(32);
+    for w in [l.0, l.1, r.0, r.1] {
+        h1 = (h1 ^ w).wrapping_mul(0x100000001b3).rotate_left(5);
+        h2 = (h2 ^ w.rotate_left(17)).wrapping_mul(0xC2B2AE3D27D4EB4F);
+    }
+    (h1, h2)
+}
+
+/// 128-bit structural fingerprint of an NF, computed over the DAG with per-node
+/// memoization (O(distinct nodes)) instead of streaming the tree-EXPANDED canonical
+/// string (which blows up exactly on share-heavy NFs). Rust-internal (class bucketing
+/// only — exact NF strings still guard every published claim), so its VALUE may differ
+/// from the old string hash; the induced partition is the same tree-structure equality.
+fn merkle_hash<A: Red>(arena: &A, t: u32, bufs: &mut ReduceBufs) -> (u64, u64) {
+    let mut stack = std::mem::take(&mut bufs.hstack);
+    stack.clear();
+    stack.push(t);
+    while let Some(&id) = stack.last() {
+        if bufs.hmemo.contains_key(&id) {
+            stack.pop();
+            continue;
+        }
+        let n = arena.nd(id);
+        if n.tag == TAG_APP {
+            let lh = bufs.hmemo.get(&n.a).copied();
+            let rh = bufs.hmemo.get(&n.b).copied();
+            match (lh, rh) {
+                (Some(l), Some(r)) => {
+                    let h = hmix(1, l, r);
+                    stack.pop();
+                    bufs.hmemo.insert(id, h);
+                }
+                _ => {
+                    if lh.is_none() {
+                        stack.push(n.a);
+                    }
+                    if rh.is_none() {
+                        stack.push(n.b);
+                    }
+                }
+            }
+        } else {
+            let h = hmix(2 + n.tag as u64, (n.a as u64, 0), (0, 0));
+            stack.pop();
+            bufs.hmemo.insert(id, h);
+        }
+    }
+    bufs.hstack = stack;
+    bufs.hmemo[&t]
+}
+
 // ---------------- signatures ----------------
 
 const SIG_ARITY: usize = 5;
 
 /// NF signature hash of `t v0 … v(arity-1)`, or None if capped. Runs in a fresh
 /// scratch window (cleared on entry) so caps are deterministic per term.
-fn signature<A: Red>(arena: &mut A, t: u32, arity: usize, caps: &Caps) -> Option<(u64, u64)> {
-    signature_vars(arena, t, arity, caps, true)
+fn signature<A: Red>(arena: &mut A, t: u32, arity: usize, caps: &Caps, bufs: &mut ReduceBufs) -> Option<(u64, u64)> {
+    signature_vars(arena, t, arity, caps, true, bufs)
 }
 
 /// Like `signature`, but `distinct = false` applies the SAME fresh variable `arity`
 /// times: t x x … x. Identifying variables is a homomorphic coarsening, so equal
 /// terms MUST collide here — a cheap necessary condition (the QuickSpec prefilter);
 /// only colliding terms need the distinct-variable proof.
-fn signature_vars<A: Red>(arena: &mut A, t: u32, arity: usize, caps: &Caps, distinct: bool) -> Option<(u64, u64)> {
+fn signature_vars<A: Red>(arena: &mut A, t: u32, arity: usize, caps: &Caps, distinct: bool, bufs: &mut ReduceBufs) -> Option<(u64, u64)> {
     arena.s_clear();
+    bufs.hmemo.clear();
     let mut applied = t;
     for v in 0..arity {
         let fv = arena.mk_leaf(TAG_FREE, if distinct { v as u32 } else { 0 });
         applied = arena.mk_app(applied, fv);
     }
     let mut steps = 0u64;
-    match normalize(arena, applied, caps, &mut steps) {
-        NfResult::Done(nf) => {
-            let (h1, h2, _) = struct_hash(arena, nf, false);
-            Some((h1, h2))
-        }
+    match normalize(arena, applied, caps, &mut steps, bufs) {
+        NfResult::Done(nf) => Some(merkle_hash(arena, nf, bufs)),
         NfResult::Capped => None,
     }
 }
 
 /// NF STRING of `t v0 … v(arity-1)` (reported artifacts), or None if capped.
-fn nf_string<A: Red>(arena: &mut A, t: u32, arity: usize, caps: &Caps) -> Option<String> {
+fn nf_string<A: Red>(arena: &mut A, t: u32, arity: usize, caps: &Caps, bufs: &mut ReduceBufs) -> Option<String> {
     arena.s_clear();
     let mut applied = t;
     for v in 0..arity {
@@ -412,7 +516,7 @@ fn nf_string<A: Red>(arena: &mut A, t: u32, arity: usize, caps: &Caps) -> Option
         applied = arena.mk_app(applied, fv);
     }
     let mut steps = 0u64;
-    match normalize(arena, applied, caps, &mut steps) {
+    match normalize(arena, applied, caps, &mut steps, bufs) {
         NfResult::Done(nf) => struct_hash(arena, nf, true).2,
         NfResult::Capped => None,
     }
@@ -484,10 +588,31 @@ struct Bird {
 }
 
 /// Signature vector at arities 0..=dp_a — the DP's class identity. None if any arity caps.
-fn dp_sigvec<A: Red>(arena: &mut A, t: u32, caps: &Caps, dp_a: usize) -> Option<Vec<(u64, u64)>> {
+/// INCREMENTAL by Church–Rosser: NF(t·v0..vk) = NF(NF(t·v0..v(k-1)) · vk), so each arity
+/// pays only its marginal reduction instead of re-reducing the whole applied term (the
+/// naive loop re-did ~13× the work). Scratch is cleared once per vector, not per arity —
+/// the running NF lives there; each arity gets a fresh marginal step/node budget.
+fn dp_sigvec<A: Red>(arena: &mut A, t: u32, caps: &Caps, dp_a: usize, bufs: &mut ReduceBufs) -> Option<Vec<(u64, u64)>> {
+    arena.s_clear();
+    bufs.hmemo.clear();
     let mut v = Vec::with_capacity(dp_a + 1);
+    let mut cur = t; // invariant: the NF of t·v0..v(k-1)
     for k in 0..=dp_a {
-        v.push(signature_vars(arena, t, k, caps, true)?);
+        let applied = if k == 0 {
+            cur
+        } else {
+            let fv = arena.mk_leaf(TAG_FREE, (k - 1) as u32);
+            arena.mk_app(cur, fv)
+        };
+        let marginal = Caps { steps: caps.steps, nodes: arena.s_len() + caps.nodes };
+        let mut steps = 0u64;
+        match normalize(arena, applied, &marginal, &mut steps, bufs) {
+            NfResult::Done(nf) => {
+                v.push(merkle_hash(arena, nf, bufs));
+                cur = nf;
+            }
+            NfResult::Capped => return None,
+        }
     }
     Some(v)
 }
@@ -517,6 +642,7 @@ fn main() {
     let mut dp_arity: usize = 12; // signature-vector arity for --dp (empirically tuned; validated against brute)
     let mut dp_probe: Option<String> = None; // diagnostic: trace why this bitcode's class was(n't) reached
     let mut dp_gate: usize = 10_000; // rep-count stop gate for --dp (guards runaway class growth)
+    let mut dp_slim = false; // --dp-slim: skip class census + samples in the JSON (deep runs; the dump gets fat past ~50k classes)
     let mut dp_opaque_fn = true; // --dp-no-opaque-fn: skip pairs whose FN is a capped singleton (leftmost-outermost does the head's work first, so a capped head stays capped; the rescue case is arg-side)
     let mut esc_mult: u64 = 100; // escalated-cap multiplier for frontier cap-outs (raise to chase down `conditional` statuses)
     let mut args = std::env::args().skip(1);
@@ -533,6 +659,7 @@ fn main() {
             "--dp-probe" => dp_probe = Some(args.next().unwrap()),
             "--dp-gate" => dp_gate = args.next().unwrap().parse().unwrap(),
             "--dp-no-opaque-fn" => dp_opaque_fn = false,
+            "--dp-slim" => dp_slim = true,
             other => panic!("unknown arg {other}"),
         }
     }
@@ -540,6 +667,7 @@ fn main() {
     let esc_caps = Caps { steps: steps_cap * esc_mult, nodes: nodes_cap.saturating_mul(esc_mult as usize) };
 
     let mut arena = Arena::new();
+    let mut bufs = ReduceBufs::default();
 
     // -- birds (persistent) --
     let birds: Vec<Bird> = include_str!("birds.txt")
@@ -596,7 +724,7 @@ fn main() {
         let mut reps: Vec<Rep> = Vec::new();
         let mut reps_by_size: Vec<Vec<usize>> = vec![Vec::new(); max_iotas + 1];
         let iota_id = arena.leaf(TAG_IOTA, 0);
-        let iv = dp_sigvec(&mut arena, iota_id, &caps, dp_a).expect("iota signature capped");
+        let iv = dp_sigvec(&mut arena, iota_id, &caps, dp_a, &mut bufs).expect("iota signature capped");
         class_of.insert(fold_key(&iv), 0);
         reps.push(Rep { term: iota_id, size: 1, vector: Some(iv) });
         reps_by_size[1].push(0);
@@ -626,7 +754,7 @@ fn main() {
             let mut results: Vec<Option<Option<Vec<(u64, u64)>>>> = vec![None; cands.len()];
             if cands.len() < 128 {
                 for (ci, &t) in cands.iter().enumerate() {
-                    results[ci] = Some(dp_sigvec(&mut arena, t, &caps, dp_a));
+                    results[ci] = Some(dp_sigvec(&mut arena, t, &caps, dp_a, &mut bufs));
                 }
             } else {
                 let p_nodes: &[Node] = &arena.p_nodes;
@@ -643,11 +771,13 @@ fn main() {
                                     s_nodes: Vec::new(),
                                     s_dedup: FastMap::default(),
                                     max_var_demand: 0,
+                                    l_cache: [u32::MAX; 23],
                                 };
+                                let mut wbufs = ReduceBufs::default();
                                 let mut out = Vec::new();
                                 let mut ci = w;
                                 while ci < cands_ref.len() {
-                                    out.push((ci, dp_sigvec(&mut wk, cands_ref[ci], caps_ref, dp_a)));
+                                    out.push((ci, dp_sigvec(&mut wk, cands_ref[ci], caps_ref, dp_a, &mut wbufs)));
                                     ci += workers;
                                 }
                                 (wk.max_var_demand, out)
@@ -697,17 +827,25 @@ fn main() {
                     break 'sizes;
                 }
             }
+            let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri].vector.is_some()).count();
+            eprintln!(
+                "  size {n}: {} cands → +{} classes, +{} opaque ({} total reps)",
+                cands.len(),
+                newc,
+                reps_by_size[n].len() - newc,
+                reps.len()
+            );
         }
         // diagnostic probe: decompose a known witness, check each subterm's class membership
         if let Some(bits) = &dp_probe {
             let t = decode_bits(&mut arena, bits).expect("bad probe bits");
-            let tkey = dp_sigvec(&mut arena, t, &caps, dp_a).map(|v| fold_key(&v));
+            let tkey = dp_sigvec(&mut arena, t, &caps, dp_a, &mut bufs).map(|v| fold_key(&v));
             eprintln!("probe {bits}: key={tkey:?} in_classes={}", tkey.map(|k| class_of.contains_key(&k)).unwrap_or(false));
             let n = arena.node(t);
             if n.tag == TAG_APP {
                 for (side, sub) in [("fn", n.a), ("arg", n.b)] {
                     let sbits = encode_bits(&arena, sub);
-                    match dp_sigvec(&mut arena, sub, &caps, dp_a) {
+                    match dp_sigvec(&mut arena, sub, &caps, dp_a, &mut bufs) {
                         Some(v) => {
                             let k = fold_key(&v);
                             match class_of.get(&k) {
@@ -722,11 +860,11 @@ fn main() {
                     }
                 }
                 // compose the reps and compare keys
-                let (fk, xk) = (dp_sigvec(&mut arena, n.a, &caps, dp_a).map(|v| fold_key(&v)), dp_sigvec(&mut arena, n.b, &caps, dp_a).map(|v| fold_key(&v)));
+                let (fk, xk) = (dp_sigvec(&mut arena, n.a, &caps, dp_a, &mut bufs).map(|v| fold_key(&v)), dp_sigvec(&mut arena, n.b, &caps, dp_a, &mut bufs).map(|v| fold_key(&v)));
                 if let (Some(fk), Some(xk)) = (fk, xk) {
                     if let (Some(&fi2), Some(&xi2)) = (class_of.get(&fk), class_of.get(&xk)) {
                         let composed = arena.app(reps[fi2].term, reps[xi2].term);
-                        let ck = dp_sigvec(&mut arena, composed, &caps, dp_a).map(|v| fold_key(&v));
+                        let ck = dp_sigvec(&mut arena, composed, &caps, dp_a, &mut bufs).map(|v| fold_key(&v));
                         eprintln!("  app(rep_fn, rep_arg) = {}: key={ck:?} same_as_probe={}", encode_bits(&arena, composed), ck == tkey);
                     }
                 }
@@ -734,15 +872,76 @@ fn main() {
         }
         // birds: match class by key, verify EXACTLY by NF strings at every arity (guards
         // against 128-bit key collisions for every published claim)
-        let mut esc_sig: FastMap<(u32, u8), Option<(u64, u64)>> = FastMap::default();
-        let mut esc_sig_of = |arena: &mut Arena, cache: &mut FastMap<(u32, u8), Option<(u64, u64)>>, t: u32, arity: usize, esc: &Caps| -> Option<(u64, u64)> {
-            let key = (t, arity as u8);
-            if let Some(v) = cache.get(&key) {
-                return *v;
+        // Escalated signatures for every opaque rep at every declared bird arity — the
+        // frontier's only expensive input — computed UP FRONT in parallel with TIERED
+        // budgets: 10× first (most slow-but-terminating terms resolve there), the full
+        // escalation only for survivors. This was the single-core tail after the size loop.
+        let esc_table: FastMap<(u32, u8), Option<(u64, u64)>> = {
+            let arities: Vec<usize> = {
+                let mut a: Vec<usize> = birds.iter().map(|b| b.arity).collect();
+                a.sort_unstable();
+                a.dedup();
+                a
+            };
+            let jobs: Vec<(u32, u8)> = reps
+                .iter()
+                .filter(|r| r.vector.is_none())
+                .flat_map(|r| arities.iter().map(move |&a| (r.term, a as u8)))
+                .collect();
+            let tier1 = Caps { steps: steps_cap.saturating_mul(10), nodes: nodes_cap.saturating_mul(10) };
+            let mut table: FastMap<(u32, u8), Option<(u64, u64)>> = FastMap::default();
+            if jobs.len() < 32 {
+                for &(t, a) in &jobs {
+                    let r = signature_vars(&mut arena, t, a as usize, &tier1, true, &mut bufs)
+                        .or_else(|| signature_vars(&mut arena, t, a as usize, &esc_caps, true, &mut bufs));
+                    table.insert((t, a), r);
+                }
+            } else {
+                let p_nodes: &[Node] = &arena.p_nodes;
+                let p_dedup = &arena.p_dedup;
+                let jobs_ref = &jobs;
+                let tier1_ref = &tier1;
+                let esc_ref = &esc_caps;
+                let done: Vec<(usize, Vec<(usize, Option<(u64, u64)>)>)> = std::thread::scope(|sc| {
+                    (0..workers)
+                        .map(|w| {
+                            sc.spawn(move || {
+                                let mut wk = Worker {
+                                    p_nodes,
+                                    p_dedup,
+                                    s_nodes: Vec::new(),
+                                    s_dedup: FastMap::default(),
+                                    max_var_demand: 0,
+                                    l_cache: [u32::MAX; 23],
+                                };
+                                let mut wbufs = ReduceBufs::default();
+                                let mut out = Vec::new();
+                                let mut ji = w;
+                                while ji < jobs_ref.len() {
+                                    let (t, a) = jobs_ref[ji];
+                                    let r = signature_vars(&mut wk, t, a as usize, tier1_ref, true, &mut wbufs)
+                                        .or_else(|| signature_vars(&mut wk, t, a as usize, esc_ref, true, &mut wbufs));
+                                    out.push((ji, r));
+                                    ji += workers;
+                                }
+                                (wk.max_var_demand, out)
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .map(|h| h.join().expect("esc worker panicked"))
+                        .collect()
+                });
+                for (d, out) in done {
+                    if d > arena.max_var_demand {
+                        arena.max_var_demand = d;
+                    }
+                    for (ji, r) in out {
+                        table.insert(jobs[ji], r);
+                    }
+                }
             }
-            let v = signature_vars(arena, t, arity, esc, true);
-            cache.insert(key, v);
-            v
+            table
         };
         let mut findings: Vec<String> = Vec::new();
         let mut coin_groups: FastMap<(u64, u64), Vec<usize>> = FastMap::default();
@@ -757,7 +956,7 @@ fn main() {
             let mut minimal_nf: Option<String> = None;
             let mut status = "bird-capped".to_string();
             let mut unresolved = 0u64;
-            if let Some(bv) = dp_sigvec(&mut arena, term, &esc_caps, dp_a) {
+            if let Some(bv) = dp_sigvec(&mut arena, term, &esc_caps, dp_a, &mut bufs) {
                 let bkey = fold_key(&bv);
                 coin_groups.entry(bkey).or_default().push(bi);
                 status = "not-found-within-bound".into();
@@ -781,8 +980,8 @@ fn main() {
                     // exact string verification at arities declared..=dp_a (collision guard)
                     let mut exact = true;
                     for k in b.arity..=dp_a {
-                        let a = nf_string(&mut arena, bterm, k, &esc_caps);
-                        let c = nf_string(&mut arena, term, k, &esc_caps);
+                        let a = nf_string(&mut arena, bterm, k, &esc_caps, &mut bufs);
+                        let c = nf_string(&mut arena, term, k, &esc_caps, &mut bufs);
                         if a.is_none() || a != c {
                             exact = false;
                             break;
@@ -793,7 +992,7 @@ fn main() {
                         let rbits = bbits;
                         // frontier: opaque (capped) reps strictly cheaper than the winner —
                         // escalate each at the bird's declared arity (memoized)
-                        let target = esc_sig_of(&mut arena, &mut esc_sig, term, b.arity, &esc_caps);
+                        let target = signature_vars(&mut arena, term, b.arity, &esc_caps, true, &mut bufs);
                         let mut winner: (u32, String, u32) = (rsize, rbits, rterm);
                         for ci in 0..reps.len() {
                             if reps[ci].vector.is_some() {
@@ -808,7 +1007,7 @@ fn main() {
                             if csize == winner.0 && cbits >= winner.1 {
                                 continue;
                             }
-                            match (esc_sig_of(&mut arena, &mut esc_sig, cterm, b.arity, &esc_caps), target) {
+                            match (esc_table.get(&(cterm, b.arity as u8)).copied().flatten(), target) {
                                 (Some(s), Some(t2)) if s == t2 => {
                                     winner = (csize, cbits, cterm);
                                 }
@@ -818,7 +1017,7 @@ fn main() {
                         }
                         minimal_bits = Some(winner.1.clone());
                         minimal_iotas = Some(winner.0);
-                        minimal_nf = nf_string(&mut arena, winner.2, b.arity, &esc_caps);
+                        minimal_nf = nf_string(&mut arena, winner.2, b.arity, &esc_caps, &mut bufs);
                         status = if unresolved == 0 { "proven".into() } else { "conditional".into() };
                         if unresolved == 0 {
                             proven += 1;
@@ -851,25 +1050,27 @@ fn main() {
         for (_k, idxs) in &coin_groups {
             if idxs.len() >= 2 {
                 let syms: Vec<String> = idxs.iter().map(|&i| birds[i].sym.clone()).collect();
-                let nf = nf_string(&mut arena, bird_terms[idxs[0]], 5, &esc_caps).unwrap_or_else(|| "<capped>".into());
+                let nf = nf_string(&mut arena, bird_terms[idxs[0]], 5, &esc_caps, &mut bufs).unwrap_or_else(|| "<capped>".into());
                 coincidences.push((syms, nf));
             }
         }
         coincidences.sort();
         // classes census (per-size new-class counts) + parity samples from classed reps
         let mut census: Vec<(usize, usize)> = Vec::new();
-        for n in 1..=max_iotas {
+        // deep runs (--dp-slim): census/samples add little and the dump gets huge
+        for n in 1..=(if dp_slim { 0 } else { max_iotas }) {
             let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri].vector.is_some()).count();
             if newc > 0 {
                 census.push((n, newc));
             }
         }
         let mut samples: Vec<(String, String)> = Vec::new();
-        for ri in (0..reps.len()).step_by(1 + reps.len() / 300) {
+        let sample_idx: Vec<usize> = if dp_slim { Vec::new() } else { (0..reps.len()).step_by(1 + reps.len() / 300).collect() };
+        for ri in sample_idx {
             if reps[ri].vector.is_none() {
                 continue;
             }
-            if let Some(nf) = nf_string(&mut arena, reps[ri].term, 5, &caps) {
+            if let Some(nf) = nf_string(&mut arena, reps[ri].term, 5, &caps, &mut bufs) {
                 samples.push((encode_bits(&arena, reps[ri].term), nf));
             }
         }
@@ -920,7 +1121,7 @@ fn main() {
 
     let bird_sig5: Vec<Option<(u64, u64)>> = bird_terms
         .iter()
-        .map(|&t| signature(&mut arena, t, SIG_ARITY, &esc_caps))
+        .map(|&t| signature(&mut arena, t, SIG_ARITY, &esc_caps, &mut bufs))
         .collect();
     let interesting: FastMap<(u64, u64), Vec<usize>> = {
         let mut m: FastMap<(u64, u64), Vec<usize>> = FastMap::default();
@@ -938,7 +1139,7 @@ fn main() {
         let mut m: FastMap<(u64, u64), ()> = FastMap::default();
         let mut all_ok = true;
         for &t in &bird_terms {
-            match signature_vars(&mut arena, t, SIG_ARITY, &esc_caps, false) {
+            match signature_vars(&mut arena, t, SIG_ARITY, &esc_caps, false, &mut bufs) {
                 Some(s) => {
                     m.insert(s, ());
                 }
@@ -990,7 +1191,7 @@ fn main() {
         for idx in 0..terms_by_size[n].len() {
             let t = terms_by_size[n][idx];
             if let Some(targets) = &bird_sig1 {
-                match signature_vars(&mut arena, t, SIG_ARITY, &caps, false) {
+                match signature_vars(&mut arena, t, SIG_ARITY, &caps, false, &mut bufs) {
                     None => {
                         capped_terms.push(t); // unknown — stays a frontier candidate
                         continue;
@@ -1002,7 +1203,7 @@ fn main() {
                     Some(_) => {}
                 }
             }
-            match signature(&mut arena, t, SIG_ARITY, &caps) {
+            match signature(&mut arena, t, SIG_ARITY, &caps, &mut bufs) {
                 None => capped_terms.push(t),
                 Some(sig) => {
                     let track = interesting.contains_key(&sig);
@@ -1056,7 +1257,7 @@ fn main() {
             match esc_sig.get(&key) {
                 Some(v) => *v,
                 None => {
-                    let v = signature($arena, $t, $arity, &esc_caps);
+                    let v = signature($arena, $t, $arity, &esc_caps, &mut bufs);
                     esc_sig.insert(key, v);
                     v
                 }
@@ -1101,7 +1302,7 @@ fn main() {
                     Some(s) if s == target => {
                         f.minimal_bits = Some(bits);
                         f.minimal_iotas = Some(sz);
-                        f.minimal_nf = nf_string(&mut arena, t, b.arity, &esc_caps);
+                        f.minimal_nf = nf_string(&mut arena, t, b.arity, &esc_caps, &mut bufs);
                         f.status = if unresolved == 0 { "proven".into() } else { "conditional".into() };
                         f.unresolved_before_winner = unresolved;
                         break;
@@ -1123,7 +1324,7 @@ fn main() {
     for (_sig, bird_idxs) in &interesting {
         if bird_idxs.len() >= 2 {
             let syms: Vec<String> = bird_idxs.iter().map(|&i| birds[i].sym.clone()).collect();
-            let nf = nf_string(&mut arena, bird_terms[bird_idxs[0]], SIG_ARITY, &esc_caps)
+            let nf = nf_string(&mut arena, bird_terms[bird_idxs[0]], SIG_ARITY, &esc_caps, &mut bufs)
                 .unwrap_or_else(|| "<capped>".into());
             coincidences.push((syms, nf));
         }
@@ -1140,7 +1341,7 @@ fn main() {
         order.sort_by(|a, b| (a.1.min_size, std::cmp::Reverse(a.1.count)).cmp(&(b.1.min_size, std::cmp::Reverse(b.1.count))));
         for (sig, c) in order.into_iter().take(CLASS_DUMP_LIMIT) {
             let bits = encode_bits(&arena, c.min_term);
-            let nf = nf_string(&mut arena, c.min_term, SIG_ARITY, &esc_caps).unwrap_or_else(|| "<capped>".into());
+            let nf = nf_string(&mut arena, c.min_term, SIG_ARITY, &esc_caps, &mut bufs).unwrap_or_else(|| "<capped>".into());
             let syms: Vec<String> = interesting
                 .get(sig)
                 .map(|idxs| idxs.iter().map(|&i| birds[i].sym.clone()).collect())
@@ -1160,7 +1361,7 @@ fn main() {
         }
         rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         let t = terms_by_size[n][(rng >> 33) as usize % terms_by_size[n].len()];
-        if let Some(nf) = nf_string(&mut arena, t, SIG_ARITY, &caps) {
+        if let Some(nf) = nf_string(&mut arena, t, SIG_ARITY, &caps, &mut bufs) {
             samples.push((encode_bits(&arena, t), nf));
         }
     }
