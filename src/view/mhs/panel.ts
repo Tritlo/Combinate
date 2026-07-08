@@ -1,9 +1,10 @@
 /**
  * The Haskell → ι panel (ADR 0007): a DOM overlay (text editing is far nicer in
- * the DOM than in Pixi). It leads with curated examples — click one to compile it
- * (a pre-compiled, vendored dump) and drop the resulting combinator tree on the
- * canvas — and offers a free-type editor that compiles live through the stock
- * MicroHs blob (best-effort). The post-processing is the same `core/mhs.ts`.
+ * the DOM than in Pixi). It leads with curated examples — click one to load its
+ * source, then "Compile & run" drops the resulting combinator tree on the canvas
+ * (from a pre-compiled, vendored closure) — and the free-type editor compiles live
+ * through the Rust MicroHs worker (best-effort). The post-processing is the same
+ * `core/mhs.ts`.
  *
  * The editor is syntax-highlighted: a transparent `<textarea>` over a colored
  * `<pre>` (the standard overlay trick), tokenized by `highlight.ts` and painted in
@@ -218,7 +219,7 @@ export class MhsPanel {
   }
 
   /** Select an example: show its source and (unless suppressed) compile + run it
-   *  from its pre-compiled dump — the reliable, wasm-free path. */
+   *  from its pre-compiled closure — the reliable, wasm-free path. */
   private async loadExample(ex: Example, run = true): Promise<void> {
     this.current = ex;
     this.editor.value = ex.source.trimEnd();
@@ -248,7 +249,7 @@ export class MhsPanel {
   }
 
   /** Compile whatever is in the editor. If it's the unchanged example source, use
-   *  the fast pre-compiled dump; otherwise compile live through the stock blob. */
+   *  the fast pre-compiled closure; otherwise compile live through the Rust worker. */
   private async runEditor(): Promise<void> {
     const src = this.editor.value;
     if (src.trim() === this.current.source.trim()) return this.loadExample(this.current);
