@@ -1,6 +1,6 @@
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text } from "pixi.js";
-import { CATALOG, countIotas, displayLabel, iotaTreeOf, type Law, META, PAGES } from "../core/catalog";
-import { iota, type Node, type NodeId } from "../core/term";
+import { CATALOG, countIotas, displayLabel, iotaTreeOf, IOTA_FASTEST, type Law, META, PAGES } from "../core/catalog";
+import { iota, type Node, type NodeId, decode } from "../core/term";
 import { layoutHTree } from "../core/layout";
 import { theme, currentMode, edgeTierColor, type Mode } from "./theme";
 import { wirePanelChrome, placeCard } from "./pixiPanel";
@@ -48,6 +48,7 @@ export class Zoo {
 
   private readonly pages: Page[];
   private pageIdx = 0;
+  private fastMode = false; // detail picture: minimal form (🐢, canon) vs fastest form (🐇, fewest steps ≤34ι)
   private readonly rowH = 30;
   private selected = 0;
   private listScroll = 0;
@@ -286,7 +287,8 @@ export class Zoo {
       this.detail.addChild(back);
     }
 
-    const tree: Node = entry.law === null ? iota() : iotaTreeOf(entry.law);
+    const fastCode = entry.law !== null ? IOTA_FASTEST[entry.sym] : undefined;
+    const tree: Node = entry.law === null ? iota() : this.fastMode && fastCode ? decode(fastCode) : iotaTreeOf(entry.law);
     const meta = META[entry.sym];
     const lawText = entry.law === null ? "ι x = x S K" : entry.law.lawText;
 
@@ -296,6 +298,25 @@ export class Zoo {
       const pic = renderPicture(tree, boxSize - 28);
       pic.position.set(dx + dw / 2, dy + boxSize / 2);
       this.detail.addChild(pic);
+      if (fastCode) {
+        // turtle/hare: canonical MINIMAL form vs fewest-steps form (IOTA_FASTEST, ≤34ι bound)
+        const speed = new Text({ text: this.fastMode ? "🐇" : "🐢", style: { fontFamily: "monospace", fontSize: 18, fill: theme.iota } });
+        speed.position.set(dx + 12, dy + 8);
+        speed.eventMode = "static";
+        speed.cursor = "pointer";
+        speed.on("pointerdown", (e: FederatedPointerEvent) => {
+          e.stopPropagation();
+          this.fastMode = !this.fastMode;
+          this.refresh();
+        });
+        this.detail.addChild(speed);
+        const cap = new Text({
+          text: this.fastMode ? `fastest known (≤34ι hunt) · ${countIotas(tree)} ι` : `minimal form · ${countIotas(tree)} ι`,
+          style: { fontFamily: "monospace", fontSize: 10, fill: theme.mutedDot },
+        });
+        cap.position.set(dx + 36, dy + 13);
+        this.detail.addChild(cap);
+      }
       // a "play tone" button (top-right of the picture box) — chirps the bird
       const tone = new Text({ text: "♪", style: { fontFamily: "monospace", fontSize: 20, fill: theme.iota } });
       tone.anchor.set(0.5);

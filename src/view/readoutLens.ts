@@ -17,7 +17,7 @@
  */
 import { type Ticker } from "pixi.js";
 import { decode, exceedsNodes, type Node } from "../core/term";
-import { IOTA_CODE, barkerCode, sugar } from "../core/catalog";
+import { fastestIotaCode, barkerCode, sugar } from "../core/catalog";
 import { makeRefolder, behavioralRefolder, type Refolder } from "../core/refold";
 import { read, render, type Ty } from "../core/types";
 import { redexAt } from "../core/reduce";
@@ -87,7 +87,7 @@ export class ReadoutLens {
       case "iota":
         return "ι";
       case "comb": {
-        const code = !this.deps.isDiscovered(n.sym) ? IOTA_CODE[n.sym] : undefined;
+        const code = !this.deps.isDiscovered(n.sym) ? fastestIotaCode(n.sym) : undefined;
         return code ? this.exprOf(decode(code)) : n.sym;
       }
       case "free":
