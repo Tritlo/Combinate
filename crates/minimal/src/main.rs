@@ -273,6 +273,37 @@ enum NfResult {
     Capped,
 }
 
+/// Fixed-capacity signature vector (dp_arity <= 12) — Copy, no heap. The per-layer
+/// results buffer used to materialize a Vec per candidate (GBs of churn at 30ι+).
+const SIG_MAX: usize = 13;
+#[derive(Clone, Copy)]
+struct SigVec {
+    len: u8,
+    v: [(u64, u64); SIG_MAX],
+}
+impl SigVec {
+    fn new() -> Self {
+        SigVec { len: 0, v: [(0, 0); SIG_MAX] }
+    }
+    fn push(&mut self, h: (u64, u64)) {
+        self.v[self.len as usize] = h;
+        self.len += 1;
+    }
+    fn slice(&self) -> &[(u64, u64)] {
+        &self.v[..self.len as usize]
+    }
+}
+
+/// Signature-vector outcome: fully resolved, or capped at some arity with the resolved
+/// PREFIX retained — capped terms sharing a prefix behave identically on every arity we
+/// could observe, so only the first of each prefix-class composes forward (the rest stay
+/// as frontier blockers only; a labeled completeness trade on arg-side rescues).
+#[derive(Clone, Copy)]
+enum SigRes {
+    Full(SigVec),
+    Capped(SigVec),
+}
+
 /// Reduce `root` to full normal form. Iterative: an explicit spine stack for the
 /// head-reduction loop, and an explicit frame stack for normalizing the arguments of
 /// a stuck head. Caps: total contractions + scratch nodes allocated (the caller runs
@@ -592,10 +623,11 @@ struct Bird {
 /// pays only its marginal reduction instead of re-reducing the whole applied term (the
 /// naive loop re-did ~13× the work). Scratch is cleared once per vector, not per arity —
 /// the running NF lives there; each arity gets a fresh marginal step/node budget.
-fn dp_sigvec<A: Red>(arena: &mut A, t: u32, caps: &Caps, dp_a: usize, bufs: &mut ReduceBufs) -> Option<Vec<(u64, u64)>> {
+fn dp_sigvec<A: Red>(arena: &mut A, t: u32, caps: &Caps, dp_a: usize, bufs: &mut ReduceBufs) -> SigRes {
+    debug_assert!(dp_a < SIG_MAX);
     arena.s_clear();
     bufs.hmemo.clear();
-    let mut v = Vec::with_capacity(dp_a + 1);
+    let mut v = SigVec::new();
     let mut cur = t; // invariant: the NF of t·v0..v(k-1)
     for k in 0..=dp_a {
         let applied = if k == 0 {
@@ -611,10 +643,10 @@ fn dp_sigvec<A: Red>(arena: &mut A, t: u32, caps: &Caps, dp_a: usize, bufs: &mut
                 v.push(merkle_hash(arena, nf, bufs));
                 cur = nf;
             }
-            NfResult::Capped => return None,
+            NfResult::Capped => return SigRes::Capped(v),
         }
     }
-    Some(v)
+    SigRes::Full(v)
 }
 
 fn jstr(s: &str) -> String {
@@ -643,7 +675,7 @@ fn main() {
     let mut dp_probe: Option<String> = None; // diagnostic: trace why this bitcode's class was(n't) reached
     let mut dp_gate: usize = 10_000; // rep-count stop gate for --dp (guards runaway class growth)
     let mut dp_slim = false; // --dp-slim: skip class census + samples in the JSON (deep runs; the dump gets fat past ~50k classes)
-    let mut dp_opaque_fn = true; // --dp-no-opaque-fn: skip pairs whose FN is a capped singleton (leftmost-outermost does the head's work first, so a capped head stays capped; the rescue case is arg-side)
+    let mut dp_opaque_fn = false; // --dp-opaque-fn re-enables capped singletons as HEADS; default skips them (leftmost-outermost does the head's work first, so a capped head stays capped; the arg-side rescue is kept). Validated 0-mismatch vs brute at 17ι.
     let mut esc_mult: u64 = 100; // escalated-cap multiplier for frontier cap-outs (raise to chase down `conditional` statuses)
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -658,7 +690,8 @@ fn main() {
             "--dp-arity" => dp_arity = args.next().unwrap().parse().unwrap(),
             "--dp-probe" => dp_probe = Some(args.next().unwrap()),
             "--dp-gate" => dp_gate = args.next().unwrap().parse().unwrap(),
-            "--dp-no-opaque-fn" => dp_opaque_fn = false,
+            "--dp-no-opaque-fn" => dp_opaque_fn = false, // legacy alias (now the default)
+            "--dp-opaque-fn" => dp_opaque_fn = true,
             "--dp-slim" => dp_slim = true,
             other => panic!("unknown arg {other}"),
         }
@@ -718,18 +751,23 @@ fn main() {
         struct Rep {
             term: u32,
             size: u32,
-            vector: Option<Vec<(u64, u64)>>, // Some = classed; the sig vector at arities 0..=dp_a
+            vector: Option<SigVec>, // Some = classed; the sig vector at arities 0..=dp_a
+            composable: bool,       // opaque reps: only the first of each capped-prefix class composes
         }
         let mut class_of: FastMap<(u64, u64), usize> = FastMap::default();
         let mut reps: Vec<Rep> = Vec::new();
         let mut reps_by_size: Vec<Vec<usize>> = vec![Vec::new(); max_iotas + 1];
         let iota_id = arena.leaf(TAG_IOTA, 0);
-        let iv = dp_sigvec(&mut arena, iota_id, &caps, dp_a, &mut bufs).expect("iota signature capped");
-        class_of.insert(fold_key(&iv), 0);
-        reps.push(Rep { term: iota_id, size: 1, vector: Some(iv) });
+        let iv = match dp_sigvec(&mut arena, iota_id, &caps, dp_a, &mut bufs) {
+            SigRes::Full(v) => v,
+            SigRes::Capped(_) => panic!("iota signature capped"),
+        };
+        class_of.insert(fold_key(iv.slice()), 0);
+        reps.push(Rep { term: iota_id, size: 1, vector: Some(iv), composable: true });
         reps_by_size[1].push(0);
         let mut pair_count: u64 = 0;
         let mut capped_count: usize = 0;
+        let mut opaque_seen: FastMap<(u64, u64), ()> = FastMap::default();
         let mut gate_tripped = false;
         let workers = std::thread::available_parallelism().map(|v| v.get()).unwrap_or(8);
         'sizes: for n in 2..=max_iotas {
@@ -738,11 +776,16 @@ fn main() {
             for i in 1..n {
                 let j = n - i;
                 for fi in 0..reps_by_size[i].len() {
-                    if !dp_opaque_fn && reps[reps_by_size[i][fi]].vector.is_none() {
+                    let fr = &reps[reps_by_size[i][fi]];
+                    if fr.vector.is_none() && (!dp_opaque_fn || !fr.composable) {
                         continue; // capped head: composition caps too (arg-side rescue still explored)
                     }
                     for xi in 0..reps_by_size[j].len() {
-                        let (f, x) = (reps[reps_by_size[i][fi]].term, reps[reps_by_size[j][xi]].term);
+                        let xr = &reps[reps_by_size[j][xi]];
+                        if !xr.composable {
+                            continue; // duplicate capped-prefix opaque: blocker only
+                        }
+                        let (f, x) = (reps[reps_by_size[i][fi]].term, xr.term);
                         cands.push(arena.app(f, x));
                     }
                 }
@@ -751,7 +794,7 @@ fn main() {
             // Phase 2 (parallel): signature vectors — persistent arena is immutable here, each
             // worker owns its scratch. Stride assignment balances the cost gradient across
             // candidates; results land at their candidate index, so the merge is deterministic.
-            let mut results: Vec<Option<Option<Vec<(u64, u64)>>>> = vec![None; cands.len()];
+            let mut results: Vec<Option<SigRes>> = vec![None; cands.len()];
             if cands.len() < 128 {
                 for (ci, &t) in cands.iter().enumerate() {
                     results[ci] = Some(dp_sigvec(&mut arena, t, &caps, dp_a, &mut bufs));
@@ -761,7 +804,7 @@ fn main() {
                 let p_dedup = &arena.p_dedup;
                 let cands_ref = &cands;
                 let caps_ref = &caps;
-                let done: Vec<(usize, Vec<(usize, Option<Vec<(u64, u64)>>)>)> = std::thread::scope(|sc| {
+                let done: Vec<(usize, Vec<(usize, SigRes)>)> = std::thread::scope(|sc| {
                     (0..workers)
                         .map(|w| {
                             sc.spawn(move || {
@@ -806,18 +849,25 @@ fn main() {
             for (ci, res) in results.into_iter().enumerate() {
                 let t = cands[ci];
                 match res.expect("missing worker result") {
-                    Some(v) => {
-                        let key = fold_key(&v);
+                    SigRes::Full(v) => {
+                        let key = fold_key(v.slice());
                         if !class_of.contains_key(&key) {
                             class_of.insert(key, reps.len());
                             reps_by_size[n].push(reps.len());
-                            reps.push(Rep { term: t, size: n as u32, vector: Some(v) });
+                            reps.push(Rep { term: t, size: n as u32, vector: Some(v), composable: true });
                         }
                     }
-                    None => {
-                        // opaque singleton rep: composable (arg side), frontier blocker
+                    SigRes::Capped(prefix) => {
+                        // opaque rep: always a frontier blocker; composes (arg side) only if
+                        // its capped-prefix class is new — same-prefix divergers behave
+                        // identically on every observable arity, so one delegate suffices
+                        let pkey = fold_key(prefix.slice());
+                        let fresh = !opaque_seen.contains_key(&pkey);
+                        if fresh {
+                            opaque_seen.insert(pkey, ());
+                        }
                         reps_by_size[n].push(reps.len());
-                        reps.push(Rep { term: t, size: n as u32, vector: None });
+                        reps.push(Rep { term: t, size: n as u32, vector: None, composable: fresh });
                         capped_count += 1;
                     }
                 }
@@ -839,15 +889,15 @@ fn main() {
         // diagnostic probe: decompose a known witness, check each subterm's class membership
         if let Some(bits) = &dp_probe {
             let t = decode_bits(&mut arena, bits).expect("bad probe bits");
-            let tkey = dp_sigvec(&mut arena, t, &caps, dp_a, &mut bufs).map(|v| fold_key(&v));
+            let tkey = match dp_sigvec(&mut arena, t, &caps, dp_a, &mut bufs) { SigRes::Full(v) => Some(fold_key(v.slice())), SigRes::Capped(_) => None };
             eprintln!("probe {bits}: key={tkey:?} in_classes={}", tkey.map(|k| class_of.contains_key(&k)).unwrap_or(false));
             let n = arena.node(t);
             if n.tag == TAG_APP {
                 for (side, sub) in [("fn", n.a), ("arg", n.b)] {
                     let sbits = encode_bits(&arena, sub);
                     match dp_sigvec(&mut arena, sub, &caps, dp_a, &mut bufs) {
-                        Some(v) => {
-                            let k = fold_key(&v);
+                        SigRes::Full(v) => {
+                            let k = fold_key(v.slice());
                             match class_of.get(&k) {
                                 Some(&ri) => {
                                     let rb = encode_bits(&arena, reps[ri].term);
@@ -856,15 +906,16 @@ fn main() {
                                 None => eprintln!("  {side} {sbits}: key NOT in classes"),
                             }
                         }
-                        None => eprintln!("  {side} {sbits}: sigvec CAPPED"),
+                        SigRes::Capped(_) => eprintln!("  {side} {sbits}: sigvec CAPPED"),
                     }
                 }
                 // compose the reps and compare keys
-                let (fk, xk) = (dp_sigvec(&mut arena, n.a, &caps, dp_a, &mut bufs).map(|v| fold_key(&v)), dp_sigvec(&mut arena, n.b, &caps, dp_a, &mut bufs).map(|v| fold_key(&v)));
+                let to_key = |r: SigRes| match r { SigRes::Full(v) => Some(fold_key(v.slice())), SigRes::Capped(_) => None };
+                let (fk, xk) = (to_key(dp_sigvec(&mut arena, n.a, &caps, dp_a, &mut bufs)), to_key(dp_sigvec(&mut arena, n.b, &caps, dp_a, &mut bufs)));
                 if let (Some(fk), Some(xk)) = (fk, xk) {
                     if let (Some(&fi2), Some(&xi2)) = (class_of.get(&fk), class_of.get(&xk)) {
                         let composed = arena.app(reps[fi2].term, reps[xi2].term);
-                        let ck = dp_sigvec(&mut arena, composed, &caps, dp_a, &mut bufs).map(|v| fold_key(&v));
+                        let ck = match dp_sigvec(&mut arena, composed, &caps, dp_a, &mut bufs) { SigRes::Full(v) => Some(fold_key(v.slice())), SigRes::Capped(_) => None };
                         eprintln!("  app(rep_fn, rep_arg) = {}: key={ck:?} same_as_probe={}", encode_bits(&arena, composed), ck == tkey);
                     }
                 }
@@ -956,11 +1007,12 @@ fn main() {
             let mut minimal_nf: Option<String> = None;
             let mut status = "bird-capped".to_string();
             let mut unresolved = 0u64;
-            if let Some(bv) = dp_sigvec(&mut arena, term, &esc_caps, dp_a, &mut bufs) {
-                let bkey = fold_key(&bv);
+            if let SigRes::Full(bv) = dp_sigvec(&mut arena, term, &esc_caps, dp_a, &mut bufs) {
+                let bkey = fold_key(bv.slice());
                 coin_groups.entry(bkey).or_default().push(bi);
                 status = "not-found-within-bound".into();
                 let _ = &bkey;
+                let bslice = bv.slice();
                 // Equality for a bird lives at arities >= its DECLARED arity (equal at n
                 // implies equal above, says NOTHING below) — so match the sig-vector
                 // SUFFIX. Multiple classes can match (they differ only below declared
@@ -968,7 +1020,7 @@ fn main() {
                 let mut best: Option<(u32, String, u32)> = None;
                 for r in reps.iter() {
                     if let Some(rv) = &r.vector {
-                        if rv[b.arity..] == bv[b.arity..] {
+                        if rv.slice()[b.arity..] == bslice[b.arity..] {
                             let cand = (r.size, encode_bits(&arena, r.term), r.term);
                             if best.as_ref().map(|w| (cand.0, &cand.1) < (w.0, &w.1)).unwrap_or(true) {
                                 best = Some(cand);
