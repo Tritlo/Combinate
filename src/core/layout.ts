@@ -147,12 +147,15 @@ export function countNodes(root: Node): number {
 }
 
 /**
- * H-tree layout: each application places its two children symmetrically offset from the node,
- * ALTERNATING the split axis by depth — even depth splits horizontally (fn left, arg right), odd
- * depth vertically (fn up, arg down). The arm length shrinks geometrically per level
- * (`HTREE_SHRINK`), so the term draws as a nested "square antenna" whose edges get progressively
- * shorter; a deep left spine becomes a shrinking staircase with the leaves fringing off it. Because
- * the shrink stays below 1/√2 sibling subtrees never overlap, so no subtree-spacing pass is needed.
+ * H-tree layout: each application places its two children symmetrically offset from the node, the
+ * split direction ROTATING a quarter-turn clockwise per depth — arg → right, down, left, up (fn
+ * opposite), so the split axis still alternates horizontal/vertical, but one level deeper is a true
+ * 90° rotation of the same layout, not a mirror. A subterm therefore draws as a rotated copy of its
+ * standalone picture (expanded S visibly contains expanded K turned a quarter-turn) — the 2D analog
+ * of the 3D H-tree, whose X→Y→Z axis cycle is already a rotation (ADR 25). The arm length shrinks
+ * geometrically per level (`HTREE_SHRINK`), so a deep spine coils into a shrinking rectangular
+ * spiral with the leaves fringing off it. Because the shrink stays below 1/√2 sibling subtrees
+ * never overlap (the extent bound is per split axis, so the sign of the direction doesn't matter).
  * The initial arm scales with the node count (bigger terms start with a longer arm). Root at (0, 0).
  */
 /** The arm length (px) at which a node's glyph reaches full size; where arms are shorter (deep in the
@@ -188,14 +191,14 @@ function placeHTree(node: Node, x: number, y: number, d: number, L0: number, pos
   const minArm = node.kind === "app" ? childArm : L0 * HTREE_SHRINK ** Math.max(0, d - 1); // leaf → its parent arm
   scale.set(node.id, Math.max(HTREE_MIN_NODE_SCALE, Math.min(1, minArm / HTREE_MIN_ARM)));
   if (node.kind !== "app") return;
-  if (d % 2 === 0) {
-    placeHTree(node.fn, x - childArm, y, d + 1, L0, pos, scale, depthOut); // fn → left
-    placeHTree(node.arg, x + childArm, y, d + 1, L0, pos, scale, depthOut); // arg → right
-  } else {
-    placeHTree(node.fn, x, y - childArm, d + 1, L0, pos, scale, depthOut); // fn → up
-    placeHTree(node.arg, x, y + childArm, d + 1, L0, pos, scale, depthOut); // arg → down
-  }
+  const [dx, dy] = HTREE_DIRS[d % 4]!; // arg → +dir, fn → −dir; dir rotates 90° cw per level
+  placeHTree(node.fn, x - dx * childArm, y - dy * childArm, d + 1, L0, pos, scale, depthOut);
+  placeHTree(node.arg, x + dx * childArm, y + dy * childArm, d + 1, L0, pos, scale, depthOut);
 }
+
+/** The arg-side split direction per depth (mod 4): right, down, left, up — a clockwise quarter-turn
+ *  each level, so nested subtrees stay rotationally congruent to their standalone layouts. */
+const HTREE_DIRS: ReadonlyArray<readonly [number, number]> = [[1, 0], [0, 1], [-1, 0], [0, -1]];
 
 /**
  * Re-place just `subtreeRoot` and its descendants as an H-tree hung from (`x`, `y`) at depth `d`,

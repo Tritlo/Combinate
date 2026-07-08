@@ -1581,9 +1581,9 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     g.moveTo(14, 36).lineTo(26, 36).stroke({ width: 3, color: edgeTierColor(1) }); // … and red, alternating
     c.addChild(g);
     const style = { fontFamily: "monospace", fontSize: 12, fill: theme.textDim };
-    const l1 = new Text({ text: "function (left)", style });
+    const l1 = new Text({ text: "function (solid)", style });
     l1.position.set(34, -7);
-    const l2 = new Text({ text: "argument (right)", style });
+    const l2 = new Text({ text: "argument (dashed)", style });
     l2.position.set(34, 11);
     const l3 = new Text({ text: "color = depth", style });
     l3.position.set(34, 29);
