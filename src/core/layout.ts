@@ -159,10 +159,9 @@ export function countNodes(root: Node): number {
  * The initial arm scales with the node count (bigger terms start with a longer arm). Root at (0, 0).
  */
 /** The arm length (px) at which a node's glyph reaches full size; where arms are shorter (deep in the
- *  tree) the node shrinks WITH its arm, so a short arm never looks unnatural next to the glyph. */
-const HTREE_MIN_ARM = 42;
-/** Floor on the per-node glyph scale so a very deep tip never vanishes entirely. */
-const HTREE_MIN_NODE_SCALE = 0.28;
+ *  tree) the node shrinks WITH its arm, so a short arm never looks unnatural next to the glyph.
+ *  Shared with the 3D H-tree so 2D and 3D shrink in lockstep. */
+export const HTREE_MIN_ARM = 42;
 
 export function layoutHTree(root: Node, frozen?: { l0?: number }): Layout {
   // Modest initial arm, scaled by node count — the tree stays COMPACT (no giant span / zoom-out); deep
@@ -185,11 +184,12 @@ function placeHTree(node: Node, x: number, y: number, d: number, L0: number, pos
   pos.set(node.id, { x, y });
   depthOut?.set(node.id, d); // only layoutHTreeSubtree needs the depth map back (edge tiering); full layout skips it
   // Shrink a node toward its shortest adjacent arm so it never overwhelms the structure (the "gray
-  // blob" on big/clamped trees): full-size while arms are long, scaling down once an arm drops
-  // below a node's span. Only bites when L0 clamps — small trees keep full-size nodes.
+  // blob" on deep spines): full-size while arms are long, then scaling in PROPORTION to the arm —
+  // no floor, so dots/glyphs shrink exactly like the distances between them and a deep spiral
+  // converges to a point instead of a blob (zoom recovers the detail).
   const childArm = L0 * HTREE_SHRINK ** d;
   const minArm = node.kind === "app" ? childArm : L0 * HTREE_SHRINK ** Math.max(0, d - 1); // leaf → its parent arm
-  scale.set(node.id, Math.max(HTREE_MIN_NODE_SCALE, Math.min(1, minArm / HTREE_MIN_ARM)));
+  scale.set(node.id, Math.min(1, minArm / HTREE_MIN_ARM));
   if (node.kind !== "app") return;
   const [dx, dy] = HTREE_DIRS[d % 4]!; // arg → +dir, fn → −dir; dir rotates 90° cw per level
   placeHTree(node.fn, x - dx * childArm, y - dy * childArm, d + 1, L0, pos, scale, depthOut);
