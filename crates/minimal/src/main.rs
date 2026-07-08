@@ -73,14 +73,26 @@ struct Node {
     b: u32,
 }
 
+/// A node IS its packed dedup key: tag<<60 | a<<30 | b (ids stay under 2^30 —
+/// SCRATCH_BASE is 1<<29). 8 bytes/node instead of 12: ~1.5× cache density on the
+/// hottest array in the program, and mk() stores the word it already computed.
+#[inline(always)]
+const fn pack(tag: u8, a: u32, b: u32) -> u64 {
+    ((tag as u64) << 60) | ((a as u64) << 30) | b as u64
+}
+#[inline(always)]
+const fn unpack(w: u64) -> Node {
+    Node { tag: (w >> 60) as u8, a: ((w >> 30) & 0x3FFF_FFFF) as u32, b: (w & 0x3FFF_FFFF) as u32 }
+}
+
 struct Arena {
     /// Max spine length ever applied to a FREE-VAR head across the whole run.
     /// DIAGNOSTIC ONLY (it includes the probe's own arity, so it scales with the
     /// signature arity — it is not a congruence certificate).
     max_var_demand: usize,
-    p_nodes: Vec<Node>,
+    p_nodes: Vec<u64>,
     p_dedup: FastMap<u64, u32>,
-    s_nodes: Vec<Node>,
+    s_nodes: Vec<u64>,
     s_dedup: FastMap<u64, u32>,
     l_cache: [u32; 23],
 }
@@ -98,13 +110,13 @@ impl Arena {
     }
     /// Persistent intern — serial phases only (enumeration, DP composition, decode).
     fn intern(&mut self, tag: u8, a: u32, b: u32) -> u32 {
-        let key = ((tag as u64) << 60) | ((a as u64) << 30) | b as u64;
+        let key = pack(tag, a, b);
         if let Some(&id) = self.p_dedup.get(&key) {
             return id;
         }
         debug_assert!(a < SCRATCH_BASE && b < SCRATCH_BASE, "persistent node referencing scratch");
         let id = self.p_nodes.len() as u32;
-        self.p_nodes.push(Node { tag, a, b });
+        self.p_nodes.push(key);
         self.p_dedup.insert(key, id);
         id
     }
@@ -116,9 +128,9 @@ impl Arena {
     }
     fn node(&self, id: u32) -> Node {
         if id >= SCRATCH_BASE {
-            self.s_nodes[(id - SCRATCH_BASE) as usize]
+            unpack(self.s_nodes[(id - SCRATCH_BASE) as usize])
         } else {
-            self.p_nodes[id as usize]
+            unpack(self.p_nodes[id as usize])
         }
     }
 }
@@ -163,8 +175,8 @@ trait Red {
 /// nodes reference only persistent ids), and skipping that probe removes a big-map lookup
 /// from most reduction allocations.
 #[inline]
-fn scratch_intern(p_dedup: &FastMap<u64, u32>, s_nodes: &mut Vec<Node>, s_dedup: &mut FastMap<u64, u32>, tag: u8, a: u32, b: u32) -> u32 {
-    let key = ((tag as u64) << 60) | ((a as u64) << 30) | b as u64;
+fn scratch_intern(p_dedup: &FastMap<u64, u32>, s_nodes: &mut Vec<u64>, s_dedup: &mut FastMap<u64, u32>, tag: u8, a: u32, b: u32) -> u32 {
+    let key = pack(tag, a, b);
     if a < SCRATCH_BASE && b < SCRATCH_BASE {
         if let Some(&id) = p_dedup.get(&key) {
             return id;
@@ -174,7 +186,7 @@ fn scratch_intern(p_dedup: &FastMap<u64, u32>, s_nodes: &mut Vec<Node>, s_dedup:
         return id;
     }
     let id = SCRATCH_BASE + s_nodes.len() as u32;
-    s_nodes.push(Node { tag, a, b });
+    s_nodes.push(key);
     s_dedup.insert(key, id);
     id
 }
@@ -206,9 +218,9 @@ impl Red for Arena {
 
 /// A parallel worker's view: shared immutable persistent arena + private scratch.
 struct Worker<'a> {
-    p_nodes: &'a [Node],
+    p_nodes: &'a [u64],
     p_dedup: &'a FastMap<u64, u32>,
-    s_nodes: Vec<Node>,
+    s_nodes: Vec<u64>,
     s_dedup: FastMap<u64, u32>,
     max_var_demand: usize,
     l_cache: [u32; 23],
@@ -217,9 +229,9 @@ struct Worker<'a> {
 impl<'a> Red for Worker<'a> {
     fn nd(&self, id: u32) -> Node {
         if id >= SCRATCH_BASE {
-            self.s_nodes[(id - SCRATCH_BASE) as usize]
+            unpack(self.s_nodes[(id - SCRATCH_BASE) as usize])
         } else {
-            self.p_nodes[id as usize]
+            unpack(self.p_nodes[id as usize])
         }
     }
     fn mk(&mut self, tag: u8, a: u32, b: u32) -> u32 {
@@ -826,7 +838,7 @@ fn main() {
                     results[ci] = Some(dp_sigvec_headarg(&mut arena, f, Some(x), &caps, dp_a, &mut bufs));
                 }
             } else {
-                let p_nodes: &[Node] = &arena.p_nodes;
+                let p_nodes: &[u64] = &arena.p_nodes;
                 let p_dedup = &arena.p_dedup;
                 let cands_ref = &cands;
                 let caps_ref = &caps;
@@ -987,7 +999,7 @@ fn main() {
                     table.insert((t, a), r);
                 }
             } else {
-                let p_nodes: &[Node] = &arena.p_nodes;
+                let p_nodes: &[u64] = &arena.p_nodes;
                 let p_dedup = &arena.p_dedup;
                 let jobs_ref = &jobs;
                 let tier1_ref = &tier1;
