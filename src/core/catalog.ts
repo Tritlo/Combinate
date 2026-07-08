@@ -59,6 +59,23 @@ export const IOTA_CODE: Record<string, string> = {
  *  canonical MINIMAL form (golf costs, Barker readouts, the Zoo's default picture). */
 export const IOTA_FASTEST_BOUND = 34; // the hunt bound the FASTEST claims hold at (see crates/minimal)
 
+/** Measured reduction steps at each bird's declared arity — [minimal form, fastest form] —
+ *  from the ≤34ι hunt (the Rust reducer mirrors the app's exactly; parity-verified). Saved
+ *  as data so the Zoo never pays a reduction at card-render time. */
+export const IOTA_STEPS: Record<string, [number, number]> = {
+  B1: [126, 106],
+  B2: [270, 208],
+  B3: [176, 155],
+  C: [345, 120],
+  D: [76, 54],
+  E: [173, 148],
+  Q: [101, 79],
+  Q3: [134, 81],
+  W: [33, 32],
+  head: [136, 48],
+  Φ: [144, 103],
+};
+
 export const IOTA_FASTEST: Record<string, string> = {
   B1: "0001010001010101101101010101110101001010101011011", // 106 steps (vs 126)
   B2: "0000101010110001010101111000101010110001010101111101001010101011011", // 208 (vs 270)
