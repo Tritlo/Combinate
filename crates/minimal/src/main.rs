@@ -298,11 +298,19 @@ const SIG_ARITY: usize = 5;
 /// NF signature hash of `t v0 … v(arity-1)`, or None if capped. Runs in a fresh
 /// scratch window (cleared on entry) so caps are deterministic per term.
 fn signature(arena: &mut Arena, t: u32, arity: usize, caps: &Caps) -> Option<(u64, u64)> {
+    signature_vars(arena, t, arity, caps, true)
+}
+
+/// Like `signature`, but `distinct = false` applies the SAME fresh variable `arity`
+/// times: t x x … x. Identifying variables is a homomorphic coarsening, so equal
+/// terms MUST collide here — a cheap necessary condition (the QuickSpec prefilter);
+/// only colliding terms need the distinct-variable proof.
+fn signature_vars(arena: &mut Arena, t: u32, arity: usize, caps: &Caps, distinct: bool) -> Option<(u64, u64)> {
     arena.clear_scratch();
     arena.scratch = true;
     let mut applied = t;
     for v in 0..arity {
-        let fv = arena.leaf(TAG_FREE, v as u32);
+        let fv = arena.leaf(TAG_FREE, if distinct { v as u32 } else { 0 });
         applied = arena.app(applied, fv);
     }
     let mut steps = 0u64;
@@ -406,6 +414,7 @@ fn main() {
     let mut steps_cap: u64 = 2_000;
     let mut nodes_cap: usize = 20_000;
     let mut out_path = String::from("spec/minimal-forms.json");
+    let mut prefilter = false; // 1-var necessary-condition pass; skips full sigs for bird-irrelevant terms (partial census!)
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -413,6 +422,7 @@ fn main() {
             "--steps" => steps_cap = args.next().unwrap().parse().unwrap(),
             "--nodes" => nodes_cap = args.next().unwrap().parse().unwrap(),
             "--out" => out_path = args.next().unwrap(),
+            "--prefilter" => prefilter = true,
             other => panic!("unknown arg {other}"),
         }
     }
@@ -451,6 +461,29 @@ fn main() {
         }
         m
     };
+    // 1-var prefilter targets: birds' repeated-variable signatures (a NECESSARY condition
+    // for equality — identifying variables is a homomorphic coarsening). Sound only if every
+    // bird's 1-var signature resolved; otherwise a bird's matches could be skipped.
+    let bird_sig1: Option<FastMap<(u64, u64), ()>> = if prefilter {
+        let mut m: FastMap<(u64, u64), ()> = FastMap::default();
+        let mut all_ok = true;
+        for &t in &bird_terms {
+            match signature_vars(&mut arena, t, SIG_ARITY, &esc_caps, false) {
+                Some(s) => {
+                    m.insert(s, ());
+                }
+                None => all_ok = false,
+            }
+        }
+        if all_ok {
+            Some(m)
+        } else {
+            eprintln!("prefilter disabled: a bird's 1-var signature capped");
+            None
+        }
+    } else {
+        None
+    };
     let t_birds = t_start.elapsed();
 
     // -- enumeration (persistent) --
@@ -482,9 +515,23 @@ fn main() {
     }
     let mut classes: FastMap<(u64, u64), Class> = FastMap::default();
     let mut capped_terms: Vec<u32> = Vec::new(); // arity-5 signature capped — unknowns
+    let mut prefiltered_out: u64 = 0;
     for n in 1..=max_iotas {
         for idx in 0..terms_by_size[n].len() {
             let t = terms_by_size[n][idx];
+            if let Some(targets) = &bird_sig1 {
+                match signature_vars(&mut arena, t, SIG_ARITY, &caps, false) {
+                    None => {
+                        capped_terms.push(t); // unknown — stays a frontier candidate
+                        continue;
+                    }
+                    Some(s1) if !targets.contains_key(&s1) => {
+                        prefiltered_out += 1; // provably ≠ every bird; census skipped (partial classes)
+                        continue;
+                    }
+                    Some(_) => {}
+                }
+            }
             match signature(&mut arena, t, SIG_ARITY, &caps) {
                 None => capped_terms.push(t),
                 Some(sig) => {
@@ -511,6 +558,8 @@ fn main() {
         }
     }
     let capped_count = capped_terms.len();
+    if prefilter { eprintln!("prefilter: {prefiltered_out} terms excluded by 1-var signature"); }
+    let _ = prefiltered_out;
     let t_sigs = t_start.elapsed();
 
     // -- per-bird certification at declared arity over a merged, ordered frontier --
