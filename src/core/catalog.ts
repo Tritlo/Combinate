@@ -57,6 +57,8 @@ export const IOTA_CODE: Record<string, string> = {
  *  a deeper/bigger-budget hunt may still beat these. Gameplay expansion (the expand-all
  *  view, the discovery mask) uses these so unfolds animate snappily; IOTA_CODE stays the
  *  canonical MINIMAL form (golf costs, Barker readouts, the Zoo's default picture). */
+export const IOTA_FASTEST_BOUND = 34; // the hunt bound the FASTEST claims hold at (see crates/minimal)
+
 export const IOTA_FASTEST: Record<string, string> = {
   B1: "0001010001010101101101010101110101001010101011011", // 106 steps (vs 126)
   B2: "0000101010110001010101111000101010110001010101111101001010101011011", // 208 (vs 270)

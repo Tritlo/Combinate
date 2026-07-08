@@ -1,8 +1,8 @@
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text } from "pixi.js";
-import { CATALOG, countIotas, displayLabel, iotaTreeOf, IOTA_FASTEST, type Law, META, PAGES } from "../core/catalog";
+import { CATALOG, countIotas, displayLabel, iotaTreeOf, IOTA_FASTEST, IOTA_FASTEST_BOUND, type Law, META, PAGES } from "../core/catalog";
 import { iota, type Node, type NodeId, decode } from "../core/term";
 import { layoutHTree } from "../core/layout";
-import { theme, currentMode, edgeTierColor, type Mode } from "./theme";
+import { theme, currentMode, edgeTierColor, type Mode, MONO, PAPER, INK } from "./theme";
 import { wirePanelChrome, placeCard } from "./pixiPanel";
 
 const LIST_W = 248;
@@ -103,7 +103,55 @@ export class Zoo {
     const e = this.entries[this.selected];
     if (e.law === null || this.isDiscovered(e.sym)) this.playTone(e.sym); // known (or ι) only
   }
+  /** The 🐢|🐇 System-1 segmented toggle (DOM, like the 2D|3D control): ink track,
+   *  paper slider, SVG glyphs. Floated over the picture box; hidden when absent/closed. */
+  private speedEl: HTMLDivElement | null = null;
+  private placeSpeedToggle(at: { x: number; y: number } | null): void {
+    if (!at) {
+      if (this.speedEl) this.speedEl.style.display = "none";
+      return;
+    }
+    if (!this.speedEl) {
+      const el = document.createElement("div");
+      el.className = "lc-seg";
+      el.style.position = "fixed";
+      el.style.zIndex = "42";
+      el.style.flex = "none";
+      el.style.fontFamily = MONO;
+      const TURTLE = `<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M3.5 10a4.5 4 0 0 1 9 0z"/><circle cx="13.6" cy="9.3" r="1.4"/><rect x="4.6" y="10" width="2" height="2"/><rect x="9.4" y="10" width="2" height="2"/></svg>`;
+      const HARE = `<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M5.6 7.5 4.2 1.8l2.8 4.6z"/><path d="M8.2 7.2 8.5 1.4l1.6 5.2z"/><ellipse cx="8" cy="10.8" rx="4.6" ry="3"/><circle cx="13" cy="11.6" r="1.1"/></svg>`;
+      for (const [kind, svg] of [["min", TURTLE], ["fast", HARE]] as const) {
+        const b = document.createElement("button");
+        b.className = "lc-btn";
+        b.innerHTML = svg;
+        b.title = kind === "min" ? "Minimal form (canonical)" : `Fastest form found (≤ ${IOTA_FASTEST_BOUND}ι hunt)`;
+        b.style.display = "flex";
+        b.style.alignItems = "center";
+        b.style.padding = "4px 8px";
+        b.addEventListener("pointerdown", (e) => {
+          e.stopPropagation();
+          this.fastMode = kind === "fast";
+          this.refresh();
+        });
+        el.appendChild(b);
+      }
+      document.body.appendChild(el);
+      this.speedEl = el;
+    }
+    const el = this.speedEl;
+    const mode = currentMode();
+    el.style.setProperty("--lc-paper", PAPER[mode]);
+    el.style.setProperty("--lc-ink", INK[mode]);
+    el.style.left = `${at.x}px`;
+    el.style.top = `${at.y}px`;
+    el.style.display = "flex";
+    const btns = el.querySelectorAll(".lc-btn");
+    btns[0]!.classList.toggle("on", !this.fastMode);
+    btns[1]!.classList.toggle("on", this.fastMode);
+  }
+
   close(): void {
+    if (this.speedEl) this.speedEl.style.display = "none";
     this.panel.visible = false;
   }
 
@@ -158,6 +206,7 @@ export class Zoo {
 
   /** Rebuild the panel contents (after a discovery, unlock, open, or page switch). */
   refresh(): void {
+    this.placeSpeedToggle(null); // hidden unless the detail re-places it (known bird with a fastest form)
     if (!this.panel.visible) return;
     this.buildTabs();
     this.buildList();
@@ -298,25 +347,7 @@ export class Zoo {
       const pic = renderPicture(tree, boxSize - 28);
       pic.position.set(dx + dw / 2, dy + boxSize / 2);
       this.detail.addChild(pic);
-      if (fastCode) {
-        // turtle/hare: canonical MINIMAL form vs fewest-steps form (IOTA_FASTEST, ≤34ι bound)
-        const speed = new Text({ text: this.fastMode ? "🐇" : "🐢", style: { fontFamily: "monospace", fontSize: 18, fill: theme.iota } });
-        speed.position.set(dx + 12, dy + 8);
-        speed.eventMode = "static";
-        speed.cursor = "pointer";
-        speed.on("pointerdown", (e: FederatedPointerEvent) => {
-          e.stopPropagation();
-          this.fastMode = !this.fastMode;
-          this.refresh();
-        });
-        this.detail.addChild(speed);
-        const cap = new Text({
-          text: this.fastMode ? `fastest known (≤34ι hunt) · ${countIotas(tree)} ι` : `minimal form · ${countIotas(tree)} ι`,
-          style: { fontFamily: "monospace", fontSize: 10, fill: theme.mutedDot },
-        });
-        cap.position.set(dx + 36, dy + 13);
-        this.detail.addChild(cap);
-      }
+      this.placeSpeedToggle(fastCode ? { x: dx + 10, y: dy + 10 } : null);
       // a "play tone" button (top-right of the picture box) — chirps the bird
       const tone = new Text({ text: "♪", style: { fontFamily: "monospace", fontSize: 20, fill: theme.iota } });
       tone.anchor.set(0.5);
@@ -359,7 +390,13 @@ export class Zoo {
     if (entry.role) line(`role:     ${entry.role}`, theme.text, 15);
     line(`law:      ${lawText}`, theme.text, 15);
     line(`formula:  ${meta?.recipe ?? "—"}`, theme.text, 15);
-    line(`iotas:    ${countIotas(tree)}`, theme.textDim, 14, 10);
+    if (fastCode && entry.law !== null) {
+      const minI = countIotas(iotaTreeOf(entry.law));
+      const fastI = (fastCode.match(/1/g) ?? []).length;
+      line(`iotas:    ${minI} (minimal)   ${fastI} (fastest found ≤ ${IOTA_FASTEST_BOUND}ι)`, theme.textDim, 14, 10);
+    } else {
+      line(`iotas:    ${countIotas(tree)}`, theme.textDim, 14, 10);
+    }
     if (meta?.blurb) line(meta.blurb, theme.text, 15);
   }
 }
