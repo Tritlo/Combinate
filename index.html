@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <title>Combinate — an ι / SKI combinator-calculus sandbox</title>
+    <title>Combinate</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/favicon.svg" />
 
@@ -18,7 +18,7 @@
     />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Combinate" />
-    <meta property="og:title" content="Combinate — an ι / SKI combinator-calculus sandbox" />
+    <meta property="og:title" content="Combinate" />
     <meta
       property="og:description"
       content="Drag ι, snap trees, and watch them reduce on their own. Discover combinators, compile Haskell to combinator trees, and golf."
@@ -27,9 +27,9 @@
     <meta property="og:image" content="https://combinate.app/og.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Combinate — a gold ι over a combinator tree." />
+    <meta property="og:image:alt" content="Combinate — a combinator H-tree in black, white and red." />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Combinate — an ι / SKI combinator-calculus sandbox" />
+    <meta name="twitter:title" content="Combinate" />
     <meta
       name="twitter:description"
       content="Drag ι, snap trees, and watch them reduce on their own. Discover combinators, compile Haskell, and golf."
@@ -41,18 +41,17 @@
          splash matches the app before its theme JS runs. src/splash.ts fills in the
          SVG art and drives the bar; main.ts fades it out once the scene is ready. -->
     <style>
+      /* Mono (tricolor: ink + red-tier edges), mirroring theme.ts MONO_DARK/LIGHT. */
       :root {
-        --sp-bg: #010409; --sp-text: #ffffff; --sp-dim: #b7bdc8;
-        --sp-iota: #f0b72f; --sp-iota-glyph: #010409;
-        --sp-fn: #fe9a2d; --sp-arg: #d3abff; --sp-node: #1f6feb;
-        --sp-track: #151b23;
+        --sp-bg: #07090d; --sp-text: #f0f3f6; --sp-dim: #9aa3ad;
+        --sp-ink: #f0f3f6; --sp-red: #ee4444; --sp-node: #f0f3f6;
+        --sp-accent: #ee4444; --sp-track: #151b23;
       }
       @media (prefers-color-scheme: light) {
         :root {
-          --sp-bg: #ffffff; --sp-text: #010409; --sp-dim: #454c54;
-          --sp-iota: #603700; --sp-iota-glyph: #ffffff;
-          --sp-fn: #702c00; --sp-arg: #5e2bb4; --sp-node: #023b95;
-          --sp-track: #e6eaef;
+          --sp-bg: #ffffff; --sp-text: #000000; --sp-dim: #5a5a5a;
+          --sp-ink: #000000; --sp-red: #cc2222; --sp-node: #000000;
+          --sp-accent: #cc2222; --sp-track: #e6eaef;
         }
       }
       html, body { margin: 0; height: 100%; background: var(--sp-bg); }
@@ -79,7 +78,7 @@
       }
       #splash-fill {
         height: 100%; width: 0%; border-radius: 2px;
-        background: var(--sp-iota); transition: width 0.3s ease;
+        background: var(--sp-accent); transition: width 0.3s ease;
       }
       #splash-msg { font-size: 13px; color: var(--sp-dim); min-height: 1em; }
     </style>
