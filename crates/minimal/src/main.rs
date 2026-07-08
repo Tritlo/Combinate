@@ -415,6 +415,7 @@ fn main() {
     let mut nodes_cap: usize = 20_000;
     let mut out_path = String::from("spec/minimal-forms.json");
     let mut prefilter = false; // 1-var necessary-condition pass; skips full sigs for bird-irrelevant terms (partial census!)
+    let mut esc_mult: u64 = 100; // escalated-cap multiplier for frontier cap-outs (raise to chase down `conditional` statuses)
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -423,11 +424,12 @@ fn main() {
             "--nodes" => nodes_cap = args.next().unwrap().parse().unwrap(),
             "--out" => out_path = args.next().unwrap(),
             "--prefilter" => prefilter = true,
+            "--esc-mult" => esc_mult = args.next().unwrap().parse().unwrap(),
             other => panic!("unknown arg {other}"),
         }
     }
     let caps = Caps { steps: steps_cap, nodes: nodes_cap };
-    let esc_caps = Caps { steps: steps_cap * 100, nodes: nodes_cap * 100 };
+    let esc_caps = Caps { steps: steps_cap * esc_mult, nodes: nodes_cap.saturating_mul(esc_mult as usize) };
 
     let mut arena = Arena::new();
 
@@ -577,6 +579,22 @@ fn main() {
         unresolved_before_winner: u64,
     }
     let mut findings: Vec<Finding> = Vec::new();
+    // Escalated signatures are expensive (divergers burn the whole budget) and the frontier
+    // consults the same capped terms for EVERY bird — memoize per (term, arity).
+    let mut esc_sig: FastMap<(u32, u8), Option<(u64, u64)>> = FastMap::default();
+    macro_rules! esc_sig_of {
+        ($arena:expr, $t:expr, $arity:expr) => {{
+            let key = ($t, $arity as u8);
+            match esc_sig.get(&key) {
+                Some(v) => *v,
+                None => {
+                    let v = signature($arena, $t, $arity, &esc_caps);
+                    esc_sig.insert(key, v);
+                    v
+                }
+            }
+        }};
+    }
     for (bi, b) in birds.iter().enumerate() {
         let term = bird_terms[bi];
         let current_iotas = iota_count(&arena, term);
@@ -593,7 +611,7 @@ fn main() {
             unresolved_before_winner: 0,
         };
         // The certification target: the bird's signature at its DECLARED arity.
-        let target = signature(&mut arena, term, b.arity, &esc_caps);
+        let target = esc_sig_of!(&mut arena, term, b.arity);
         if let (Some(sig5), Some(target)) = (bird_sig5[bi], target) {
             f.status = "not-found-within-bound".into();
             // Merged frontier: arity-5 class members (candidates that provably match at 5)
@@ -611,7 +629,7 @@ fn main() {
             frontier.sort();
             let mut unresolved = 0u64;
             for (sz, bits, t) in frontier {
-                match signature(&mut arena, t, b.arity, &esc_caps) {
+                match esc_sig_of!(&mut arena, t, b.arity) {
                     Some(s) if s == target => {
                         f.minimal_bits = Some(bits);
                         f.minimal_iotas = Some(sz);
@@ -694,13 +712,17 @@ fn main() {
         o
     }
     let mut j = String::from("{\n");
-    j.push_str(&format!(
-        "  \"meta\": {{ \"max_iotas\": {max_iotas}, \"steps_cap\": {steps_cap}, \"nodes_cap\": {nodes_cap}, \"total_terms\": {total_terms}, \"capped_terms\": {capped_count}, \"persistent_nodes\": {}, \"timings_ms\": {{ \"birds\": {}, \"enumerate\": {}, \"signatures\": {}, \"certify\": {} }} }},\n",
-        arena.p_nodes.len(),
+    // No timings in the committed artifact — they churn the diff on every regeneration.
+    println!(
+        "timings: birds {}ms · enumerate {}ms · signatures {}ms · certify {}ms",
         t_birds.as_millis(),
         (t_enum - t_birds).as_millis(),
         (t_sigs - t_enum).as_millis(),
         (t_cert - t_sigs).as_millis(),
+    );
+    j.push_str(&format!(
+        "  \"meta\": {{ \"max_iotas\": {max_iotas}, \"steps_cap\": {steps_cap}, \"nodes_cap\": {nodes_cap}, \"esc_mult\": {esc_mult}, \"total_terms\": {total_terms}, \"capped_terms\": {capped_count}, \"persistent_nodes\": {} }},\n",
+        arena.p_nodes.len(),
     ));
     j.push_str("  \"birds\": [\n");
     for (i, f) in findings.iter().enumerate() {
