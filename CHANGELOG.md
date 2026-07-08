@@ -4,6 +4,45 @@ All notable changes to **Combinate** — an interactive ι (iota) / SKI combinat
 sandbox. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses a single integer major per release (`vN.0`).
 
+## [12.0.0] — 2026-07-09
+
+The minimal-forms engine (ADR 27/28): certified-minimal ι-encodings, three new birds,
+and a Zoo that knows the difference between small and fast.
+
+### Added
+
+- **`crates/minimal`** — a Rust engine that finds, for every symbolic catalog bird, the
+  provably smallest pure-ι term equal to it. Equality is symbolic (the full normal form
+  on fresh free variables — a Church–Rosser proof, not a test); minimality is proven by
+  exhaustion to 17ι and by a validated semantic-class DP beyond (0-mismatch against
+  brute ground truth; 25ι in ~1.3s, 34ι in ~6min on 24 cores). Every published claim is
+  re-proven in TypeScript against the app's own reducer (`scripts/certify-minimal.ts`,
+  `npm run minimal-forms`), with honest statuses (`proven` / `conditional` / bound-
+  qualified) throughout. `--smallest N` hunts smallest AND fewest-steps forms in one
+  pass (branch-and-bound on the step count). Recipes in `crates/minimal/README.md`.
+- **Three census-born birds**: **Pe** (Pelican, `Pe x y z = y z (x y z)` — the strongest
+  properly-new attractor in the ≤13ι universe), **O2** (Horned Owl, `= B W O`), and
+  **M3** (Triple Mockingbird, `M3 x = x x x`). Discovered coincidence: **N ≡ Succ** —
+  the Nuthatch IS Scott's successor.
+- **The great shrinking** — 20 catalog encodings replaced by certified-equal minimal
+  forms: B3 99→27ι, E 81→28, B2 72→29, C 45→29, Φ 41→26, Scott-1 37→18, Q 36→25,
+  D 36→16, X 14→6 (= ι S, the encoding ladder's next rung), B 18→10, GT 10→7, and more.
+  Golf ι-costs drop to the certified sizes; undiscovered birds now render as raw
+  ι-trees like S/K/I always did (their names no longer leak).
+- **Fastest forms** (`IOTA_FASTEST` + `IOTA_STEPS`) — minimal ι ≠ minimal steps: 11
+  birds carry a separately-certified fewest-steps form (C unfolds in 120 steps instead
+  of 345; head in 48 instead of 136). Gameplay expansion uses the fast forms; the Zoo
+  detail gets a System-1 turtle|hare toggle showing either form with its measured
+  iotas/steps and a hover hint disclosing the ≤34ι hunt bound.
+
+### Changed / Fixed
+
+- `IOTA_BITCODE` no longer lies: combinator leaves outside the canonical codes were
+  encoded as "1", colliding Scott-1's bitcode with S's. Defs now expand recursively;
+  impure trees simply get no bitcode.
+- Zoo and discovery-card thumbnails taper like the live tree (deep spines no longer
+  render as fixed-width blobs).
+
 ## [11.0.0] — 2026-07-07
 
 Offline MP4 recording of reductions (ADR 24), an ι restyle, and a 3D fix.
