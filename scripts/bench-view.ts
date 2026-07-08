@@ -103,6 +103,20 @@ if (mode === "orbit") {
     await new Promise((r) => setTimeout(r, 300));
     return { toggleMs: performance.now() - t0, info: c.view3d.info() };
   });
+  // Orbit (the "rotation" scenario): frame deltas are the truth — SwiftShader rasterizes off the
+  // submit thread, so drawMs can look flat while frames hitch.
+  await page.evaluate(() => {
+    const w = window as never as { __frames: number[]; __framesOn: boolean };
+    w.__frames = [];
+    w.__framesOn = true;
+    let last = performance.now();
+    const loop = (t: number): void => {
+      w.__frames.push(t - last);
+      last = t;
+      if (w.__framesOn) requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  });
   const draws: number[] = [];
   await page.mouse.move(640, 360);
   await page.mouse.down({ button: "right" });
@@ -111,7 +125,12 @@ if (mode === "orbit") {
     draws.push(await page.evaluate(() => (window as never as { __combinate: { view3d: { info: () => { drawMs: number } } } }).__combinate.view3d.info().drawMs));
   }
   await page.mouse.up({ button: "right" });
-  console.log(JSON.stringify({ mode, url, nodes3d: t3d.info.count, buildMs: +t3d.info.buildMs.toFixed(1), toggleMs: +t3d.toggleMs.toFixed(1), drawMs: stats(draws), frame2dMs: stats(frames2d), errors: errors.length }, null, 1));
+  const framesOrbit: number[] = await page.evaluate(() => {
+    const w = window as never as { __frames: number[]; __framesOn: boolean };
+    w.__framesOn = false;
+    return w.__frames.slice(5);
+  });
+  console.log(JSON.stringify({ mode, url, nodes3d: t3d.info.count, buildMs: +t3d.info.buildMs.toFixed(1), toggleMs: +t3d.toggleMs.toFixed(1), drawMs: stats(draws), frameOrbitMs: stats(framesOrbit), frame2dMs: stats(frames2d), errors: errors.length }, null, 1));
 } else {
   await page.evaluate(() => (window as never as { __combinate: { view3d: { toggle: () => void } } }).__combinate.view3d.toggle());
   await page.waitForTimeout(500);

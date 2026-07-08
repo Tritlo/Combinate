@@ -18,6 +18,8 @@ import { theme, combinatorColor, combinatorColorForMode, currentMode, edgeTierCo
 import { easeInOut } from "./anim";
 
 const SPHERE_SEGMENTS = 12; // low-poly node sphere (instanced thousands of times)
+const SPHERE_SEGMENTS_LOD = 6; // coarser tier for deep-tapered (few-px) nodes — facets invisible at that size
+const LOD_RADIUS = 4; // scaled world radius below which a node joins the coarse tier (~2px at default framing)
 const ROT = 0.008; // orbit radians per pixel of drag
 const PAN = 0.0016; // pan world-units per pixel, scaled by orbit radius (consistent at any zoom)
 const POLAR_MIN = 0.08;
@@ -511,35 +513,51 @@ export class Sphere3D {
     return { active: true, t, drawCount: this.drawCount, survivors, entering, exiting, enterScale: e, exitScale: 1 - e };
   }
 
-  // One instanced sphere per node, positioned + scaled by kind × layout node-scale, tinted per kind.
-  private buildNodes(three: typeof T, root: Node, pos: Map<number, { x: number; y: number; z: number }>, sc?: Map<number, number>): T.InstancedMesh {
-    const geo = new three.SphereGeometry(1, SPHERE_SEGMENTS, SPHERE_SEGMENTS);
-    const mat = new three.MeshBasicMaterial(); // unlit: per-instance colors read at full saturation, matching the 2D palette
-    const mesh = new three.InstancedMesh(geo, mat, pos.size);
-    const m = new three.Matrix4();
-    const col = new three.Color();
-    let i = 0;
+  // One instanced sphere per node, positioned + scaled by kind × layout node-scale, tinted per
+  // kind — in TWO level-of-detail tiers: nodes whose scaled radius stays legible keep the full
+  // low-poly sphere; deep-tapered nodes (a few px at most — the bulk of a quicksort-scale H-tree)
+  // share a coarser geometry. Rotation is vertex-bound at that scale (8k × 12×12-segment spheres
+  // ≈ 2.3M triangles/frame; benched ~2.5-3× faster tiered), and the taper is what makes the split
+  // safe: a sub-pixel sphere's facets can't be seen.
+  private buildNodes(three: typeof T, root: Node, pos: Map<number, { x: number; y: number; z: number }>, sc?: Map<number, number>): T.Group {
+    type Slot = { n: Node; depth: number; r: number };
+    const big: Slot[] = [];
+    const tiny: Slot[] = [];
     const seen = new Set<number>();
     const walk = (n: Node, depth: number): void => {
       if (seen.has(n.id)) return;
       seen.add(n.id);
-      const p = pos.get(n.id)!;
-      const { radius, color } = nodeStyle(n, depth, this.recordTheme);
-      const r = radius * (sc?.get(n.id) ?? 1); // H-tree shrinks deep nodes with their arm (see Layout3.scale)
-      m.makeScale(r, r, r);
-      m.setPosition(p.x, p.y, p.z);
-      mesh.setMatrixAt(i, m);
-      mesh.setColorAt(i, col.set(color));
-      i++;
+      const r = nodeStyle(n, depth, this.recordTheme).radius * (sc?.get(n.id) ?? 1); // H-tree shrinks deep nodes with their arm (see Layout3.scale)
+      (r < LOD_RADIUS ? tiny : big).push({ n, depth, r });
       if (n.kind === "app") {
         walk(n.fn, depth + 1);
         walk(n.arg, depth + 1);
       }
     };
     walk(root, 0);
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    return mesh;
+    const m = new three.Matrix4();
+    const col = new three.Color();
+    const group = new three.Group();
+    for (const [slots, segments] of [
+      [big, SPHERE_SEGMENTS],
+      [tiny, SPHERE_SEGMENTS_LOD],
+    ] as const) {
+      if (!slots.length) continue;
+      const geo = new three.SphereGeometry(1, segments, segments);
+      const mat = new three.MeshBasicMaterial(); // unlit: per-instance colors read at full saturation, matching the 2D palette
+      const mesh = new three.InstancedMesh(geo, mat, slots.length);
+      slots.forEach(({ n, depth, r }, i) => {
+        const p = pos.get(n.id)!;
+        m.makeScale(r, r, r);
+        m.setPosition(p.x, p.y, p.z);
+        mesh.setMatrixAt(i, m);
+        mesh.setColorAt(i, col.set(nodeStyle(n, depth, this.recordTheme).color));
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      group.add(mesh);
+    }
+    return group;
   }
 
   private newRimSpacerMesh(three: typeof T, count: number): T.InstancedMesh {

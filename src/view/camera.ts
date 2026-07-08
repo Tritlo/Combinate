@@ -7,10 +7,12 @@
 import { type Container } from "pixi.js";
 
 const MIN_SCALE = 0.04; // floor low enough that a fac-scale tree still fits
-// Deep zoom: with taper (nodes shrink like their arms) the H-tree is self-similar, so zooming in
-// IS the way to explore depth — 1e7 reaches ~40 levels below full size. The old cap of 4 was a
-// float32 safety margin; precision past ~1e4 is handled by the floating-origin rebase instead
-// (TreeView.rebase, hooked via onChange), which keeps GPU-visible magnitudes small.
+// Deep zoom: the H-tree layout is scale-invariant — a subterm drawn at depth d is a rotated,
+// shrunken copy of its standalone picture (not "fractal": the TERM isn't self-similar, only the
+// layout rule is) — so zooming in IS the way to explore depth; 1e7 reaches ~40 levels below full
+// size. The old cap of 4 was a float32 safety margin; precision past ~1e4 is handled by the
+// floating-origin rebase instead (TreeView.rebase, hooked via onChange), which keeps GPU-visible
+// magnitudes small.
 const MAX_SCALE = 1e7;
 
 export class Camera {
