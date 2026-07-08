@@ -595,6 +595,25 @@ fn main() {
     }
     coincidences.sort();
 
+    // -- class table: the equivalence classes themselves (smallest-first), for exploration.
+    // Emits the top classes by (min size, descending population) with their canonical NF and
+    // any catalog birds they contain — the hunting ground for new combinators.
+    const CLASS_DUMP_LIMIT: usize = 600;
+    let mut class_rows: Vec<(u32, u64, String, String, Vec<String>)> = Vec::new(); // (size, count, bits, nf, birds)
+    {
+        let mut order: Vec<(&(u64, u64), &Class)> = classes.iter().collect();
+        order.sort_by(|a, b| (a.1.min_size, std::cmp::Reverse(a.1.count)).cmp(&(b.1.min_size, std::cmp::Reverse(b.1.count))));
+        for (sig, c) in order.into_iter().take(CLASS_DUMP_LIMIT) {
+            let bits = encode_bits(&arena, c.min_term);
+            let nf = nf_string(&mut arena, c.min_term, SIG_ARITY, &esc_caps).unwrap_or_else(|| "<capped>".into());
+            let syms: Vec<String> = interesting
+                .get(sig)
+                .map(|idxs| idxs.iter().map(|&i| birds[i].sym.clone()).collect())
+                .unwrap_or_default();
+            class_rows.push((c.min_size, c.count, bits, nf, syms));
+        }
+    }
+
     // -- parity samples: deterministic pseudo-random (bitcode, arity-5 NF) pairs --
     let mut samples: Vec<(String, String)> = Vec::new();
     let mut rng: u64 = 0x243F6A8885A308D3;
@@ -659,6 +678,19 @@ fn main() {
             syms_j.join(", "),
             jstr(nf),
             if i + 1 < coincidences.len() { "," } else { "" }
+        ));
+    }
+    j.push_str("  ],\n  \"classes\": [\n");
+    for (i, (size, count, bits, nf, syms)) in class_rows.iter().enumerate() {
+        let syms_j: Vec<String> = syms.iter().map(|s| jstr(s)).collect();
+        j.push_str(&format!(
+            "    {{ \"min_iotas\": {}, \"count\": {}, \"min_bits\": {}, \"nf\": {}, \"birds\": [{}] }}{}\n",
+            size,
+            count,
+            jstr(bits),
+            jstr(nf),
+            syms_j.join(", "),
+            if i + 1 < class_rows.len() { "," } else { "" }
         ));
     }
     j.push_str("  ],\n  \"samples\": [\n");
