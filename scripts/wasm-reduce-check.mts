@@ -377,9 +377,9 @@ for (const o of [{}, { numbers: true, lists: true, booleans: true }]) {
   fcheck("quicksort [4,2,5,1,3]", app(qsort(), list([nat(4), nat(2), nat(5), nat(1), nat(3)])), o);
 }
 
-// ---- end-to-end: the vendored MicroHs example dumps (real compiled programs — the recursion
-// combinators + basis plumbing that dominate the Turbo grind). Skipped unless the dumps are
-// vendored locally (public/vendor/mhs/examples/*.comb is git-ignored). The graph engine in fast
+// ---- end-to-end: the vendored MicroHs example closures (real compiled programs — the recursion
+// combinators + basis plumbing that dominate the Turbo grind). Skipped unless the closures are
+// vendored locally (public/vendor/mhs/examples/*.json is git-ignored). The graph engine in fast
 // mode + native must reduce each to the SAME normal form as the TS fast path. ----
 let ePass = 0;
 let eFail = 0;
@@ -387,17 +387,20 @@ let eSkip = 0;
 const EX_DIR = "public/vendor/mhs/examples";
 if (fs.existsSync(EX_DIR)) {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { dumpToTree } = require("../src/core/mhs") as typeof import("../src/core/mhs");
+  const { combinatorsToTree } = require("../src/core/mhs") as typeof import("../src/core/mhs");
+  type Closure = { root: string; defs: import("../src/core/mhs").CombDef[] };
   const ALLN: NativeOpts = { numbers: true, lists: true, booleans: true };
   for (const name of ["fac", "sum", "filter", "quicksort", "arith", "rev", "inc", "lt"]) {
-    const path = `${EX_DIR}/${name}.comb`;
+    const path = `${EX_DIR}/${name}.json`;
     if (!fs.existsSync(path)) {
       eSkip++;
       continue;
     }
-    const r = dumpToTree(fs.readFileSync(path, "utf8"), "Ex.out");
+    const { root, defs } = JSON.parse(fs.readFileSync(path, "utf8")) as Closure;
+    const r = combinatorsToTree(defs, root);
     if ("error" in r) {
-      eSkip++;
+      eFail++; // a *vendored* example that stops post-processing is a regression, not a skip
+      if (fails.length < 24) fails.push(`example ${name}: rejected — ${r.error}`);
       continue;
     }
     const ts = normalize(r.tree, 5_000_000, true, ALLN);

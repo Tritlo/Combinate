@@ -1,9 +1,10 @@
 /**
  * The Haskell → ι panel (ADR 0007): a DOM overlay (text editing is far nicer in
- * the DOM than in Pixi). It leads with curated examples — click one to compile it
- * (a pre-compiled, vendored dump) and drop the resulting combinator tree on the
- * canvas — and offers a free-type editor that compiles live through the stock
- * MicroHs blob (best-effort). The post-processing is the same `core/mhs.ts`.
+ * the DOM than in Pixi). It leads with curated examples — click one to load its
+ * source, then "Compile & run" drops the resulting combinator tree on the canvas
+ * (from a pre-compiled, vendored closure) — and the free-type editor compiles live
+ * through the Rust MicroHs worker (best-effort). The post-processing is the same
+ * `core/mhs.ts`.
  *
  * The editor is syntax-highlighted: a transparent `<textarea>` over a colored
  * `<pre>` (the standard overlay trick), tokenized by `highlight.ts` and painted in
@@ -12,8 +13,9 @@
  */
 import type { Node } from "../../core/term";
 import type { Ty } from "../../core/types";
+import type { DumpResult } from "../../core/mhs";
 import { EXAMPLES, exprOf, type Example } from "./examples";
-import { exampleDump, liveCompile, toTree } from "./compiler";
+import { exampleTree, liveCompile } from "./compiler";
 import { highlightHaskell, HL_DARK, HL_LIGHT } from "./highlight";
 import { currentMode, onThemeChange, type Mode, ensureFont } from "../theme";
 
@@ -119,8 +121,7 @@ export class MhsPanel {
   /** Live-compile source through the blob and report the outcome (E2E seam). */
   async compileLive(source: string): Promise<{ ok: boolean; detail: string }> {
     try {
-      const dump = await liveCompile(source);
-      const res = toTree(dump, "Ex.out");
+      const res = await liveCompile(source);
       return "error" in res ? { ok: false, detail: res.error } : { ok: true, detail: "tree" };
     } catch (e) {
       return { ok: false, detail: (e as Error).message };
@@ -218,7 +219,7 @@ export class MhsPanel {
   }
 
   /** Select an example: show its source and (unless suppressed) compile + run it
-   *  from its pre-compiled dump — the reliable, wasm-free path. */
+   *  from its pre-compiled closure — the reliable, wasm-free path. */
   private async loadExample(ex: Example, run = true): Promise<void> {
     this.current = ex;
     this.editor.value = ex.source.trimEnd();
@@ -226,16 +227,15 @@ export class MhsPanel {
     if (!run) return;
     this.setStatus(`compiling ${ex.title}…`, "accent", true);
     try {
-      // Fast path: the vendored pre-compiled dump. If it isn't vendored (e.g. a newer example on
-      // the deployed site), fall back to compiling it live in-browser through the stock blob.
-      let dump: string;
+      // Fast path: the vendored pre-compiled closure. If it isn't vendored (e.g. a newer
+      // example on the deployed site), fall back to compiling it live through the Rust worker.
+      let res: DumpResult;
       try {
-        dump = await exampleDump(ex.name);
+        res = await exampleTree(ex.name);
       } catch {
         this.setStatus(`compiling ${ex.title} live in-browser — this takes ~30s…`, "accent", true);
-        dump = await liveCompile(ex.source);
+        res = await liveCompile(ex.source);
       }
-      const res = toTree(dump, ex.root);
       if ("error" in res) {
         this.setStatus(res.error, "#cf222e");
         return;
@@ -249,14 +249,13 @@ export class MhsPanel {
   }
 
   /** Compile whatever is in the editor. If it's the unchanged example source, use
-   *  the fast pre-compiled dump; otherwise compile live through the stock blob. */
+   *  the fast pre-compiled closure; otherwise compile live through the Rust worker. */
   private async runEditor(): Promise<void> {
     const src = this.editor.value;
     if (src.trim() === this.current.source.trim()) return this.loadExample(this.current);
     this.setStatus("compiling live in-browser — this takes ~30s…", "accent", true);
     try {
-      const dump = await liveCompile(src);
-      const res = toTree(dump, "Ex.out");
+      const res = await liveCompile(src);
       if ("error" in res) {
         this.setStatus(res.error, "#cf222e");
         return;
