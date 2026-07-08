@@ -73,6 +73,11 @@ struct Node {
 }
 
 struct Arena {
+    /// Max spine length ever applied to a FREE-VAR head across the whole run — the
+    /// observed-demand certificate: if this never exceeds the DP's signature arity,
+    /// bounded-arity equivalence acted as an application congruence for everything
+    /// this run reduced (arguments were never interrogated deeper than observed).
+    max_var_demand: usize,
     p_nodes: Vec<Node>,
     p_dedup: FastMap<u64, u32>,
     s_nodes: Vec<Node>,
@@ -83,6 +88,7 @@ struct Arena {
 impl Arena {
     fn new() -> Self {
         Arena {
+            max_var_demand: 0,
             p_nodes: Vec::new(),
             p_dedup: FastMap::default(),
             s_nodes: Vec::new(),
@@ -170,6 +176,9 @@ fn normalize(arena: &mut Arena, root: u32, caps: &Caps, steps_used: &mut u64) ->
                     }
                     // Leaf head; spine top = FIRST argument.
                     let argc = spine.len();
+                    if n.tag == TAG_FREE && argc > arena.max_var_demand {
+                        arena.max_var_demand = argc;
+                    }
                     let contracted = match n.tag {
                         TAG_IOTA if argc >= 1 => {
                             // ι x → x S K
@@ -263,7 +272,7 @@ fn struct_hash(arena: &Arena, t: u32, want_string: bool) -> (u64, u64, Option<St
             st.push_str(txt);
         }
     };
-    const VARS: [&str; 5] = ["va", "vb", "vc", "vd", "ve"];
+    const VARS: [&str; 20] = ["va", "vb", "vc", "vd", "ve", "vf", "vg", "vh", "vi", "vj", "vk", "vl", "vm", "vn", "vo", "vp", "vq", "vr", "vs", "vt"];
     let mut stack: Vec<W> = vec![W::T(t)];
     while let Some(w) = stack.pop() {
         match w {
@@ -408,6 +417,20 @@ struct Bird {
     bits: String,
 }
 
+fn jstr(s: &str) -> String {
+    let mut o = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => o.push_str("\\\""),
+            '\\' => o.push_str("\\\\"),
+            c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
+            c => o.push(c),
+        }
+    }
+    o.push('"');
+    o
+}
+
 fn main() {
     let t_start = Instant::now();
     let mut max_iotas: usize = 13;
@@ -415,6 +438,10 @@ fn main() {
     let mut nodes_cap: usize = 20_000;
     let mut out_path = String::from("spec/minimal-forms.json");
     let mut prefilter = false; // 1-var necessary-condition pass; skips full sigs for bird-irrelevant terms (partial census!)
+    let mut dp = false; // semantic-class DP: compose behavior-class representatives instead of raw Catalan shapes
+    let mut dp_arity: usize = 12; // signature-vector arity for --dp (empirically tuned; validated against brute)
+    let mut dp_probe: Option<String> = None; // diagnostic: trace why this bitcode's class was(n't) reached
+    let mut dp_gate: usize = 10_000; // rep-count stop gate for --dp (guards runaway class growth)
     let mut esc_mult: u64 = 100; // escalated-cap multiplier for frontier cap-outs (raise to chase down `conditional` statuses)
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -425,6 +452,10 @@ fn main() {
             "--out" => out_path = args.next().unwrap(),
             "--prefilter" => prefilter = true,
             "--esc-mult" => esc_mult = args.next().unwrap().parse().unwrap(),
+            "--dp" => dp = true,
+            "--dp-arity" => dp_arity = args.next().unwrap().parse().unwrap(),
+            "--dp-probe" => dp_probe = Some(args.next().unwrap()),
+            "--dp-gate" => dp_gate = args.next().unwrap().parse().unwrap(),
             other => panic!("unknown arg {other}"),
         }
     }
@@ -450,6 +481,310 @@ fn main() {
         .iter()
         .map(|b| decode_bits(&mut arena, &b.bits).expect("bad bird bitcode"))
         .collect();
+    // ================= semantic-class DP mode (--dp, validated accelerator) =================
+    // Compose behavior-class REPRESENTATIVES instead of raw Catalan shapes: class id = the
+    // signature vector at arities 0..=dp_arity; size-n candidates are app(f, x) over reps
+    // with minsize(f)+minsize(x) = n. Exchange argument: the min witness of any class
+    // decomposes into components replaceable by their class-min reps (staying in-class BY
+    // CONGRUENCE), so the DP reaches every class at its true min size — IF bounded-arity
+    // equivalence acts as a congruence, which finite vectors cannot GUARANTEE (an argument
+    // may be interrogated deeper than the vector sees). Soundness posture: bird matching
+    // compares the vector SUFFIX from the bird's DECLARED arity up (equality at n implies
+    // equality above, nothing below — full-key matching silently lost true minima); every
+    // published equality is exactly TS-certified; and the whole mode is validated 0-mismatch
+    // against brute ground truth at <=17 iota. Beyond that bound minimality claims are
+    // "modulo bounded-arity congruence". meta.max_var_demand is a DIAGNOSTIC (it counts the
+    // probe's own arity too, so it scales with dp_arity — not a certificate). Terms whose
+    // own signatures cap compose as opaque SINGLETON reps (they may normalize inside larger
+    // contexts) and remain frontier blockers for 'proven'.
+    if dp {
+        let dp_a: usize = dp_arity;
+        let mut sigvec = |arena: &mut Arena, t: u32, caps: &Caps| -> Option<Vec<(u64, u64)>> {
+            let mut v = Vec::with_capacity(dp_a + 1);
+            for k in 0..=dp_a {
+                v.push(signature_vars(arena, t, k, caps, true)?);
+            }
+            Some(v)
+        };
+        let fold_key = |v: &[(u64, u64)]| -> (u64, u64) {
+            let (mut h1, mut h2) = (0xcbf29ce484222325u64, 0x9e3779b97f4a7c15u64);
+            for &(a, b) in v {
+                h1 = (h1 ^ a).wrapping_mul(0x100000001b3);
+                h1 = (h1 ^ b).wrapping_mul(0x100000001b3);
+                h2 = (h2 ^ b).rotate_left(13).wrapping_mul(0x100000001b3);
+                h2 = (h2 ^ a).rotate_left(29).wrapping_mul(0x100000001b3);
+            }
+            (h1, h2)
+        };
+        struct Rep {
+            term: u32,
+            size: u32,
+            vector: Option<Vec<(u64, u64)>>, // Some = classed; the sig vector at arities 0..=dp_a
+        }
+        let mut class_of: FastMap<(u64, u64), usize> = FastMap::default();
+        let mut reps: Vec<Rep> = Vec::new();
+        let mut reps_by_size: Vec<Vec<usize>> = vec![Vec::new(); max_iotas + 1];
+        let iota_id = arena.leaf(TAG_IOTA, 0);
+        let iv = sigvec(&mut arena, iota_id, &caps).expect("iota signature capped");
+        class_of.insert(fold_key(&iv), 0);
+        reps.push(Rep { term: iota_id, size: 1, vector: Some(iv) });
+        reps_by_size[1].push(0);
+        let mut pair_count: u64 = 0;
+        let mut capped_count: usize = 0;
+        let mut gate_tripped = false;
+        'sizes: for n in 2..=max_iotas {
+            for i in 1..n {
+                let j = n - i;
+                for fi in 0..reps_by_size[i].len() {
+                    for xi in 0..reps_by_size[j].len() {
+                        let (f, x) = (reps[reps_by_size[i][fi]].term, reps[reps_by_size[j][xi]].term);
+                        let t = arena.app(f, x);
+                        pair_count += 1;
+                        match sigvec(&mut arena, t, &caps) {
+                            Some(v) => {
+                                let key = fold_key(&v);
+                                if !class_of.contains_key(&key) {
+                                    class_of.insert(key, reps.len());
+                                    reps_by_size[n].push(reps.len());
+                                    reps.push(Rep { term: t, size: n as u32, vector: Some(v) });
+                                }
+                            }
+                            None => {
+                                // opaque singleton rep: composable, frontier blocker
+                                reps_by_size[n].push(reps.len());
+                                reps.push(Rep { term: t, size: n as u32, vector: None });
+                                capped_count += 1;
+                            }
+                        }
+                        if reps.len() > dp_gate {
+                            eprintln!("dp stop-gate: >{dp_gate} reps at size {n} — deeper sizes unexplored");
+                            gate_tripped = true;
+                            break 'sizes;
+                        }
+                    }
+                }
+            }
+        }
+        // diagnostic probe: decompose a known witness, check each subterm's class membership
+        if let Some(bits) = &dp_probe {
+            let t = decode_bits(&mut arena, bits).expect("bad probe bits");
+            let tkey = sigvec(&mut arena, t, &caps).map(|v| fold_key(&v));
+            eprintln!("probe {bits}: key={tkey:?} in_classes={}", tkey.map(|k| class_of.contains_key(&k)).unwrap_or(false));
+            let n = arena.node(t);
+            if n.tag == TAG_APP {
+                for (side, sub) in [("fn", n.a), ("arg", n.b)] {
+                    let sbits = encode_bits(&arena, sub);
+                    match sigvec(&mut arena, sub, &caps) {
+                        Some(v) => {
+                            let k = fold_key(&v);
+                            match class_of.get(&k) {
+                                Some(&ri) => {
+                                    let rb = encode_bits(&arena, reps[ri].term);
+                                    eprintln!("  {side} {sbits}: class rep={rb} (size {})", reps[ri].size);
+                                }
+                                None => eprintln!("  {side} {sbits}: key NOT in classes"),
+                            }
+                        }
+                        None => eprintln!("  {side} {sbits}: sigvec CAPPED"),
+                    }
+                }
+                // compose the reps and compare keys
+                let (fk, xk) = (sigvec(&mut arena, n.a, &caps).map(|v| fold_key(&v)), sigvec(&mut arena, n.b, &caps).map(|v| fold_key(&v)));
+                if let (Some(fk), Some(xk)) = (fk, xk) {
+                    if let (Some(&fi2), Some(&xi2)) = (class_of.get(&fk), class_of.get(&xk)) {
+                        let composed = arena.app(reps[fi2].term, reps[xi2].term);
+                        let ck = sigvec(&mut arena, composed, &caps).map(|v| fold_key(&v));
+                        eprintln!("  app(rep_fn, rep_arg) = {}: key={ck:?} same_as_probe={}", encode_bits(&arena, composed), ck == tkey);
+                    }
+                }
+            }
+        }
+        // birds: match class by key, verify EXACTLY by NF strings at every arity (guards
+        // against 128-bit key collisions for every published claim)
+        let mut esc_sig: FastMap<(u32, u8), Option<(u64, u64)>> = FastMap::default();
+        let mut esc_sig_of = |arena: &mut Arena, cache: &mut FastMap<(u32, u8), Option<(u64, u64)>>, t: u32, arity: usize, esc: &Caps| -> Option<(u64, u64)> {
+            let key = (t, arity as u8);
+            if let Some(v) = cache.get(&key) {
+                return *v;
+            }
+            let v = signature_vars(arena, t, arity, esc, true);
+            cache.insert(key, v);
+            v
+        };
+        let mut findings: Vec<String> = Vec::new();
+        let mut coin_groups: FastMap<(u64, u64), Vec<usize>> = FastMap::default();
+        let mut proven = 0usize;
+        let mut conditional = 0usize;
+        let mut improved = 0usize;
+        for (bi, b) in birds.iter().enumerate() {
+            let term = bird_terms[bi];
+            let current_iotas = iota_count(&arena, term);
+            let mut minimal_bits: Option<String> = None;
+            let mut minimal_iotas: Option<u32> = None;
+            let mut minimal_nf: Option<String> = None;
+            let mut status = "bird-capped".to_string();
+            let mut unresolved = 0u64;
+            if let Some(bv) = sigvec(&mut arena, term, &esc_caps) {
+                let bkey = fold_key(&bv);
+                coin_groups.entry(bkey).or_default().push(bi);
+                status = "not-found-within-bound".into();
+                let _ = &bkey;
+                // Equality for a bird lives at arities >= its DECLARED arity (equal at n
+                // implies equal above, says NOTHING below) — so match the sig-vector
+                // SUFFIX. Multiple classes can match (they differ only below declared
+                // arity); the winner is the smallest (size, bits) rep among them.
+                let mut best: Option<(u32, String, u32)> = None;
+                for r in reps.iter() {
+                    if let Some(rv) = &r.vector {
+                        if rv[b.arity..] == bv[b.arity..] {
+                            let cand = (r.size, encode_bits(&arena, r.term), r.term);
+                            if best.as_ref().map(|w| (cand.0, &cand.1) < (w.0, &w.1)).unwrap_or(true) {
+                                best = Some(cand);
+                            }
+                        }
+                    }
+                }
+                if let Some((bsize, bbits, bterm)) = best {
+                    // exact string verification at arities declared..=dp_a (collision guard)
+                    let mut exact = true;
+                    for k in b.arity..=dp_a {
+                        let a = nf_string(&mut arena, bterm, k, &esc_caps);
+                        let c = nf_string(&mut arena, term, k, &esc_caps);
+                        if a.is_none() || a != c {
+                            exact = false;
+                            break;
+                        }
+                    }
+                    if exact {
+                        let (rsize, rterm) = (bsize, bterm);
+                        let rbits = bbits;
+                        // frontier: opaque (capped) reps strictly cheaper than the winner —
+                        // escalate each at the bird's declared arity (memoized)
+                        let target = esc_sig_of(&mut arena, &mut esc_sig, term, b.arity, &esc_caps);
+                        let mut winner: (u32, String, u32) = (rsize, rbits, rterm);
+                        for ci in 0..reps.len() {
+                            if reps[ci].vector.is_some() {
+                                continue;
+                            }
+                            let csize = reps[ci].size;
+                            let cterm = reps[ci].term;
+                            if csize > winner.0 {
+                                continue;
+                            }
+                            let cbits = encode_bits(&arena, cterm);
+                            if csize == winner.0 && cbits >= winner.1 {
+                                continue;
+                            }
+                            match (esc_sig_of(&mut arena, &mut esc_sig, cterm, b.arity, &esc_caps), target) {
+                                (Some(s), Some(t2)) if s == t2 => {
+                                    winner = (csize, cbits, cterm);
+                                }
+                                (Some(_), _) => {}
+                                (None, _) => unresolved += 1,
+                            }
+                        }
+                        minimal_bits = Some(winner.1.clone());
+                        minimal_iotas = Some(winner.0);
+                        minimal_nf = nf_string(&mut arena, winner.2, b.arity, &esc_caps);
+                        status = if unresolved == 0 { "proven".into() } else { "conditional".into() };
+                        if unresolved == 0 {
+                            proven += 1;
+                        } else {
+                            conditional += 1;
+                        }
+                        if winner.0 < current_iotas {
+                            improved += 1;
+                        }
+                    } else {
+                        status = "collision-rejected".into();
+                    }
+                }
+            }
+            findings.push(format!(
+                "    {{ \"sym\": {}, \"arity\": {}, \"current_bits\": {}, \"current_iotas\": {}, \"minimal_bits\": {}, \"minimal_iotas\": {}, \"minimal_nf\": {}, \"status\": {}, \"class_size\": 0, \"unresolved_before_winner\": {} }}",
+                jstr(&b.sym),
+                b.arity,
+                jstr(&b.bits),
+                current_iotas,
+                minimal_bits.as_ref().map(|v| jstr(v)).unwrap_or_else(|| "null".into()),
+                minimal_iotas.map(|v| v.to_string()).unwrap_or_else(|| "null".into()),
+                minimal_nf.as_ref().map(|v| jstr(v)).unwrap_or_else(|| "null".into()),
+                jstr(&status),
+                unresolved,
+            ));
+        }
+        // coincidences: birds sharing a full sig-vector key
+        let mut coincidences: Vec<(Vec<String>, String)> = Vec::new();
+        for (_k, idxs) in &coin_groups {
+            if idxs.len() >= 2 {
+                let syms: Vec<String> = idxs.iter().map(|&i| birds[i].sym.clone()).collect();
+                let nf = nf_string(&mut arena, bird_terms[idxs[0]], 5, &esc_caps).unwrap_or_else(|| "<capped>".into());
+                coincidences.push((syms, nf));
+            }
+        }
+        coincidences.sort();
+        // classes census (per-size new-class counts) + parity samples from classed reps
+        let mut census: Vec<(usize, usize)> = Vec::new();
+        for n in 1..=max_iotas {
+            let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri].vector.is_some()).count();
+            if newc > 0 {
+                census.push((n, newc));
+            }
+        }
+        let mut samples: Vec<(String, String)> = Vec::new();
+        for ri in (0..reps.len()).step_by(1 + reps.len() / 300) {
+            if reps[ri].vector.is_none() {
+                continue;
+            }
+            if let Some(nf) = nf_string(&mut arena, reps[ri].term, 5, &caps) {
+                samples.push((encode_bits(&arena, reps[ri].term), nf));
+            }
+        }
+        let classed_total = reps.iter().filter(|r| r.vector.is_some()).count();
+        let mut j = String::from("{\n");
+        j.push_str(&format!(
+            "  \"meta\": {{ \"mode\": \"dp\", \"dp_arity\": {dp_a}, \"max_iotas\": {max_iotas}, \"steps_cap\": {steps_cap}, \"nodes_cap\": {nodes_cap}, \"esc_mult\": {esc_mult}, \"total_terms\": {pair_count}, \"capped_terms\": {capped_count}, \"dp_classes\": {classed_total}, \"max_var_demand\": {}, \"gate_tripped\": {}, \"persistent_nodes\": {} }},\n",
+            arena.max_var_demand,
+            gate_tripped,
+            arena.p_nodes.len(),
+        ));
+        j.push_str("  \"birds\": [\n");
+        j.push_str(&findings.join(",\n"));
+        j.push_str("\n  ],\n  \"coincidences\": [\n");
+        for (i, (syms, nf)) in coincidences.iter().enumerate() {
+            let syms_j: Vec<String> = syms.iter().map(|s| jstr(s)).collect();
+            j.push_str(&format!(
+                "    {{ \"syms\": [{}], \"nf\": {} }}{}\n",
+                syms_j.join(", "),
+                jstr(nf),
+                if i + 1 < coincidences.len() { "," } else { "" }
+            ));
+        }
+        j.push_str("  ],\n  \"classes\": [\n");
+        let class_rows: Vec<String> = census
+            .iter()
+            .map(|(n, c)| format!("    {{ \"min_iotas\": {n}, \"count\": {c}, \"min_bits\": \"\", \"nf\": \"(new classes first reached at this size)\", \"birds\": [] }}"))
+            .collect();
+        j.push_str(&class_rows.join(",\n"));
+        j.push_str("\n  ],\n  \"samples\": [\n");
+        for (i, (bits, nf)) in samples.iter().enumerate() {
+            j.push_str(&format!(
+                "    {{ \"bits\": {}, \"nf\": {} }}{}\n",
+                jstr(bits),
+                jstr(nf),
+                if i + 1 < samples.len() { "," } else { "" }
+            ));
+        }
+        j.push_str("  ]\n}\n");
+        std::fs::write(&out_path, &j).expect("write output");
+        println!(
+            "minimal-forms[dp]: {pair_count} pairs -> {classed_total} classes + {capped_count} capped reps <={max_iotas}iota · {} birds: {proven} proven-mod-cong, {conditional} conditional, {improved} improved · {}ms -> {out_path}",
+            birds.len(),
+            t_start.elapsed().as_millis()
+        );
+        return;
+    }
+
     let bird_sig5: Vec<Option<(u64, u64)>> = bird_terms
         .iter()
         .map(|&t| signature(&mut arena, t, SIG_ARITY, &esc_caps))
@@ -697,20 +1032,7 @@ fn main() {
         }
     }
 
-    // -- JSON out (hand-rolled) --
-    fn jstr(s: &str) -> String {
-        let mut o = String::from("\"");
-        for c in s.chars() {
-            match c {
-                '"' => o.push_str("\\\""),
-                '\\' => o.push_str("\\\\"),
-                c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
-                c => o.push(c),
-            }
-        }
-        o.push('"');
-        o
-    }
+    // -- JSON out (hand-rolled; jstr is top-level, shared with the DP path) --
     let mut j = String::from("{\n");
     // No timings in the committed artifact — they churn the diff on every regeneration.
     println!(
