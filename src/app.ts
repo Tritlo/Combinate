@@ -108,6 +108,26 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   });
 
   const trees: TreeView[] = [];
+
+  // Floating origin (deep zoom): GPU-uploaded matrices/vertices are float32, so once a tree's
+  // container origin sits further than ~2e6 SCREEN px outside the viewport (zoom × local coords),
+  // re-anchor that tree's local origin at the viewport center — world positions are unchanged
+  // (TreeView.rebase). Checked on every camera change (a few multiplies per tree, trivial); the
+  // O(nodes) rebase itself only fires on threshold crossings, i.e. a handful of times across a
+  // full dive from 1× to the 1e7× cap.
+  const REBASE_LIMIT_PX = 2e6;
+  camera.onChange = (): void => {
+    const t = camera.transform();
+    for (const tree of trees) {
+      const ox = tree.container.position.x * t.scale + t.x;
+      const oy = tree.container.position.y * t.scale + t.y;
+      if (Math.abs(ox) > REBASE_LIMIT_PX || Math.abs(oy) > REBASE_LIMIT_PX) {
+        const c = camera.screenToWorld(window.innerWidth / 2, window.innerHeight / 2);
+        tree.rebase(c.x - tree.container.position.x, c.y - tree.container.position.y);
+      }
+    }
+  };
+
   // The pointer-drag FSM (carry a tree / camera pan / snap-to-apply). Owns `drag` + `snapTarget`;
   // the shell gates it (never called while 3D or a pinch is active) and commits its drop outcomes.
   const drag = new DragController({ camera, trees: () => trees, drawGhost, clearGhost });
@@ -1688,6 +1708,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       unlockAll: () => unlockAll(),
       openZoo: () => zoo.open(),
       camera: () => camera.transform(),
+      zoomTo: (s: number) => camera.zoomTo(s, window.innerWidth / 2, window.innerHeight / 2), // deep-zoom at the viewport center (tests + console)
       golf: {
         toggle: () => challenges.toggle(),
         onNF: (s: string) => challenges.onNormalForm(fromEgg(s)),
