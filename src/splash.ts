@@ -1,10 +1,10 @@
 /**
- * Boot splash (the user's request): a centered "Combinate" wordmark over a
- * balanced ι H-tree — the iconic H-tree fractal — a progress bar, and a
- * "Loading n/total" line. The shell (background, wordmark, bar) lives in
- * index.html so it paints before this module loads; here we fill in the art
- * (the same H-tree layout the canvas uses) and drive the bar from mountApp's
- * startup steps, fading the overlay out once the scene is ready.
+ * Boot splash (the user's request): a centered "Combinate" wordmark over the
+ * term `(+) 1 1` fully ι-expanded, laid out as an H-tree (matching the share
+ * card), a progress bar, and a "Loading n/total" line. The shell (background,
+ * wordmark, bar) lives in index.html so it paints before this module loads; here
+ * we fill in the art (the same H-tree layout the canvas uses) and drive the bar
+ * from mountApp's startup steps, fading the overlay out once the scene is ready.
  *
  * The art matches the app's mono look and the share card: red ι leaves, edges
  * tiered ink/red by depth (the red/black-tree cue), function edges solid and
@@ -12,10 +12,11 @@
  * index.html), so it matches the theme without depending on theme JS.
  */
 import { layoutHTree } from "./core/layout";
-import { app, iota, type Node } from "./core/term";
+import { named, expandDisplay } from "./core/catalog";
+import { app, type Node } from "./core/term";
 
-/** A balanced binary application tree of ι leaves — the H-tree fractal. */
-const balanced = (depth: number): Node => (depth <= 0 ? iota() : app(balanced(depth - 1), balanced(depth - 1)));
+/** `(+) 1 1`, fully ι-expanded — a real term (Peano 1 + 1) as a dense ι fractal. */
+const heroTerm = (): Node => expandDisplay(app(app(named("(+)"), named("1")), named("1")), { expandAll: true, isDiscovered: () => true });
 
 /** Handle returned to main.ts: advance the bar per startup step, then fade out. */
 export interface Splash {
@@ -25,17 +26,17 @@ export interface Splash {
   done(): void;
 }
 
-/** Render a balanced ι tree as an inline SVG H-tree, in the app's mono look:
- *  red ι leaves, edges tiered ink/red by depth (`--sp-ink` even, `--sp-red` odd —
- *  the red/black-tree cue), function edges solid and argument edges dashed. Node
- *  sizes follow the layout's per-depth scale, so the fractal breathes. */
+/** Render the hero term as an inline SVG H-tree, in the app's mono look: red ι
+ *  leaves, edges tiered ink/red by depth (`--sp-ink` even, `--sp-red` odd — the
+ *  red/black-tree cue), function edges solid and argument edges dashed. Node
+ *  sizes follow the layout's per-depth scale, so the dense fractal breathes. */
 function htreeArtSvg(): string {
-  const root = balanced(3);
+  const root = heroTerm();
   const { pos, scale, minX, minY, width, height } = layoutHTree(root);
 
   // Fit the layout into a square box, preserving aspect.
   const BOX = 260;
-  const s = (BOX - 40) / (Math.max(width, height) || 1); // leave a 20-unit margin all round
+  const s = (BOX - 24) / (Math.max(width, height) || 1); // leave a 12-unit margin all round
   const tx = (x: number): number => (x - minX) * s + (BOX - width * s) / 2;
   const ty = (yy: number): number => (yy - minY) * s + (BOX - height * s) / 2;
 
@@ -54,14 +55,14 @@ function htreeArtSvg(): string {
       const f = at(n.fn);
       const a = at(n.arg);
       const col = tier(depth);
-      const sw = Math.max(1, 1.8 * sc(n));
+      const sw = Math.max(0.5, 0.9 * sc(n));
       edges.push(`<line x1="${p.x}" y1="${p.y}" x2="${f.x}" y2="${f.y}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round"/>`);
-      edges.push(`<line x1="${p.x}" y1="${p.y}" x2="${a.x}" y2="${a.y}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${4 * sc(n)} ${3 * sc(n)}"/>`);
-      dots.push(`<circle cx="${p.x}" cy="${p.y}" r="${Math.max(1.2, 2.6 * sc(n))}" fill="var(--sp-dim)"/>`);
+      edges.push(`<line x1="${p.x}" y1="${p.y}" x2="${a.x}" y2="${a.y}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${3.5 * sc(n)} ${2.5 * sc(n)}"/>`);
+      dots.push(`<circle cx="${p.x}" cy="${p.y}" r="${Math.max(0.5, 0.9 * sc(n))}" fill="var(--sp-dim)"/>`);
       walk(n.fn, depth + 1);
       walk(n.arg, depth + 1);
     } else {
-      dots.push(`<circle cx="${p.x}" cy="${p.y}" r="${Math.max(3, 8 * sc(n))}" fill="var(--sp-red)"/>`);
+      dots.push(`<circle cx="${p.x}" cy="${p.y}" r="${Math.max(1.1, 2 * sc(n))}" fill="var(--sp-red)"/>`);
     }
   };
   walk(root, 0);
