@@ -1,19 +1,22 @@
 /**
- * Boot splash (the user's request): a centered "Combinate" wordmark over the Y
- * combinator's SKI tree, a progress bar, and a "Loading n/total" line. The shell
- * (background, wordmark, bar) lives in index.html so it paints before this module
- * loads; here we fill in the Y art — computed from the catalog's Y definition and
- * the same radial layout the canvas uses — and drive the bar from mountApp's
- * startup steps, fading the overlay out once the scene is ready.
+ * Boot splash (the user's request): a centered "Combinate" wordmark over the
+ * term `(+) 1 1` fully ι-expanded, laid out as an H-tree (matching the share
+ * card), a progress bar, and a "Loading n/total" line. The shell (background,
+ * wordmark, bar) lives in index.html so it paints before this module loads; here
+ * we fill in the art (the same H-tree layout the canvas uses) and drive the bar
+ * from mountApp's startup steps, fading the overlay out once the scene is ready.
  *
- * The art is the Y combinator in SKI form (its `def`, not the fully-expanded
- * ι-tree): legibly "Y" with ~24 labelled S/K/I leaves rather than a bloom of
- * identical ι dots. Colors come from CSS variables (set per prefers-color-scheme
- * in index.html), so the art matches the theme without depending on theme JS.
+ * The art matches the app's mono look and the share card: red ι leaves, edges
+ * tiered ink/red by depth (the red/black-tree cue), function edges solid and
+ * argument edges dashed — via CSS variables (set per prefers-color-scheme in
+ * index.html), so it matches the theme without depending on theme JS.
  */
-import { CATALOG } from "./core/catalog";
-import { layoutRadial } from "./core/layout";
-import type { Node } from "./core/term";
+import { layoutHTree } from "./core/layout";
+import { named, expandDisplay } from "./core/catalog";
+import { app, type Node } from "./core/term";
+
+/** `(+) 1 1`, fully ι-expanded — a real term (Peano 1 + 1) as a dense ι fractal. */
+const heroTerm = (): Node => expandDisplay(app(app(named("(+)"), named("1")), named("1")), { expandAll: true, isDiscovered: () => true });
 
 /** Handle returned to main.ts: advance the bar per startup step, then fade out. */
 export interface Splash {
@@ -23,21 +26,17 @@ export interface Splash {
   done(): void;
 }
 
-/** Render the Y combinator's SKI tree as an inline SVG (radial layout, the app's
- *  function/argument edge colors; S/K/I leaves carry their letter). The raw
- *  layout spans depth×RING units (Y's SKI form is deep), so we normalise it into a
- *  fixed BOX with fixed node sizes — keeping the leaf letters legible regardless
- *  of the tree's spread. */
-function yArtSvg(): string {
-  const y = CATALOG.find((l) => l.sym === "Y");
-  if (!y?.def) return "";
-  const root = y.def();
-  const { pos, minX, minY, width, height } = layoutRadial(root);
+/** Render the hero term as an inline SVG H-tree, in the app's mono look: red ι
+ *  leaves, edges tiered ink/red by depth (`--sp-ink` even, `--sp-red` odd — the
+ *  red/black-tree cue), function edges solid and argument edges dashed. Node
+ *  sizes follow the layout's per-depth scale, so the dense fractal breathes. */
+function htreeArtSvg(): string {
+  const root = heroTerm();
+  const { pos, scale, minX, minY, width, height } = layoutHTree(root);
 
-  // Fit the (possibly wide/asymmetric) layout into a square box, preserving aspect.
+  // Fit the layout into a square box, preserving aspect.
   const BOX = 260;
-  const span = Math.max(width, height) || 1;
-  const s = (BOX - 36) / span; // leave an 18-unit margin all round
+  const s = (BOX - 24) / (Math.max(width, height) || 1); // leave a 12-unit margin all round
   const tx = (x: number): number => (x - minX) * s + (BOX - width * s) / 2;
   const ty = (yy: number): number => (yy - minY) * s + (BOX - height * s) / 2;
 
@@ -45,25 +44,28 @@ function yArtSvg(): string {
     const p = pos.get(n.id)!;
     return { x: tx(p.x), y: ty(p.y) };
   };
+  const sc = (n: Node): number => scale?.get(n.id) ?? 1;
+  // Edge tier colour by depth parity (matches theme.edgeTierColor): even → ink, odd → red.
+  const tier = (depth: number): string => (depth % 2 === 0 ? "var(--sp-ink)" : "var(--sp-red)");
   const edges: string[] = [];
   const dots: string[] = [];
-  const walk = (n: Node): void => {
+  const walk = (n: Node, depth: number): void => {
     const p = at(n);
     if (n.kind === "app") {
       const f = at(n.fn);
       const a = at(n.arg);
-      edges.push(`<line x1="${p.x}" y1="${p.y}" x2="${f.x}" y2="${f.y}" stroke="var(--sp-fn)" stroke-width="2" stroke-linecap="round"/>`);
-      edges.push(`<line x1="${p.x}" y1="${p.y}" x2="${a.x}" y2="${a.y}" stroke="var(--sp-arg)" stroke-width="2" stroke-linecap="round"/>`);
-      dots.push(`<circle cx="${p.x}" cy="${p.y}" r="2.6" fill="var(--sp-dim)"/>`);
-      walk(n.fn);
-      walk(n.arg);
+      const col = tier(depth);
+      const sw = Math.max(0.5, 0.9 * sc(n));
+      edges.push(`<line x1="${p.x}" y1="${p.y}" x2="${f.x}" y2="${f.y}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round"/>`);
+      edges.push(`<line x1="${p.x}" y1="${p.y}" x2="${a.x}" y2="${a.y}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${3.5 * sc(n)} ${2.5 * sc(n)}"/>`);
+      dots.push(`<circle cx="${p.x}" cy="${p.y}" r="${Math.max(0.5, 0.9 * sc(n))}" fill="var(--sp-dim)"/>`);
+      walk(n.fn, depth + 1);
+      walk(n.arg, depth + 1);
     } else {
-      const sym = n.kind === "comb" ? n.sym : n.kind === "free" ? n.name : "ι";
-      dots.push(`<circle cx="${p.x}" cy="${p.y}" r="9" fill="var(--sp-node)"/>`);
-      dots.push(`<text x="${p.x}" y="${p.y}" fill="#fff" font-size="11" font-family="ui-monospace, monospace" text-anchor="middle" dominant-baseline="central">${sym}</text>`);
+      dots.push(`<circle cx="${p.x}" cy="${p.y}" r="${Math.max(1.1, 2 * sc(n))}" fill="var(--sp-red)"/>`);
     }
   };
-  walk(root);
+  walk(root, 0);
 
   return `<svg viewBox="0 0 ${BOX} ${BOX}" preserveAspectRatio="xMidYMid meet">${edges.join("")}${dots.join("")}</svg>`;
 }
@@ -76,7 +78,7 @@ export function mountSplash(total: number): Splash {
   const fill = document.getElementById("splash-fill");
   const msg = document.getElementById("splash-msg");
   const art = document.getElementById("splash-art");
-  if (art) art.innerHTML = yArtSvg();
+  if (art) art.innerHTML = htreeArtSvg();
 
   let n = 0;
   const noop: Splash = { next: () => {}, done: () => {} };
