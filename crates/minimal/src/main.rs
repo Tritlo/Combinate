@@ -898,18 +898,28 @@ fn main() {
             }
             pair_count += cands.len() as u64;
             let t_build = Instant::now();
+            // WINDOWED layers: the per-candidate results buffer would be ~216B × hundreds of
+            // millions at 38ι+ layers. Process candidates in fixed windows — parallel within a
+            // window, windows sequential in candidate order, so the merge stays deterministic
+            // and peak memory is bounded by the window.
+            const WINDOW: usize = 8_000_000;
+            let mut par_ms = 0u128;
+            let mut merge_ms = 0u128;
+            let mut win_start = 0usize;
+            while win_start < cands.len().max(1) {
+                let win = &cands[win_start..cands.len().min(win_start + WINDOW)];
             // Phase 2 (parallel): signature vectors — persistent arena is immutable here, each
             // worker owns its scratch. Stride assignment balances the cost gradient across
             // candidates; results land at their candidate index, so the merge is deterministic.
-            let mut results: Vec<Option<SigRes>> = vec![None; cands.len()];
-            if cands.len() < 128 {
-                for (ci, &(f, x)) in cands.iter().enumerate() {
+            let mut results: Vec<Option<SigRes>> = vec![None; win.len()];
+            if win.len() < 128 {
+                for (ci, &(f, x)) in win.iter().enumerate() {
                     results[ci] = Some(dp_sigvec_headarg(&mut arena, f, Some(x), &caps, dp_a, &mut bufs));
                 }
             } else {
                 let p_nodes: &[u64] = &arena.p_nodes;
                 let p_dedup = &arena.p_dedup;
-                let cands_ref = &cands;
+                let cands_ref = win;
                 let caps_ref = &caps;
                 let next = std::sync::atomic::AtomicUsize::new(0);
                 let next = &next;
@@ -959,11 +969,11 @@ fn main() {
                     }
                 }
             }
-            let t_par = t_build.elapsed();
+            par_ms += t_build.elapsed().as_millis();
             let t_merge0 = Instant::now();
             // Phase 3 (serial, in candidate order): class/rep insertion + gate.
             for (ci, res) in results.into_iter().enumerate() {
-                let (cf, cx) = cands[ci];
+                let (cf, cx) = win[ci];
                 match res.expect("missing worker result") {
                     SigRes::Full(v) => {
                         let key = fold_key(v.slice());
@@ -1017,6 +1027,12 @@ fn main() {
                     break 'sizes;
                 }
             }
+                merge_ms += t_merge0.elapsed().as_millis();
+                win_start += WINDOW;
+                if win.is_empty() {
+                    break;
+                }
+            }
             let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri].vector.is_some()).count();
             eprintln!(
                 "  size {n}: {} cands → +{} classes, +{} opaque ({} total reps) · par {}ms merge {}ms",
@@ -1024,8 +1040,8 @@ fn main() {
                 newc,
                 reps_by_size[n].len() - newc,
                 reps.len(),
-                t_par.as_millis(),
-                t_merge0.elapsed().as_millis()
+                par_ms,
+                merge_ms
             );
         }
         // diagnostic probe: decompose a known witness, check each subterm's class membership
