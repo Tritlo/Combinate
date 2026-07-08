@@ -624,11 +624,22 @@ struct Bird {
 /// naive loop re-did ~13× the work). Scratch is cleared once per vector, not per arity —
 /// the running NF lives there; each arity gets a fresh marginal step/node budget.
 fn dp_sigvec<A: Red>(arena: &mut A, t: u32, caps: &Caps, dp_a: usize, bufs: &mut ReduceBufs) -> SigRes {
+    dp_sigvec_headarg(arena, t, None, caps, dp_a, bufs)
+}
+
+/// Like dp_sigvec for the term `head·arg` (or just `head`) WITHOUT requiring the app node
+/// to exist: the composition is built in scratch, so candidate pairs never touch the
+/// persistent arena — only merge-time winners get interned (kills the serial build phase
+/// and pair-proportional memory growth).
+fn dp_sigvec_headarg<A: Red>(arena: &mut A, head: u32, arg: Option<u32>, caps: &Caps, dp_a: usize, bufs: &mut ReduceBufs) -> SigRes {
     debug_assert!(dp_a < SIG_MAX);
     arena.s_clear();
     bufs.hmemo.clear();
     let mut v = SigVec::new();
-    let mut cur = t; // invariant: the NF of t·v0..v(k-1)
+    let mut cur = match arg {
+        Some(x) => arena.mk_app(head, x),
+        None => head,
+    };
     for k in 0..=dp_a {
         let applied = if k == 0 {
             cur
@@ -771,8 +782,9 @@ fn main() {
         let mut gate_tripped = false;
         let workers = std::thread::available_parallelism().map(|v| v.get()).unwrap_or(8);
         'sizes: for n in 2..=max_iotas {
-            // Phase 1 (serial): compose all size-n candidates persistently.
-            let mut cands: Vec<u32> = Vec::new();
+            // Phase 1 (serial, cheap): collect candidate (head, arg) PAIRS — no interning;
+            // workers compose in scratch, and only merge-time winners touch the arena.
+            let mut cands: Vec<(u32, u32)> = Vec::new();
             for i in 1..n {
                 let j = n - i;
                 for fi in 0..reps_by_size[i].len() {
@@ -785,8 +797,7 @@ fn main() {
                         if !xr.composable {
                             continue; // duplicate capped-prefix opaque: blocker only
                         }
-                        let (f, x) = (reps[reps_by_size[i][fi]].term, xr.term);
-                        cands.push(arena.app(f, x));
+                        cands.push((reps[reps_by_size[i][fi]].term, xr.term));
                     }
                 }
             }
@@ -796,8 +807,8 @@ fn main() {
             // candidates; results land at their candidate index, so the merge is deterministic.
             let mut results: Vec<Option<SigRes>> = vec![None; cands.len()];
             if cands.len() < 128 {
-                for (ci, &t) in cands.iter().enumerate() {
-                    results[ci] = Some(dp_sigvec(&mut arena, t, &caps, dp_a, &mut bufs));
+                for (ci, &(f, x)) in cands.iter().enumerate() {
+                    results[ci] = Some(dp_sigvec_headarg(&mut arena, f, Some(x), &caps, dp_a, &mut bufs));
                 }
             } else {
                 let p_nodes: &[Node] = &arena.p_nodes;
@@ -820,7 +831,8 @@ fn main() {
                                 let mut out = Vec::new();
                                 let mut ci = w;
                                 while ci < cands_ref.len() {
-                                    out.push((ci, dp_sigvec(&mut wk, cands_ref[ci], caps_ref, dp_a, &mut wbufs)));
+                                    let (f, x) = cands_ref[ci];
+                                    out.push((ci, dp_sigvec_headarg(&mut wk, f, Some(x), caps_ref, dp_a, &mut wbufs)));
                                     ci += workers;
                                 }
                                 (wk.max_var_demand, out)
@@ -847,11 +859,12 @@ fn main() {
             }
             // Phase 3 (serial, in candidate order): class/rep insertion + gate.
             for (ci, res) in results.into_iter().enumerate() {
-                let t = cands[ci];
+                let (cf, cx) = cands[ci];
                 match res.expect("missing worker result") {
                     SigRes::Full(v) => {
                         let key = fold_key(v.slice());
                         if !class_of.contains_key(&key) {
+                            let t = arena.app(cf, cx); // interned ONLY for winners
                             class_of.insert(key, reps.len());
                             reps_by_size[n].push(reps.len());
                             reps.push(Rep { term: t, size: n as u32, vector: Some(v), composable: true });
@@ -866,6 +879,7 @@ fn main() {
                         if fresh {
                             opaque_seen.insert(pkey, ());
                         }
+                        let t = arena.app(cf, cx); // blockers/delegates still need real terms
                         reps_by_size[n].push(reps.len());
                         reps.push(Rep { term: t, size: n as u32, vector: None, composable: fresh });
                         capped_count += 1;
