@@ -13,8 +13,9 @@ import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { chromium } from "playwright-core";
-import { layoutHTree } from "../src/core/layout";
-import { app, iota, type Node } from "../src/core/term";
+import { layoutHTree, countNodes } from "../src/core/layout";
+import { named, expandDisplay } from "../src/core/catalog";
+import { app, type Node } from "../src/core/term";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(HERE, "../public/og.png");
@@ -25,15 +26,17 @@ const INK = "#111111"; // tree ink (nodes, even-depth edges)
 const RED = "#cc2222"; // the red tier / brand accent (odd-depth edges, ι leaves)
 const DIM = "#5a5a5a";
 
-/** A balanced binary application tree of ι leaves — the iconic H-tree fractal. */
-const balanced = (depth: number): Node => (depth <= 0 ? iota() : app(balanced(depth - 1), balanced(depth - 1)));
+/** `(+) 1 1`, fully ι-expanded — a real term (Peano 1 + 1) as a dense, organic
+ *  ι fractal, the app's characteristic view. */
+const heroTerm = (): Node => expandDisplay(app(app(named("(+)"), named("1")), named("1")), { expandAll: true, isDiscovered: () => true });
 
 const tier = (depth: number): string => (depth % 2 === 0 ? INK : RED);
 
 /** The hero tree as an H-tree SVG fitted to `w`×`h`, nodes sized by the layout's
  *  per-depth scale (so the fractal breathes instead of clumping). */
 function treeSvg(w: number, h: number): string {
-  const root = balanced(4);
+  const root = heroTerm();
+  console.log(`hero: ${countNodes(root)} nodes`);
   const { pos, scale, minX, minY, width, height } = layoutHTree(root);
   const pad = 48;
   const s = Math.min((w - pad) / (width || 1), (h - pad) / (height || 1));
@@ -52,14 +55,14 @@ function treeSvg(w: number, h: number): string {
       const f = at(n.fn);
       const a = at(n.arg);
       const col = tier(depth);
-      const sw = Math.max(1.2, 2.6 * sc(n));
+      const sw = Math.max(0.9, 2 * sc(n));
       edges.push(`<line x1="${p.x}" y1="${p.y}" x2="${f.x}" y2="${f.y}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round"/>`);
-      edges.push(`<line x1="${p.x}" y1="${p.y}" x2="${a.x}" y2="${a.y}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${6 * sc(n)} ${4 * sc(n)}"/>`);
-      nodes.push(`<circle cx="${p.x}" cy="${p.y}" r="${Math.max(1.5, 3.4 * sc(n))}" fill="${DIM}"/>`);
+      edges.push(`<line x1="${p.x}" y1="${p.y}" x2="${a.x}" y2="${a.y}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round" stroke-dasharray="${5 * sc(n)} ${3.5 * sc(n)}"/>`);
+      nodes.push(`<circle cx="${p.x}" cy="${p.y}" r="${Math.max(0.9, 1.8 * sc(n))}" fill="${DIM}"/>`);
       walk(n.fn, depth + 1);
       walk(n.arg, depth + 1);
     } else {
-      nodes.push(`<circle cx="${p.x}" cy="${p.y}" r="${Math.max(4, 10 * sc(n))}" fill="${RED}"/>`);
+      nodes.push(`<circle cx="${p.x}" cy="${p.y}" r="${Math.max(1.8, 4.6 * sc(n))}" fill="${RED}"/>`);
     }
   };
   walk(root, 0);
