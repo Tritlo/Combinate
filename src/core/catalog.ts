@@ -50,6 +50,31 @@ export const IOTA_CODE: Record<string, string> = {
   R: "001010001010101101100010101011101000101010110110101010110101011", // 32ι — smallest known (was 36ι)
 };
 
+/** Fewest-STEPS equivalents (the hare to IOTA_CODE's turtle). Minimal ι ≠ minimal steps:
+ *  golfed forms can unfold slower (C's 29ι form takes 345 contractions; its 34ι sibling
+ *  takes 120). Every entry is TS-certified EQUAL at the declared arity; "fastest" means
+ *  fewest-steps KNOWN at the ≤34ι class-DP bound (2026-07-09 hunt, `--smallest 34`) —
+ *  a deeper/bigger-budget hunt may still beat these. Gameplay expansion (the expand-all
+ *  view, the discovery mask) uses these so unfolds animate snappily; IOTA_CODE stays the
+ *  canonical MINIMAL form (golf costs, Barker readouts, the Zoo's default picture). */
+export const IOTA_FASTEST: Record<string, string> = {
+  B1: "0001010001010101101101010101110101001010101011011", // 106 steps (vs 126)
+  B2: "0000101010110001010101111000101010110001010101111101001010101011011", // 208 (vs 270)
+  B3: "0000101010110101010101101010010101010110110101001010101011011", // 155 (vs 176)
+  C: "0001010101100000101010111101001010101011011010101011001010110101011", // 120 (vs 345)
+  D: "0010101011001010110101001010101011011", // 54 (vs 76)
+  E: "0010101011001010110000101010110101010101110101001010101011011", // 148 (vs 173)
+  Q: "01000101010110110010101100101011010100010101011011010101011", // 79 (vs 101)
+  Q3: "00101001010101011011000101010110010101100101010110110101011", // 81 (vs 134)
+  W: "0001010101101010101101011", // 32 (vs 33) — same size, strictly faster
+  head: "0001010101100010101011011001010110101011001010110101011", // 48 (vs 136)
+  Φ: "00010101011001010101011001010110101010110101001010101011011", // 103 (vs 144)
+};
+
+/** The bitcode gameplay expansion should use for `sym`: fastest when known, else the
+ *  canonical minimal. Display/costing surfaces should keep using IOTA_CODE directly. */
+export const fastestIotaCode = (sym: string): string | undefined => IOTA_FASTEST[sym] ?? IOTA_CODE[sym];
+
 /**
  * A discoverable combinator law (§7.2). Data only — the probe (probe.ts) tests a
  * term against it behaviorally, and the shell turns a match into a toast +
@@ -737,7 +762,7 @@ export function sugar(root: Node, opts: { isDiscovered: (sym: string) => boolean
       case "iota":
         return emit("ι");
       case "comb": {
-        const code = !isDiscovered(n.sym) ? IOTA_CODE[n.sym] : undefined; // undiscovered → its ι-tree (the discovery mask)
+        const code = !isDiscovered(n.sym) ? fastestIotaCode(n.sym) : undefined; // undiscovered → its ι-tree (the discovery mask; fastest form — see IOTA_FASTEST)
         return code ? go(decode(code), depth + 1) : emit(n.sym);
       }
       case "free":
@@ -764,7 +789,7 @@ export function expandDisplay(root: Node, opts: { expandAll: boolean; isDiscover
     let out: Node;
     switch (n.kind) {
       case "comb": {
-        const code = opts.expandAll ? IOTA_BITCODE[n.sym] : !opts.isDiscovered(n.sym) ? IOTA_CODE[n.sym] : undefined;
+        const code = opts.expandAll ? (IOTA_FASTEST[n.sym] ?? IOTA_BITCODE[n.sym]) : !opts.isDiscovered(n.sym) ? fastestIotaCode(n.sym) : undefined;
         // Size cap: honest bitcodes for the recursive data ops are Y-based SKI blobs that can
         // run to thousands of ι — materializing those as display trees would swamp the canvas.
         // Past the cap (barkerCode's budget) the named node stays, like an absent entry.
