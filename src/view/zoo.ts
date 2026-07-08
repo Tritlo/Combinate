@@ -393,7 +393,27 @@ export class Zoo {
     if (fastCode && entry.law !== null) {
       const minI = countIotas(iotaTreeOf(entry.law));
       const fastI = (fastCode.match(/1/g) ?? []).length;
-      line(`iotas:    ${minI} (minimal)   ${fastI} (fastest found ≤ ${IOTA_FASTEST_BOUND}ι)`, theme.textDim, 14, 10);
+      // both claims carry the hunt bound; hovering explains it (the hint keeps its layout
+      // slot so the card doesn't reflow)
+      const stats = new Text({
+        text: `iotas:    ${minI} (minimal ≤ ${IOTA_FASTEST_BOUND})   ${fastI} (fastest ≤ ${IOTA_FASTEST_BOUND})`,
+        style: { fontFamily: "monospace", fontSize: 14, fill: theme.textDim },
+      });
+      stats.position.set(dx, y);
+      stats.eventMode = "static";
+      stats.cursor = "help";
+      this.detail.addChild(stats);
+      y += stats.height + 3;
+      const hint = new Text({
+        text: `≤ ${IOTA_FASTEST_BOUND}: found by searching every ι-term up to ${IOTA_FASTEST_BOUND} leaves — a deeper hunt may still improve these.`,
+        style: { fontFamily: "monospace", fontSize: 11, fill: theme.mutedDot, wordWrap: true, wordWrapWidth: dw },
+      });
+      hint.position.set(dx, y);
+      hint.visible = false;
+      this.detail.addChild(hint);
+      y += hint.height + 7;
+      stats.on("pointerover", () => { hint.visible = true; });
+      stats.on("pointerout", () => { hint.visible = false; });
     } else {
       line(`iotas:    ${countIotas(tree)}`, theme.textDim, 14, 10);
     }
