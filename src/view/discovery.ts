@@ -7,7 +7,7 @@
  */
 import { type Law, iotaTreeOf, countIotas, META } from "../core/catalog";
 import { type Node } from "../core/term";
-import { layoutHTree } from "../core/layout";
+import { layoutHTree } from "../core/layouts";
 import { currentMode, type Mode, MONO, PAPER, INK, ensureFont } from "./theme";
 
 /** Draw a term's ι-tree onto a 2D canvas (the discovery card's picture — reliable everywhere, no
