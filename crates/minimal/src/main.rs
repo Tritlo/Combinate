@@ -670,6 +670,28 @@ fn direct_steps<A: Red>(arena: &mut A, head: u32, arg: Option<u32>, arity: usize
 /// then t·f =β f·(t·f) by congruence, a sound machine-checkable certificate (Codex-
 /// verified; covers Curry-style and Turing-style FPCs; misses equation shapes needing
 /// non-head steps — finds are labeled "head-cycle certificate").
+/// Contract every `I x` -> `x` (administrative wrappers) so the cycle detector compares
+/// terms modulo bookkeeping — Y-style loops accrete I-wrappers each go-round.
+fn i_norm<A: Red>(arena: &mut A, t: u32, memo: &mut FastMap<u32, u32>) -> u32 {
+    if let Some(&r) = memo.get(&t) {
+        return r;
+    }
+    let n = arena.nd(t);
+    let out = if n.tag == TAG_APP {
+        let f2 = i_norm(arena, n.a, memo);
+        let x2 = i_norm(arena, n.b, memo);
+        if arena.nd(f2).tag == TAG_I {
+            x2
+        } else {
+            arena.mk(TAG_APP, f2, x2)
+        }
+    } else {
+        t
+    };
+    memo.insert(t, out);
+    out
+}
+
 fn head_trace_fpc<A: Red>(arena: &mut A, t: u32, budget: u64, bufs: &mut ReduceBufs) -> Option<u64> {
     arena.s_clear();
     bufs.hmemo.clear();
@@ -677,9 +699,11 @@ fn head_trace_fpc<A: Red>(arena: &mut A, t: u32, budget: u64, bufs: &mut ReduceB
     let f = arena.mk_leaf(TAG_FREE, 0);
     let mut cur = arena.mk_app(t, f);
     let mut trace: FastMap<u32, ()> = FastMap::default();
+    let mut imemo: FastMap<u32, u32> = FastMap::default();
     let spine = &mut bufs.spine;
     for step in 0..budget {
-        trace.insert(cur, ());
+        let cn0 = i_norm(arena, cur, &mut imemo);
+        trace.insert(cn0, ());
         // one leftmost head contraction on `cur`
         spine.clear();
         let mut h = cur;
@@ -734,9 +758,38 @@ fn head_trace_fpc<A: Red>(arena: &mut A, t: u32, budget: u64, bufs: &mut ReduceB
         }
         cur = c;
         // the pattern: cur = f · R with R already seen
-        let cn = arena.nd(cur);
-        if cn.tag == TAG_APP && cn.a == f && trace.contains_key(&cn.b) {
-            return Some(step + 1);
+        let cur_in = i_norm(arena, cur, &mut imemo);
+        let cn = arena.nd(cur_in);
+        if cn.tag == TAG_APP && cn.a == f {
+            // widening (Codex Q2): X may be a VARIANT of an earlier reduct — probe X's own
+            // head reducts (bounded) against the trace before giving up on this shape
+            let mut x = cn.b;
+            let mut sp: Vec<u32> = Vec::new();
+            for _ in 0..64 {
+                let xn = i_norm(arena, x, &mut imemo);
+                if trace.contains_key(&xn) {
+                    return Some(step + 1);
+                }
+                sp.clear();
+                let mut h = x;
+                loop {
+                    let n = arena.nd(h);
+                    if n.tag == TAG_APP { sp.push(n.b); h = n.a; } else { break; }
+                }
+                let n = arena.nd(h);
+                let argc = sp.len();
+                let ok = match n.tag {
+                    TAG_IOTA if argc >= 1 => { let a1 = sp.pop().unwrap(); let sk = arena.mk_leaf(TAG_S,0); let kk = arena.mk_leaf(TAG_K,0); sp.push(kk); sp.push(sk); h = a1; true }
+                    TAG_I if argc >= 1 => { h = sp.pop().unwrap(); true }
+                    TAG_K if argc >= 2 => { let a1 = sp.pop().unwrap(); sp.pop(); h = a1; true }
+                    TAG_S if argc >= 3 => { let a1 = sp.pop().unwrap(); let a2 = sp.pop().unwrap(); let a3 = sp.pop().unwrap(); let gx = arena.mk(TAG_APP, a2, a3); sp.push(gx); sp.push(a3); h = a1; true }
+                    _ => false,
+                };
+                if !ok { break; }
+                let mut c = h;
+                while let Some(a1) = sp.pop() { c = arena.mk(TAG_APP, c, a1); }
+                x = c;
+            }
         }
         if arena.s_len() > 500_000 {
             return None;
