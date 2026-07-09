@@ -894,7 +894,7 @@ fn main() {
             "--fpc-probe" => { let bits = args.next().unwrap(); let mut arena = Arena::new(); let mut bufs = ReduceBufs::default(); let t = decode_bits(&mut arena, &bits).expect("bad bits"); match head_trace_fpc(&mut arena, t, 2000, &mut bufs) { Some(n) => println!("FPC: closes in {n} head steps"), None => println!("no head-cycle within budget") } return; }
             "--fastest" => dp_fastest = true, // default; kept for compat
             "--no-fastest" => dp_fastest = false,
-            "--smallest" => {
+            "--hunt" | "--smallest" => {
                 // friendly entry: minimal-forms --smallest 34 [--fastest]
                 max_iotas = args.next().unwrap().parse().unwrap();
                 dp = true;
