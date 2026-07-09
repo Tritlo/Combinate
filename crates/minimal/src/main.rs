@@ -293,7 +293,7 @@ enum NfResult {
 
 /// Fixed-capacity signature vector (dp_arity <= 12) — Copy, no heap. The per-layer
 /// results buffer used to materialize a Vec per candidate (GBs of churn at 30ι+).
-const SIG_MAX: usize = 13;
+const SIG_MAX: usize = 9; // dp_arity <= 8 — Rep shrinks 209->145B, ~10GB less at 40-iota scale
 #[derive(Clone, Copy)]
 struct SigVec {
     len: u8,
@@ -729,7 +729,7 @@ fn main() {
     let mut out_path = String::from("spec/minimal-forms.json");
     let mut prefilter = false; // 1-var necessary-condition pass; skips full sigs for bird-irrelevant terms (partial census!)
     let mut dp = false; // semantic-class DP: compose behavior-class representatives instead of raw Catalan shapes
-    let mut dp_arity: usize = 12; // signature-vector arity for --dp (empirically tuned; validated against brute)
+    let mut dp_arity: usize = 8; // signature-vector arity for --dp (validated identical to 12 at brute-17 AND 25/32; must stay < SIG_MAX)
     let mut dp_probe: Option<String> = None; // diagnostic: trace why this bitcode's class was(n't) reached
     let mut dp_gate: usize = 10_000; // rep-count stop gate for --dp (guards runaway class growth)
     let mut dp_fastest = true; // fewest-steps hunt per bird — always on in DP (branch-and-bound makes it ~free); --no-fastest to skip
