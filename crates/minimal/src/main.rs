@@ -1333,28 +1333,42 @@ fn main() {
         }
         // birds: match class by key, verify EXACTLY by NF strings at every arity (guards
         // against 128-bit key collisions for every published claim)
-        // Escalated signatures for every opaque rep at every declared bird arity — the
-        // frontier's only expensive input — computed UP FRONT in parallel with TIERED
-        // budgets: 10× first (most slow-but-terminating terms resolve there), the full
-        // escalation only for survivors. This was the single-core tail after the size loop.
+        // PER-BIRD escalation (take-four post-mortem: the global ceiling keyed off the
+        // largest CURRENT encoding — 423M jobs at 42ι). Winners come first via suffix
+        // matching (which never needed escalation), then jobs = opaque reps STRICTLY
+        // cheaper than some bird's winner, at exactly that bird's arity.
+        let mut bird_winner_size: Vec<Option<u32>> = vec![None; birds.len()];
+        let mut bird_vec_cache: Vec<Option<SigVec>> = vec![None; birds.len()];
+        for (bi, b) in birds.iter().enumerate() {
+            if let SigRes::Full(bv) = dp_sigvec(&mut arena, bird_terms[bi], &esc_caps, dp_a, &mut bufs) {
+                let bslice = bv.slice();
+                let mut best: Option<u32> = None;
+                for (&ri, rv) in rep_vectors.iter() {
+                    if rv.as_ref().slice()[b.arity..] == bslice[b.arity..] {
+                        let sz = reps[ri as usize].size as u32;
+                        if best.map(|w| sz < w).unwrap_or(true) {
+                            best = Some(sz);
+                        }
+                    }
+                }
+                bird_winner_size[bi] = best;
+                bird_vec_cache[bi] = Some(bv);
+            }
+        }
         let esc_table: FastMap<(u32, u8), Option<(u64, u64)>> = {
-            let arities: Vec<usize> = {
-                let mut a: Vec<usize> = birds.iter().map(|b| b.arity).collect();
-                a.sort_unstable();
-                a.dedup();
-                a
-            };
-            // ECTA lesson: eliminate out of the gate. A blocker only matters strictly BELOW
-            // a bird's winner, and no winner exceeds its current encoding — so opaque reps
-            // at or above the max current size never need escalation.
-            let ceiling: u32 = birds.iter().map(|b| (b.bits.matches('1').count()) as u32).max().unwrap_or(u32::MAX);
-            let jobs: Vec<(u32, u8)> = reps
-                .iter()
-                .filter(|r| !r.classed() && (r.size as u32) <= ceiling)
-                .flat_map(|r| arities.iter().map(move |&a| (r.term, a as u8)))
-                .collect();
-            eprintln!("  esc: {} jobs (opaque ≤ ceiling {ceiling}ι; {} opaque total)", jobs.len(), reps.iter().filter(|r| !r.classed()).count());
+            let mut need: FastMap<(u32, u8), ()> = FastMap::default();
+            for (bi, b) in birds.iter().enumerate() {
+                if let Some(w) = bird_winner_size[bi] {
+                    for r in reps.iter() {
+                        if !r.classed() && (r.size as u32) <= w {
+                            need.insert((r.term, b.arity as u8), ());
+                        }
+                    }
+                }
+            }
+            let jobs: Vec<(u32, u8)> = need.keys().copied().collect();
             let tier1 = Caps { steps: steps_cap.saturating_mul(10), nodes: nodes_cap.saturating_mul(10) };
+            eprintln!("  esc: {} per-bird jobs ({} opaque total)", jobs.len(), reps.iter().filter(|r| !r.classed()).count());
             let mut table: FastMap<(u32, u8), Option<(u64, u64)>> = FastMap::default();
             if jobs.len() < 32 {
                 for &(t, a) in &jobs {
@@ -1372,7 +1386,7 @@ fn main() {
                 let enext = &enext;
                 let done: Vec<(usize, Vec<(usize, Option<(u64, u64)>)>)> = std::thread::scope(|sc| {
                     (0..workers)
-                        .map(|w| {
+                        .map(|_w| {
                             sc.spawn(move || {
                                 let mut wk = Worker {
                                     p_nodes,
@@ -1384,7 +1398,6 @@ fn main() {
                                 };
                                 let mut wbufs = ReduceBufs::default();
                                 let mut out = Vec::new();
-                                let _ = w;
                                 loop {
                                     let ji = enext.fetch_add(1, Ordering::Relaxed);
                                     if ji >= jobs_ref.len() {
