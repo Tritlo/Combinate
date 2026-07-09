@@ -14,7 +14,7 @@
  */
 import { Container, Sprite, Texture, type Ticker } from "pixi.js";
 import { type Node } from "../core/term";
-import { type Layout3Fn } from "../core/layout3d";
+import { type Layout3Fn } from "../core/layouts";
 import { Sphere3D } from "./sphere3d";
 import { type TreeView } from "./tree";
 

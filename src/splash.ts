@@ -11,7 +11,7 @@
  * argument edges dashed — via CSS variables (set per prefers-color-scheme in
  * index.html), so it matches the theme without depending on theme JS.
  */
-import { layoutHTree } from "./core/layout";
+import { layoutHTree } from "./core/layouts";
 import { named, expandDisplay } from "./core/catalog";
 import { app, type Node } from "./core/term";
 
