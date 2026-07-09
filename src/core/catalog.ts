@@ -57,7 +57,13 @@ export const IOTA_CODE: Record<string, string> = {
  *  a deeper/bigger-budget hunt may still beat these. Gameplay expansion (the expand-all
  *  view, the discovery mask) uses these so unfolds animate snappily; IOTA_CODE stays the
  *  canonical MINIMAL form (golf costs, Barker readouts, the Zoo's default picture). */
-export const IOTA_FASTEST_BOUND = 40; // the hunt bound the FASTEST claims hold at (see crates/minimal)
+export const IOTA_FASTEST_BOUND = 40;
+
+/** Birds whose fastest form runs in ≤ IOTA_FASTEST_BOUND steps: by the live-core theorem
+ *  (any term's dead code prunes to a core with iotas ≤ steps, same class, no slower —
+ *  Codex-verified), a faster term would have a core inside the searched bound. Their
+ *  minimal AND fastest forms are therefore GLOBAL, not bound-qualified — no disclaimer. */
+export const IOTA_SETTLED = new Set(["I", "A", "K", "S", "X", "O", "GT", "EQ", "M", "M2", "M3", "Z", "B", "W", "and"]); // the hunt bound the FASTEST claims hold at (see crates/minimal)
 
 /** Measured reduction steps at each bird's declared arity — [minimal form, fastest form] —
  *  from the ≤34ι hunt (the Rust reducer mirrors the app's exactly; parity-verified). Saved

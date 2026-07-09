@@ -640,6 +640,7 @@ struct Bird {
     sym: String,
     arity: usize,
     bits: String,
+    seed_steps: Option<u64>, // known fastest steps from prior hunts — the bail-out bound starts here
 }
 
 /// Steps to full NF of `head(·arg) v0..v(arity-1)` — the TS-comparable cost of USING a
@@ -732,7 +733,7 @@ fn main() {
     let mut dp_arity: usize = 8; // signature-vector arity for --dp (validated identical to 12 at brute-17 AND 25/32; must stay < SIG_MAX)
     let mut dp_probe: Option<String> = None; // diagnostic: trace why this bitcode's class was(n't) reached
     let mut dp_gate: usize = 10_000; // rep-count stop gate for --dp (guards runaway class growth)
-    let mut worker_override: Option<usize> = None; // --workers N: leave cores for the rest of the system
+    let mut worker_override: Option<usize> = None; // --workers N (default 16: leave cores for the system)
     let mut dp_fastest = true; // fewest-steps hunt per bird — always on in DP (branch-and-bound makes it ~free); --no-fastest to skip
     let mut dp_slim = false; // --dp-slim: skip class census + samples in the JSON (deep runs; the dump gets fat past ~50k classes)
     let mut dp_opaque_fn = false; // --dp-opaque-fn re-enables capped singletons as HEADS; default skips them (leftmost-outermost does the head's work first, so a capped head stays capped; the arg-side rescue is kept). Validated 0-mismatch vs brute at 17ι.
@@ -783,6 +784,7 @@ fn main() {
                 sym: it.next().unwrap().to_string(),
                 arity: it.next().unwrap().parse().unwrap(),
                 bits: it.next().unwrap().to_string(),
+                seed_steps: it.next().and_then(|v| v.parse().ok()),
             }
         })
         .collect();
@@ -877,7 +879,7 @@ fn main() {
         let mut opaque_seen: FastMap<(u64, u64), ()> = FastMap::default();
 
         let mut gate_tripped = false;
-        let workers = worker_override.unwrap_or_else(|| std::thread::available_parallelism().map(|v| v.get()).unwrap_or(8));
+        let workers = worker_override.unwrap_or_else(|| std::thread::available_parallelism().map(|v| v.get()).unwrap_or(8).min(16));
         'sizes: for n in 2..=max_iotas {
             // Phase 1 (serial, cheap): collect candidate (head, arg) PAIRS — no interning;
             // workers compose in scratch, and only merge-time winners touch the arena.
@@ -992,7 +994,12 @@ fn main() {
                                 // branch-and-bound: a reduction that hits the best-so-far step
                                 // count is >= best — the cap doubles as the bail-out
                                 let bound = Caps {
-                                    steps: best_fast[bi as usize].as_ref().map(|(bs, _, _)| *bs).unwrap_or(esc_caps.steps).min(esc_caps.steps),
+                                    steps: best_fast[bi as usize]
+                                        .as_ref()
+                                        .map(|(bs, _, _)| *bs)
+                                        .or(birds[bi as usize].seed_steps) // seed from prior hunts: bail at the KNOWN minimum immediately
+                                        .unwrap_or(esc_caps.steps)
+                                        .min(esc_caps.steps),
                                     nodes: esc_caps.nodes,
                                 };
                                 if let Some(st) = direct_steps(&mut arena, cf, Some(cx), a, &bound, &mut bufs) {
@@ -1094,11 +1101,16 @@ fn main() {
                 a.dedup();
                 a
             };
+            // ECTA lesson: eliminate out of the gate. A blocker only matters strictly BELOW
+            // a bird's winner, and no winner exceeds its current encoding — so opaque reps
+            // at or above the max current size never need escalation.
+            let ceiling: u32 = birds.iter().map(|b| (b.bits.matches('1').count()) as u32).max().unwrap_or(u32::MAX);
             let jobs: Vec<(u32, u8)> = reps
                 .iter()
-                .filter(|r| r.vector.is_none())
+                .filter(|r| !r.classed && r.size <= ceiling)
                 .flat_map(|r| arities.iter().map(move |&a| (r.term, a as u8)))
                 .collect();
+            eprintln!("  esc: {} jobs (opaque ≤ ceiling {ceiling}ι; {} opaque total)", jobs.len(), reps.iter().filter(|r| !r.classed).count());
             let tier1 = Caps { steps: steps_cap.saturating_mul(10), nodes: nodes_cap.saturating_mul(10) };
             let mut table: FastMap<(u32, u8), Option<(u64, u64)>> = FastMap::default();
             if jobs.len() < 32 {

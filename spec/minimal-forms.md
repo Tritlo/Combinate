@@ -19,8 +19,6 @@ differed — a true minimality certificate within the bound.
 | M2 | 2 | 12 | 12 | `00010101011010101011011` | proven |
 | M3 | 1 | 13 | 13 | `0001010101101010101011011` | proven |
 | O | 2 | 7 | 7 | `0010101011011` | proven |
-| O2 | 2 | 11 | 11 | `001010101101010101011` | proven |
-| Pe | 3 | 10 | 10 | `0010101011010101011` | proven |
 | S | 3 | 5 | 5 | `010101011` | proven |
 | W | 2 | 13 | 13 | `0001010101101010101101011` | proven |
 | X | 2 | 6 | 6 | `01010101011` | proven |
@@ -35,6 +33,6 @@ current encodings may still be reducible at deeper bounds.
 
 ## Certification
 
-- 16 bird claims re-proven in TypeScript at declared arity.
+- 14 bird claims re-proven in TypeScript at declared arity.
 - 300/300 reducer-parity samples byte-identical (Rust structKey ↔ TS structKey).
 - **ALL CHECKS PASSED.**
