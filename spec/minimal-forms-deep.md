@@ -1,8 +1,8 @@
 # Minimal ι-forms (generated — do not edit)
 
 Produced by `npm run minimal-forms` (crates/minimal + this certifier; methodology in
-ADR 27). Search bound: **≤ 40 ι** (1132211568 terms,
-26875211 capped at signature time, all escalated during certification).
+ADR 27). Search bound: **≤ 42 ι** (3248482624 terms,
+84583124 capped at signature time, all escalated during certification).
 Every row below was re-proven against the app's own reducer (`normalize`, fast=false)
 at the bird's declared arity; "proven" means the entire cheaper frontier normalized and
 differed — a true minimality certificate within the bound.
@@ -17,11 +17,12 @@ differed — a true minimality certificate within the bound.
 | A | 2 | 3 | 3 | `01011` | proven | 8→8 steps |
 | B | 3 | 10 | 10 | `0101001010101011011` | proven | 32→32 steps |
 | B1 | 4 | 22 | 22 | `0000101010110101010101110101001010101011011` | conditional | 126→104 steps (≠ minimal form) |
-| B2 | 5 | 29 | 29 | `000010101011001000101010111010101011110101001010101011011` | conditional | 270→197 steps (≠ minimal form) |
+| B2 | 5 | 29 | 29 | `000010101011001000101010111010101011110101001010101011011` | conditional | 270→191 steps (≠ minimal form) |
 | B3 | 4 | 27 | 27 | `00001010101100101010110101010101110101001010101011011` | conditional | 176→147 steps (≠ minimal form) |
 | C | 3 | 29 | 29 | `001000010101011011000101010111100010101011101010110101011` | conditional | 345→93 steps (≠ minimal form) |
 | D | 4 | 16 | 16 | `0000101010111101001010101011011` | conditional | 76→54 steps (≠ minimal form) |
 | E | 5 | 28 | 28 | `0000101010111000101010110101010101110101001010101011011` | conditional | 173→148 steps (≠ minimal form) |
+| G | 4 | 49 | 41 | `010000101010101100010101010110000010101011110100101010101101101010101101110101011` | conditional ← **8 ι smaller** |
 | H | 3 | 30 | 30 | `00010101011000010101011110001010101110101011001010110101011` | conditional | 122→105 steps (≠ minimal form) |
 | I | 1 | 2 | 2 | `011` | proven | 5→5 steps |
 | K | 2 | 4 | 4 | `0101011` | proven | 10→10 steps |
@@ -29,16 +30,16 @@ differed — a true minimality certificate within the bound.
 | M | 1 | 9 | 9 | `00010101011011011` | proven | 22→22 steps |
 | M2 | 2 | 12 | 12 | `00010101011010101011011` | proven | 29→29 steps |
 | M3 | 1 | 13 | 13 | `0001010101101010101011011` | proven | 32→32 steps |
-| N | 3 | 33 | 33 | `00010101011001010110001010101100101011010101100101010110110101011` | conditional | 81→81 steps (≠ minimal form) |
+| N | 3 | 33 | 33 | `00010101011001010110101011000101010110010101100101010110110101011` | conditional | 81→81 steps |
 | O | 2 | 7 | 7 | `0010101011011` | proven | 17→17 steps |
-| O2 | 2 | 11 | 11 | `001010101101010101011` | proven | 27→27 steps |
-| Pe | 3 | 10 | 10 | `0010101011010101011` | proven | 24→24 steps |
 | Pred | 1 | 26 | 25 | `0001010101100010101011001010111010101100101011011` | conditional ← **1 ι smaller** | 61→58 steps |
 | Q | 3 | 25 | 25 | `0000010101011101010101101010010101010110110101011` | conditional | 101→79 steps (≠ minimal form) |
+| Q1 | 3 | 74 | 42 | `00010101011001010111010010001010101101110010101010110000101010111101001010101011011` | conditional ← **32 ι smaller** | 181→476 steps |
+| Q2 | 3 | 65 | 42 | `00100001010101110010101011011000010101011101100101010101101010010101010110110101011` | conditional ← **23 ι smaller** | 159→405 steps |
 | Q3 | 3 | 28 | 28 | `0010101011010000101010111010101011001010110010101011011` | conditional | 134→81 steps (≠ minimal form) |
-| R | 3 | 32 | 32 | `001010001010101101100010101011101000101010110110101010110101011` | conditional | 127→88 steps (≠ minimal form) |
+| R | 3 | 32 | 32 | `010000001010101101110001010101101100010101011111001010101011011` | conditional | 127→88 steps (≠ minimal form) |
 | S | 3 | 5 | 5 | `010101011` | proven | 12→12 steps |
-| Succ | 3 | 33 | 33 | `00010101011001010110001010101100101011010101100101010110110101011` | conditional | 81→81 steps (≠ minimal form) |
+| Succ | 3 | 33 | 33 | `00010101011001010110101011000101010110010101100101010110110101011` | conditional | 81→81 steps |
 | T | 2 | 20 | 20 | `000101010110010101100101010110110101011` | conditional | 49→49 steps |
 | U | 2 | 23 | 23 | `000101010110010101011001010110010101011011011` | conditional | 56→56 steps |
 | W | 2 | 13 | 13 | `0100101010110001010101111` | proven | 33→32 steps (≠ minimal form) |
@@ -51,7 +52,7 @@ differed — a true minimality certificate within the bound.
 | tail | 1 | 30 | 29 | `000101010110001010101100101011101010110010101100101011011` | conditional ← **1 ι smaller** | 70→67 steps |
 | Z | 3 | 13 | 13 | `0010101011001010110101011` | proven | 32→32 steps |
 | Z2 | 4 | 22 | 22 | `0010101011001010110010101011001010110101011` | conditional | 54→54 steps |
-| Phi | 4 | 26 | 26 | `000010101011010101011100101010101100101011010101011` | conditional | 144→103 steps (≠ minimal form) |
+| Phi | 4 | 26 | 26 | `000010101011010101011100101011010001010101110101011` | conditional | 144→103 steps (≠ minimal form) |
 
 Birds not listed found no equal within the bound (`not-found-within-bound`) — their
 current encodings may still be reducible at deeper bounds.
@@ -62,6 +63,6 @@ current encodings may still be reducible at deeper bounds.
 
 ## Certification
 
-- 43 bird claims re-proven in TypeScript at declared arity.
+- 44 bird claims re-proven in TypeScript at declared arity.
 - 0/0 reducer-parity samples byte-identical (Rust structKey ↔ TS structKey).
 - **ALL CHECKS PASSED.**
