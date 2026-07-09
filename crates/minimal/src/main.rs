@@ -169,8 +169,17 @@ impl Arena {
         }
     }
     /// Persistent intern — serial phases only (enumeration, DP composition, decode).
+    /// APP nodes append WITHOUT dedup (merge-time pairs are unique; the map was ~30B/node
+    /// of pure overhead — its one real user was scratch-reduction reuse, now foregone).
+    /// decode_bits paths may duplicate small shared subtrees: wasted nodes, not wrong ones.
     fn intern(&mut self, tag: u8, a: u32, b: u32) -> u32 {
         let key = pack(tag, a, b);
+        if tag == TAG_APP {
+            let id = self.p_nodes.len() as u32;
+            assert!(id < SCRATCH_BASE, "persistent arena exceeded the 2^30 id space");
+            self.p_nodes.push(key);
+            return id;
+        }
         if let Some(&id) = self.p_dedup.get(&key) {
             return id;
         }
@@ -680,6 +689,12 @@ fn encode_bits(arena: &Arena, t: u32) -> String {
     out
 }
 
+/// encode app(f,x) WITHOUT interning a node — the fastest/FPC tracking paths were
+/// minting rep-unreachable persistent apps just to stringify them.
+fn encode_bits_pair(arena: &Arena, f: u32, x: u32) -> String {
+    format!("0{}{}", encode_bits(arena, f), encode_bits(arena, x))
+}
+
 fn iota_count(arena: &Arena, t: u32) -> u32 {
     let mut c = 0;
     let mut stack = vec![t];
@@ -1019,17 +1034,25 @@ fn main() {
             }
             (h1, h2)
         };
+        // 8 bytes/rep (was ~24): term + u16 size + flag bits; the rare bird-relevant
+        // vectors live in a side map keyed by rep index.
+        #[derive(Clone, Copy)]
         struct Rep {
             term: u32,
-            size: u32,
-            classed: bool,          // resolved signature (vs opaque cap-out)
-            composable: bool,       // opaque reps: only the first of each capped-prefix class composes
-            // The sig vector is RETAINED only for classes whose suffix matches some Zoo bird —
-            // the only post-insert consumer is bird matching, and 99.99%+ of classes never
-            // match, so dropping their vectors is the memory that lets deep hunts fit
-            // (145B -> ~24B per rep at 40-iota's 168M classes).
-            vector: Option<Box<SigVec>>,
+            size: u16,
+            flags: u8, // bit0 = classed (resolved signature), bit1 = composable
         }
+        impl Rep {
+            #[inline]
+            fn classed(&self) -> bool {
+                self.flags & 1 != 0
+            }
+            #[inline]
+            fn composable(&self) -> bool {
+                self.flags & 2 != 0
+            }
+        }
+        let mut rep_vectors: FastMap<u32, Box<SigVec>> = FastMap::default();
         let mut classes_set = U128Set::new(); // key-only EXACT quotient membership (no Bloom by decision: covered means covered)
         let mut reps: Vec<Rep> = Vec::new();
         let mut reps_by_size: Vec<Vec<usize>> = vec![Vec::new(); max_iotas + 1];
@@ -1069,7 +1092,10 @@ fn main() {
         let ikey = fold_key(iv.slice());
         let irel = mark_relevant(&iv, ikey, &mut relevant);
         classes_set.insert(ikey);
-        reps.push(Rep { term: iota_id, size: 1, classed: true, composable: true, vector: irel.then(|| Box::new(iv)) });
+        if irel {
+            rep_vectors.insert(reps.len() as u32, Box::new(iv));
+        }
+        reps.push(Rep { term: iota_id, size: 1, flags: 3 });
         reps_by_size[1].push(0);
         let mut pair_count: u64 = 0;
         let mut fpc_finds: Vec<(u32, String, u64)> = Vec::new(); // (iotas, bits, close-steps)
@@ -1094,7 +1120,7 @@ fn main() {
                     let j = n - st_i;
                     while st_fi < reps_by_size[st_i].len() {
                         let fr_idx = reps_by_size[st_i][st_fi];
-                        let head_ok = { let fr = &reps[fr_idx]; fr.classed || (dp_opaque_fn && fr.composable) };
+                        let head_ok = { let fr = &reps[fr_idx]; fr.classed() || (dp_opaque_fn && fr.composable()) };
                         if !head_ok {
                             st_fi += 1;
                             st_xi = 0;
@@ -1104,7 +1130,7 @@ fn main() {
                         while st_xi < reps_by_size[j].len() {
                             let xr_idx = reps_by_size[j][st_xi];
                             st_xi += 1;
-                            if !reps[xr_idx].composable {
+                            if !reps[xr_idx].composable() {
                                 continue;
                             }
                             win_buf.push((f, reps[xr_idx].term));
@@ -1201,8 +1227,11 @@ fn main() {
                         if classes_set.insert(key) {
                             let t = arena.app(cf, cx); // interned ONLY for winners
                             let rel = mark_relevant(&v, key, &mut relevant);
+                            if rel {
+                                rep_vectors.insert(reps.len() as u32, Box::new(v));
+                            }
                             reps_by_size[n].push(reps.len());
-                            reps.push(Rep { term: t, size: n as u32, classed: true, composable: true, vector: rel.then(|| Box::new(v)) });
+                            reps.push(Rep { term: t, size: n as u16, flags: 3 });
                         }
                         if let Some(hits) = relevant.get(&key) {
                             for &bi in hits.clone().iter() {
@@ -1224,8 +1253,7 @@ fn main() {
                                         Some((bs, bsz, _)) => st < *bs || (st == *bs && (n as u32) < *bsz),
                                     };
                                     if better {
-                                        let t2 = arena.app(cf, cx);
-                                        best_fast[bi as usize] = Some((st, n as u32, encode_bits(&arena, t2)));
+                                        best_fast[bi as usize] = Some((st, n as u32, encode_bits_pair(&arena, cf, cx)));
                                     }
                                 }
                             }
@@ -1233,9 +1261,10 @@ fn main() {
                     }
                     SigRes::Capped(prefix) => {
                         if dp_fixpoint {
-                            let tt = arena.app(cf, cx);
+                            arena.s_clear();
+                            let tt = { let f2 = cf; let x2 = cx; scratch_intern(&arena.p_dedup, &mut arena.s_nodes, &mut arena.s_dedup, TAG_APP, f2, x2) };
                             if let Some(cs) = head_trace_fpc(&mut arena, tt, 500, &mut bufs) {
-                                fpc_finds.push((n as u32, encode_bits(&arena, tt), cs));
+                                fpc_finds.push((n as u32, encode_bits_pair(&arena, cf, cx), cs));
                             }
                         }
                         // opaque rep: always a frontier blocker; composes (arg side) only if
@@ -1248,7 +1277,7 @@ fn main() {
                         }
                         let t = arena.app(cf, cx); // blockers/delegates still need real terms
                         reps_by_size[n].push(reps.len());
-                        reps.push(Rep { term: t, size: n as u32, classed: false, composable: fresh, vector: None });
+                        reps.push(Rep { term: t, size: n as u16, flags: if fresh { 2 } else { 0 } });
                         capped_count += 1;
                     }
                 }
@@ -1260,7 +1289,7 @@ fn main() {
             }
                 merge_ms += t_merge0.elapsed().as_millis();
             }
-            let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri].classed).count();
+            let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri].classed()).count();
             eprintln!(
                 "  size {n}: {} cands → +{} classes, +{} opaque ({} total reps) · par {}ms merge {}ms",
                 layer_cands,
@@ -1307,10 +1336,10 @@ fn main() {
             let ceiling: u32 = birds.iter().map(|b| (b.bits.matches('1').count()) as u32).max().unwrap_or(u32::MAX);
             let jobs: Vec<(u32, u8)> = reps
                 .iter()
-                .filter(|r| !r.classed && r.size <= ceiling)
+                .filter(|r| !r.classed() && (r.size as u32) <= ceiling)
                 .flat_map(|r| arities.iter().map(move |&a| (r.term, a as u8)))
                 .collect();
-            eprintln!("  esc: {} jobs (opaque ≤ ceiling {ceiling}ι; {} opaque total)", jobs.len(), reps.iter().filter(|r| !r.classed).count());
+            eprintln!("  esc: {} jobs (opaque ≤ ceiling {ceiling}ι; {} opaque total)", jobs.len(), reps.iter().filter(|r| !r.classed()).count());
             let tier1 = Caps { steps: steps_cap.saturating_mul(10), nodes: nodes_cap.saturating_mul(10) };
             let mut table: FastMap<(u32, u8), Option<(u64, u64)>> = FastMap::default();
             if jobs.len() < 32 {
@@ -1398,13 +1427,12 @@ fn main() {
                 // SUFFIX. Multiple classes can match (they differ only below declared
                 // arity); the winner is the smallest (size, bits) rep among them.
                 let mut best: Option<(u32, String, u32)> = None;
-                for r in reps.iter() {
-                    if let Some(rv) = &r.vector {
-                        if rv.as_ref().slice()[b.arity..] == bslice[b.arity..] {
-                            let cand = (r.size, encode_bits(&arena, r.term), r.term);
-                            if best.as_ref().map(|w| (cand.0, &cand.1) < (w.0, &w.1)).unwrap_or(true) {
-                                best = Some(cand);
-                            }
+                for (&ri, rv) in rep_vectors.iter() {
+                    if rv.as_ref().slice()[b.arity..] == bslice[b.arity..] {
+                        let r = &reps[ri as usize];
+                        let cand = (r.size as u32, encode_bits(&arena, r.term), r.term);
+                        if best.as_ref().map(|w| (cand.0, &cand.1) < (w.0, &w.1)).unwrap_or(true) {
+                            best = Some(cand);
                         }
                     }
                 }
@@ -1427,10 +1455,10 @@ fn main() {
                         let target = signature_vars(&mut arena, term, b.arity, &esc_caps, true, &mut bufs);
                         let mut winner: (u32, String, u32) = (rsize, rbits, rterm);
                         for ci in 0..reps.len() {
-                            if reps[ci].classed {
+                            if reps[ci].classed() {
                                 continue;
                             }
-                            let csize = reps[ci].size;
+                            let csize = reps[ci].size as u32;
                             let cterm = reps[ci].term;
                             if csize > winner.0 {
                                 continue;
@@ -1512,7 +1540,7 @@ fn main() {
         let mut census: Vec<(usize, usize)> = Vec::new();
         // deep runs (--dp-slim): census/samples add little and the dump gets huge
         for n in 1..=(if dp_slim { 0 } else { max_iotas }) {
-            let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri].classed).count();
+            let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri].classed()).count();
             if newc > 0 {
                 census.push((n, newc));
             }
@@ -1520,7 +1548,7 @@ fn main() {
         let mut samples: Vec<(String, String)> = Vec::new();
         let sample_idx: Vec<usize> = if dp_slim { Vec::new() } else { (0..reps.len()).step_by(1 + reps.len() / 300).collect() };
         for ri in sample_idx {
-            if !reps[ri].classed {
+            if !reps[ri].classed() {
                 continue;
             }
             if let Some(nf) = nf_string(&mut arena, reps[ri].term, 5, &caps, &mut bufs) {
