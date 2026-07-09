@@ -29,7 +29,7 @@ labeled "modulo bounded-arity congruence + composition heuristics" beyond.
 ```sh
 ./pgo.sh                                          # ~20% faster binary (do this first)
 B=target/release/minimal-forms
-$B --dp --dp-arity 8 --dp-slim --dp-gate 20000000 --max-iotas 32 --out /tmp/deep.json
+$B --hunt 42 --out /tmp/deep.json   # smallest + fastest + fixpoint, 16 workers, tuned defaults
 cp /tmp/deep.json spec/minimal-forms.json && npx tsx scripts/certify-minimal.ts   # TS re-proof
 npm run minimal-forms                              # restore canon before committing
 ```
@@ -51,7 +51,7 @@ Knobs:
   `--dp-opaque-fn` — re-enable capped-HEAD composition (completeness ↑, cost ↑);
   `--prefilter` — 1-var necessary-condition pass (net loss today; scaffold);
   `--dp-probe BITS` — trace why a witness's class was(n't) reached;
-  `--fastest` — also find each bird's FEWEST-STEPS equivalent (see below).
+  `--hunt N` — the everything hunt (smallest + fastest + fixpoint) with tuned defaults.
 
 What deeper/bigger buys, and what it can't: a deeper bound only adds LARGER candidates
 (finds floors not yet reached); smaller-than-known winners can only come from bigger
