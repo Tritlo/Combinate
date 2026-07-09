@@ -785,117 +785,120 @@ fn i_norm<A: Red>(arena: &mut A, t: u32, memo: &mut FastMap<u32, u32>) -> u32 {
     out
 }
 
+fn term_str<A: Red>(arena: &A, t: u32, cap: usize) -> String {
+    fn go<A: Red>(arena: &A, t: u32, out: &mut String, cap: usize) {
+        if out.len() > cap { return; }
+        let n = arena.nd(t);
+        match n.tag {
+            TAG_APP => { out.push('('); go(arena, n.a, out, cap); out.push(' '); go(arena, n.b, out, cap); out.push(')'); }
+            TAG_IOTA => out.push('i'),
+            TAG_S => out.push('S'),
+            TAG_K => out.push('K'),
+            TAG_I => out.push('I'),
+            TAG_FREE => out.push('f'),
+            _ => out.push('?'),
+        }
+    }
+    let mut o = String::new();
+    go(arena, t, &mut o, cap);
+    o
+}
+
 fn head_trace_fpc<A: Red>(arena: &mut A, t: u32, budget: u64, bufs: &mut ReduceBufs) -> Option<u64> {
+    // Fixpoint detector v2: the BÖHM-PREFIX test. A fixpoint combinator's Böhm tree is
+    // f(f(f(...))), and Curry-style SK cycles are quasi-periodic (terms grow each round,
+    // so literal-trace recurrence — v1 — never fires; measured on Y-54). Head-reduce to
+    // f·X, descend into X, demand f again; DEPTH nested f-heads = the certificate,
+    // honestly labeled "Böhm prefix f^DEPTH" (strong evidence, not a totality proof;
+    // the TS side can verify deeper).
+    const DEPTH: u32 = 5;
+    let dbg = std::env::var("FPC_TRACE").is_ok();
     arena.s_clear();
     bufs.hmemo.clear();
     bufs.nf_cache.clear();
     let f = arena.mk_leaf(TAG_FREE, 0);
     let mut cur = arena.mk_app(t, f);
-    let mut trace: FastMap<u32, ()> = FastMap::default();
-    let mut imemo: FastMap<u32, u32> = FastMap::default();
+    let mut steps_left = budget;
+    let mut total = 0u64;
     let spine = &mut bufs.spine;
-    for step in 0..budget {
-        let cn0 = i_norm(arena, cur, &mut imemo);
-        trace.insert(cn0, ());
-        // one leftmost head contraction on `cur`
-        spine.clear();
-        let mut h = cur;
+    for depth in 0..DEPTH {
+        // head-reduce `cur` until it is literally f · X (or stuck/budget out)
         loop {
-            let n = arena.nd(h);
-            if n.tag == TAG_APP {
-                spine.push(n.b);
-                h = n.a;
-            } else {
+            if steps_left == 0 {
+                return None;
+            }
+            let cn = arena.nd(cur);
+            if cn.tag == TAG_APP && cn.a == f {
+                if dbg {
+                    eprintln!("  Böhm level {} reached after {} steps", depth + 1, total);
+                }
+                cur = cn.b; // descend into the argument
                 break;
             }
-        }
-        let n = arena.nd(h);
-        let argc = spine.len();
-        let contracted = match n.tag {
-            TAG_IOTA if argc >= 1 => {
-                let x = spine.pop().unwrap();
-                let sk = arena.mk_leaf(TAG_S, 0);
-                let kk = arena.mk_leaf(TAG_K, 0);
-                spine.push(kk);
-                spine.push(sk);
-                h = x;
-                true
-            }
-            TAG_I if argc >= 1 => {
-                h = spine.pop().unwrap();
-                true
-            }
-            TAG_K if argc >= 2 => {
-                let x = spine.pop().unwrap();
-                spine.pop();
-                h = x;
-                true
-            }
-            TAG_S if argc >= 3 => {
-                let a1 = spine.pop().unwrap();
-                let a2 = spine.pop().unwrap();
-                let a3 = spine.pop().unwrap();
-                let gx = arena.mk(TAG_APP, a2, a3);
-                spine.push(gx);
-                spine.push(a3);
-                h = a1;
-                true
-            }
-            _ => return None, // stuck head (normal form or var-headed): no cycle
-        };
-        let _ = contracted;
-        // rebuild the whole term
-        let mut c = h;
-        while let Some(a) = spine.pop() {
-            c = arena.mk(TAG_APP, c, a);
-        }
-        cur = c;
-        // the pattern: cur = f · R with R already seen
-        let cur_in = i_norm(arena, cur, &mut imemo);
-        let cn = arena.nd(cur_in);
-        if cn.tag == TAG_APP && cn.a == f {
-            // widening (Codex Q2): X may be a VARIANT of an earlier reduct — probe X's own
-            // head reducts (bounded) against the trace before giving up on this shape
-            let mut x = cn.b;
-            let mut sp: Vec<u32> = Vec::new();
-            for _ in 0..64 {
-                let xn = i_norm(arena, x, &mut imemo);
-                if trace.contains_key(&xn) {
-                    return Some(step + 1);
-                }
-                sp.clear();
-                let mut h = x;
-                loop {
-                    let n = arena.nd(h);
-                    if n.tag == TAG_APP { sp.push(n.b); h = n.a; } else { break; }
-                }
+            // one leftmost head contraction
+            spine.clear();
+            let mut h = cur;
+            loop {
                 let n = arena.nd(h);
-                let argc = sp.len();
-                let ok = match n.tag {
-                    TAG_IOTA if argc >= 1 => { let a1 = sp.pop().unwrap(); let sk = arena.mk_leaf(TAG_S,0); let kk = arena.mk_leaf(TAG_K,0); sp.push(kk); sp.push(sk); h = a1; true }
-                    TAG_I if argc >= 1 => { h = sp.pop().unwrap(); true }
-                    TAG_K if argc >= 2 => { let a1 = sp.pop().unwrap(); sp.pop(); h = a1; true }
-                    TAG_S if argc >= 3 => { let a1 = sp.pop().unwrap(); let a2 = sp.pop().unwrap(); let a3 = sp.pop().unwrap(); let gx = arena.mk(TAG_APP, a2, a3); sp.push(gx); sp.push(a3); h = a1; true }
-                    _ => false,
-                };
-                if !ok { break; }
-                let mut c = h;
-                while let Some(a1) = sp.pop() { c = arena.mk(TAG_APP, c, a1); }
-                x = c;
+                if n.tag == TAG_APP {
+                    spine.push(n.b);
+                    h = n.a;
+                } else {
+                    break;
+                }
             }
-        }
-        if arena.s_len() > 500_000 {
-            return None;
+            let n = arena.nd(h);
+            let argc = spine.len();
+            let ok = match n.tag {
+                TAG_IOTA if argc >= 1 => {
+                    let x = spine.pop().unwrap();
+                    let sk = arena.mk_leaf(TAG_S, 0);
+                    let kk = arena.mk_leaf(TAG_K, 0);
+                    spine.push(kk);
+                    spine.push(sk);
+                    h = x;
+                    true
+                }
+                TAG_I if argc >= 1 => {
+                    h = spine.pop().unwrap();
+                    true
+                }
+                TAG_K if argc >= 2 => {
+                    let x = spine.pop().unwrap();
+                    spine.pop();
+                    h = x;
+                    true
+                }
+                TAG_S if argc >= 3 => {
+                    let a1 = spine.pop().unwrap();
+                    let a2 = spine.pop().unwrap();
+                    let a3 = spine.pop().unwrap();
+                    let gx = arena.mk(TAG_APP, a2, a3);
+                    spine.push(gx);
+                    spine.push(a3);
+                    h = a1;
+                    true
+                }
+                _ => false, // stuck head that isn't f: not an fpc shape
+            };
+            if !ok {
+                return None;
+            }
+            let mut c = h;
+            while let Some(a1) = spine.pop() {
+                c = arena.mk(TAG_APP, c, a1);
+            }
+            cur = c;
+            steps_left -= 1;
+            total += 1;
+            if arena.s_len() > 500_000 {
+                return None;
+            }
         }
     }
-    None
+    Some(total)
 }
 
-/// Signature vector at arities 0..=dp_a — the DP's class identity. None if any arity caps.
-/// INCREMENTAL by Church–Rosser: NF(t·v0..vk) = NF(NF(t·v0..v(k-1)) · vk), so each arity
-/// pays only its marginal reduction instead of re-reducing the whole applied term (the
-/// naive loop re-did ~13× the work). Scratch is cleared once per vector, not per arity —
-/// the running NF lives there; each arity gets a fresh marginal step/node budget.
 fn dp_sigvec<A: Red>(arena: &mut A, t: u32, caps: &Caps, dp_a: usize, bufs: &mut ReduceBufs) -> SigRes {
     dp_sigvec_headarg(arena, t, None, caps, dp_a, bufs)
 }
