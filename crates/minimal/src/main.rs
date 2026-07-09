@@ -116,6 +116,7 @@ impl Arena {
         }
         debug_assert!(a < SCRATCH_BASE && b < SCRATCH_BASE, "persistent node referencing scratch");
         let id = self.p_nodes.len() as u32;
+        assert!(id < SCRATCH_BASE, "persistent arena exceeded the 2^29 id space — raise SCRATCH_BASE encoding before hunting deeper");
         self.p_nodes.push(key);
         self.p_dedup.insert(key, id);
         id
