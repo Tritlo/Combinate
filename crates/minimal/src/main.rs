@@ -665,6 +665,86 @@ fn direct_steps<A: Red>(arena: &mut A, head: u32, arg: Option<u32>, arity: usize
     }
 }
 
+/// Fixpoint-property test (the Y hunt): HEAD-reduce t·f recording every whole-term
+/// reduct id; success iff some reduct is literally app(f, R) with R an earlier reduct —
+/// then t·f =β f·(t·f) by congruence, a sound machine-checkable certificate (Codex-
+/// verified; covers Curry-style and Turing-style FPCs; misses equation shapes needing
+/// non-head steps — finds are labeled "head-cycle certificate").
+fn head_trace_fpc<A: Red>(arena: &mut A, t: u32, budget: u64, bufs: &mut ReduceBufs) -> Option<u64> {
+    arena.s_clear();
+    bufs.hmemo.clear();
+    bufs.nf_cache.clear();
+    let f = arena.mk_leaf(TAG_FREE, 0);
+    let mut cur = arena.mk_app(t, f);
+    let mut trace: FastMap<u32, ()> = FastMap::default();
+    let spine = &mut bufs.spine;
+    for step in 0..budget {
+        trace.insert(cur, ());
+        // one leftmost head contraction on `cur`
+        spine.clear();
+        let mut h = cur;
+        loop {
+            let n = arena.nd(h);
+            if n.tag == TAG_APP {
+                spine.push(n.b);
+                h = n.a;
+            } else {
+                break;
+            }
+        }
+        let n = arena.nd(h);
+        let argc = spine.len();
+        let contracted = match n.tag {
+            TAG_IOTA if argc >= 1 => {
+                let x = spine.pop().unwrap();
+                let sk = arena.mk_leaf(TAG_S, 0);
+                let kk = arena.mk_leaf(TAG_K, 0);
+                spine.push(kk);
+                spine.push(sk);
+                h = x;
+                true
+            }
+            TAG_I if argc >= 1 => {
+                h = spine.pop().unwrap();
+                true
+            }
+            TAG_K if argc >= 2 => {
+                let x = spine.pop().unwrap();
+                spine.pop();
+                h = x;
+                true
+            }
+            TAG_S if argc >= 3 => {
+                let a1 = spine.pop().unwrap();
+                let a2 = spine.pop().unwrap();
+                let a3 = spine.pop().unwrap();
+                let gx = arena.mk(TAG_APP, a2, a3);
+                spine.push(gx);
+                spine.push(a3);
+                h = a1;
+                true
+            }
+            _ => return None, // stuck head (normal form or var-headed): no cycle
+        };
+        let _ = contracted;
+        // rebuild the whole term
+        let mut c = h;
+        while let Some(a) = spine.pop() {
+            c = arena.mk(TAG_APP, c, a);
+        }
+        cur = c;
+        // the pattern: cur = f · R with R already seen
+        let cn = arena.nd(cur);
+        if cn.tag == TAG_APP && cn.a == f && trace.contains_key(&cn.b) {
+            return Some(step + 1);
+        }
+        if arena.s_len() > 500_000 {
+            return None;
+        }
+    }
+    None
+}
+
 /// Signature vector at arities 0..=dp_a — the DP's class identity. None if any arity caps.
 /// INCREMENTAL by Church–Rosser: NF(t·v0..vk) = NF(NF(t·v0..v(k-1)) · vk), so each arity
 /// pays only its marginal reduction instead of re-reducing the whole applied term (the
@@ -735,6 +815,7 @@ fn main() {
     let mut dp_gate: usize = 10_000; // rep-count stop gate for --dp (guards runaway class growth)
     let mut worker_override: Option<usize> = None; // --workers N (default 16: leave cores for the system)
     let mut dp_fastest = true; // fewest-steps hunt per bird — always on in DP (branch-and-bound makes it ~free); --no-fastest to skip
+    let mut dp_fixpoint = false; // --fixpoint: hunt fixpoint combinators among divergent candidates (head-cycle certificates)
     let mut dp_slim = false; // --dp-slim: skip class census + samples in the JSON (deep runs; the dump gets fat past ~50k classes)
     let mut dp_opaque_fn = false; // --dp-opaque-fn re-enables capped singletons as HEADS; default skips them (leftmost-outermost does the head's work first, so a capped head stays capped; the arg-side rescue is kept). Validated 0-mismatch vs brute at 17ι.
     let mut esc_mult: u64 = 100; // escalated-cap multiplier for frontier cap-outs (raise to chase down `conditional` statuses)
@@ -755,6 +836,8 @@ fn main() {
             "--dp-no-opaque-fn" => dp_opaque_fn = false, // legacy alias (now the default)
             "--dp-opaque-fn" => dp_opaque_fn = true,
             "--dp-slim" => dp_slim = true,
+            "--fixpoint" => dp_fixpoint = true,
+            "--fpc-probe" => { let bits = args.next().unwrap(); let mut arena = Arena::new(); let mut bufs = ReduceBufs::default(); let t = decode_bits(&mut arena, &bits).expect("bad bits"); match head_trace_fpc(&mut arena, t, 2000, &mut bufs) { Some(n) => println!("FPC: closes in {n} head steps"), None => println!("no head-cycle within budget") } return; }
             "--fastest" => dp_fastest = true, // default; kept for compat
             "--no-fastest" => dp_fastest = false,
             "--smallest" => {
@@ -875,6 +958,7 @@ fn main() {
         reps.push(Rep { term: iota_id, size: 1, classed: true, composable: true, vector: irel.then(|| Box::new(iv)) });
         reps_by_size[1].push(0);
         let mut pair_count: u64 = 0;
+        let mut fpc_finds: Vec<(u32, String, u64)> = Vec::new(); // (iotas, bits, close-steps)
         let mut capped_count: usize = 0;
         let mut opaque_seen: FastMap<(u64, u64), ()> = FastMap::default();
 
@@ -1016,6 +1100,12 @@ fn main() {
                         }
                     }
                     SigRes::Capped(prefix) => {
+                        if dp_fixpoint {
+                            let tt = arena.app(cf, cx);
+                            if let Some(cs) = head_trace_fpc(&mut arena, tt, 500, &mut bufs) {
+                                fpc_finds.push((n as u32, encode_bits(&arena, tt), cs));
+                            }
+                        }
                         // opaque rep: always a frontier blocker; composes (arg side) only if
                         // its capped-prefix class is new — same-prefix divergers behave
                         // identically on every observable arity, so one delegate suffices
@@ -1364,6 +1454,13 @@ fn main() {
         }
         j.push_str("  ]\n}\n");
         std::fs::write(&out_path, &j).expect("write output");
+        if dp_fixpoint {
+            fpc_finds.sort();
+            eprintln!("fixpoint finds: {}", fpc_finds.len());
+            for (sz, bits, cs) in fpc_finds.iter().take(10) {
+                eprintln!("  FPC {sz}ι closes in {cs} head steps: {bits}");
+            }
+        }
         println!(
             "minimal-forms[dp]: {pair_count} pairs -> {classed_total} classes + {capped_count} capped reps <={max_iotas}iota · {} birds: {proven} proven-mod-cong, {conditional} conditional, {improved} improved · {}ms -> {out_path}",
             birds.len(),

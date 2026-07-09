@@ -37,6 +37,8 @@ for (const sym of Object.keys(IOTA_STEPS)) check(IOTA_FASTEST[sym] !== undefined
 // -- Encodings: recognition + golf-cost coherence (an adopted code that can't recognize
 //    at game caps silently kills that bird's discovery — the Pred/tail lesson) --
 for (const [sym, code] of Object.entries({ ...IOTA_CODE, ...IOTA_FASTEST })) {
+  const law = CATALOG.find((l) => l.sym === sym);
+  if (law && (law.args !== undefined || /norec/.test(String(law.reference)))) continue; // no-NF family: probe-recognition undefined (Y)
   const rec = recognize(decode(code));
   check(rec?.sym === sym, `${sym}: decode(code) does not recognize at game caps (got ${rec?.sym ?? "nothing"})`);
 }
