@@ -14,10 +14,10 @@ export const IOTA_CODE: Record<string, string> = {
   A: "01011",
   K: "0101011",
   S: "010101011",
-  // Census-born birds (ADR 27): these codes are their PROVEN-minimal ι-forms — certified by
+  // Census-born bird (ADR 27): M3's code is its PROVEN-minimal ι-form — certified by
   // exhaustive enumeration + the TS re-proof (spec/minimal-forms.md), canonical from birth.
-  Pe: "0010101011010101011",
-  O2: "001010101101010101011",
+
+
   M3: "0001010101101010101011011",
   // The great shrinking (ADR 27/28): every entry below is a CERTIFIED-EQUAL form — proven
   // in TypeScript to share the bird's normal form on fresh variables at its declared arity
@@ -343,8 +343,6 @@ export const CATALOG: Law[] = [
   bird("M3", "M3 x = x x x", 1, (v) => app(app(v[0], v[0]), v[0])), // Triple Mockingbird — surfaced by the minimal-forms census (ADR 27): enters the pure-ι universe at exactly 13 ι
   bird("N", "N x y z = z x", 3, (v) => app(v[2], v[0])), // Nuthatch (small arg-shuffling helper)
   bird("O", "O x y = y (x y)", 2, (v) => app(v[1], app(v[0], v[1]))), // Owl
-  bird("O2", "O2 x y = y (x y) y", 2, (v) => app(app(v[1], app(v[0], v[1])), v[1])), // Horned Owl (= B W O — the Owl doubled on its argument); minimal-forms census find
-  bird("Pe", "Pe x y z = y z (x y z)", 3, (v) => app(app(v[1], v[2]), app(app(v[0], v[1]), v[2]))), // Pelican — feeds the pair the whole catch; the census's strongest properly-new attractor (105 of 290k terms ≤13ι land here). Sym "Pe": bare "P" belongs to the linear-basis quest puzzle (the player declares their own P)
   bird("Pred", "Pred (S p) = p;  Pred Z = Z", 1, predBody), // strips one successor (Z stays Z)
   bird("Q", "Q x y z = y (x z)", 3, (v) => app(v[1], app(v[0], v[2]))), // Queer
   bird("Q1", "Q1 x y z = x (z y)", 3, (v) => app(v[0], app(v[2], v[1]))), // Quixotic
@@ -477,8 +475,6 @@ export const META: Record<string, Meta> = {
   M3: { bird: "Triple Mockingbird", blurb: "The Mockingbird sings its argument back once; its triple cousin sings it thrice — x applied to x applied to x. Smullyan names it, but the raw ι-forest almost doesn't: it enters at exactly 13 leaves, reachable by a single tree shape out of the census's 290 thousand — the rarest song in the book.", recipe: "S M I" },
   N: { bird: "Nuthatch", blurb: "A small shuffler: it discards its middle argument and applies the last to the first. Built from a Bluebird, a Kestrel and a Thrush, the Kestrel doing the forgetting. Not a classical bird; it takes the free letter N and the Nuthatch.", recipe: "B K T" },
   O: { bird: "Owl", blurb: "The Owl feeds a value back through a function — a close relative of the Sage, made from a Starling and an Identity bird. Every fixpoint combinator is a fixed point of it, so stacking Owls walks the whole family of recursion-makers. An O-bird for the letter.", recipe: "S I" },
-  O2: { bird: "Horned Owl", blurb: "An Owl that grips with both talons: it makes the Owl's call y (x y), then hands y over once more. It is the Warbler composed onto the Owl — the Owl doubled on its own argument — and it surfaced in the census of every small ι-term, not in any book.", recipe: "B W O" },
-  Pe: { bird: "Pelican", blurb: "The Starling applied to itself — nothing more — yet of all 290 thousand ι-terms up to 13 leaves, more land on this behavior than on any bird the books had named. It scoops the whole catch back into its pouch: the pair y z gets fed the result of the entire triple. Named here, by census right.", recipe: "S S" },
   Q: { bird: "Queer", blurb: "The Queer bird is composition with the order flipped from the Bluebird's: it runs the first function, then pours the result into the second. Built by laying a Cardinal over a Bluebird. 'Queer' for odd — a fitting Q-name for the patriarch of the Quixotic, Quizzical, Quirky and Quacky birds.", recipe: "C B" },
   Q1: { bird: "Quixotic", blurb: "One of the Queer bird's clan of reordered composers: it hands its second argument to the third, then runs the first over the result. Like its siblings it springs from the Queer bird; Smullyan gave each a playful Q-word — this one Quixotic.", recipe: "B (C B T) B" },
   Q2: { bird: "Quizzical", blurb: "A Queer-family composer that lets the second function have the last say, applied to the first argument fed through the third. Another of the Queer bird's cousins, named Quizzical to keep the Q.", recipe: "B (C B) T" },
