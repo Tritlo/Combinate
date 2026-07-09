@@ -1,5 +1,5 @@
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text } from "pixi.js";
-import { CATALOG, countIotas, displayLabel, iotaTreeOf, IOTA_FASTEST, IOTA_FASTEST_BOUND, IOTA_STEPS, type Law, META, PAGES } from "../core/catalog";
+import { CATALOG, countIotas, displayLabel, iotaTreeOf, IOTA_FASTEST, IOTA_FASTEST_BOUND, IOTA_SETTLED, IOTA_STEPS, type Law, META, PAGES } from "../core/catalog";
 import { iota, type Node, type NodeId, decode } from "../core/term";
 import { layoutHTree } from "../core/layout";
 import { theme, currentMode, edgeTierColor, type Mode, MONO, PAPER, INK } from "./theme";
@@ -435,7 +435,9 @@ export class Zoo {
       this.detail.addChild(stats);
       y += stats.height + 10;
       stats.on("pointerover", () => this.showTip(
-        `both forms verified by the ≤ ${IOTA_FASTEST_BOUND}ι hunt (every ι-term up to ${IOTA_FASTEST_BOUND} leaves searched) — a deeper hunt may still improve them.`,
+        IOTA_SETTLED.has(entry.sym)
+          ? `optimal, full stop: any faster or smaller form would fit inside the searched ≤ ${IOTA_FASTEST_BOUND}ι bound (the live-core theorem) — these numbers are final.`
+          : `both forms verified by the ≤ ${IOTA_FASTEST_BOUND}ι hunt (every ι-term up to ${IOTA_FASTEST_BOUND} leaves searched) — a deeper hunt may still improve them.`,
         { x: dx, y: y }
       ));
       stats.on("pointerout", () => this.hideTip());
