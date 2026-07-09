@@ -64,6 +64,12 @@ impl U128Set {
     fn new() -> Self {
         U128Set { slots: vec![0; 1 << 16], len: 0 }
     }
+    /// Presize for `n` keys at 0.8 load — the doubling grow() holds old+new tables
+    /// simultaneously (a 48GB transient at 42-iota scale); presizing makes it flat.
+    fn with_capacity(n: usize) -> Self {
+        let slots = (n * 5 / 4 + 1).next_power_of_two().max(1 << 16);
+        U128Set { slots: vec![0; slots], len: 0 }
+    }
     #[inline]
     fn canon(k: (u64, u64)) -> u128 {
         let v = ((k.0 as u128) << 64) | k.1 as u128;
@@ -273,7 +279,11 @@ impl Red for Arena {
     }
     fn s_clear(&mut self) {
         self.s_nodes.clear();
-        self.s_dedup.clear();
+        if self.s_dedup.capacity() > 1 << 21 {
+            self.s_dedup = FastMap::default(); // one esc-scale candidate shouldn't tax every later one
+        } else {
+            self.s_dedup.clear();
+        }
         self.l_cache = [u32::MAX; 23];
     }
     fn demand(&mut self, d: usize) {
@@ -312,7 +322,11 @@ impl<'a> Red for Worker<'a> {
     }
     fn s_clear(&mut self) {
         self.s_nodes.clear();
-        self.s_dedup.clear();
+        if self.s_dedup.capacity() > 1 << 21 {
+            self.s_dedup = FastMap::default(); // one esc-scale candidate shouldn't tax every later one
+        } else {
+            self.s_dedup.clear();
+        }
         self.l_cache = [u32::MAX; 23];
     }
     fn demand(&mut self, d: usize) {
@@ -1053,9 +1067,9 @@ fn main() {
             }
         }
         let mut rep_vectors: FastMap<u32, Box<SigVec>> = FastMap::default();
-        let mut classes_set = U128Set::new(); // key-only EXACT quotient membership (no Bloom by decision: covered means covered)
+        let mut classes_set = U128Set::with_capacity(dp_gate * 7 / 10); // key-only EXACT quotient (presized: ~58-70% of reps are classed; growth doubling would spike old+new)
         let mut reps: Vec<Rep> = Vec::new();
-        let mut reps_by_size: Vec<Vec<usize>> = vec![Vec::new(); max_iotas + 1];
+        let mut reps_by_size: Vec<Vec<u32>> = vec![Vec::new(); max_iotas + 1];
         // --fastest: bird sig vectors up front; classes whose vector SUFFIX (from the
         // bird's declared arity) matches a bird are "relevant" — every candidate landing
         // in one gets step-counted at that arity, tracking the running minimum.
@@ -1096,7 +1110,7 @@ fn main() {
             rep_vectors.insert(reps.len() as u32, Box::new(iv));
         }
         reps.push(Rep { term: iota_id, size: 1, flags: 3 });
-        reps_by_size[1].push(0);
+        reps_by_size[1].push(0u32);
         let mut pair_count: u64 = 0;
         let mut fpc_finds: Vec<(u32, String, u64)> = Vec::new(); // (iotas, bits, close-steps)
         let mut capped_count: usize = 0;
@@ -1119,7 +1133,7 @@ fn main() {
                 while st_i < n {
                     let j = n - st_i;
                     while st_fi < reps_by_size[st_i].len() {
-                        let fr_idx = reps_by_size[st_i][st_fi];
+                        let fr_idx = reps_by_size[st_i][st_fi] as usize;
                         let head_ok = { let fr = &reps[fr_idx]; fr.classed() || (dp_opaque_fn && fr.composable()) };
                         if !head_ok {
                             st_fi += 1;
@@ -1128,7 +1142,7 @@ fn main() {
                         }
                         let f = reps[fr_idx].term;
                         while st_xi < reps_by_size[j].len() {
-                            let xr_idx = reps_by_size[j][st_xi];
+                            let xr_idx = reps_by_size[j][st_xi] as usize;
                             st_xi += 1;
                             if !reps[xr_idx].composable() {
                                 continue;
@@ -1230,7 +1244,7 @@ fn main() {
                             if rel {
                                 rep_vectors.insert(reps.len() as u32, Box::new(v));
                             }
-                            reps_by_size[n].push(reps.len());
+                            reps_by_size[n].push(reps.len() as u32);
                             reps.push(Rep { term: t, size: n as u16, flags: 3 });
                         }
                         if let Some(hits) = relevant.get(&key) {
@@ -1276,7 +1290,7 @@ fn main() {
                             opaque_seen.insert(pkey, ());
                         }
                         let t = arena.app(cf, cx); // blockers/delegates still need real terms
-                        reps_by_size[n].push(reps.len());
+                        reps_by_size[n].push(reps.len() as u32);
                         reps.push(Rep { term: t, size: n as u16, flags: if fresh { 2 } else { 0 } });
                         capped_count += 1;
                     }
@@ -1289,7 +1303,7 @@ fn main() {
             }
                 merge_ms += t_merge0.elapsed().as_millis();
             }
-            let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri].classed()).count();
+            let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri as usize].classed()).count();
             eprintln!(
                 "  size {n}: {} cands → +{} classes, +{} opaque ({} total reps) · par {}ms merge {}ms",
                 layer_cands,
@@ -1540,7 +1554,7 @@ fn main() {
         let mut census: Vec<(usize, usize)> = Vec::new();
         // deep runs (--dp-slim): census/samples add little and the dump gets huge
         for n in 1..=(if dp_slim { 0 } else { max_iotas }) {
-            let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri].classed()).count();
+            let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri as usize].classed()).count();
             if newc > 0 {
                 census.push((n, newc));
             }
