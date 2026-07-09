@@ -53,6 +53,57 @@ impl Hasher for Mix64 {
 }
 type FastMap<K, V> = HashMap<K, V, BuildHasherDefault<Mix64>>;
 
+/// Open-addressed key-only set for 128-bit class keys — class_of's value side was nearly
+/// dead weight (~24GB as a map at 42ι; ~10GB as this set). 0 is the empty sentinel (real
+/// keys remap 0→1: collision odds are ~2^-128).
+struct U128Set {
+    slots: Vec<u128>,
+    len: usize,
+}
+impl U128Set {
+    fn new() -> Self {
+        U128Set { slots: vec![0; 1 << 16], len: 0 }
+    }
+    #[inline]
+    fn canon(k: (u64, u64)) -> u128 {
+        let v = ((k.0 as u128) << 64) | k.1 as u128;
+        if v == 0 { 1 } else { v }
+    }
+    #[inline]
+    fn insert(&mut self, key: (u64, u64)) -> bool {
+        // returns true if NEW
+        if self.len * 5 >= self.slots.len() * 4 {
+            self.grow();
+        }
+        let k = Self::canon(key);
+        let mask = self.slots.len() - 1;
+        let mut i = (k as u64 as usize).wrapping_mul(0x9E3779B97F4A7C15usize.wrapping_add(0)) & mask;
+        loop {
+            let s = self.slots[i];
+            if s == 0 {
+                self.slots[i] = k;
+                self.len += 1;
+                return true;
+            }
+            if s == k {
+                return false;
+            }
+            i = (i + 1) & mask;
+        }
+    }
+    fn grow(&mut self) {
+        let newlen = self.slots.len() * 2;
+        let old = std::mem::replace(&mut self.slots, vec![0; newlen]);
+        let mask = self.slots.len() - 1;
+        for k in old {
+            if k == 0 { continue; }
+            let mut i = (k as u64 as usize).wrapping_mul(0x9E3779B97F4A7C15usize.wrapping_add(0)) & mask;
+            while self.slots[i] != 0 { i = (i + 1) & mask; }
+            self.slots[i] = k;
+        }
+    }
+}
+
 // ---------------- term arena: persistent (enumerated terms) + scratch (reduction) ----------------
 
 const TAG_IOTA: u8 = 0;
@@ -63,8 +114,8 @@ const TAG_FREE: u8 = 4; // a = var index
 const TAG_APP: u8 = 5; // a = fn, b = arg
 
 /// Ids ≥ SCRATCH_BASE live in the scratch arena (cleared per signature); below it,
-/// the persistent arena. Both spaces stay under 2^29 so packed dedup keys fit 30 bits.
-const SCRATCH_BASE: u32 = 1 << 29;
+/// the persistent arena. App nodes pack as flag+31+31 bits, so ids may reach 2^31.
+const SCRATCH_BASE: u32 = 1 << 30;
 
 #[derive(Clone, Copy)]
 struct Node {
@@ -78,11 +129,20 @@ struct Node {
 /// hottest array in the program, and mk() stores the word it already computed.
 #[inline(always)]
 const fn pack(tag: u8, a: u32, b: u32) -> u64 {
-    ((tag as u64) << 60) | ((a as u64) << 30) | b as u64
+    // apps: bit63 | a<<31 | b (31-bit ids — ceiling 2^31); leaves: tag<<32 | payload
+    if tag == TAG_APP {
+        (1u64 << 63) | ((a as u64) << 31) | b as u64
+    } else {
+        ((tag as u64) << 32) | a as u64
+    }
 }
 #[inline(always)]
 const fn unpack(w: u64) -> Node {
-    Node { tag: (w >> 60) as u8, a: ((w >> 30) & 0x3FFF_FFFF) as u32, b: (w & 0x3FFF_FFFF) as u32 }
+    if w >> 63 == 1 {
+        Node { tag: TAG_APP, a: ((w >> 31) & 0x7FFF_FFFF) as u32, b: (w & 0x7FFF_FFFF) as u32 }
+    } else {
+        Node { tag: (w >> 32) as u8, a: (w & 0xFFFF_FFFF) as u32, b: 0 }
+    }
 }
 
 struct Arena {
@@ -116,7 +176,7 @@ impl Arena {
         }
         debug_assert!(a < SCRATCH_BASE && b < SCRATCH_BASE, "persistent node referencing scratch");
         let id = self.p_nodes.len() as u32;
-        assert!(id < SCRATCH_BASE, "persistent arena exceeded the 2^29 id space — raise SCRATCH_BASE encoding before hunting deeper");
+        assert!(id < SCRATCH_BASE, "persistent arena exceeded the 2^30 id space");
         self.p_nodes.push(key);
         self.p_dedup.insert(key, id);
         id
@@ -970,7 +1030,7 @@ fn main() {
             // (145B -> ~24B per rep at 40-iota's 168M classes).
             vector: Option<Box<SigVec>>,
         }
-        let mut class_of: FastMap<(u64, u64), usize> = FastMap::default();
+        let mut classes_set = U128Set::new(); // key-only EXACT quotient membership (no Bloom by decision: covered means covered)
         let mut reps: Vec<Rep> = Vec::new();
         let mut reps_by_size: Vec<Vec<usize>> = vec![Vec::new(); max_iotas + 1];
         // --fastest: bird sig vectors up front; classes whose vector SUFFIX (from the
@@ -1008,7 +1068,7 @@ fn main() {
         };
         let ikey = fold_key(iv.slice());
         let irel = mark_relevant(&iv, ikey, &mut relevant);
-        class_of.insert(ikey, 0);
+        classes_set.insert(ikey);
         reps.push(Rep { term: iota_id, size: 1, classed: true, composable: true, vector: irel.then(|| Box::new(iv)) });
         reps_by_size[1].push(0);
         let mut pair_count: u64 = 0;
@@ -1019,40 +1079,59 @@ fn main() {
         let mut gate_tripped = false;
         let workers = worker_override.unwrap_or_else(|| std::thread::available_parallelism().map(|v| v.get()).unwrap_or(8).min(16));
         'sizes: for n in 2..=max_iotas {
-            // Phase 1 (serial, cheap): collect candidate (head, arg) PAIRS — no interning;
-            // workers compose in scratch, and only merge-time winners touch the arena.
-            let mut cands: Vec<(u32, u32)> = Vec::new();
-            for i in 1..n {
-                let j = n - i;
-                for fi in 0..reps_by_size[i].len() {
-                    let fr = &reps[reps_by_size[i][fi]];
-                    if !fr.classed && (!dp_opaque_fn || !fr.composable) {
-                        continue; // capped head: composition caps too (arg-side rescue still explored)
-                    }
-                    for xi in 0..reps_by_size[j].len() {
-                        let xr = &reps[reps_by_size[j][xi]];
-                        if !xr.composable {
-                            continue; // duplicate capped-prefix opaque: blocker only
-                        }
-                        cands.push((reps[reps_by_size[i][fi]].term, xr.term));
-                    }
-                }
-            }
-            pair_count += cands.len() as u64;
-            let t_build = Instant::now();
-            // WINDOWED layers: the per-candidate results buffer would be ~216B × hundreds of
-            // millions at 38ι+ layers. Process candidates in fixed windows — parallel within a
-            // window, windows sequential in candidate order, so the merge stays deterministic
-            // and peak memory is bounded by the window.
+            // STREAMED windows (memory diet): candidates are generated by a resumable
+            // cursor in exactly the old nested-loop order — the full layer is never
+            // materialized (it alone was ~6GB at the size-42 layer).
             const WINDOW: usize = 8_000_000;
             let mut par_ms = 0u128;
             let mut merge_ms = 0u128;
-            let mut win_start = 0usize;
-            while win_start < cands.len().max(1) {
-                let win = &cands[win_start..cands.len().min(win_start + WINDOW)];
-            // Phase 2 (parallel): signature vectors — persistent arena is immutable here, each
-            // worker owns its scratch. Stride assignment balances the cost gradient across
-            // candidates; results land at their candidate index, so the merge is deterministic.
+            let mut layer_cands = 0u64;
+            let mut win_buf: Vec<(u32, u32)> = Vec::with_capacity(WINDOW);
+            let (mut st_i, mut st_fi, mut st_xi) = (1usize, 0usize, 0usize);
+            'windows: loop {
+                win_buf.clear();
+                while st_i < n {
+                    let j = n - st_i;
+                    while st_fi < reps_by_size[st_i].len() {
+                        let fr_idx = reps_by_size[st_i][st_fi];
+                        let head_ok = { let fr = &reps[fr_idx]; fr.classed || (dp_opaque_fn && fr.composable) };
+                        if !head_ok {
+                            st_fi += 1;
+                            st_xi = 0;
+                            continue;
+                        }
+                        let f = reps[fr_idx].term;
+                        while st_xi < reps_by_size[j].len() {
+                            let xr_idx = reps_by_size[j][st_xi];
+                            st_xi += 1;
+                            if !reps[xr_idx].composable {
+                                continue;
+                            }
+                            win_buf.push((f, reps[xr_idx].term));
+                            if win_buf.len() >= WINDOW {
+                                break;
+                            }
+                        }
+                        if win_buf.len() >= WINDOW {
+                            break;
+                        }
+                        st_fi += 1;
+                        st_xi = 0;
+                    }
+                    if win_buf.len() >= WINDOW {
+                        break;
+                    }
+                    st_i += 1;
+                    st_fi = 0;
+                    st_xi = 0;
+                }
+                if win_buf.is_empty() {
+                    break 'windows;
+                }
+                pair_count += win_buf.len() as u64;
+                layer_cands += win_buf.len() as u64;
+                let t_build = Instant::now();
+                let win: &[(u32, u32)] = &win_buf;
             let mut results: Vec<Option<SigRes>> = vec![None; win.len()];
             if win.len() < 128 {
                 for (ci, &(f, x)) in win.iter().enumerate() {
@@ -1119,10 +1198,9 @@ fn main() {
                 match res.expect("missing worker result") {
                     SigRes::Full(v) => {
                         let key = fold_key(v.slice());
-                        if !class_of.contains_key(&key) {
+                        if classes_set.insert(key) {
                             let t = arena.app(cf, cx); // interned ONLY for winners
                             let rel = mark_relevant(&v, key, &mut relevant);
-                            class_of.insert(key, reps.len());
                             reps_by_size[n].push(reps.len());
                             reps.push(Rep { term: t, size: n as u32, classed: true, composable: true, vector: rel.then(|| Box::new(v)) });
                         }
@@ -1181,15 +1259,11 @@ fn main() {
                 }
             }
                 merge_ms += t_merge0.elapsed().as_millis();
-                win_start += WINDOW;
-                if win.is_empty() {
-                    break;
-                }
             }
             let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri].classed).count();
             eprintln!(
                 "  size {n}: {} cands → +{} classes, +{} opaque ({} total reps) · par {}ms merge {}ms",
-                cands.len(),
+                layer_cands,
                 newc,
                 reps_by_size[n].len() - newc,
                 reps.len(),
@@ -1201,33 +1275,15 @@ fn main() {
         if let Some(bits) = &dp_probe {
             let t = decode_bits(&mut arena, bits).expect("bad probe bits");
             let tkey = match dp_sigvec(&mut arena, t, &caps, dp_a, &mut bufs) { SigRes::Full(v) => Some(fold_key(v.slice())), SigRes::Capped(_) => None };
-            eprintln!("probe {bits}: key={tkey:?} in_classes={}", tkey.map(|k| class_of.contains_key(&k)).unwrap_or(false));
+            let _ = &tkey;
+            eprintln!("probe {bits}: key={tkey:?}");
             let n = arena.node(t);
             if n.tag == TAG_APP {
                 for (side, sub) in [("fn", n.a), ("arg", n.b)] {
                     let sbits = encode_bits(&arena, sub);
                     match dp_sigvec(&mut arena, sub, &caps, dp_a, &mut bufs) {
-                        SigRes::Full(v) => {
-                            let k = fold_key(v.slice());
-                            match class_of.get(&k) {
-                                Some(&ri) => {
-                                    let rb = encode_bits(&arena, reps[ri].term);
-                                    eprintln!("  {side} {sbits}: class rep={rb} (size {})", reps[ri].size);
-                                }
-                                None => eprintln!("  {side} {sbits}: key NOT in classes"),
-                            }
-                        }
+                        SigRes::Full(_) => eprintln!("  {side} {sbits}: resolves"),
                         SigRes::Capped(_) => eprintln!("  {side} {sbits}: sigvec CAPPED"),
-                    }
-                }
-                // compose the reps and compare keys
-                let to_key = |r: SigRes| match r { SigRes::Full(v) => Some(fold_key(v.slice())), SigRes::Capped(_) => None };
-                let (fk, xk) = (to_key(dp_sigvec(&mut arena, n.a, &caps, dp_a, &mut bufs)), to_key(dp_sigvec(&mut arena, n.b, &caps, dp_a, &mut bufs)));
-                if let (Some(fk), Some(xk)) = (fk, xk) {
-                    if let (Some(&fi2), Some(&xi2)) = (class_of.get(&fk), class_of.get(&xk)) {
-                        let composed = arena.app(reps[fi2].term, reps[xi2].term);
-                        let ck = match dp_sigvec(&mut arena, composed, &caps, dp_a, &mut bufs) { SigRes::Full(v) => Some(fold_key(v.slice())), SigRes::Capped(_) => None };
-                        eprintln!("  app(rep_fn, rep_arg) = {}: key={ck:?} same_as_probe={}", encode_bits(&arena, composed), ck == tkey);
                     }
                 }
             }
@@ -1471,7 +1527,7 @@ fn main() {
                 samples.push((encode_bits(&arena, reps[ri].term), nf));
             }
         }
-        let classed_total = reps.iter().filter(|r| r.classed).count();
+        let classed_total = classes_set.len;
         let mut j = String::from("{\n");
         j.push_str(&format!(
             "  \"meta\": {{ \"mode\": \"dp\", \"dp_arity\": {dp_a}, \"max_iotas\": {max_iotas}, \"steps_cap\": {steps_cap}, \"nodes_cap\": {nodes_cap}, \"esc_mult\": {esc_mult}, \"total_terms\": {pair_count}, \"capped_terms\": {capped_count}, \"dp_classes\": {classed_total}, \"max_var_demand\": {}, \"gate_tripped\": {}, \"persistent_nodes\": {} }},\n",
