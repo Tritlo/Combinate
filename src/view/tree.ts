@@ -22,6 +22,10 @@ const HEAVY = 600;
 // reduction stopped / the tree is being inspected (the Expand ι-tree view). Keeps fac-scale playback
 // fast (solid while stepping) without permanently dropping the function/argument dash cue.
 const SETTLE_DASH_MS = 200;
+// Max dashes {@link dashedSegment} will emit for one edge before falling back to a solid line — a
+// backstop against a transient long-edge × tiny-dash blowup during a scale-layout switch. Well above
+// any real dash count on a settled tree, so it never trips in normal drawing.
+const MAX_DASHES = 2000;
 // At/above this node count an H-tree tree reduces through the incremental applyPatch path (retained
 // edge buffer + O(changed) reflow) rather than the full-recompute animateTo. Matches the jump-cut
 // threshold, so any tree big enough to jump-cut also updates incrementally when it is an H-tree.
@@ -1149,6 +1153,14 @@ export function dashedSegment(g: Graphics, ax: number, ay: number, bx: number, b
   const dx = bx - ax;
   const dy = by - ay;
   const len = Math.hypot(dx, dy) || 1;
+  // Guard the dash count: a scale-layout switch can briefly pair a long live edge (nodes still at
+  // their old spread-out positions) with a deep node's near-zero dash size (dash+gap ≈ 0.01px) — the
+  // loop would then emit ~1e5–1e6 sub-segments in one synchronous pass and hang / OOM the tab. Past a
+  // sane ceiling just draw the edge solid; it's imperceptible for the frame or two the mismatch lasts.
+  if (len / (dash + gap) > MAX_DASHES) {
+    g.moveTo(ax, ay).lineTo(bx, by);
+    return;
+  }
   const ux = dx / len;
   const uy = dy / len;
   for (let d = 0; d < len; d += dash + gap) {
