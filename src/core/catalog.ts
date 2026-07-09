@@ -25,7 +25,7 @@ export const IOTA_CODE: Record<string, string> = {
   "Ψ": "00010100101010101101100101010110001010010101010110110101001010101011011000100001010101101100010101011110001010101110101011010101101010010101010110110101001010101011011", // 84ι — recipe composition B (S (B B (C B))) B, gate-verified (was 131ι)
   cons: "0001010010101010110110010100101010101101101010110001010010101010110110010000101010110110001010101111000101010111010101101010110001000010101011011000101010111100010101011101010110101011011", // 94ι — recipe composition B (B K) V (was 96ι)
   G: "010000101010101100010101010110000010101011110100101010101101101010101101110101011", // 41ι — smallest known ≤42ι hunt (was 49ι recipe, 81ι def)
-  Q4: "000100001010101101100010101011110001010101110101011010101100101001010101011011000101010110010101100101010110110101011", // 59ι — recipe composition C (B T) (was 67ι)
+  Q4: "0101001010101011010010101010110010101011010000101010111010101011001010110010101011011", // 43ι — smallest known ≤43ι hunt (was 59ι recipe, 67ι def)
   V: "0001010010101010110110010000101010110110001010101111000101010111010101101010110001000010101011011000101010111100010101011101010110101011011", // 70ι — recipe composition B C (C I) (was 74ι)
   Y: "00010101011001010110001010101101101100010101011000101010110010101101010101101010110010101100010101011011011", // 54ι — Curry's textbook Y, S(K(SII))(S(S(KS)K)(K(SII))); display-only (no NF, never probe-recognized; was 99ι via B M (C B M))
   // The great shrinking (ADR 27/28): every entry below is a CERTIFIED-EQUAL form — proven
@@ -62,11 +62,11 @@ export const IOTA_CODE: Record<string, string> = {
 /** Fewest-STEPS equivalents (the hare to IOTA_CODE's turtle). Minimal ι ≠ minimal steps:
  *  golfed forms can unfold slower (C's 29ι form takes 345 contractions; its 34ι sibling
  *  takes 120). Every entry is TS-certified EQUAL at the declared arity; "fastest" means
- *  fewest-steps KNOWN at the ≤42ι class-DP bound (2026-07-09 hunt, `--hunt 42`) —
+ *  fewest-steps KNOWN at the ≤43ι class-DP bound (2026-07-09 marathon, `--hunt 44` gate-stop) —
  *  a deeper/bigger-budget hunt may still beat these. Gameplay expansion (the expand-all
  *  view, the discovery mask) uses these so unfolds animate snappily; IOTA_CODE stays the
  *  canonical MINIMAL form (golf costs, Barker readouts, the Zoo's default picture). */
-export const IOTA_FASTEST_BOUND = 42;
+export const IOTA_FASTEST_BOUND = 43;
 
 /** Birds whose fastest form runs in ≤ IOTA_FASTEST_BOUND steps: by the live-core theorem
  *  (any term's dead code prunes to a core with iotas ≤ steps, same class, no slower —
