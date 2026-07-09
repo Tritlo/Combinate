@@ -1,7 +1,7 @@
 import { CanvasTextMetrics, Container, Graphics, ParticleContainer, Particle, Rectangle, Text, TextStyle, Texture, type Ticker } from "pixi.js";
 import { type Node, type NodeId, IOTA_ID_SPAN } from "../core/term";
 import { expandDisplay } from "../core/catalog";
-import { type Layout, type LayoutFn, layoutHTreeSubtree } from "../core/layout";
+import { type Layout, type LayoutFn, layoutHTreeSubtree } from "../core/layouts";
 import { type StepPatch } from "../core/reduce";
 import { theme, combinatorColor, combinatorColorForMode, currentMode, glyphOn, edgeTierColor, MONO, monoFontReady, themeForMode, edgeTierColorForMode, type Mode, type Theme } from "./theme";
 import { EdgeBuffer, edgeKey } from "./edgeBuffer";
@@ -916,7 +916,9 @@ export class TreeView {
     }
     // Color = depth TIER (red/black), style = fn solid / arg dashed. A node's parent-edge is the
     // opposite color of its child-edges → you can trace direction even in a dense tree.
-    if (!this.lay.scale) {
+    if (this.lay.edgeStyle === "beam") {
+      this.drawBeams(v); // Mobile: horizontal balance beams + vertical drops, tier-colored
+    } else if (!this.lay.scale) {
       // No per-node scale (top-down/radial): the classic 4 strokes, {arg,fn} × {even,odd}.
       for (const parity of [0, 1]) {
         for (const e of this.edgeList) {
@@ -983,6 +985,28 @@ export class TreeView {
       this.settleDashTimer = window.setTimeout(() => {
         if (!this.container.destroyed) this.drawEdges();
       }, SETTLE_DASH_MS + 20);
+    }
+  }
+
+  /** Mobile ({@link Layout.edgeStyle} `"beam"`): each parent draws a horizontal balance beam at its
+   *  own level spanning its two children, plus a vertical drop to each — a Calder mobile. Batched into
+   *  two tier strokes (even/odd depth), like the straight-edge path, and drawn from live particles so
+   *  it follows the tween. */
+  private drawBeams(v: { minX: number; minY: number; maxX: number; maxY: number } | null): void {
+    for (const parity of [0, 1]) {
+      for (const e of this.edgeList) {
+        if (e.depth % 2 !== parity) continue;
+        const p = e.pv.particle;
+        const l = e.lv.particle;
+        const r = e.rv.particle;
+        if (v && !overlaps(p, l, v) && !overlaps(p, r, v)) continue; // cull only when the whole beam is off-screen
+        const x0 = Math.min(l.x, r.x, p.x);
+        const x1 = Math.max(l.x, r.x, p.x);
+        this.edges.moveTo(x0, p.y).lineTo(x1, p.y); // the balance beam, at the parent's level
+        this.edges.moveTo(l.x, p.y).lineTo(l.x, l.y); // vertical drop to the fn child
+        this.edges.moveTo(r.x, p.y).lineTo(r.x, r.y); // vertical drop to the arg child
+      }
+      this.edges.stroke({ width: 2.5, color: this.edgeTierColor(parity) });
     }
   }
 
