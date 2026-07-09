@@ -124,7 +124,7 @@ const TAG_APP: u8 = 5; // a = fn, b = arg
 
 /// Ids ≥ SCRATCH_BASE live in the scratch arena (cleared per signature); below it,
 /// the persistent arena. App nodes pack as flag+31+31 bits, so ids may reach 2^31.
-const SCRATCH_BASE: u32 = 1 << 30;
+const SCRATCH_BASE: u32 = 3 << 29; // persistent ceiling 1.61B (bound ~44); scratch gets the remaining ~536M of the 31-bit space
 
 #[derive(Clone, Copy)]
 struct Node {
@@ -934,6 +934,40 @@ fn dp_sigvec_headarg<A: Red>(arena: &mut A, head: u32, arg: Option<u32>, caps: &
     SigRes::Full(v)
 }
 
+// ---- state snapshot I/O (marathon resume): everything is flat POD arrays after the
+// diet, so a snapshot is a handful of length-prefixed slice writes. Little-endian only.
+fn w_u64(f: &mut std::io::BufWriter<std::fs::File>, v: u64) {
+    use std::io::Write;
+    f.write_all(&v.to_le_bytes()).unwrap();
+}
+fn w_slice<T: Copy>(f: &mut std::io::BufWriter<std::fs::File>, v: &[T]) {
+    use std::io::Write;
+    w_u64(f, v.len() as u64);
+    let bytes = unsafe { std::slice::from_raw_parts(v.as_ptr() as *const u8, std::mem::size_of_val(v)) };
+    f.write_all(bytes).unwrap();
+}
+fn r_u64(f: &mut std::io::BufReader<std::fs::File>) -> u64 {
+    use std::io::Read;
+    let mut b = [0u8; 8];
+    f.read_exact(&mut b).unwrap();
+    u64::from_le_bytes(b)
+}
+fn r_vec<T: Copy + Default>(f: &mut std::io::BufReader<std::fs::File>) -> Vec<T> {
+    use std::io::Read;
+    let n = r_u64(f) as usize;
+    let mut v = vec![T::default(); n];
+    let bytes = unsafe { std::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut u8, n * std::mem::size_of::<T>()) };
+    f.read_exact(bytes).unwrap();
+    v
+}
+fn birds_hash() -> u64 {
+    let mut h = 0xcbf29ce484222325u64;
+    for b in include_str!("birds.txt").bytes() {
+        h = (h ^ b as u64).wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
 fn jstr(s: &str) -> String {
     let mut o = String::from("\"");
     for c in s.chars() {
@@ -963,7 +997,9 @@ fn main() {
     let mut dp_fastest = true; // fewest-steps hunt per bird — always on in DP (branch-and-bound makes it ~free); --no-fastest to skip
     let mut dp_fixpoint = false; // --fixpoint: hunt fixpoint combinators among divergent candidates (head-cycle certificates)
     let mut dp_slim = false;
-    let mut dp_checkpoint = false; // per-layer findings snapshots (marathon hunts keep every completed layer) // --dp-slim: skip class census + samples in the JSON (deep runs; the dump gets fat past ~50k classes)
+    let mut dp_checkpoint = false;
+    let mut dp_snapshot = true; // layer-boundary state snapshots at depth (>=36): a marathon survives kills/reboots
+    let mut resume_path: Option<String> = None; // per-layer findings snapshots (marathon hunts keep every completed layer) // --dp-slim: skip class census + samples in the JSON (deep runs; the dump gets fat past ~50k classes)
     let mut dp_opaque_fn = false; // --dp-opaque-fn re-enables capped singletons as HEADS; default skips them (leftmost-outermost does the head's work first, so a capped head stays capped; the arg-side rescue is kept). Validated 0-mismatch vs brute at 17ι.
     let mut esc_mult: u64 = 100; // escalated-cap multiplier for frontier cap-outs (raise to chase down `conditional` statuses)
     let mut args = std::env::args().skip(1);
@@ -989,6 +1025,8 @@ fn main() {
             "--no-fastest" => dp_fastest = false,
             "--checkpoint" => dp_checkpoint = true,
             "--no-checkpoint" => dp_checkpoint = false,
+            "--resume" => resume_path = Some(args.next().unwrap()),
+            "--no-snapshot" => dp_snapshot = false,
             "--hunt" | "--smallest" => {
                 // THE hunt: smallest + fastest + fixpoint + per-layer checkpoints
                 max_iotas = args.next().unwrap().parse().unwrap();
@@ -1057,7 +1095,7 @@ fn main() {
         };
         // 8 bytes/rep (was ~24): term + u16 size + flag bits; the rare bird-relevant
         // vectors live in a side map keyed by rep index.
-        #[derive(Clone, Copy)]
+        #[derive(Clone, Copy, Default)]
         struct Rep {
             term: u32,
             size: u16,
@@ -1335,7 +1373,100 @@ fn main() {
                 std::fs::write(out_file, &j).expect("write output");
             }};
         }
-        'sizes: for n in 2..=max_iotas {
+        macro_rules! snap_state {
+            ($completed:expr, $path:expr) => {{
+                let mut f = std::io::BufWriter::new(std::fs::File::create($path).unwrap());
+                w_u64(&mut f, 0x1074_5747_0001); // magic+version
+                w_u64(&mut f, birds_hash());
+                w_u64(&mut f, $completed as u64);
+                w_u64(&mut f, pair_count);
+                w_u64(&mut f, capped_count as u64);
+                w_u64(&mut f, arena.max_var_demand as u64);
+                w_slice(&mut f, &arena.p_nodes);
+                let leaf_pairs: Vec<(u64, u32)> = arena.p_dedup.iter().map(|(k, v)| (*k, *v)).collect();
+                w_slice(&mut f, &leaf_pairs);
+                w_slice(&mut f, &reps);
+                w_u64(&mut f, reps_by_size.len() as u64);
+                for v in &reps_by_size {
+                    w_slice(&mut f, v);
+                }
+                w_u64(&mut f, classes_set.len as u64);
+                w_slice(&mut f, &classes_set.slots);
+                w_u64(&mut f, opaque_seen.len as u64);
+                w_slice(&mut f, &opaque_seen.slots);
+                let rel_triples: Vec<(u64, u64, u64)> = relevant.iter().map(|(k, v)| (k.0, k.1, *v)).collect();
+                w_slice(&mut f, &rel_triples);
+                let bm: Vec<(u32, u32, u32)> = bird_min.iter().map(|o| match o { Some((s2, t)) => (1, *s2, *t), None => (0, 0, 0) }).collect();
+                w_slice(&mut f, &bm);
+                // best_fast + fpc carry strings — encode via bits length + bytes
+                w_u64(&mut f, best_fast.len() as u64);
+                for e in &best_fast {
+                    match e {
+                        Some((st, sz, bits)) => {
+                            w_u64(&mut f, 1);
+                            w_u64(&mut f, *st);
+                            w_u64(&mut f, *sz as u64);
+                            w_slice(&mut f, bits.as_bytes());
+                        }
+                        None => w_u64(&mut f, 0),
+                    }
+                }
+                w_u64(&mut f, fpc_finds.len() as u64);
+                for (sz, bits, cs) in &fpc_finds {
+                    w_u64(&mut f, *sz as u64);
+                    w_u64(&mut f, *cs);
+                    w_slice(&mut f, bits.as_bytes());
+                }
+            }};
+        }
+        let mut start_n = 2usize;
+        if let Some(rp) = &resume_path {
+            let mut f = std::io::BufReader::new(std::fs::File::open(rp).expect("resume file"));
+            assert_eq!(r_u64(&mut f), 0x1074_5747_0001, "snapshot version mismatch");
+            assert_eq!(r_u64(&mut f), birds_hash(), "snapshot was made against a different birds.txt");
+            let completed = r_u64(&mut f) as usize;
+            pair_count = r_u64(&mut f);
+            capped_count = r_u64(&mut f) as usize;
+            arena.max_var_demand = r_u64(&mut f) as usize;
+            arena.p_nodes = r_vec(&mut f);
+            let leaf_pairs: Vec<(u64, u32)> = r_vec(&mut f);
+            arena.p_dedup = leaf_pairs.into_iter().collect();
+            reps = r_vec(&mut f);
+            let nrbs = r_u64(&mut f) as usize;
+            reps_by_size = (0..nrbs).map(|_| r_vec::<u32>(&mut f)).collect();
+            if reps_by_size.len() < max_iotas + 1 {
+                reps_by_size.resize(max_iotas + 1, Vec::new());
+            }
+            classes_set.len = r_u64(&mut f) as usize;
+            classes_set.slots = r_vec(&mut f);
+            opaque_seen.len = r_u64(&mut f) as usize;
+            opaque_seen.slots = r_vec(&mut f);
+            let rel: Vec<(u64, u64, u64)> = r_vec(&mut f);
+            relevant = rel.into_iter().map(|(a, b, m)| ((a, b), m)).collect();
+            let bm: Vec<(u32, u32, u32)> = r_vec(&mut f);
+            bird_min = bm.into_iter().map(|(t, s2, tm)| if t == 1 { Some((s2, tm)) } else { None }).collect();
+            let nbf = r_u64(&mut f) as usize;
+            best_fast = (0..nbf).map(|_| {
+                if r_u64(&mut f) == 1 {
+                    let st = r_u64(&mut f);
+                    let sz = r_u64(&mut f) as u32;
+                    let bytes: Vec<u8> = r_vec(&mut f);
+                    Some((st, sz, String::from_utf8(bytes).unwrap()))
+                } else {
+                    None
+                }
+            }).collect();
+            let nfp = r_u64(&mut f) as usize;
+            fpc_finds = (0..nfp).map(|_| {
+                let sz = r_u64(&mut f) as u32;
+                let cs = r_u64(&mut f);
+                let bytes: Vec<u8> = r_vec(&mut f);
+                (sz, String::from_utf8(bytes).unwrap(), cs)
+            }).collect();
+            start_n = completed + 1;
+            eprintln!("resumed from {rp}: {} reps, {} classes, continuing at size {start_n}", reps.len(), classes_set.len);
+        }
+        'sizes: for n in start_n..=max_iotas {
             // STREAMED windows (memory diet): candidates are generated by a resumable
             // cursor in exactly the old nested-loop order — the full layer is never
             // materialized (it alone was ~6GB at the size-42 layer).
@@ -1389,10 +1520,15 @@ fn main() {
                 layer_cands += win_buf.len() as u64;
                 let t_build = Instant::now();
                 let win: &[(u32, u32)] = &win_buf;
-            let mut results: Vec<Option<SigRes>> = vec![None; win.len()];
+            let mut results: Vec<Option<(SigRes, (u64, u64))>> = vec![None; win.len()];
             if win.len() < 128 {
                 for (ci, &(f, x)) in win.iter().enumerate() {
-                    results[ci] = Some(dp_sigvec_headarg(&mut arena, f, Some(x), &caps, dp_a, &mut bufs));
+                    let r = dp_sigvec_headarg(&mut arena, f, Some(x), &caps, dp_a, &mut bufs);
+                    let k = match &r {
+                        SigRes::Full(v) => fold_key(v.slice()),
+                        SigRes::Capped(pfx) => fold_key(pfx.slice()),
+                    };
+                    results[ci] = Some((r, k));
                 }
             } else {
                 let p_nodes: &[u64] = &arena.p_nodes;
@@ -1401,7 +1537,7 @@ fn main() {
                 let caps_ref = &caps;
                 let next = std::sync::atomic::AtomicUsize::new(0);
                 let next = &next;
-                let done: Vec<(usize, Vec<(usize, SigRes)>)> = std::thread::scope(|sc| {
+                let done: Vec<(usize, Vec<(usize, SigRes, (u64, u64))>)> = std::thread::scope(|sc| {
                     (0..workers)
                         .map(|w| {
                             sc.spawn(move || {
@@ -1422,7 +1558,12 @@ fn main() {
                                         break;
                                     }
                                     let (f, x) = cands_ref[ci];
-                                    out.push((ci, dp_sigvec_headarg(&mut wk, f, Some(x), caps_ref, dp_a, &mut wbufs)));
+                                    let r = dp_sigvec_headarg(&mut wk, f, Some(x), caps_ref, dp_a, &mut wbufs);
+                                    let k = match &r {
+                                        SigRes::Full(v) => fold_key(v.slice()),
+                                        SigRes::Capped(pfx) => fold_key(pfx.slice()),
+                                    };
+                                    out.push((ci, r, k));
                                 }
                                 eprintln!("    worker {w}: {} cands in {}ms", out.len(), t0.elapsed().as_millis());
                                 (wk.max_var_demand, out)
@@ -1442,8 +1583,8 @@ fn main() {
                     if d > arena.max_var_demand {
                         arena.max_var_demand = d;
                     }
-                    for (ci, r) in out {
-                        results[ci] = Some(r);
+                    for (ci, r, k) in out {
+                        results[ci] = Some((r, k));
                     }
                 }
             }
@@ -1452,9 +1593,9 @@ fn main() {
             // Phase 3 (serial, in candidate order): class/rep insertion + gate.
             for (ci, res) in results.into_iter().enumerate() {
                 let (cf, cx) = win[ci];
-                match res.expect("missing worker result") {
+                let (res, key) = res.expect("missing worker result");
+                match res {
                     SigRes::Full(v) => {
-                        let key = fold_key(v.slice());
                         if classes_set.insert(key) {
                             let t = arena.app(cf, cx); // interned ONLY for winners
                             mark_relevant(&v, key, n as u32, t, &mut relevant, &mut bird_min);
@@ -1487,7 +1628,8 @@ fn main() {
                             }
                         }
                     }
-                    SigRes::Capped(prefix) => {
+                    SigRes::Capped(_prefix) => {
+                        let pkey = key;
                         if dp_fixpoint {
                             arena.s_clear();
                             let tt = { let f2 = cf; let x2 = cx; scratch_intern(&arena.p_dedup, &mut arena.s_nodes, &mut arena.s_dedup, TAG_APP, f2, x2) };
@@ -1498,7 +1640,6 @@ fn main() {
                         // opaque rep: always a frontier blocker; composes (arg side) only if
                         // its capped-prefix class is new — same-prefix divergers behave
                         // identically on every observable arity, so one delegate suffices
-                        let pkey = fold_key(prefix.slice());
                         let fresh = opaque_seen.insert(pkey);
                         let t = arena.app(cf, cx); // blockers/delegates still need real terms
                         reps_by_size[n].push(reps.len() as u32);
@@ -1532,6 +1673,12 @@ fn main() {
                 let t_cp = Instant::now();
                 emit_findings!(n, &cp);
                 eprintln!("  checkpoint ≤{n}ι → {cp} ({}ms)", t_cp.elapsed().as_millis());
+                if dp_snapshot && n >= 36 {
+                    let sp = format!("{out_path}.state");
+                    let t_sn = Instant::now();
+                    snap_state!(n, &sp);
+                    eprintln!("  snapshot ≤{n}ι → {sp} ({}ms)", t_sn.elapsed().as_millis());
+                }
             }
         }
         // diagnostic probe: decompose a known witness, check each subterm's class membership
