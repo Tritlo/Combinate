@@ -732,6 +732,7 @@ fn main() {
     let mut dp_arity: usize = 8; // signature-vector arity for --dp (validated identical to 12 at brute-17 AND 25/32; must stay < SIG_MAX)
     let mut dp_probe: Option<String> = None; // diagnostic: trace why this bitcode's class was(n't) reached
     let mut dp_gate: usize = 10_000; // rep-count stop gate for --dp (guards runaway class growth)
+    let mut worker_override: Option<usize> = None; // --workers N: leave cores for the rest of the system
     let mut dp_fastest = true; // fewest-steps hunt per bird — always on in DP (branch-and-bound makes it ~free); --no-fastest to skip
     let mut dp_slim = false; // --dp-slim: skip class census + samples in the JSON (deep runs; the dump gets fat past ~50k classes)
     let mut dp_opaque_fn = false; // --dp-opaque-fn re-enables capped singletons as HEADS; default skips them (leftmost-outermost does the head's work first, so a capped head stays capped; the arg-side rescue is kept). Validated 0-mismatch vs brute at 17ι.
@@ -749,6 +750,7 @@ fn main() {
             "--dp-arity" => dp_arity = args.next().unwrap().parse().unwrap(),
             "--dp-probe" => dp_probe = Some(args.next().unwrap()),
             "--dp-gate" => dp_gate = args.next().unwrap().parse().unwrap(),
+            "--workers" => worker_override = Some(args.next().unwrap().parse().unwrap()),
             "--dp-no-opaque-fn" => dp_opaque_fn = false, // legacy alias (now the default)
             "--dp-opaque-fn" => dp_opaque_fn = true,
             "--dp-slim" => dp_slim = true,
@@ -821,8 +823,13 @@ fn main() {
         struct Rep {
             term: u32,
             size: u32,
-            vector: Option<SigVec>, // Some = classed; the sig vector at arities 0..=dp_a
+            classed: bool,          // resolved signature (vs opaque cap-out)
             composable: bool,       // opaque reps: only the first of each capped-prefix class composes
+            // The sig vector is RETAINED only for classes whose suffix matches some Zoo bird —
+            // the only post-insert consumer is bird matching, and 99.99%+ of classes never
+            // match, so dropping their vectors is the memory that lets deep hunts fit
+            // (145B -> ~24B per rep at 40-iota's 168M classes).
+            vector: Option<Box<SigVec>>,
         }
         let mut class_of: FastMap<(u64, u64), usize> = FastMap::default();
         let mut reps: Vec<Rep> = Vec::new();
@@ -830,23 +837,16 @@ fn main() {
         // --fastest: bird sig vectors up front; classes whose vector SUFFIX (from the
         // bird's declared arity) matches a bird are "relevant" — every candidate landing
         // in one gets step-counted at that arity, tracking the running minimum.
-        let bird_vecs: Vec<Option<SigVec>> = if dp_fastest {
-            bird_terms
-                .iter()
-                .map(|&t| match dp_sigvec(&mut arena, t, &esc_caps, dp_a, &mut bufs) {
-                    SigRes::Full(v) => Some(v),
-                    SigRes::Capped(_) => None,
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let bird_vecs: Vec<Option<SigVec>> = bird_terms
+            .iter()
+            .map(|&t| match dp_sigvec(&mut arena, t, &esc_caps, dp_a, &mut bufs) {
+                SigRes::Full(v) => Some(v),
+                SigRes::Capped(_) => None,
+            })
+            .collect();
         let mut relevant: FastMap<(u64, u64), Vec<u32>> = FastMap::default();
         let mut best_fast: Vec<Option<(u64, u32, String)>> = vec![None; birds.len()];
-        let mut mark_relevant = |v: &SigVec, key: (u64, u64), relevant: &mut FastMap<(u64, u64), Vec<u32>>| {
-            if bird_vecs.is_empty() {
-                return;
-            }
+        let mut mark_relevant = |v: &SigVec, key: (u64, u64), relevant: &mut FastMap<(u64, u64), Vec<u32>>| -> bool {
             let mut hits: Vec<u32> = Vec::new();
             for (bi, bv) in bird_vecs.iter().enumerate() {
                 if let Some(bv) = bv {
@@ -856,9 +856,11 @@ fn main() {
                     }
                 }
             }
-            if !hits.is_empty() {
+            let any = !hits.is_empty();
+            if any {
                 relevant.insert(key, hits);
             }
+            any
         };
         let iota_id = arena.leaf(TAG_IOTA, 0);
         let iv = match dp_sigvec(&mut arena, iota_id, &caps, dp_a, &mut bufs) {
@@ -866,16 +868,16 @@ fn main() {
             SigRes::Capped(_) => panic!("iota signature capped"),
         };
         let ikey = fold_key(iv.slice());
-        mark_relevant(&iv, ikey, &mut relevant);
+        let irel = mark_relevant(&iv, ikey, &mut relevant);
         class_of.insert(ikey, 0);
-        reps.push(Rep { term: iota_id, size: 1, vector: Some(iv), composable: true });
+        reps.push(Rep { term: iota_id, size: 1, classed: true, composable: true, vector: irel.then(|| Box::new(iv)) });
         reps_by_size[1].push(0);
         let mut pair_count: u64 = 0;
         let mut capped_count: usize = 0;
         let mut opaque_seen: FastMap<(u64, u64), ()> = FastMap::default();
 
         let mut gate_tripped = false;
-        let workers = std::thread::available_parallelism().map(|v| v.get()).unwrap_or(8);
+        let workers = worker_override.unwrap_or_else(|| std::thread::available_parallelism().map(|v| v.get()).unwrap_or(8));
         'sizes: for n in 2..=max_iotas {
             // Phase 1 (serial, cheap): collect candidate (head, arg) PAIRS — no interning;
             // workers compose in scratch, and only merge-time winners touch the arena.
@@ -884,7 +886,7 @@ fn main() {
                 let j = n - i;
                 for fi in 0..reps_by_size[i].len() {
                     let fr = &reps[reps_by_size[i][fi]];
-                    if fr.vector.is_none() && (!dp_opaque_fn || !fr.composable) {
+                    if !fr.classed && (!dp_opaque_fn || !fr.composable) {
                         continue; // capped head: composition caps too (arg-side rescue still explored)
                     }
                     for xi in 0..reps_by_size[j].len() {
@@ -979,10 +981,10 @@ fn main() {
                         let key = fold_key(v.slice());
                         if !class_of.contains_key(&key) {
                             let t = arena.app(cf, cx); // interned ONLY for winners
-                            mark_relevant(&v, key, &mut relevant);
+                            let rel = mark_relevant(&v, key, &mut relevant);
                             class_of.insert(key, reps.len());
                             reps_by_size[n].push(reps.len());
-                            reps.push(Rep { term: t, size: n as u32, vector: Some(v), composable: true });
+                            reps.push(Rep { term: t, size: n as u32, classed: true, composable: true, vector: rel.then(|| Box::new(v)) });
                         }
                         if let Some(hits) = relevant.get(&key) {
                             for &bi in hits.clone().iter() {
@@ -1017,7 +1019,7 @@ fn main() {
                         }
                         let t = arena.app(cf, cx); // blockers/delegates still need real terms
                         reps_by_size[n].push(reps.len());
-                        reps.push(Rep { term: t, size: n as u32, vector: None, composable: fresh });
+                        reps.push(Rep { term: t, size: n as u32, classed: false, composable: fresh, vector: None });
                         capped_count += 1;
                     }
                 }
@@ -1033,7 +1035,7 @@ fn main() {
                     break;
                 }
             }
-            let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri].vector.is_some()).count();
+            let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri].classed).count();
             eprintln!(
                 "  size {n}: {} cands → +{} classes, +{} opaque ({} total reps) · par {}ms merge {}ms",
                 cands.len(),
@@ -1186,7 +1188,7 @@ fn main() {
                 let mut best: Option<(u32, String, u32)> = None;
                 for r in reps.iter() {
                     if let Some(rv) = &r.vector {
-                        if rv.slice()[b.arity..] == bslice[b.arity..] {
+                        if rv.as_ref().slice()[b.arity..] == bslice[b.arity..] {
                             let cand = (r.size, encode_bits(&arena, r.term), r.term);
                             if best.as_ref().map(|w| (cand.0, &cand.1) < (w.0, &w.1)).unwrap_or(true) {
                                 best = Some(cand);
@@ -1213,7 +1215,7 @@ fn main() {
                         let target = signature_vars(&mut arena, term, b.arity, &esc_caps, true, &mut bufs);
                         let mut winner: (u32, String, u32) = (rsize, rbits, rterm);
                         for ci in 0..reps.len() {
-                            if reps[ci].vector.is_some() {
+                            if reps[ci].classed {
                                 continue;
                             }
                             let csize = reps[ci].size;
@@ -1298,7 +1300,7 @@ fn main() {
         let mut census: Vec<(usize, usize)> = Vec::new();
         // deep runs (--dp-slim): census/samples add little and the dump gets huge
         for n in 1..=(if dp_slim { 0 } else { max_iotas }) {
-            let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri].vector.is_some()).count();
+            let newc = reps_by_size[n].iter().filter(|&&ri| reps[ri].classed).count();
             if newc > 0 {
                 census.push((n, newc));
             }
@@ -1306,14 +1308,14 @@ fn main() {
         let mut samples: Vec<(String, String)> = Vec::new();
         let sample_idx: Vec<usize> = if dp_slim { Vec::new() } else { (0..reps.len()).step_by(1 + reps.len() / 300).collect() };
         for ri in sample_idx {
-            if reps[ri].vector.is_none() {
+            if !reps[ri].classed {
                 continue;
             }
             if let Some(nf) = nf_string(&mut arena, reps[ri].term, 5, &caps, &mut bufs) {
                 samples.push((encode_bits(&arena, reps[ri].term), nf));
             }
         }
-        let classed_total = reps.iter().filter(|r| r.vector.is_some()).count();
+        let classed_total = reps.iter().filter(|r| r.classed).count();
         let mut j = String::from("{\n");
         j.push_str(&format!(
             "  \"meta\": {{ \"mode\": \"dp\", \"dp_arity\": {dp_a}, \"max_iotas\": {max_iotas}, \"steps_cap\": {steps_cap}, \"nodes_cap\": {nodes_cap}, \"esc_mult\": {esc_mult}, \"total_terms\": {pair_count}, \"capped_terms\": {capped_count}, \"dp_classes\": {classed_total}, \"max_var_demand\": {}, \"gate_tripped\": {}, \"persistent_nodes\": {} }},\n",
