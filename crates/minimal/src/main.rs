@@ -100,6 +100,26 @@ impl U128Set {
             i = (i + 1) & mask;
         }
     }
+    /// insert an already-canonical key (snapshot load path)
+    fn insert_raw(&mut self, k: u128) {
+        if self.len * 5 >= self.slots.len() * 4 {
+            self.grow();
+        }
+        let mask = self.slots.len() - 1;
+        let mut i = (k as u64 as usize).wrapping_mul(0x9E3779B97F4A7C15usize.wrapping_add(0)) & mask;
+        loop {
+            let s = self.slots[i];
+            if s == 0 {
+                self.slots[i] = k;
+                self.len += 1;
+                return;
+            }
+            if s == k {
+                return;
+            }
+            i = (i + 1) & mask;
+        }
+    }
     fn grow(&mut self) {
         let newlen = self.slots.len() * 2;
         let old = std::mem::replace(&mut self.slots, vec![0; newlen]);
@@ -939,29 +959,44 @@ fn dp_sigvec_headarg<A: Red>(arena: &mut A, head: u32, arg: Option<u32>, caps: &
 
 // ---- state snapshot I/O (marathon resume): everything is flat POD arrays after the
 // diet, so a snapshot is a handful of length-prefixed slice writes. Little-endian only.
-fn w_u64(f: &mut std::io::BufWriter<std::fs::File>, v: u64) {
-    use std::io::Write;
+fn w_u64<W: std::io::Write>(f: &mut W, v: u64) {
     f.write_all(&v.to_le_bytes()).unwrap();
 }
-fn w_slice<T: Copy>(f: &mut std::io::BufWriter<std::fs::File>, v: &[T]) {
-    use std::io::Write;
+fn w_slice<T: Copy, W: std::io::Write>(f: &mut W, v: &[T]) {
     w_u64(f, v.len() as u64);
     let bytes = unsafe { std::slice::from_raw_parts(v.as_ptr() as *const u8, std::mem::size_of_val(v)) };
     f.write_all(bytes).unwrap();
 }
-fn r_u64(f: &mut std::io::BufReader<std::fs::File>) -> u64 {
-    use std::io::Read;
+fn r_u64<R: std::io::Read>(f: &mut R) -> u64 {
     let mut b = [0u8; 8];
     f.read_exact(&mut b).unwrap();
     u64::from_le_bytes(b)
 }
-fn r_vec<T: Copy + Default>(f: &mut std::io::BufReader<std::fs::File>) -> Vec<T> {
-    use std::io::Read;
+fn r_vec<T: Copy + Default, R: std::io::Read>(f: &mut R) -> Vec<T> {
     let n = r_u64(f) as usize;
     let mut v = vec![T::default(); n];
     let bytes = unsafe { std::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut u8, n * std::mem::size_of::<T>()) };
     f.read_exact(bytes).unwrap();
     v
+}
+/// Snapshots stream through `zstd -T0` (compute-for-disk by decision): writer = child stdin.
+fn zstd_writer(path: &str) -> (std::process::Child, std::io::BufWriter<std::process::ChildStdin>) {
+    let mut ch = std::process::Command::new("zstd")
+        .args(["-T0", "-3", "-q", "-f", "-o", path])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .expect("zstd not found — snapshots require it (or pass --no-snapshot)");
+    let w = std::io::BufWriter::with_capacity(1 << 22, ch.stdin.take().unwrap());
+    (ch, w)
+}
+fn zstd_reader(path: &str) -> (std::process::Child, std::io::BufReader<std::process::ChildStdout>) {
+    let mut ch = std::process::Command::new("zstd")
+        .args(["-d", "-q", "-c", path])
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("zstd not found — cannot read snapshot");
+    let r = std::io::BufReader::with_capacity(1 << 22, ch.stdout.take().unwrap());
+    (ch, r)
 }
 fn birds_hash() -> u64 {
     let mut h = 0xcbf29ce484222325u64;
@@ -1378,8 +1413,9 @@ fn main() {
         }
         macro_rules! snap_state {
             ($completed:expr, $path:expr) => {{
-                let mut f = std::io::BufWriter::new(std::fs::File::create($path).unwrap());
-                w_u64(&mut f, 0x1074_5747_0001); // magic+version
+                let (mut zc, mut f) = zstd_writer($path);
+                w_u64(&mut f, 0x1074_5747_0002); // magic + FORMAT version (v2: zstd + keys-only sets)
+                w_slice(&mut f, env!("CARGO_PKG_VERSION").as_bytes()); // creating binary's version
                 w_u64(&mut f, birds_hash());
                 w_u64(&mut f, $completed as u64);
                 w_u64(&mut f, pair_count);
@@ -1393,10 +1429,16 @@ fn main() {
                 for v in &reps_by_size {
                     w_slice(&mut f, v);
                 }
-                w_u64(&mut f, classes_set.len as u64);
-                w_slice(&mut f, &classes_set.slots);
-                w_u64(&mut f, opaque_seen.len as u64);
-                w_slice(&mut f, &opaque_seen.slots);
+                // sets: keys only (slots are ~30% zeros and the table rebuilds on load —
+                // 4x smaller before compression on the biggest component)
+                for set in [&classes_set, &opaque_seen] {
+                    w_u64(&mut f, set.len as u64);
+                    for &k in &set.slots {
+                        if k != 0 {
+                            w_slice(&mut f, &[k]);
+                        }
+                    }
+                }
                 let rel_triples: Vec<(u64, u64, u64)> = relevant.iter().map(|(k, v)| (k.0, k.1, *v)).collect();
                 w_slice(&mut f, &rel_triples);
                 let bm: Vec<(u32, u32, u32)> = bird_min.iter().map(|o| match o { Some((s2, t)) => (1, *s2, *t), None => (0, 0, 0) }).collect();
@@ -1420,12 +1462,16 @@ fn main() {
                     w_u64(&mut f, *cs);
                     w_slice(&mut f, bits.as_bytes());
                 }
+                drop(f);
+                zc.wait().expect("zstd write failed");
             }};
         }
         let mut start_n = 2usize;
         if let Some(rp) = &resume_path {
-            let mut f = std::io::BufReader::new(std::fs::File::open(rp).expect("resume file"));
-            assert_eq!(r_u64(&mut f), 0x1074_5747_0001, "snapshot version mismatch");
+            let (mut zc, mut f) = zstd_reader(rp);
+            assert_eq!(r_u64(&mut f), 0x1074_5747_0002, "hunt-state FORMAT version mismatch (this binary reads v2: zstd + keys-only sets)");
+            let creator: Vec<u8> = r_vec(&mut f);
+            eprintln!("hunt-state created by minimal-forms v{}", String::from_utf8_lossy(&creator));
             assert_eq!(r_u64(&mut f), birds_hash(), "snapshot was made against a different birds.txt");
             let completed = r_u64(&mut f) as usize;
             pair_count = r_u64(&mut f);
@@ -1436,14 +1482,19 @@ fn main() {
             arena.p_dedup = leaf_pairs.into_iter().collect();
             reps = r_vec(&mut f);
             let nrbs = r_u64(&mut f) as usize;
-            reps_by_size = (0..nrbs).map(|_| r_vec::<u32>(&mut f)).collect();
+            reps_by_size = (0..nrbs).map(|_| r_vec::<u32, _>(&mut f)).collect();
             if reps_by_size.len() < max_iotas + 1 {
                 reps_by_size.resize(max_iotas + 1, Vec::new());
             }
-            classes_set.len = r_u64(&mut f) as usize;
-            classes_set.slots = r_vec(&mut f);
-            opaque_seen.len = r_u64(&mut f) as usize;
-            opaque_seen.slots = r_vec(&mut f);
+            for set in [&mut classes_set, &mut opaque_seen] {
+                let n = r_u64(&mut f) as usize;
+                let mut fresh = U128Set::with_capacity(n.max(1));
+                for _ in 0..n {
+                    let k: Vec<u128> = r_vec(&mut f);
+                    fresh.insert_raw(k[0]);
+                }
+                *set = fresh;
+            }
             let rel: Vec<(u64, u64, u64)> = r_vec(&mut f);
             relevant = rel.into_iter().map(|(a, b, m)| ((a, b), m)).collect();
             let bm: Vec<(u32, u32, u32)> = r_vec(&mut f);
@@ -1467,6 +1518,7 @@ fn main() {
                 (sz, String::from_utf8(bytes).unwrap(), cs)
             }).collect();
             start_n = completed + 1;
+            zc.wait().ok();
             eprintln!("resumed from {rp}: {} reps, {} classes, continuing at size {start_n}", reps.len(), classes_set.len);
         }
         'sizes: for n in start_n..=max_iotas {
@@ -1677,7 +1729,7 @@ fn main() {
                 emit_findings!(n, &cp);
                 eprintln!("  checkpoint ≤{n}ι → {cp} ({}ms)", t_cp.elapsed().as_millis());
                 if dp_snapshot && n >= 36 {
-                    let sp = format!("{out_path}.state");
+                    let sp = format!("{out_path}.hunt-state");
                     let t_sn = Instant::now();
                     snap_state!(n, &sp);
                     eprintln!("  snapshot ≤{n}ι → {sp} ({}ms)", t_sn.elapsed().as_millis());
