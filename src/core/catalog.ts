@@ -19,6 +19,10 @@ export const IOTA_CODE: Record<string, string> = {
 
 
   M3: "0001010101101010101011011",
+  G: "0001010010101010110110101001010101011011001000010101011011000101010111100010101011101010110101011", // 49ι — recipe composition B B C (was 81ι def-expansion)
+  Q4: "000100001010101101100010101011110001010101110101011010101100101001010101011011000101010110010101100101010110110101011", // 59ι — recipe composition C (B T) (was 67ι)
+  V: "0001010010101010110110010000101010110110001010101111000101010111010101101010110001000010101011011000101010111100010101011101010110101011011", // 70ι — recipe composition B C (C I) (was 74ι)
+  Y: "00010101011001010110001010101101101100010101011000101010110010101101010101101010110010101100010101011011011", // 54ι — Curry's textbook Y, S(K(SII))(S(S(KS)K)(K(SII))); display-only (no NF, never probe-recognized; was 99ι via B M (C B M))
   // The great shrinking (ADR 27/28): every entry below is a CERTIFIED-EQUAL form — proven
   // in TypeScript to share the bird's normal form on fresh variables at its declared arity
   // (equality at n implies equality above; adoption can never change behavior). Minimality
