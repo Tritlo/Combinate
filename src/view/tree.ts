@@ -1,7 +1,7 @@
 import { CanvasTextMetrics, Container, Graphics, ParticleContainer, Particle, Rectangle, Text, TextStyle, Texture, type Ticker } from "pixi.js";
 import { type Node, type NodeId, IOTA_ID_SPAN } from "../core/term";
 import { expandDisplay } from "../core/catalog";
-import { type Layout, type LayoutFn, layoutHTreeSubtree } from "../core/layout";
+import { type Layout, type LayoutFn, layoutHTreeSubtree } from "../core/layouts";
 import { type StepPatch } from "../core/reduce";
 import { theme, combinatorColor, combinatorColorForMode, currentMode, glyphOn, edgeTierColor, MONO, monoFontReady, themeForMode, edgeTierColorForMode, type Mode, type Theme } from "./theme";
 import { EdgeBuffer, edgeKey } from "./edgeBuffer";
@@ -22,6 +22,10 @@ const HEAVY = 600;
 // reduction stopped / the tree is being inspected (the Expand ι-tree view). Keeps fac-scale playback
 // fast (solid while stepping) without permanently dropping the function/argument dash cue.
 const SETTLE_DASH_MS = 200;
+// Max dashes {@link dashedSegment} will emit for one edge before falling back to a solid line — a
+// backstop against a transient long-edge × tiny-dash blowup during a scale-layout switch. Well above
+// any real dash count on a settled tree, so it never trips in normal drawing.
+const MAX_DASHES = 2000;
 // At/above this node count an H-tree tree reduces through the incremental applyPatch path (retained
 // edge buffer + O(changed) reflow) rather than the full-recompute animateTo. Matches the jump-cut
 // threshold, so any tree big enough to jump-cut also updates incrementally when it is an H-tree.
@@ -916,7 +920,9 @@ export class TreeView {
     }
     // Color = depth TIER (red/black), style = fn solid / arg dashed. A node's parent-edge is the
     // opposite color of its child-edges → you can trace direction even in a dense tree.
-    if (!this.lay.scale) {
+    if (this.lay.edgeStyle === "beam") {
+      this.drawBeams(v); // Mobile: horizontal balance beams + vertical drops, tier-colored
+    } else if (!this.lay.scale) {
       // No per-node scale (top-down/radial): the classic 4 strokes, {arg,fn} × {even,odd}.
       for (const parity of [0, 1]) {
         for (const e of this.edgeList) {
@@ -983,6 +989,28 @@ export class TreeView {
       this.settleDashTimer = window.setTimeout(() => {
         if (!this.container.destroyed) this.drawEdges();
       }, SETTLE_DASH_MS + 20);
+    }
+  }
+
+  /** Mobile ({@link Layout.edgeStyle} `"beam"`): each parent draws a horizontal balance beam at its
+   *  own level spanning its two children, plus a vertical drop to each — a Calder mobile. Batched into
+   *  two tier strokes (even/odd depth), like the straight-edge path, and drawn from live particles so
+   *  it follows the tween. */
+  private drawBeams(v: { minX: number; minY: number; maxX: number; maxY: number } | null): void {
+    for (const parity of [0, 1]) {
+      for (const e of this.edgeList) {
+        if (e.depth % 2 !== parity) continue;
+        const p = e.pv.particle;
+        const l = e.lv.particle;
+        const r = e.rv.particle;
+        if (v && !overlaps(p, l, v) && !overlaps(p, r, v)) continue; // cull only when the whole beam is off-screen
+        const x0 = Math.min(l.x, r.x, p.x);
+        const x1 = Math.max(l.x, r.x, p.x);
+        this.edges.moveTo(x0, p.y).lineTo(x1, p.y); // the balance beam, at the parent's level
+        this.edges.moveTo(l.x, p.y).lineTo(l.x, l.y); // vertical drop to the fn child
+        this.edges.moveTo(r.x, p.y).lineTo(r.x, r.y); // vertical drop to the arg child
+      }
+      this.edges.stroke({ width: 2.5, color: this.edgeTierColor(parity) });
     }
   }
 
@@ -1125,6 +1153,14 @@ export function dashedSegment(g: Graphics, ax: number, ay: number, bx: number, b
   const dx = bx - ax;
   const dy = by - ay;
   const len = Math.hypot(dx, dy) || 1;
+  // Guard the dash count: a scale-layout switch can briefly pair a long live edge (nodes still at
+  // their old spread-out positions) with a deep node's near-zero dash size (dash+gap ≈ 0.01px) — the
+  // loop would then emit ~1e5–1e6 sub-segments in one synchronous pass and hang / OOM the tab. Past a
+  // sane ceiling just draw the edge solid; it's imperceptible for the frame or two the mismatch lasts.
+  if (len / (dash + gap) > MAX_DASHES) {
+    g.moveTo(ax, ay).lineTo(bx, by);
+    return;
+  }
   const ux = dx / len;
   const uy = dy / len;
   for (let d = 0; d < len; d += dash + gap) {

@@ -1,6 +1,7 @@
 /**
  * The top-right control stack (under the transport): two System-1 sliding-toggle rows.
- *   Row 1 (view): a [2D | 3D] switch + a [Auto | Top-Down | Radial | H-Tree] layout selector.
+ *   Row 1 (view): a [2D | 3D] switch + a seven-way layout selector, drawn as compact SVG glyphs
+ *     (Auto · Top-Down · Radial · H-Tree · Botanical · Mobile · Hyperbolic) so they fit the budget.
  *   Row 2: a [ι] iota-tree toggle + independent [Rules] [Graph] [Primitives] [Turbo] optimizations.
  * A thin DOM view over the shell's layout / 3D / expand / optimization state.
  *
@@ -11,8 +12,8 @@
 import { currentMode, onThemeChange, type Mode, MONO, PAPER, INK } from "./theme";
 import { MENUBAR_HEIGHT } from "./menubar";
 
-/** The layout the view row picks between — the three explicit ones plus Auto. */
-export type LayoutKey = "auto" | "topdown" | "radial" | "htree";
+/** The layout the view row picks between — Auto plus the six explicit layouts. */
+export type LayoutKey = "auto" | "topdown" | "radial" | "htree" | "botanical" | "mobile" | "hyperbolic";
 /** The optimization toggles in the second row (independent on/off). */
 export type OptCell = "rules" | "graph" | "primitives" | "turbo";
 
@@ -54,6 +55,9 @@ function injectStyles(): void {
 .lc-btn + .lc-btn { border-left: 1px solid color-mix(in srgb, var(--lc-paper) 30%, transparent); }
 .lc-btn.on { background: var(--lc-paper); color: var(--lc-ink); font-weight: 700; }
 .lc-btn:not(.on):hover { background: color-mix(in srgb, var(--lc-paper) 18%, transparent); }
+/* Layout selector: seven compact glyph buttons — tighter padding so they fit the row's budget. */
+.lc-icon-btn { padding: 4px 5px; display: flex; align-items: center; justify-content: center; }
+.lc-icon { width: 13px; height: 13px; fill: currentColor; display: block; }
 /* Phone: a collapsible Controls card (title + body) hosting the transport + the toggle rows. */
 .lc-root.lc-phone { top: 26px; left: 8px; right: 8px; background: var(--lc-paper); border: 1px solid var(--lc-ink);
   box-shadow: 3px 3px 0 rgba(0,0,0,0.6); }
@@ -89,7 +93,40 @@ const LAYOUTS: { key: LayoutKey; label: string; title: string }[] = [
   { key: "topdown", label: "Top-Down", title: "Top-down — leaves on a row, depth grows downward" },
   { key: "radial", label: "Radial", title: "Radial — the root at the center, depth as radius" },
   { key: "htree", label: "H-Tree", title: "H-tree — a nested square antenna, arms shrinking with depth" },
+  { key: "botanical", label: "Botanical", title: "Botanical — a growing tree; each application branches, arms shrinking with depth" },
+  { key: "mobile", label: "Mobile", title: "Mobile — a Calder mobile; each application a balance beam hung by subtree mass" },
+  { key: "hyperbolic", label: "Hyperbolic", title: "Hyperbolic — a Poincaré disk; the root at the centre, depth crowding the rim" },
 ];
+
+/** Compact `0 0 16 16` glyphs for the layout selector — each a tiny diagram of its layout. Fill /
+ *  stroke are `currentColor`, so they flip with the cell's paper/ink exactly like the transport icons. */
+const LAYOUT_ICONS: Record<LayoutKey, string> = {
+  auto: `<path d="M8 1.5 L9.4 6.6 L14.5 8 L9.4 9.4 L8 14.5 L6.6 9.4 L1.5 8 L6.6 6.6 Z"/>`,
+  topdown: `<path d="M8 3.4 L4.3 12 M8 3.4 L11.7 12" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="8" cy="3" r="1.7"/><circle cx="4" cy="12.6" r="1.7"/><circle cx="12" cy="12.6" r="1.7"/>`,
+  radial: `<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M8 8 L8 2.4 M8 8 L12.6 10.8 M8 8 L3.4 10.8" stroke="currentColor" stroke-width="1" fill="none"/><circle cx="8" cy="8" r="1.6"/><circle cx="8" cy="2.2" r="1.2"/><circle cx="12.7" cy="10.9" r="1.2"/><circle cx="3.3" cy="10.9" r="1.2"/>`,
+  htree: `<path d="M4 3 L4 13 M12 3 L12 13 M4 8 L12 8" stroke="currentColor" stroke-width="1.5" fill="none"/>`,
+  botanical: `<path d="M8 14.5 L8 8 M8 8 L4.4 4.2 M8 8 L11.6 4.2" stroke="currentColor" stroke-width="1.3" fill="none"/><circle cx="4.1" cy="3.8" r="1.6"/><circle cx="11.9" cy="3.8" r="1.6"/>`,
+  mobile: `<path d="M8 4 L8 1.6 M3.5 4 L12.5 4 M5 4 L5 8.5 M11 4 L11 11.5" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="5" cy="9.4" r="1.7"/><circle cx="11" cy="12.4" r="1.7"/>`,
+  hyperbolic: `<circle cx="8" cy="8" r="6.3" fill="none" stroke="currentColor" stroke-width="1.1"/><circle cx="8" cy="8" r="1.5"/><circle cx="12.6" cy="6" r="1.1"/><circle cx="11.4" cy="12" r="1.1"/><circle cx="4" cy="11" r="1.1"/><circle cx="5" cy="4.5" r="1.1"/>`,
+};
+
+/** A layout selector button carrying its glyph — an icon `<button>` (aria-labelled) that runs `onClick`. */
+function iconCell(key: LayoutKey, label: string, title: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.className = "lc-btn lc-icon-btn";
+  b.title = title;
+  b.setAttribute("aria-label", label);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("class", "lc-icon");
+  svg.innerHTML = LAYOUT_ICONS[key];
+  b.append(svg);
+  b.addEventListener("pointerdown", (e) => {
+    e.stopPropagation();
+    onClick();
+  });
+  return b;
+}
 
 const OPTS: { key: OptCell; label: string; title: string }[] = [
   { key: "rules", label: "Rules", title: "Rule-based reduction — reduce a named bird by its law in one step, not its raw ι/SKI tree" },
@@ -140,7 +177,7 @@ export class LayoutControls {
     const laySeg = document.createElement("div");
     laySeg.className = "lc-seg";
     for (const { key, label: l, title } of LAYOUTS) {
-      const b = cell(l, title, () => this.act(() => this.deps.setLayout(key)));
+      const b = iconCell(key, l, title, () => this.act(() => this.deps.setLayout(key)));
       this.layoutBtns.set(key, b);
       laySeg.append(b);
     }
