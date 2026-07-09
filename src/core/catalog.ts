@@ -53,41 +53,45 @@ export const IOTA_CODE: Record<string, string> = {
 /** Fewest-STEPS equivalents (the hare to IOTA_CODE's turtle). Minimal ι ≠ minimal steps:
  *  golfed forms can unfold slower (C's 29ι form takes 345 contractions; its 34ι sibling
  *  takes 120). Every entry is TS-certified EQUAL at the declared arity; "fastest" means
- *  fewest-steps KNOWN at the ≤34ι class-DP bound (2026-07-09 hunt, `--smallest 34`) —
+ *  fewest-steps KNOWN at the ≤40ι class-DP bound (2026-07-09 hunt, `--smallest 40`) —
  *  a deeper/bigger-budget hunt may still beat these. Gameplay expansion (the expand-all
  *  view, the discovery mask) uses these so unfolds animate snappily; IOTA_CODE stays the
  *  canonical MINIMAL form (golf costs, Barker readouts, the Zoo's default picture). */
-export const IOTA_FASTEST_BOUND = 34; // the hunt bound the FASTEST claims hold at (see crates/minimal)
+export const IOTA_FASTEST_BOUND = 40; // the hunt bound the FASTEST claims hold at (see crates/minimal)
 
 /** Measured reduction steps at each bird's declared arity — [minimal form, fastest form] —
  *  from the ≤34ι hunt (the Rust reducer mirrors the app's exactly; parity-verified). Saved
  *  as data so the Zoo never pays a reduction at card-render time. */
 export const IOTA_STEPS: Record<string, [number, number]> = {
-  B1: [126, 106],
-  B2: [270, 208],
-  B3: [176, 155],
-  C: [345, 120],
+  B1: [126, 104],
+  B2: [270, 197],
+  B3: [176, 147],
+  C: [345, 93],
   D: [76, 54],
   E: [173, 148],
+  H: [122, 105],
   Q: [101, 79],
   Q3: [134, 81],
+  R: [127, 88],
   W: [33, 32],
   head: [136, 48],
-  Φ: [144, 103],
+  "Φ": [144, 103],
 };
 
 export const IOTA_FASTEST: Record<string, string> = {
-  B1: "0001010001010101101101010101110101001010101011011", // 106 steps (vs 126)
-  B2: "0000101010110001010101111000101010110001010101111101001010101011011", // 208 (vs 270)
-  B3: "0000101010110101010101101010010101010110110101001010101011011", // 155 (vs 176)
-  C: "0001010101100000101010111101001010101011011010101011001010110101011", // 120 (vs 345)
-  D: "0010101011001010110101001010101011011", // 54 (vs 76)
-  E: "0010101011001010110000101010110101010101110101001010101011011", // 148 (vs 173)
-  Q: "01000101010110110010101100101011010100010101011011010101011", // 79 (vs 101)
-  Q3: "00101001010101011011000101010110010101100101010110110101011", // 81 (vs 134)
-  W: "0001010101101010101101011", // 32 (vs 33) — same size, strictly faster
-  head: "0001010101100010101011011001010110101011001010110101011", // 48 (vs 136)
-  Φ: "00010101011001010101011001010110101010110101001010101011011", // 103 (vs 144)
+  B1: "00010101011001001010101110010101101010010101010110110101001010101011011", // 104 steps (vs 126)
+  B2: "00001010101101010101011001010001010101101101010101110101001010101011011", // 197 steps (vs 270)
+  B3: "000010101011010100010101011011010101011010101011001010110101001010101011011", // 147 steps (vs 176)
+  C: "00010101011001010110010100010101011011010101011001010110101011010101011", // 93 steps (vs 345)
+  D: "0010101011001010110101001010101011011", // 54 steps (vs 76)
+  E: "0010101011001010110000101010110101010101110101001010101011011", // 148 steps (vs 173)
+  H: "000101010110010101100010101011010101011001010110101011010001010101110101011", // 105 steps (vs 122)
+  Q: "01000101010110110010101100101011010100010101011011010101011", // 79 steps (vs 101)
+  Q3: "00101001010101011011000101010110010101100101010110110101011", // 81 steps (vs 134)
+  R: "00010101011001010110010101011010101011000101010110010101101010110101011", // 88 steps (vs 127)
+  W: "0001010101101010101101011", // 32 steps (vs 33)
+  head: "0001010101100010101011011001010110101011001010110101011", // 48 steps (vs 136)
+  "Φ": "00010101011001010101011001010110101010110101001010101011011", // 103 steps (vs 144)
 };
 
 /** The bitcode gameplay expansion should use for `sym`: fastest when known, else the
