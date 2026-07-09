@@ -16,7 +16,7 @@ import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { type Node, freeVar } from "../src/core/term";
-import { CATALOG, IOTA_BITCODE } from "../src/core/catalog";
+import { CATALOG, IOTA_BITCODE, IOTA_STEPS } from "../src/core/catalog";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(HERE, "../crates/minimal/src/birds.txt");
@@ -60,7 +60,7 @@ for (const law of CATALOG) {
     skipped++;
     continue;
   }
-  lines.push(`${tok(law.sym)}|${law.arity}|${bits}`);
+  lines.push(`${tok(law.sym)}|${law.arity}|${bits}|${IOTA_STEPS[law.sym]?.[1] ?? ""}`); // col4: known fastest steps (seed bound)
 }
 writeFileSync(OUT, `${lines.join("\n")}\n`);
 console.log(`wrote ${OUT}: ${lines.length} birds (${skipped} skipped: recursive/user-defined/noProbe)`);
