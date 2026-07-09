@@ -26,6 +26,9 @@
 //! form; ι x → x S K (introducing S/K leaves); S/K/I contraction; free variables
 //! inert. NF strings use probe.ts structKey's exact format. All walks are iterative.
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc; // 16-thread glibc fragmentation was a ~1.3x multiplier on everything
+
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::atomic::Ordering;
@@ -1066,7 +1069,6 @@ fn main() {
                 self.flags & 2 != 0
             }
         }
-        let mut rep_vectors: FastMap<u32, Box<SigVec>> = FastMap::default();
         let mut classes_set = U128Set::with_capacity(dp_gate * 7 / 10); // key-only EXACT quotient (presized: ~58-70% of reps are classed; growth doubling would spike old+new)
         let mut reps: Vec<Rep> = Vec::new();
         let mut reps_by_size: Vec<Vec<u32>> = vec![Vec::new(); max_iotas + 1];
@@ -1080,23 +1082,28 @@ fn main() {
                 SigRes::Capped(_) => None,
             })
             .collect();
-        let mut relevant: FastMap<(u64, u64), Vec<u32>> = FastMap::default();
+        let mut relevant: FastMap<(u64, u64), u64> = FastMap::default(); // class key -> bird bitmask (<=52 birds)
         let mut best_fast: Vec<Option<(u64, u32, String)>> = vec![None; birds.len()];
-        let mut mark_relevant = |v: &SigVec, key: (u64, u64), relevant: &mut FastMap<(u64, u64), Vec<u32>>| -> bool {
-            let mut hits: Vec<u32> = Vec::new();
+        // per-bird smallest suffix-matching class, recorded AT INSERT (sizes ascend, so the
+        // first hit IS the winner) — this deletes the multi-GB rep-vector side map entirely.
+        let mut bird_min: Vec<Option<(u32, u32)>> = vec![None; birds.len()]; // (size, term)
+        let mut mark_relevant = |v: &SigVec, key: (u64, u64), size: u32, term: u32, relevant: &mut FastMap<(u64, u64), u64>, bird_min: &mut Vec<Option<(u32, u32)>>| -> bool {
+            let mut mask = 0u64;
             for (bi, bv) in bird_vecs.iter().enumerate() {
                 if let Some(bv) = bv {
                     let a = birds[bi].arity;
                     if v.slice()[a..] == bv.slice()[a..] {
-                        hits.push(bi as u32);
+                        mask |= 1 << bi;
+                        if bird_min[bi].is_none() {
+                            bird_min[bi] = Some((size, term));
+                        }
                     }
                 }
             }
-            let any = !hits.is_empty();
-            if any {
-                relevant.insert(key, hits);
+            if mask != 0 {
+                relevant.insert(key, mask);
             }
-            any
+            mask != 0
         };
         let iota_id = arena.leaf(TAG_IOTA, 0);
         let iv = match dp_sigvec(&mut arena, iota_id, &caps, dp_a, &mut bufs) {
@@ -1104,17 +1111,14 @@ fn main() {
             SigRes::Capped(_) => panic!("iota signature capped"),
         };
         let ikey = fold_key(iv.slice());
-        let irel = mark_relevant(&iv, ikey, &mut relevant);
+        mark_relevant(&iv, ikey, 1, iota_id, &mut relevant, &mut bird_min);
         classes_set.insert(ikey);
-        if irel {
-            rep_vectors.insert(reps.len() as u32, Box::new(iv));
-        }
         reps.push(Rep { term: iota_id, size: 1, flags: 3 });
         reps_by_size[1].push(0u32);
         let mut pair_count: u64 = 0;
         let mut fpc_finds: Vec<(u32, String, u64)> = Vec::new(); // (iotas, bits, close-steps)
         let mut capped_count: usize = 0;
-        let mut opaque_seen: FastMap<(u64, u64), ()> = FastMap::default();
+        let mut opaque_seen = U128Set::new();
 
         let mut gate_tripped = false;
         let workers = worker_override.unwrap_or_else(|| std::thread::available_parallelism().map(|v| v.get()).unwrap_or(8).min(16));
@@ -1240,15 +1244,12 @@ fn main() {
                         let key = fold_key(v.slice());
                         if classes_set.insert(key) {
                             let t = arena.app(cf, cx); // interned ONLY for winners
-                            let rel = mark_relevant(&v, key, &mut relevant);
-                            if rel {
-                                rep_vectors.insert(reps.len() as u32, Box::new(v));
-                            }
+                            mark_relevant(&v, key, n as u32, t, &mut relevant, &mut bird_min);
                             reps_by_size[n].push(reps.len() as u32);
                             reps.push(Rep { term: t, size: n as u16, flags: 3 });
                         }
-                        if let Some(hits) = relevant.get(&key) {
-                            for &bi in hits.clone().iter() {
+                        if let Some(&mask) = relevant.get(&key) {
+                            for bi in (0..birds.len() as u32).filter(|b| mask >> b & 1 == 1) {
                                 let a = birds[bi as usize].arity;
                                 // branch-and-bound: a reduction that hits the best-so-far step
                                 // count is >= best — the cap doubles as the bail-out
@@ -1285,10 +1286,7 @@ fn main() {
                         // its capped-prefix class is new — same-prefix divergers behave
                         // identically on every observable arity, so one delegate suffices
                         let pkey = fold_key(prefix.slice());
-                        let fresh = !opaque_seen.contains_key(&pkey);
-                        if fresh {
-                            opaque_seen.insert(pkey, ());
-                        }
+                        let fresh = opaque_seen.insert(pkey);
                         let t = arena.app(cf, cx); // blockers/delegates still need real terms
                         reps_by_size[n].push(reps.len() as u32);
                         reps.push(Rep { term: t, size: n as u16, flags: if fresh { 2 } else { 0 } });
@@ -1333,101 +1331,20 @@ fn main() {
         }
         // birds: match class by key, verify EXACTLY by NF strings at every arity (guards
         // against 128-bit key collisions for every published claim)
-        // PER-BIRD escalation (take-four post-mortem: the global ceiling keyed off the
-        // largest CURRENT encoding — 423M jobs at 42ι). Winners come first via suffix
-        // matching (which never needed escalation), then jobs = opaque reps STRICTLY
-        // cheaper than some bird's winner, at exactly that bird's arity.
-        let mut bird_winner_size: Vec<Option<u32>> = vec![None; birds.len()];
-        let mut bird_vec_cache: Vec<Option<SigVec>> = vec![None; birds.len()];
-        for (bi, b) in birds.iter().enumerate() {
-            if let SigRes::Full(bv) = dp_sigvec(&mut arena, bird_terms[bi], &esc_caps, dp_a, &mut bufs) {
-                let bslice = bv.slice();
-                let mut best: Option<u32> = None;
-                for (&ri, rv) in rep_vectors.iter() {
-                    if rv.as_ref().slice()[b.arity..] == bslice[b.arity..] {
-                        let sz = reps[ri as usize].size as u32;
-                        if best.map(|w| sz < w).unwrap_or(true) {
-                            best = Some(sz);
-                        }
-                    }
-                }
-                bird_winner_size[bi] = best;
-                bird_vec_cache[bi] = Some(bv);
+        // LAZY frontier (the massive win): statuses only need unresolved==0 vs >0, so each
+        // bird walks its cheaper opaque frontier in ascending size and STOPS at the first
+        // unresolved diverger (or adopts the first capped-that-escalates-equal as a smaller
+        // winner). Total escalations collapse from ~all-opaque×arities to ~thousands.
+        // On-demand escalated sigs memoized per (term, arity) — tiny now.
+        let mut esc_memo: FastMap<(u32, u8), Option<(u64, u64)>> = FastMap::default();
+        let tier1 = Caps { steps: steps_cap.saturating_mul(10), nodes: nodes_cap.saturating_mul(10) };
+        // opaque reps grouped by size once, creation order within a size (deterministic)
+        let mut opaque_by_size: Vec<Vec<u32>> = vec![Vec::new(); max_iotas + 1];
+        for (ri, r) in reps.iter().enumerate() {
+            if !r.classed() {
+                opaque_by_size[r.size as usize].push(ri as u32);
             }
         }
-        let esc_table: FastMap<(u32, u8), Option<(u64, u64)>> = {
-            let mut need: FastMap<(u32, u8), ()> = FastMap::default();
-            for (bi, b) in birds.iter().enumerate() {
-                if let Some(w) = bird_winner_size[bi] {
-                    for r in reps.iter() {
-                        if !r.classed() && (r.size as u32) <= w {
-                            need.insert((r.term, b.arity as u8), ());
-                        }
-                    }
-                }
-            }
-            let jobs: Vec<(u32, u8)> = need.keys().copied().collect();
-            let tier1 = Caps { steps: steps_cap.saturating_mul(10), nodes: nodes_cap.saturating_mul(10) };
-            eprintln!("  esc: {} per-bird jobs ({} opaque total)", jobs.len(), reps.iter().filter(|r| !r.classed()).count());
-            let mut table: FastMap<(u32, u8), Option<(u64, u64)>> = FastMap::default();
-            if jobs.len() < 32 {
-                for &(t, a) in &jobs {
-                    let r = signature_vars(&mut arena, t, a as usize, &tier1, true, &mut bufs)
-                        .or_else(|| signature_vars(&mut arena, t, a as usize, &esc_caps, true, &mut bufs));
-                    table.insert((t, a), r);
-                }
-            } else {
-                let p_nodes: &[u64] = &arena.p_nodes;
-                let p_dedup = &arena.p_dedup;
-                let jobs_ref = &jobs;
-                let tier1_ref = &tier1;
-                let esc_ref = &esc_caps;
-                let enext = std::sync::atomic::AtomicUsize::new(0);
-                let enext = &enext;
-                let done: Vec<(usize, Vec<(usize, Option<(u64, u64)>)>)> = std::thread::scope(|sc| {
-                    (0..workers)
-                        .map(|_w| {
-                            sc.spawn(move || {
-                                let mut wk = Worker {
-                                    p_nodes,
-                                    p_dedup,
-                                    s_nodes: Vec::new(),
-                                    s_dedup: FastMap::default(),
-                                    max_var_demand: 0,
-                                    l_cache: [u32::MAX; 23],
-                                };
-                                let mut wbufs = ReduceBufs::default();
-                                let mut out = Vec::new();
-                                loop {
-                                    let ji = enext.fetch_add(1, Ordering::Relaxed);
-                                    if ji >= jobs_ref.len() {
-                                        break;
-                                    }
-                                    let (t, a) = jobs_ref[ji];
-                                    let r = signature_vars(&mut wk, t, a as usize, tier1_ref, true, &mut wbufs)
-                                        .or_else(|| signature_vars(&mut wk, t, a as usize, esc_ref, true, &mut wbufs));
-                                    out.push((ji, r));
-                                }
-                                eprintln!("    esc worker: {} jobs", out.len());
-                                (wk.max_var_demand, out)
-                            })
-                        })
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .map(|h| h.join().expect("esc worker panicked"))
-                        .collect()
-                });
-                for (d, out) in done {
-                    if d > arena.max_var_demand {
-                        arena.max_var_demand = d;
-                    }
-                    for (ji, r) in out {
-                        table.insert(jobs[ji], r);
-                    }
-                }
-            }
-            table
-        };
         let mut findings: Vec<String> = Vec::new();
         let esc_caps_steps = esc_caps.steps;
         let _ = esc_caps_steps;
@@ -1453,16 +1370,7 @@ fn main() {
                 // implies equal above, says NOTHING below) — so match the sig-vector
                 // SUFFIX. Multiple classes can match (they differ only below declared
                 // arity); the winner is the smallest (size, bits) rep among them.
-                let mut best: Option<(u32, String, u32)> = None;
-                for (&ri, rv) in rep_vectors.iter() {
-                    if rv.as_ref().slice()[b.arity..] == bslice[b.arity..] {
-                        let r = &reps[ri as usize];
-                        let cand = (r.size as u32, encode_bits(&arena, r.term), r.term);
-                        if best.as_ref().map(|w| (cand.0, &cand.1) < (w.0, &w.1)).unwrap_or(true) {
-                            best = Some(cand);
-                        }
-                    }
-                }
+                let best: Option<(u32, String, u32)> = bird_min[bi].map(|(sz, t)| (sz, encode_bits(&arena, t), t));
                 if let Some((bsize, bbits, bterm)) = best {
                     // exact string verification at arities declared..=dp_a (collision guard)
                     let mut exact = true;
@@ -1475,31 +1383,40 @@ fn main() {
                         }
                     }
                     if exact {
-                        let (rsize, rterm) = (bsize, bterm);
-                        let rbits = bbits;
-                        // frontier: opaque (capped) reps strictly cheaper than the winner —
-                        // escalate each at the bird's declared arity (memoized)
+                        // LAZY frontier walk, ascending size: stop at the first unresolved
+                        // diverger (status is decided) or adopt a smaller capped-equal winner.
                         let target = signature_vars(&mut arena, term, b.arity, &esc_caps, true, &mut bufs);
-                        let mut winner: (u32, String, u32) = (rsize, rbits, rterm);
-                        for ci in 0..reps.len() {
-                            if reps[ci].classed() {
-                                continue;
-                            }
-                            let csize = reps[ci].size as u32;
-                            let cterm = reps[ci].term;
-                            if csize > winner.0 {
-                                continue;
-                            }
-                            let cbits = encode_bits(&arena, cterm);
-                            if csize == winner.0 && cbits >= winner.1 {
-                                continue;
-                            }
-                            match (esc_table.get(&(cterm, b.arity as u8)).copied().flatten(), target) {
-                                (Some(s), Some(t2)) if s == t2 => {
-                                    winner = (csize, cbits, cterm);
+                        let mut winner: (u32, String, u32) = (bsize, bbits, bterm);
+                        'walk: for sz in 1..=winner.0 as usize {
+                            for &ci in &opaque_by_size[sz] {
+                                let cterm = reps[ci as usize].term;
+                                let csize = sz as u32;
+                                if csize == winner.0 {
+                                    let cbits = encode_bits(&arena, cterm);
+                                    if cbits >= winner.1 {
+                                        continue;
+                                    }
                                 }
-                                (Some(_), _) => {}
-                                (None, _) => unresolved += 1,
+                                let key = (cterm, b.arity as u8);
+                                let r = if let Some(v) = esc_memo.get(&key) {
+                                    *v
+                                } else {
+                                    let v = signature_vars(&mut arena, cterm, b.arity, &tier1, true, &mut bufs)
+                                        .or_else(|| signature_vars(&mut arena, cterm, b.arity, &esc_caps, true, &mut bufs));
+                                    esc_memo.insert(key, v);
+                                    v
+                                };
+                                match (r, target) {
+                                    (Some(sg), Some(t2)) if sg == t2 => {
+                                        winner = (csize, encode_bits(&arena, cterm), cterm);
+                                        break 'walk; // ascending: this is the smallest possible
+                                    }
+                                    (Some(_), _) => {}
+                                    (None, _) => {
+                                        unresolved += 1;
+                                        break 'walk; // conditional is decided; the count is cosmetic
+                                    }
+                                }
                             }
                         }
                         minimal_bits = Some(winner.1.clone());
