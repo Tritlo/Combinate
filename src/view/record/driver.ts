@@ -6,8 +6,8 @@
  */
 import { Container, Ticker, autoDetectRenderer } from "pixi.js";
 import { expandDisplay, sugar } from "../../core/catalog";
-import { countNodes, layoutAuto, layoutHTree, layoutRadial, layoutTopDown, type LayoutFn } from "../../core/layout";
-import { layoutHTree3D, layoutSphere, type Layout3Fn } from "../../core/layout3d";
+import { countNodes, layoutAuto, layoutHTree, layoutRadial, layoutTopDown, layoutBotanical, layoutMobile, layoutHyperbolic, type LayoutFn } from "../../core/layouts";
+import { layoutHTree3D, layoutSphere, layoutBotanical3D, layoutMobile3D, type Layout3Fn } from "../../core/layouts";
 import { exceedsNodes, type Node } from "../../core/term";
 import { redexAt } from "../../core/reduce";
 import { behavioralRefolder } from "../../core/refold";
@@ -30,11 +30,27 @@ function layoutFor(settings: RecordSettings): LayoutFn {
       return layoutRadial;
     case "htree":
       return layoutHTree;
+    case "botanical":
+      return layoutBotanical;
+    case "mobile":
+      return layoutMobile;
+    case "hyperbolic":
+      return layoutHyperbolic;
   }
 }
 
 function layout3For(settings: RecordSettings): Layout3Fn {
-  return settings.layout === "radial" ? layoutSphere : layoutHTree3D;
+  switch (settings.layout) {
+    case "radial":
+    case "hyperbolic":
+      return layoutSphere;
+    case "botanical":
+      return layoutBotanical3D;
+    case "mobile":
+      return layoutMobile3D;
+    default:
+      return layoutHTree3D;
+  }
 }
 
 function displayTerm(term: Node, settings: RecordSettings): Node {

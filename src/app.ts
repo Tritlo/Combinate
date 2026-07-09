@@ -17,8 +17,8 @@ import { QuestTracker } from "./view/questTracker";
 import { Sound } from "./view/sound";
 import { CATALOG, type Law, expandDisplay, PAGES, displayLabel, countIotas, iotaTreeOf } from "./core/catalog";
 import { recognize } from "./core/probe";
-import { layoutAuto, layoutRadial, layoutHTree, layoutTopDown, type LayoutFn } from "./core/layout";
-import { layoutHTree3D, layoutSphere } from "./core/layout3d";
+import { layoutAuto, layoutRadial, layoutHTree, layoutTopDown, layoutBotanical, layoutMobile, layoutHyperbolic, type LayoutFn } from "./core/layouts";
+import { layoutHTree3D, layoutSphere, layoutBotanical3D, layoutMobile3D } from "./core/layouts";
 import { recognizeDeep, fromEgg, parseComb, toEgg } from "./core/refold";
 import { read, render, type Ty } from "./core/types";
 import { inferType } from "./core/infer";
@@ -971,7 +971,16 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     ticker: pixi.ticker,
     focus: () => focus,
     display: (node) => expandDisplay(node, { expandAll, isDiscovered }),
-    layout3: () => (layoutFn === layoutRadial ? layoutSphere : layoutHTree3D), // 3D defaults to the cubic H-tree; the packed sphere only for the explicit radial layout
+    // 3D: the packed sphere for radial/hyperbolic (a hyperbolic-ish cone-tree), the 3D bush / mobile for
+    // botanical / mobile, the cubic H-tree for everything else (auto, top-down, H-tree).
+    layout3: () =>
+      layoutFn === layoutRadial || layoutFn === layoutHyperbolic
+        ? layoutSphere
+        : layoutFn === layoutBotanical
+          ? layoutBotanical3D
+          : layoutFn === layoutMobile
+            ? layoutMobile3D
+            : layoutHTree3D,
     notify: (msg) => toast.show(msg),
     onActiveChange: (active) => {
       if (!active) pinch = null; // a 2-finger 3D gesture exited mid-flight mustn't bleed into the 2D pinch
@@ -993,20 +1002,26 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     layoutControls?.refresh();
   };
   // The active layout's name (layoutControls' toggle bar + the dev seam's mode()).
-  const layoutName = (): "auto" | "topdown" | "radial" | "htree" =>
-    layoutFn === layoutAuto ? "auto" : layoutFn === layoutTopDown ? "topdown" : layoutFn === layoutRadial ? "radial" : "htree";
-  // Cycles auto → top-down → radial → H-tree → auto. No key is bound to this — reachable only
-  // via the __combinate.toggleLayout dev seam.
+  const layoutName = (): "auto" | "topdown" | "radial" | "htree" | "botanical" | "mobile" | "hyperbolic" =>
+    layoutFn === layoutAuto
+      ? "auto"
+      : layoutFn === layoutTopDown
+        ? "topdown"
+        : layoutFn === layoutRadial
+          ? "radial"
+          : layoutFn === layoutBotanical
+            ? "botanical"
+            : layoutFn === layoutMobile
+              ? "mobile"
+              : layoutFn === layoutHyperbolic
+                ? "hyperbolic"
+                : "htree";
+  // Cycles auto → top-down → radial → H-tree → botanical → mobile → hyperbolic → auto. No key is
+  // bound to this — reachable only via the __combinate.toggleLayout dev seam.
+  const LAYOUT_CYCLE: LayoutFn[] = [layoutAuto, layoutTopDown, layoutRadial, layoutHTree, layoutBotanical, layoutMobile, layoutHyperbolic];
   function toggleLayout(): void {
-    setLayoutMode(
-      layoutFn === layoutAuto
-        ? layoutTopDown
-        : layoutFn === layoutTopDown
-          ? layoutRadial
-          : layoutFn === layoutRadial
-            ? layoutHTree
-            : layoutAuto,
-    );
+    const i = LAYOUT_CYCLE.indexOf(layoutFn);
+    setLayoutMode(LAYOUT_CYCLE[(i + 1) % LAYOUT_CYCLE.length]!);
   }
 
   /** Frame a tree to fill the viewport (zoom + center) — from its layout bbox. */
@@ -1148,7 +1163,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (on !== sphere.active()) sphere.toggle();
     },
     layout: () => layoutName(),
-    setLayout: (k) => setLayoutMode(k === "auto" ? layoutAuto : k === "topdown" ? layoutTopDown : k === "radial" ? layoutRadial : layoutHTree),
+    setLayout: (k) =>
+      setLayoutMode(
+        k === "auto" ? layoutAuto : k === "topdown" ? layoutTopDown : k === "radial" ? layoutRadial : k === "botanical" ? layoutBotanical : k === "mobile" ? layoutMobile : k === "hyperbolic" ? layoutHyperbolic : layoutHTree,
+      ),
     iotaTree: () => expandAll,
     toggleIotaTree: () => toggleExpand(),
     opt: (k) => (k === "primitives" ? nativeAllOn() : k === "turbo" ? isOpt("wasm") : isOpt(k)),
@@ -1290,7 +1308,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       { kind: "radio", label: "Top-Down Layout", title: "Lay trees out strictly top-down.", on: () => layoutFn === layoutTopDown, run: () => setLayoutMode(layoutTopDown) },
       { kind: "radio", label: "Radial Layout", title: "Lay trees out radially.", on: () => layoutFn === layoutRadial, run: () => setLayoutMode(layoutRadial) },
       { kind: "radio", label: "H-Tree Layout", title: "Lay trees out as a nested square antenna — alternating axes, arms shrinking with depth.", on: () => layoutFn === layoutHTree, run: () => setLayoutMode(layoutHTree) },
-      { kind: "toggle", label: "3D", title: "View the tree in 3D (mirrors the 2D layout — H-tree → cubic H-tree, else packed sphere).", checked: () => sphere.active(), run: () => sphere.toggle() },
+      { kind: "radio", label: "Botanical Layout", title: "Lay trees out as a growing tree — each application branches ±α, arms shrinking with depth.", on: () => layoutFn === layoutBotanical, run: () => setLayoutMode(layoutBotanical) },
+      { kind: "radio", label: "Mobile Layout", title: "Lay trees out as a Calder mobile — each application a balance beam that hangs its children by subtree mass.", on: () => layoutFn === layoutMobile, run: () => setLayoutMode(layoutMobile) },
+      { kind: "radio", label: "Hyperbolic Layout", title: "Lay trees out in a Poincaré disk — the root at the centre, depth crowding toward the rim (focus + context).", on: () => layoutFn === layoutHyperbolic, run: () => setLayoutMode(layoutHyperbolic) },
+      { kind: "toggle", label: "3D", title: "View the tree in 3D (mirrors the 2D layout — H-tree → cubic H-tree, radial/hyperbolic → packed sphere).", checked: () => sphere.active(), run: () => sphere.toggle() },
       { kind: "sep" },
       { kind: "toggle", label: "Expand ι-Trees", title: "Show every combinator expanded to raw ι.", checked: () => expandAll, run: () => toggleExpand() },
       { kind: "toggle", label: "Type Lens", title: "Annotate the read-out with inferred types.", checked: () => readout.isTypeOn, run: () => readout.toggleType() },
