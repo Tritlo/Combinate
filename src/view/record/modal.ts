@@ -45,6 +45,9 @@ const LAYOUT_HINTS: Record<RecordLayoutKey, string> = {
   topdown: "Leaves line up; depth grows downward.",
   radial: "Root in the center; depth becomes radius.",
   htree: "Compact alternating-axis H-tree layout.",
+  botanical: "A growing tree; each application branches.",
+  mobile: "A Calder mobile; balance beams hung by mass.",
+  hyperbolic: "A Poincaré disk; depth crowds the rim.",
 };
 
 let modalStylesInjected = false;
@@ -321,6 +324,9 @@ export class RecordModal extends Modal {
       ["topdown", "Top-Down"],
       ["radial", "Radial"],
       ["htree", "H-Tree"],
+      ["botanical", "Botanical"],
+      ["mobile", "Mobile"],
+      ["hyperbolic", "Hyperbolic"],
     ] as const) {
       const input = radio("rm-layout", key);
       this.layoutRadios.set(key, input);

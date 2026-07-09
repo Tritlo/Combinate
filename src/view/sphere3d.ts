@@ -13,7 +13,7 @@
  */
 import type * as T from "three";
 import { type Node } from "../core/term";
-import { layoutHTree3D, type Layout3Fn } from "../core/layout3d";
+import { layoutHTree3D, type Layout3Fn } from "../core/layouts";
 import { theme, combinatorColor, combinatorColorForMode, currentMode, edgeTierColor, themeForMode, edgeTierColorForMode, type Mode, type Theme } from "./theme";
 import { easeInOut } from "./anim";
 

@@ -1,7 +1,7 @@
 import { Container, type FederatedPointerEvent, Graphics, Rectangle, Text } from "pixi.js";
 import { CATALOG, countIotas, displayLabel, iotaTreeOf, IOTA_FASTEST, IOTA_FASTEST_BOUND, IOTA_SETTLED, IOTA_STEPS, type Law, META, PAGES } from "../core/catalog";
 import { iota, type Node, type NodeId, decode } from "../core/term";
-import { layoutHTree } from "../core/layout";
+import { layoutHTree } from "../core/layouts";
 import { theme, currentMode, edgeTierColor, type Mode, MONO, PAPER, INK } from "./theme";
 import { wirePanelChrome, placeCard } from "./pixiPanel";
 
