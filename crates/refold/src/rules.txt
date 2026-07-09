@@ -74,10 +74,6 @@ N_law | (@ (@ (@ N ?a) ?b) ?c) | (@ ?c ?a)
 N_def | (@ (@ S (@ K K)) (@ (@ S (@ K (@ S I))) K)) | N
 O_law | (@ (@ O ?a) ?b) | (@ ?b (@ ?a ?b))
 O_def | (@ S I) | O
-O2_law | (@ (@ O2 ?a) ?b) | (@ (@ ?b (@ ?a ?b)) ?b)
-O2_def | (@ (@ S (@ (@ S (@ K S)) (@ S I))) (@ K I)) | O2
-Pe_law | (@ (@ (@ Pe ?a) ?b) ?c) | (@ (@ ?b ?c) (@ (@ ?a ?b) ?c))
-Pe_def | (@ S S) | Pe
 Pred_law | (@ Pred ?a) | (@ (@ ?a K) I)
 Pred_def | (@ (@ S (@ (@ S I) (@ K K))) (@ K I)) | Pred
 Q_law | (@ (@ (@ Q ?a) ?b) ?c) | (@ ?b (@ ?a ?c))
