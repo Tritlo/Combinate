@@ -19,6 +19,8 @@ export const IOTA_CODE: Record<string, string> = {
 
 
   M3: "0001010101101010101011011",
+  "Ψ": "00010100101010101101100101010110001010010101010110110101001010101011011000100001010101101100010101011110001010101110101011010101101010010101010110110101001010101011011", // 84ι — recipe composition B (S (B B (C B))) B, gate-verified (was 131ι)
+  cons: "0001010010101010110110010100101010101101101010110001010010101010110110010000101010110110001010101111000101010111010101101010110001000010101011011000101010111100010101011101010110101011011", // 94ι — recipe composition B (B K) V (was 96ι)
   G: "0001010010101010110110101001010101011011001000010101011011000101010111100010101011101010110101011", // 49ι — recipe composition B B C (was 81ι def-expansion)
   Q4: "000100001010101101100010101011110001010101110101011010101100101001010101011011000101010110010101100101010110110101011", // 59ι — recipe composition C (B T) (was 67ι)
   V: "0001010010101010110110010000101010110110001010101111000101010111010101101010110001000010101011011000101010111100010101011101010110101011011", // 70ι — recipe composition B C (C I) (was 74ι)
@@ -459,7 +461,7 @@ export const META: Record<string, Meta> = {
   "2": { blurb: "The Scott numeral 2 = Succ (Succ 0): λz s. s 1, handing its predecessor 1 to the successor arm.", recipe: "Succ (Succ 0)" },
   "3": { blurb: "The Scott numeral 3 = Succ (Succ (Succ 0)): λz s. s 2 — the pivot in `qs [3, 1, 2]`.", recipe: "Succ (Succ (Succ 0))" },
   Pred: { blurb: "The predecessor, and under the Scott encoding it is trivial: a number is a case on Z / S, so Pred just hands back the stored predecessor (and leaves Z at Z). The famous Church-numeral dentist-chair trick is gone — Scott pays the cost at construction instead.", recipe: "λm. m Z I" },
-  cons: { blurb: "Prepends a head onto a list. A Scott cons cell stores its head and tail and, when matched, hands them to the cons branch (cons h t = λn c. c h t) — there is no fold built in, unlike the Church encoding.", recipe: "λh t n c. c h t" },
+  cons: { blurb: "Prepends a head onto a list. A Scott cons cell stores its head and tail and, when matched, hands them to the cons branch (cons h t = λn c. c h t) — there is no fold built in, unlike the Church encoding.", recipe: "B (B K) V" },
   head: { blurb: "Takes the first element of a list (or the empty list, if there is none). It matches the list with the Kestrel as the cons branch — K keeps the head, drops the tail — and a default for the empty case.", recipe: "λxs. xs nil K" },
   uncons: { blurb: "Splits a non-empty list into its head and tail, paired together with the Vireo. Under Scott both halves are already to hand in the cons cell, so it is a single clean case — no rebuilding.", recipe: "λxs. xs (nil,nil) (λh t. (h, t))" },
   tail: { blurb: "Drops the first element and returns the rest. Under the Scott encoding this is trivial — the tail sits right there in the cons cell, so tail just reads it off (the cons branch is `λh t. t`). The Church encoding's pair-shuffling tail is gone.", recipe: "λxs. xs nil (λh t. t)" },
@@ -507,7 +509,7 @@ export const META: Record<string, Meta> = {
   Z: { bird: "Zebra Finch", blurb: "Hands a function two arguments, then quietly swallows a trailing third — a tidy way to ignore an argument. It is a Bluebird perched on a Kestrel, the Kestrel doing the discarding. The letter Z was Schönfinkel's old mark for composition; here it takes a Zebra Finch for its name.", recipe: "B K" },
   Z2: { bird: "Zebra Dove", blurb: "Z reaching one rung deeper: it applies a function to its next two arguments and lets a trailing fourth fall away. Built by composing a Bluebird onto Z. Named the Zebra Dove — a Z-bird, and a Dove nodding to the Bluebird composition inside it.", recipe: "B Z" },
   "Φ": { bird: "Phoenix", blurb: "The Phoenix hands one shared argument to two different functions, then merges their results with a third — the fork-and-join cousin of the Starling, and Haskell's liftA2. Φ is the Greek letter 'Phi', so the Phoenix, a Ph-bird, fits the symbol.", recipe: "B (B S) B" },
-  "Ψ": { bird: "Psittacosaurus", blurb: "The Psi bird applies one function to two separate arguments, then feeds the results to a second that combines them — functional programmers' `on` operator. No bird's name begins with the Greek Ψ, so it borrows a dinosaur: Psittacosaurus, the 'parrot lizard'.", recipe: "λx y z w. x (y z) (y w)" },
+  "Ψ": { bird: "Psittacosaurus", blurb: "The Psi bird applies one function to two separate arguments, then feeds the results to a second that combines them — functional programmers' `on` operator. No bird's name begins with the Greek Ψ, so it borrows a dinosaur: Psittacosaurus, the 'parrot lizard'.", recipe: "B (S (B B (C B))) B" },
 };
 
 
