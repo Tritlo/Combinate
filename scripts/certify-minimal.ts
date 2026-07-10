@@ -133,8 +133,6 @@ for (const s of data.samples) {
 }
 
 // -- report --
-const proven = data.birds.filter((b) => b.status === "proven");
-const improved = proven.filter((b) => (b.minimal_iotas ?? Infinity) < b.current_iotas);
 const rows = data.birds
   .filter((b) => b.minimal_bits !== null || b.status !== "not-found-within-bound")
   .map((b) => {
