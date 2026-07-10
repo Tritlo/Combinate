@@ -5,7 +5,7 @@
 export * from "./types";
 export { layoutTopDown } from "./topdown";
 export { layoutRadial } from "./radial";
-export { layoutHTree, layoutHTreeSubtree, resolveAutoLayout, layoutAuto } from "./htree";
+export { layoutHTree, layoutHTreeSubtree, layoutAuto } from "./htree";
 export { layoutBotanical } from "./botanical";
 export { layoutMobile } from "./mobile";
 export { layoutHyperbolic } from "./hyperbolic";

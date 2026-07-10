@@ -10,7 +10,7 @@ import type { NativeOpts } from "../../core/native";
 import type { RecordPlan, RecordSettings, ToneEvent } from "./types";
 
 /** Output-time half-life for the adaptive recorder pace. */
-export const ACCEL_HALF_LIFE_SEC = 5;
+const ACCEL_HALF_LIFE_SEC = 5;
 const ACCEL_HALF_LIFE_MS = ACCEL_HALF_LIFE_SEC * 1000;
 const MAX_STEPS_PER_FRAME = 1024;
 const SCHEDULE_EPS = 1e-7;

@@ -23,7 +23,7 @@ const midiToFreq = (m: number): number => 440 * 2 ** ((m - 69) / 12);
 
 /** Map a firing-rule symbol to a MIDI note at `base`: fundamentals are offsets,
  *  named birds are hashed into the pentatonic scale across two octaves. */
-export function midiFor(sym: string, base: number): number {
+function midiFor(sym: string, base: number): number {
   let midi = FUNDAMENTAL_OFFSETS[sym];
   if (midi === undefined) {
     let h = 0;
