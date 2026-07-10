@@ -16,15 +16,16 @@ leaderboards break the current "static, no backend" shape.
 Adopt `@duckdb/duckdb-wasm` **now** (decision b) as a **lazy driven adapter** behind
 a pure `Store` port — `src/core/` stays DB/DOM/wasm-free (extends ADR 0001). The
 opt-in `?store=duckdb` adapter is an **in-memory query/leaderboard prototype**;
-durable player state remains in the default `LocalStore`, because DuckDB-WASM has
-no durable cross-session storage. The **quack-protocol leaderboard architecture is
-prototyped early** rather than deferred — that is the reason for taking the
-dependency now. DuckDB-WASM is lazy-loaded (never on first paint); a first-time
-visitor who only plays ships none of it.
+durable `Store` state remains in the default `LocalStore` (other preferences use
+`localStorage` directly), because DuckDB-WASM has no durable cross-session storage.
+The **quack-protocol leaderboard architecture is prototyped early** rather than
+deferred — that is the reason for taking the dependency now. DuckDB-WASM is
+lazy-loaded (never on first paint); a first-time visitor who only plays ships none
+of it.
 
 ## Why
 
-Chosen over deferring to localStorage (option a) specifically to **de-risk the
+Chosen over keeping only localStorage (option a) specifically to **de-risk the
 quack/leaderboard path early** — validating that architecture is worth carrying the
 dependency before it fully earns out. Structured, queryable local state using the
 maintainer's house DB, with the core kept pure (storage as an adapter).
