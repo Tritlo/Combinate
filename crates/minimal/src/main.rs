@@ -825,12 +825,17 @@ fn term_str<A: Red>(arena: &A, t: u32, cap: usize) -> String {
 }
 
 fn head_trace_fpc<A: Red>(arena: &mut A, t: u32, budget: u64, bufs: &mut ReduceBufs) -> Option<u64> {
-    // Fixpoint detector v2: the BÖHM-PREFIX test. A fixpoint combinator's Böhm tree is
-    // f(f(f(...))), and Curry-style SK cycles are quasi-periodic (terms grow each round,
-    // so literal-trace recurrence — v1 — never fires; measured on Y-54). Head-reduce to
-    // f·X, descend into X, demand f again; DEPTH nested f-heads = the certificate,
-    // honestly labeled "Böhm prefix f^DEPTH" (strong evidence, not a totality proof;
-    // the TS side can verify deeper).
+    // Fixpoint detector v3: the BÖHM-DESCENT test. A fixpoint combinator's Böhm tree is
+    // f(f(f(...))) — every level, forever — so head-reduce to f·X, descend into X, and
+    // KEEP descending until the budget dies. Any non-f floor within budget is a
+    // definitive rejection: v2 stopped at five levels and accepted finite towers f^k·u —
+    // the retracted "26ι FPC" bottoms out at level 17 (t·f =β f^16 (O f), found by hand
+    // probing; its NF lands 138 steps past the 2000 budget, which is why v2 never saw
+    // it). Budget death after >= DEPTH f-levels is the certificate, honestly labeled
+    // "Böhm descent, still f-headed at budget" (the strongest finite evidence a
+    // semi-decidable property allows); the value returned is the f^DEPTH timestamp.
+    // (v1 — literal-trace recurrence — never fires at all: Curry-style SK cycles are
+    // quasi-periodic, terms grow each round; measured on Y-54.)
     const DEPTH: u32 = 5;
     let dbg = std::env::var("FPC_TRACE").is_ok();
     arena.s_clear();
@@ -840,17 +845,23 @@ fn head_trace_fpc<A: Red>(arena: &mut A, t: u32, budget: u64, bufs: &mut ReduceB
     let mut cur = arena.mk_app(t, f);
     let mut steps_left = budget;
     let mut total = 0u64;
+    let mut depth = 0u32;
+    let mut close5 = 0u64;
     let spine = &mut bufs.spine;
-    for depth in 0..DEPTH {
-        // head-reduce `cur` until it is literally f · X (or stuck/budget out)
+    loop {
+        // head-reduce `cur` until it is literally f · X (or a floor/budget out)
         loop {
             if steps_left == 0 {
-                return None;
+                return if depth >= DEPTH { Some(close5) } else { None };
             }
             let cn = arena.nd(cur);
             if cn.tag == TAG_APP && cn.a == f {
+                depth += 1;
+                if depth == DEPTH {
+                    close5 = total;
+                }
                 if dbg {
-                    eprintln!("  Böhm level {} reached after {} steps", depth + 1, total);
+                    eprintln!("  Böhm level {depth} reached after {total} steps");
                 }
                 cur = cn.b; // descend into the argument
                 break;
@@ -912,11 +923,11 @@ fn head_trace_fpc<A: Red>(arena: &mut A, t: u32, budget: u64, bufs: &mut ReduceB
             steps_left -= 1;
             total += 1;
             if arena.s_len() > 500_000 {
-                return None;
+                // resource death, not a floor — same evidence rule as budget death
+                return if depth >= DEPTH { Some(close5) } else { None };
             }
         }
     }
-    Some(total)
 }
 
 fn dp_sigvec<A: Red>(arena: &mut A, t: u32, caps: &Caps, dp_a: usize, bufs: &mut ReduceBufs) -> SigRes {
@@ -1020,6 +1031,163 @@ fn jstr(s: &str) -> String {
     o
 }
 
+
+// ---------------- exhaustive FPC brute force (--fpc-brute) ----------------
+
+/// Catalan C(k), exact (fits u64 through k = 32).
+fn catalan(k: usize) -> u64 {
+    let mut c: u128 = 1;
+    for j in 0..k {
+        c = c * 2 * (2 * j as u128 + 1) / (j as u128 + 2);
+    }
+    c as u64
+}
+
+fn flushout() {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+}
+
+/// ways[l][p] = number of preorder-bitcode completions from an enumerator state with
+/// p pending subtree slots and exactly l leaves left (the Catalan-triangle ballot
+/// numbers) — used only to schedule work items largest-first.
+fn ways_table(m: usize) -> Vec<Vec<u64>> {
+    let mut w = vec![vec![0u64; m + 2]; m + 1];
+    w[0][0] = 1;
+    for l in 1..=m {
+        for p in (1..=l).rev() {
+            let leaf = w[l - 1][p - 1];
+            let split = if l > p { w[l][p + 1] } else { 0 };
+            w[l][p] = leaf + split;
+        }
+    }
+    w
+}
+
+/// Stream every completion of the current enumerator state as full preorder bitcodes
+/// (0 = app, 1 = ι); `buf` is restored on return. DFS, so successive codes share
+/// prefixes and the enumeration is amortized O(1) per code.
+fn gen_codes(buf: &mut Vec<u8>, pending: usize, leaves: usize, cb: &mut dyn FnMut(&[u8])) {
+    if pending == 0 {
+        if leaves == 0 {
+            cb(buf);
+        }
+        return;
+    }
+    if leaves > pending {
+        buf.push(b'0');
+        gen_codes(buf, pending + 1, leaves, cb);
+        buf.pop();
+    }
+    buf.push(b'1');
+    gen_codes(buf, pending - 1, leaves - 1, cb);
+    buf.pop();
+}
+
+/// Valid k-bit enumerator prefixes for a size-m tree, each with its continuation state
+/// (pending, leaves-left) — the work-item partition of one side of a split. Codes that
+/// complete before k bits are returned whole (pending 0).
+fn gen_prefixes(m: usize, k: usize) -> Vec<(Vec<u8>, usize, usize)> {
+    fn rec(buf: &mut Vec<u8>, pending: usize, leaves: usize, k: usize, out: &mut Vec<(Vec<u8>, usize, usize)>) {
+        if pending == 0 {
+            if leaves == 0 {
+                out.push((buf.clone(), 0, 0));
+            }
+            return;
+        }
+        if buf.len() == k {
+            out.push((buf.clone(), pending, leaves));
+            return;
+        }
+        if leaves > pending {
+            buf.push(b'0');
+            rec(buf, pending + 1, leaves, k, out);
+            buf.pop();
+        }
+        buf.push(b'1');
+        rec(buf, pending - 1, leaves - 1, k, out);
+        buf.pop();
+    }
+    let mut out = Vec::new();
+    rec(&mut Vec::new(), 1, m, k, &mut out);
+    out
+}
+
+/// decode_bits over a raw byte code (persistent arena build).
+fn decode_code(arena: &mut Arena, code: &[u8]) -> u32 {
+    let mut stack: Vec<u32> = Vec::new();
+    for &b in code.iter().rev() {
+        if b == b'1' {
+            let l = arena.leaf(TAG_IOTA, 0);
+            stack.push(l);
+        } else {
+            let f = stack.pop().unwrap();
+            let x = stack.pop().unwrap();
+            stack.push(arena.app(f, x));
+        }
+    }
+    debug_assert_eq!(stack.len(), 1);
+    stack[0]
+}
+
+/// One brute work item: (striped-side completions under `prefix`) × (every other-side
+/// shape). `striped_f` says whether the striped side is the function of the top app.
+struct BruteItem {
+    n: usize,
+    striped_f: bool,
+    m_s: usize,
+    m_o: usize,
+    prefix: Vec<u8>,
+    pending: usize,
+    leaves: usize,
+    est: u64,
+}
+
+/// Run one item: pre-decode the (smaller) other side once, stream the striped side,
+/// test every top pair. PERSISTENT-arena builds only — head_trace_fpc s_clears scratch
+/// internally, so a scratch-built term aliases the detector's own leaves and tests
+/// garbage (the vacuous-first-brute lesson). The arena is rebuilt whenever it crosses
+/// ~6M nodes (growth is one app node per pair plus the striped decodes).
+fn brute_run_item(it: &BruteItem, budget: u64, bufs: &mut ReduceBufs, finds: &mut Vec<(u32, String, u64)>) -> u64 {
+    let mut arena = Arena::new();
+    let ol = 2 * it.m_o - 1;
+    let mut ocodes: Vec<u8> = Vec::new();
+    gen_codes(&mut Vec::new(), 1, it.m_o, &mut |c| ocodes.extend_from_slice(c));
+    let ocount = ocodes.len() / ol;
+    let mut oids: Vec<u32> = Vec::with_capacity(ocount);
+    for c in ocodes.chunks_exact(ol) {
+        oids.push(decode_code(&mut arena, c));
+    }
+    let mut tested = 0u64;
+    let mut obuf = it.prefix.clone();
+    let mut sbits: Vec<u8> = Vec::new();
+    gen_codes(&mut obuf, it.pending, it.leaves, &mut |sb| {
+        sbits.clear();
+        sbits.extend_from_slice(sb);
+        let mut sid = decode_code(&mut arena, &sbits);
+        for oi in 0..ocount {
+            if arena.p_nodes.len() > 6_000_000 {
+                arena = Arena::new();
+                oids.clear();
+                for c in ocodes.chunks_exact(ol) {
+                    oids.push(decode_code(&mut arena, c));
+                }
+                sid = decode_code(&mut arena, &sbits);
+            }
+            let (f, x) = if it.striped_f { (sid, oids[oi]) } else { (oids[oi], sid) };
+            let t = arena.app(f, x);
+            tested += 1;
+            if let Some(cs) = head_trace_fpc(&mut arena, t, budget, bufs) {
+                let oc = &ocodes[oi * ol..(oi + 1) * ol];
+                let (fb, xb) = if it.striped_f { (&sbits[..], oc) } else { (oc, &sbits[..]) };
+                let bits = format!("0{}{}", std::str::from_utf8(fb).unwrap(), std::str::from_utf8(xb).unwrap());
+                finds.push((it.n as u32, bits, cs));
+            }
+        }
+    });
+    tested
+}
+
 fn main() {
     let t_start = Instant::now();
     let mut max_iotas: usize = 13;
@@ -1039,7 +1207,9 @@ fn main() {
     let mut dp_snapshot = true; // layer-boundary state snapshots at depth (>=36): a marathon survives kills/reboots
     let mut resume_path: Option<String> = None;
     let mut fpc_sweep = false; // post-hoc Böhm sweep over a hunt-state's opaque reps
-    let mut fpc_max: u16 = u16::MAX; // --fpc-max N: sweep only opaque reps of size <= N // per-layer findings snapshots (marathon hunts keep every completed layer) // --dp-slim: skip class census + samples in the JSON (deep runs; the dump gets fat past ~50k classes)
+    let mut fpc_max: u16 = u16::MAX; // --fpc-max N: sweep only opaque reps of size <= N
+    let mut fpc_brute: usize = 0;
+    let mut fpc_from: usize = 1; // --fpc-from M: skip sizes < M (covered by a prior run) // --fpc-brute N: EXHAUSTIVE Böhm test of every shape <= N iotas (no DP, no pruning) // per-layer findings snapshots (marathon hunts keep every completed layer) // --dp-slim: skip class census + samples in the JSON (deep runs; the dump gets fat past ~50k classes)
     let mut dp_opaque_fn = false; // --dp-opaque-fn re-enables capped singletons as HEADS; default skips them (leftmost-outermost does the head's work first, so a capped head stays capped; the arg-side rescue is kept). Validated 0-mismatch vs brute at 17ι.
     let mut esc_mult: u64 = 100; // escalated-cap multiplier for frontier cap-outs (raise to chase down `conditional` statuses)
     let mut args = std::env::args().skip(1);
@@ -1060,7 +1230,38 @@ fn main() {
             "--dp-opaque-fn" => dp_opaque_fn = true,
             "--dp-slim" => dp_slim = true,
             "--fixpoint" => dp_fixpoint = true,
-            "--fpc-probe" => { let bits = args.next().unwrap(); let mut arena = Arena::new(); let mut bufs = ReduceBufs::default(); let t = decode_bits(&mut arena, &bits).expect("bad bits"); match head_trace_fpc(&mut arena, t, 2000, &mut bufs) { Some(n) => println!("FPC: closes in {n} head steps"), None => println!("no head-cycle within budget") } return; }
+            "--fpc-probe" => { let bits = args.next().unwrap(); let budget: u64 = std::env::var("FPC_BUDGET").ok().and_then(|v| v.parse().ok()).unwrap_or(2000); let mut arena = Arena::new(); let mut bufs = ReduceBufs::default(); let t = decode_bits(&mut arena, &bits).expect("bad bits"); match head_trace_fpc(&mut arena, t, budget, &mut bufs) { Some(n) => println!("candidate: f^5 at {n} head steps, still f-headed at budget {budget}"), None => println!("rejected within budget {budget} (floor or too slow)") } return; }
+
+            "--nf-probe" => {
+                // memoized-NF vetting probe: does t·f have a normal form? A sage's never
+                // does; a tower's floor is reachable here far past the memoless head-walk
+                // (caps via NF_STEPS / NF_NODES, default 20M / 500M).
+                let bits = args.next().unwrap();
+                let steps_cap: u64 = std::env::var("NF_STEPS").ok().and_then(|v| v.parse().ok()).unwrap_or(20_000_000);
+                let nodes_cap: usize = std::env::var("NF_NODES").ok().and_then(|v| v.parse().ok()).unwrap_or(500_000_000);
+                let mut arena = Arena::new();
+                let mut bufs = ReduceBufs::default();
+                let t = decode_bits(&mut arena, &bits).expect("bad bits");
+                arena.s_clear();
+                let f = arena.mk_leaf(TAG_FREE, 0);
+                let applied = arena.mk_app(t, f);
+                let caps = Caps { steps: steps_cap, nodes: nodes_cap };
+                let mut steps = 0u64;
+                match normalize(&mut arena, applied, &caps, &mut steps, &mut bufs) {
+                    NfResult::Done(nf) => {
+                        // walk the f-spine of the NF to report the tower height
+                        let mut d = 0u64;
+                        let mut c = nf;
+                        loop {
+                            let n = arena.nd(c);
+                            if n.tag == TAG_APP && n.a == f { d += 1; c = n.b; } else { break; }
+                        }
+                        println!("NF FOUND at {steps} steps — f-tower {d}: IMPOSTOR");
+                    }
+                    NfResult::Capped => println!("no NF: capped after {steps} actual steps (caps {steps_cap} steps / {nodes_cap} nodes)"),
+                }
+                return;
+            }
             "--fastest" => dp_fastest = true, // default; kept for compat
             "--no-fastest" => dp_fastest = false,
             "--checkpoint" => dp_checkpoint = true,
@@ -1068,6 +1269,8 @@ fn main() {
             "--resume" => resume_path = Some(args.next().unwrap()),
             "--fpc-sweep" => { resume_path = Some(args.next().unwrap()); fpc_sweep = true; dp = true; max_iotas = 1; }
             "--fpc-max" => fpc_max = args.next().unwrap().parse().unwrap(),
+            "--fpc-brute" => { fpc_brute = args.next().unwrap().parse().unwrap(); }
+            "--fpc-from" => { fpc_from = args.next().unwrap().parse().unwrap(); }
             "--no-snapshot" => dp_snapshot = false,
             "--hunt" | "--smallest" => {
                 // THE hunt: smallest + fastest + fixpoint + per-layer checkpoints
@@ -1081,6 +1284,147 @@ fn main() {
             }
             other => panic!("unknown arg {other}"),
         }
+    }
+    if fpc_brute > 0 {
+        // EXHAUSTIVE fixpoint census: stream every pure-ι shape of <= N leaves as a
+        // preorder bitcode (no materialized shape table — sizes past ~19 cannot fit),
+        // decode into a small persistent arena, Böhm-test each. This is the
+        // completeness pass the DP sweep cannot give (delegate substitution has the
+        // congruence hole for FPC parents). The certificate is BOUNDED and labeled so:
+        // "no FPC <= N within FPC_BUDGET total head-steps / 500k scratch nodes".
+        const FPC_BUDGET: u64 = 2000;
+        const CHUNK: u128 = 4_000_000;
+        // planted controls through the exact decode -> build -> detector path, both ways:
+        // Curry's Y (54ι) must fire; the retracted "26ι FPC" — a 16-story impostor whose
+        // t·f =β f^16 (O f) — must NOT (its floor is what v2's fixed depth never reached).
+        const Y54: &str = "00010101011001010110001010101101101100010101011000101010110010101101010101101010110010101100010101011011011";
+        const TOWER26: &str = "000101010101100101010101100101010101100101010110111";
+        {
+            let mut arena = Arena::new();
+            let mut bufs = ReduceBufs::default();
+            let y = decode_bits(&mut arena, Y54).expect("bad planted bits");
+            let cs = head_trace_fpc(&mut arena, y, FPC_BUDGET, &mut bufs)
+                .expect("planted Curry Y did not fire — detector integration broken");
+            let tw = decode_bits(&mut arena, TOWER26).expect("bad planted bits");
+            // vetting-scale budget: the tower floor (level 17) sits just past the census
+            // budget — the census reports such terms as CANDIDATES; vetting rejects them
+            assert!(
+                head_trace_fpc(&mut arena, tw, 10_000, &mut bufs).is_none(),
+                "planted 16-story tower fired at vetting budget — floor rejection broken"
+            );
+            println!("fpc-brute: controls pass (Y-54 fires, f^5 at {cs} head steps; the 26ι tower is rejected)");
+        }
+        let workers = worker_override.unwrap_or_else(|| std::thread::available_parallelism().map(|v| v.get()).unwrap_or(8).min(16));
+        let n_max = fpc_brute;
+        println!("fpc-brute: EXHAUSTIVE census <= {n_max}ι — Böhm f^5, budget {FPC_BUDGET} head-steps, {workers} workers, sizes {fpc_from}..={n_max}");
+        flushout();
+        let wt = ways_table(n_max);
+        let found = std::sync::Mutex::new(Vec::<(u32, String, u64)>::new());
+        let mut cum = 0u64;
+        for n in fpc_from.max(1)..=n_max {
+            let expected = catalan(n - 1);
+            let t0 = std::time::Instant::now();
+            if n == 1 {
+                let mut arena = Arena::new();
+                let mut bufs = ReduceBufs::default();
+                let t = arena.leaf(TAG_IOTA, 0);
+                assert!(head_trace_fpc(&mut arena, t, FPC_BUDGET, &mut bufs).is_none());
+                cum += 1;
+                println!("fpc-brute: size 1 EXHAUSTED — 1 shape — cumulative 1, FPCs <= 1ι: 0");
+                continue;
+            }
+            let mut items: Vec<BruteItem> = Vec::new();
+            for i in 1..n {
+                let fc = catalan(i - 1);
+                let xc = catalan(n - i - 1);
+                let pairs = fc as u128 * xc as u128;
+                let striped_f = fc >= xc;
+                let (m_s, m_o) = if striped_f { (i, n - i) } else { (n - i, i) };
+                if pairs <= CHUNK {
+                    items.push(BruteItem { n, striped_f, m_s, m_o, prefix: Vec::new(), pending: 1, leaves: m_s, est: pairs as u64 });
+                } else {
+                    let mut k = 1usize;
+                    while (pairs / CHUNK) >> k > 0 {
+                        k += 1;
+                    }
+                    let k = k.min(2 * m_s - 1).min(24);
+                    let oc = if striped_f { xc } else { fc };
+                    for (prefix, pending, leaves) in gen_prefixes(m_s, k) {
+                        let est = wt[leaves][pending].saturating_mul(oc);
+                        items.push(BruteItem { n, striped_f, m_s, m_o, prefix, pending, leaves, est });
+                    }
+                }
+            }
+            items.sort_by(|a, b| b.est.cmp(&a.est));
+            let items = &items;
+            let cursor = std::sync::atomic::AtomicUsize::new(0);
+            let done_items = std::sync::atomic::AtomicUsize::new(0);
+            let size_tested = std::sync::atomic::AtomicU64::new(0);
+            std::thread::scope(|sc| {
+                for _ in 0..workers {
+                    sc.spawn(|| {
+                        let mut bufs = ReduceBufs::default();
+                        let mut lf: Vec<(u32, String, u64)> = Vec::new();
+                        loop {
+                            let w = cursor.fetch_add(1, Ordering::Relaxed);
+                            if w >= items.len() {
+                                break;
+                            }
+                            let t = brute_run_item(&items[w], FPC_BUDGET, &mut bufs, &mut lf);
+                            size_tested.fetch_add(t, Ordering::Relaxed);
+                            done_items.fetch_add(1, Ordering::Relaxed);
+                        }
+                        if !lf.is_empty() {
+                            found.lock().unwrap().append(&mut lf);
+                        }
+                    });
+                }
+                if expected >= 200_000_000 {
+                    let mut next_print = 60u64;
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        if done_items.load(Ordering::Relaxed) >= items.len() {
+                            break;
+                        }
+                        let el = t0.elapsed().as_secs();
+                        if el >= next_print {
+                            next_print = el + 60;
+                            let ts = size_tested.load(Ordering::Relaxed);
+                            let rate = ts as f64 / t0.elapsed().as_secs_f64();
+                            let eta_h = if rate > 0.0 { expected.saturating_sub(ts) as f64 / rate / 3600.0 } else { f64::NAN };
+                            println!(
+                                "  … size {n}: {:.1}% ({:.3e}/{:.3e}) {:.2}M shapes/s, ETA {:.2}h, FPCs so far {}",
+                                100.0 * ts as f64 / expected as f64, ts as f64, expected as f64, rate / 1e6, eta_h,
+                                found.lock().unwrap().len()
+                            );
+                            flushout();
+                        }
+                    }
+                }
+            });
+            let st = size_tested.load(Ordering::Relaxed);
+            assert_eq!(st, expected, "size {n}: enumerated count != Catalan — completeness bug");
+            cum += st;
+            let mut all = found.lock().unwrap().clone();
+            all.sort();
+            let mut outb = String::new();
+            for (sz, bits, cs) in &all {
+                outb.push_str(&format!("{sz}|{cs}|{bits}\n"));
+            }
+            std::fs::write(&out_path, &outb).expect("write");
+            let el = t0.elapsed().as_secs_f64();
+            println!(
+                "fpc-brute: size {n} EXHAUSTED — {st} shapes in {:.1}s ({:.2}M/s) — cumulative {cum}, FPCs <= {n}ι: {}",
+                el, st as f64 / el / 1e6, all.len()
+            );
+            flushout();
+        }
+        let all = found.lock().unwrap();
+        println!("fpc-brute: DONE <= {n_max}ι — {cum} shapes, {} FPCs (budget {FPC_BUDGET} head-steps)", all.len());
+        for (sz, bits, cs) in all.iter().take(10) {
+            println!("  FPC {sz}ι (closes {cs}): {bits}");
+        }
+        return;
     }
     let caps = Caps { steps: steps_cap, nodes: nodes_cap };
     let esc_caps = Caps { steps: steps_cap * esc_mult, nodes: nodes_cap.saturating_mul(esc_mult as usize) };
@@ -1418,7 +1762,10 @@ fn main() {
         }
         macro_rules! snap_state {
             ($completed:expr, $path:expr) => {{
-                let (mut zc, mut f) = zstd_writer($path);
+                // write-temp-then-rename: a kill during the ~40s stream must never
+                // leave a truncated snapshot at the real path
+                let tmp_path = format!("{}.tmp", $path);
+                let (mut zc, mut f) = zstd_writer(&tmp_path);
                 w_u64(&mut f, 0x1074_5747_0002); // magic + FORMAT version (v2: zstd + keys-only sets)
                 w_slice(&mut f, env!("CARGO_PKG_VERSION").as_bytes()); // creating binary's version
                 w_u64(&mut f, birds_hash());
@@ -1468,7 +1815,9 @@ fn main() {
                     w_slice(&mut f, bits.as_bytes());
                 }
                 drop(f);
-                zc.wait().expect("zstd write failed");
+                let st = zc.wait().expect("zstd write failed");
+                assert!(st.success(), "zstd exited nonzero writing the snapshot");
+                std::fs::rename(&tmp_path, $path).expect("snapshot rename");
             }};
         }
         let mut start_n = 2usize;

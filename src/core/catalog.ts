@@ -130,9 +130,11 @@ export interface Law {
   lawText: string;
   /** Number of fresh free variables to apply when probing. */
   arity: number;
-  /** Arguments to apply (default: the fresh vars). Override for non-terminating
-   *  combinators, e.g. Y is probed as `Y (K a)` so the test is finite. */
-  args?: (vars: Node[]) => Node[];
+  /** Fixpoint combinator (no normal form): probed by the Böhm-prefix test
+   *  (probe.ts `bohmSage` — five nested f-heads of `t·f`), not NF comparison.
+   *  The finite `Y (K a) ≡ a` trick used before accepted any `λx. x·u`
+   *  impostor — e.g. `O ι O` (15ι) normalizes to `S I (K (S K))` yet passed. */
+  fpc?: true;
   /** Reference normal form, built from those free variables. */
   reference: (vars: Node[]) => Node;
   /**
@@ -387,12 +389,12 @@ export const CATALOG: Law[] = [
   bird("null", "null [] = True;  null (h : t) = False", 1, (v) => app(app(v[0], KI()), lamN(["h", "t"], () => K()))), // xs True (λh t. False)
   bird("uncons", "uncons (h : t) = (h, t)", 1, (v) => app(app(v[0], app(app(V_(), K()), K())), V_())), // xs (nil,nil) (λh t. (h,t))
   bird("tail", "tail (h : t) = t", 1, (v) => app(app(v[0], K()), KI())), // xs nil-default (λh t. t)
-  // Sage Θ — recursive, so probed as Y (K a) ≡ a (Y a diverges).
+  // Sage — no NF, so probed by the Böhm-prefix test (law.fpc), not NF comparison.
   {
     sym: "Y",
     lawText: "Y f = f (Y f)",
     arity: 1,
-    args: (v) => [app(K(), v[0])],
+    fpc: true,
     reference: (v) => v[0],
     rule: yRule,
     def: Yc, // B M (C B M) — the same fixed-point combinator recDef folds recursive birds over
