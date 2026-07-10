@@ -1308,7 +1308,7 @@ fn main() {
                     }
                 }
             }
-            items.sort_by(|a, b| b.est.cmp(&a.est));
+            items.sort_by_key(|item| std::cmp::Reverse(item.est));
             let items = &items;
             let cursor = std::sync::atomic::AtomicUsize::new(0);
             let done_items = std::sync::atomic::AtomicUsize::new(0);
@@ -2314,7 +2314,7 @@ fn main() {
 
     // -- coincidences: classes with >= 2 birds (exemplar NF retained, not just a hash) --
     let mut coincidences: Vec<(Vec<String>, String)> = Vec::new();
-    for (_sig, bird_idxs) in &interesting {
+    for bird_idxs in interesting.values() {
         if bird_idxs.len() >= 2 {
             let syms: Vec<String> = bird_idxs.iter().map(|&i| birds[i].sym.clone()).collect();
             let nf = nf_string(&mut arena, bird_terms[bird_idxs[0]], SIG_ARITY, &esc_caps, &mut bufs)
@@ -2331,7 +2331,7 @@ fn main() {
     let mut class_rows: Vec<(u32, u64, String, String, Vec<String>)> = Vec::new(); // (size, count, bits, nf, birds)
     {
         let mut order: Vec<(&(u64, u64), &Class)> = classes.iter().collect();
-        order.sort_by(|a, b| (a.1.min_size, std::cmp::Reverse(a.1.count)).cmp(&(b.1.min_size, std::cmp::Reverse(b.1.count))));
+        order.sort_by_key(|item| (item.1.min_size, std::cmp::Reverse(item.1.count)));
         for (sig, c) in order.into_iter().take(CLASS_DUMP_LIMIT) {
             let bits = encode_bits(&arena, c.min_term);
             let nf = nf_string(&mut arena, c.min_term, SIG_ARITY, &esc_caps, &mut bufs).unwrap_or_else(|| "<capped>".into());
