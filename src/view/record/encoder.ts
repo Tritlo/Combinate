@@ -79,10 +79,15 @@ export async function createRecordingEncoder(
     }
   }
 
-  await output.start();
-  if (audioSource && audioBuffer) {
-    await audioSource.add(audioBuffer);
-    audioSource.close();
+  try {
+    await output.start();
+    if (audioSource && audioBuffer) {
+      await audioSource.add(audioBuffer);
+      audioSource.close();
+    }
+  } catch (error) {
+    await output.cancel().catch(() => {});
+    throw error;
   }
 
   return {
