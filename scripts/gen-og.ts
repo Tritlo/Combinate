@@ -13,7 +13,7 @@ import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { chromium } from "playwright-core";
-import { layoutHTree, countNodes } from "../src/core/layout";
+import { layoutHTree, countNodes } from "../src/core/layouts";
 import { named, expandDisplay } from "../src/core/catalog";
 import { app, type Node } from "../src/core/term";
 
