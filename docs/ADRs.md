@@ -35,7 +35,7 @@ Keep it terse and honest — short enough that people actually read it.
 <!-- New mini-ADRs below. Fill these in (brainstorm the design with Codex) as
      work lands. Keep each to 1-3 short paragraphs. -->
 
-## 9: Optimization settings modal
+## 9: Optimization settings state
 **Status:** Accepted (Codex consensus).
 
 Context: the two reduction optimizations — `Optimize (rule steps)` (`fastMode`: reduce a
@@ -43,11 +43,10 @@ saturated named combinator by its catalog rule) and `Graph reduction (DAG)` (`sh
 call-by-need sharing) — were loose toggles in the Reduce menu. Native-value toggles (ADR
 10) want a home too.
 
-Decision: a standalone System-1 settings modal `src/view/optimize.ts`, mirroring
-`view/fluff.ts` (paper/ink chrome, Mac checkbox rows, localStorage, light/dark). **No
-master switch** — unlike Fluff's playful layer, optimizations are independent
-capabilities (and already separate `optimize`/`graph` fields in permalinks). Opened from
-`Reduce ▸ Optimizations…`; the two loose menu toggles are removed.
+Decision: `src/view/optimize.ts` owns the optimization spec + persisted state; the shell
+renders it in the Optimizations menu and mirrors the common toggles in the compact layout
+controls. **No master switch** — optimizations are independent capabilities (and already
+separate `optimize`/`graph` fields in permalinks).
 
 Why this shape: route **every** read/write through one explicit setter
 (`isOpt`/`setOpt`/`onOptChange`), so the persisted modal state is the single source of
@@ -55,9 +54,9 @@ truth and the three other consumers stay in agreement — permalink restore
 (`applyModes`), the `__combinate.fast/.graph` dev hooks, and **GraphReducer
 invalidation** (a grapher bakes `fast` at construction, so changing `rules` must clear
 live graphers; changing `graph` reschedules the focused tree). `onOptChange` carries the
-changed key so the shell does exactly the right invalidation and nothing more. Build it
-standalone now; the shared-modal extraction is deferred to ADR 12 (avoid premature
-abstraction). Default off = today's exact behaviour.
+changed key so the shell does exactly the right invalidation and nothing more. Defaults
+are rule-based reduction + native values; graph and Turbo stay opt-in. Raw pure-ι remains
+one explicit toggle-off path.
 
 ## 10: Native values (opt-in evaluation)
 **Status:** Accepted (Codex consensus).
@@ -80,8 +79,8 @@ Implemented (`core/native.ts`): **numbers** (`(+) (-) (*) (==) (/=) (<) (<=) (>)
 compare`), **lists** (`<> map concat`), **booleans** (`not and or`) — each a toggle.
 Each op mirrors its catalog rule's forcing (`(+) a n = Succ^a n` never forces `n`;
 `(*) 0 _ = 0`; `[] <> ys = ys`; `and False _ = False`), so native never reduces an
-operand the pure rule wouldn't. The discovery check (`nativeOpArity`) is cheap; the
-match happens in the redex's `build` (so `firingRule`/existence checks don't pay for it).
+operand the pure rule wouldn't. The registry lookup (`kernelFor`) is cheap; the match
+happens in the redex's `build` (so `firingRule`/existence checks don't pay for it).
 A 490+17-case grid asserts native output == pure output structurally. Numeral output is
 capped (`MAX_NAT`) because a Scott numeral is a depth-N tree the recursive reducer walks.
 

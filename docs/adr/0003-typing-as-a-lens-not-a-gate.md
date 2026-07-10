@@ -36,19 +36,16 @@ Two further truths shape the design:
 
 ## Decision
 
-Type is a forced *reading* layered on the existing value reader, seeded by the
+Type is a forced *reading* layered on the structural value matchers, seeded by the
 current hotbar page. Two pieces, both opt-in, neither blocking the sandbox:
 
-1. **`readAs(ty, n)` — a forced reading (built).** The re-folder ships an
-   encoding-directed value reader (`src/core/value.ts: readValue`, ADR 0002 Phase 1)
-   that *auto-discovers* an encoding and **defers** the trivial values that coincide
-   with bare combinators (`0`/`[]`/`false` are all `A`, `1` is `I`, `true` is `K`),
-   showing the combinator name instead. Typing splits that reader into pure
-   structural *matchers* (`matchNumeral`/`matchList`/`matchPair`/`matchBool`, no
-   policy) plus the auto-discovery `readValue`, then adds `readAs(ty, n)` in
-   `src/core/types.ts`: given a tag it runs that one matcher and renders even the
-   trivial cases — so the tag **resolves** the ambiguity `readValue` defers (`A`→`0`
-   under `Int`, →`[]` under `List`, →`false` under `Bool`; `K`→`true`, `I`→`1`).
+1. **`read(n, hint)` — type-guided reading (built).** `src/core/value.ts` supplies
+   policy-free structural matchers (`matchNumeral`/`matchList`/`matchPair`/
+   `matchBool`); `src/core/types.ts` owns the one reading policy. With no hint it
+   auto-discovers unambiguous values and defers the bare Kestrel `K`, because under
+   the Scott encoding `0`/`[]`/`false` are literally the same term. A hint runs the
+   matching decoder directly, so `read(K, "Int")` is `0`, `read(K, "List")` is
+   `[]`, and `read(K, "Bool")` is `false`.
 
    **The seed is the hotbar page** (`Arithmetic`→`Int`, `Booleans`→`Bool`,
    `Lists`→`List`; `Programs`→auto). The read-out forces the page's reading and
@@ -81,9 +78,9 @@ page-as-mode is the cheapest seed that needs no per-node state and no reducer ch
 
 ## Consequences
 
-- Core stays pure/deterministic (ADR 0001): `readAs`/`readValue` = run-on-eliminators
-  + read; inference = unification. No Pixi/DOM/time. The matchers are shared by both
-  the auto reader and the forced reader — one structural definition, two policies.
+- Core stays pure/deterministic (ADR 0001): structural matchers = run-on-eliminators
+  + read; inference = unification. No Pixi/DOM/time. Auto and forced readings share
+  one `read` implementation rather than parallel public APIs.
 - We never reject a build for being ill-typed. Worst case a page reads "doesn't fit"
   and falls back to the auto value / combinator re-folder / raw sexp — information,
   not a wall.

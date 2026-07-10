@@ -9,7 +9,7 @@ import type { LayoutKey } from "../layoutControls";
 
 /** Everything the record modal chooses; prefilled from the live canvas state. */
 export interface RecordSettings {
-  /** "3d" is reserved — disabled in the UI until the Sphere3D pump seam lands (ADR 24). */
+  /** Render through the ordinary 2D tree view or the offscreen Sphere3D pipeline. */
   view: "2d" | "3d";
   layout: LayoutKey;
   expandIota: boolean;
