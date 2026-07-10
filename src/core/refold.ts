@@ -46,7 +46,8 @@ function leaf(atom: string): Node {
 
 /** Parse an egg s-expression (`(@ fn arg)` / bare atoms) back into a `Node`. */
 export function fromEgg(s: string): Node {
-  const toks = s.replace(/\(/g, " ( ").replace(/\)/g, " ) ").trim().split(/\s+/);
+  const toks = s.replace(/\(/g, " ( ").replace(/\)/g, " ) ").trim().split(/\s+/).filter(Boolean);
+  if (toks.length === 0) throw new Error("refold: empty s-expression");
   let i = 0;
   const parse = (): Node => {
     const t = toks[i++];
@@ -61,7 +62,9 @@ export function fromEgg(s: string): Node {
     if (t === ")" || t === undefined) throw new Error("refold: malformed s-expression");
     return leaf(t);
   };
-  return parse();
+  const node = parse();
+  if (i !== toks.length) throw new Error(`refold: trailing input after token ${i}`);
+  return node;
 }
 
 /** Parse a combinator expression in ordinary notation — `S K K`, `(S (K I))`, `ι` / `iota` — into a
