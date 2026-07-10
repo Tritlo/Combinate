@@ -1,4 +1,4 @@
-import { type Node, app, freeVar, exceedsNodes } from "./term";
+import { type Node, app, comb, freeVar, exceedsNodes } from "./term";
 import { normalize } from "./reduce";
 import { CATALOG, type Law } from "./catalog";
 
@@ -55,16 +55,82 @@ function freshVars(n: number, used: Set<string>): Node[] {
  * Returns false if the term fails to reach a normal form within the step cap.
  */
 export function probe(tree: Node, law: Law, cap = 2000): boolean {
+  if (law.fpc) return bohmSage(tree, cap); // no NF to compare — Böhm-prefix test
   const vars = freshVars(law.arity, freeNames(tree));
-  // Most laws apply the term to the fresh vars directly; a law may instead
-  // supply specific arguments (e.g. Y is tested as Y (K a) ≡ a, since Y a alone
-  // diverges — Y has no normal form).
-  const args = law.args ? law.args(vars) : vars;
-  const applied = args.reduce((acc, v) => app(acc, v), tree);
+  const applied = vars.reduce((acc, v) => app(acc, v), tree);
   const nf = normalize(applied, cap, true, undefined, 20_000); // fast mode + a size guard so a probe that explodes (not a value) bails instead of freezing
   // fast mode: a named combinator fires its rule instead of grinding its SKI tree (same NF, but reading `((<) K)` is instant, not ~400ms)
   if (!nf.done) return false;
   return structKey(nf.term) === structKey(law.reference(vars));
+}
+
+/**
+ * Head-reduce to the leftmost spine head: unwind apps, contract the head redex
+ * (ι/S/K/I primitively; a named combinator unfolds its def), repeat until the
+ * head is stuck — a free variable or an underapplied/opaque leaf — or the fuel
+ * runs out (null). Arguments are never reduced, which is what keeps this finite
+ * on fixpoint combinators (whose full normal form does not exist).
+ */
+function headSpine(t: Node, fuel: { steps: number }): { head: Node; args: Node[] } | null {
+  let head = t;
+  const args: Node[] = []; // stack — last element is the argument nearest the head
+  for (;;) {
+    while (head.kind === "app") {
+      args.push(head.arg);
+      head = head.fn;
+    }
+    if (head.kind === "free") return { head, args };
+    if (head.kind === "iota") {
+      if (args.length === 0) return { head, args };
+      if (fuel.steps-- <= 0) return null;
+      head = args.pop()!; // ι x → x S K
+      args.push(comb("K"), comb("S"));
+    } else if (head.sym === "S" && args.length >= 3) {
+      if (fuel.steps-- <= 0) return null;
+      const f = args.pop()!;
+      const g = args.pop()!;
+      const x = args.pop()!;
+      args.push(app(g, x), x); // S f g x → f x (g x)
+      head = f;
+    } else if (head.sym === "K" && args.length >= 2) {
+      if (fuel.steps-- <= 0) return null;
+      const x = args.pop()!;
+      args.pop();
+      head = x; // K x y → x (y dropped unevaluated)
+    } else if (head.sym === "I" && args.length >= 1) {
+      if (fuel.steps-- <= 0) return null;
+      head = args.pop()!;
+    } else if (head.def) {
+      if (fuel.steps-- <= 0) return null;
+      head = head.def; // named bird — unfold its definition
+    } else {
+      return { head, args }; // underapplied primitive / opaque combinator
+    }
+  }
+}
+
+/** How many nested `f`-heads certify a sage (matches the Rust census detector). */
+const BOHM_DEPTH = 5;
+
+/**
+ * The Böhm-prefix sage test: a fixpoint combinator's Böhm tree is `f (f (f …))`,
+ * so head-reduce `t·f` (f fresh), demand the spine head is literally `f` applied
+ * to exactly one argument, descend into that argument, repeat. Five nested
+ * f-heads = the certificate — the same test and depth as the census detector
+ * (crates/minimal `head_trace_fpc`); an impostor now needs `f⁵·u` baked in
+ * syntactically rather than a single `λx. x·u` shell.
+ */
+function bohmSage(tree: Node, cap: number): boolean {
+  const f = freshVars(1, freeNames(tree))[0];
+  if (f.kind !== "free") return false; // freshVars only mints free vars
+  const fuel = { steps: cap };
+  let cur: Node = app(tree, f);
+  for (let d = 0; d < BOHM_DEPTH; d++) {
+    const sp = headSpine(cur, fuel);
+    if (!sp || sp.head.kind !== "free" || sp.head.name !== f.name || sp.args.length !== 1) return false;
+    cur = sp.args[0];
+  }
+  return true;
 }
 
 /** Structural key: trees are equal iff their keys match (free vars by name,

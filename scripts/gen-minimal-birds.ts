@@ -51,7 +51,7 @@ function isNoProbe(law: (typeof CATALOG)[number]): boolean {
 const lines: string[] = [];
 let skipped = 0;
 for (const law of CATALOG) {
-  if (law.args || law.userDefined || isNoProbe(law)) {
+  if (law.fpc || law.userDefined || isNoProbe(law)) {
     skipped++;
     continue;
   }
