@@ -58,9 +58,9 @@ const lines: string[] = [
 for (const law of CATALOG) {
   const name = tok(law.sym);
   // Behavioural law: sym applied to fresh vars equals its reference output.
-  // Skip laws supplying custom probe args (only Y, whose true law is recursive
-  // and unsound as a rewrite); Y is still recovered via its definitional eq.
-  if (!law.args) {
+  // Skip the fixpoint laws (only Y, whose true law is recursive and unsound as
+  // a rewrite); Y is still recovered via its definitional eq.
+  if (!law.fpc) {
     const vars = VAR_NAMES.slice(0, law.arity).map(freeVar);
     const lhs = vars.reduce<Node>((acc, v) => app(acc, v), comb(law.sym));
     const rhs = law.reference(vars);

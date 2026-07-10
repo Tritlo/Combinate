@@ -144,7 +144,7 @@ function check(label: string, t: Node, cap = 5_000): void {
 const vars = ["a", "b", "c", "d", "e", "f", "g", "h"].map(freeVar);
 // every catalog combinator on fresh free vars (skip the non-terminating-probe birds)
 for (const law of CATALOG) {
-  if (law.args) continue;
+  if (law.fpc) continue;
   let t: Node;
   try {
     t = named(law.sym);
@@ -311,7 +311,7 @@ function fcheck(label: string, t: Node, opts: NativeOpts = {}, cap = 500_000): v
 }
 // every catalog combinator on fresh free vars, fast mode (the rule fires; a free head → WHNF)
 for (const law of CATALOG) {
-  if (law.args) continue; // skip the non-terminating-probe birds (Y) — diverge on free vars
+  if (law.fpc) continue; // skip the non-terminating-probe birds (Y) — diverge on free vars
   let t: Node;
   try {
     t = named(law.sym);
