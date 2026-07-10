@@ -13,7 +13,7 @@
  */
 import type * as T from "three";
 import { type Node } from "../core/term";
-import { layoutHTree3D, type Layout3Fn } from "../core/layouts";
+import { layoutHTree3D, layoutBotanical3D, layoutMobile3D, type Layout3Fn } from "../core/layouts";
 import { theme, combinatorColor, combinatorColorForMode, currentMode, edgeTierColor, themeForMode, edgeTierColorForMode, type Mode, type Theme } from "./theme";
 import { easeInOut } from "./anim";
 
@@ -808,8 +808,13 @@ export class Sphere3D {
     if (!this.camera) return;
     const pos = this.currentPos();
     this.target = this.bboxCenter(pos);
-    this.az = 0.6;
-    this.pol = 1.05;
+    // The directional layouts (Botanical grows +Y, Mobile hangs −Y) have a definite trunk axis, so we
+    // frame them HEAD-ON — camera level (pol ≈ 90°) and looking down +Z at the growth plane — so the
+    // tree stands upright and a record turntable (azimuth sweep about +Y) spins it around its trunk.
+    // The isotropic layouts (packed sphere, cubic H-tree) keep the 3/4 look-down view.
+    const headOn = this.layout3 === layoutBotanical3D || this.layout3 === layoutMobile3D;
+    this.az = headOn ? Math.PI / 2 : 0.6;
+    this.pol = headOn ? Math.PI / 2 : 1.05;
     this.rad = this.fitDistance(pos, this.target);
     this.syncCameraRange();
     this.place();
