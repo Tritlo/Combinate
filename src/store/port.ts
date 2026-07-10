@@ -1,5 +1,5 @@
 /**
- * The `Store` port (PLAN.md Phase A, ADR 0008): the interface the shell talks to
+ * The `Store` port (ADR 0008): the interface the shell talks to
  * for persistence, independent of backend. The default impl is localStorage
  * ({@link ./local.ts}); a lazy DuckDB-WASM impl ({@link ./duckdb.ts}) backs the
  * query/leaderboard surface. The core (`src/core/`) never imports this — storage

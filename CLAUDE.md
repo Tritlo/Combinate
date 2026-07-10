@@ -33,7 +33,7 @@ trees; golf; etc.
   registry, ADR 10/11). Reading: `catalog.ts` (combinator laws, the hotbar pages
   incl. Char), `value.ts` (Scott value matchers), `types.ts`/`infer.ts` (value
   read-back + HM types), `refold.ts` (re-sugaring), `probe.ts`. Layout:
-  `layout.ts`/`layout3d.ts` (2D/3D H-tree + radial). Sharing/authoring:
+  `layouts/` (2D/3D H-tree, radial, and the other layout algorithms). Sharing/authoring:
   `permalink.ts`, `authoring.ts`, `challenges.ts` (golf). The Quest:
   `quest.ts` + `skiq/` (the SKI-Quest puzzle data + engine), `goals.ts`. Haskell
   compile: `mhs.ts` (post-process a stock MicroHs `-ddump-combinator` dump into an

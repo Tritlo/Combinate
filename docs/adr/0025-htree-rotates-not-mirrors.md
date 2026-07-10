@@ -8,7 +8,7 @@ H-tree never had this problem — its X→Y→Z axis cycle is an even permutatio
 true 120° rotation — so 2D and 3D disagreed on chirality.
 
 Decision: the arg-side split direction now **rotates a clockwise quarter-turn per depth**
-(right, down, left, up; fn opposite — `HTREE_DIRS` in `layout.ts`). One level deeper is a
+(right, down, left, up; fn opposite — `HTREE_DIRS` in `layouts/htree.ts`). One level deeper is a
 true 90° rotation, so subterm pictures are rotated copies of their standalone pictures and
 compose visibly (S ⊃ rotated K), matching the 3D behavior. The non-overlap guarantee is
 untouched (the `HTREE_SHRINK < 1/√2` extent bound is per split axis, sign-agnostic), and

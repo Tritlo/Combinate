@@ -1,4 +1,4 @@
-//! egg-based re-sugarer (PLAN.md Phase 2). Given a combinator term as an
+//! egg-based re-sugarer (ADR 0002). Given a combinator term as an
 //! s-expression — `@` for application, bare atoms for leaves (`iota`, `S`, `K`,
 //! `I`, and named birds like `B`, `cons`, `Succ`) — build an e-graph, saturate
 //! it with the catalog's laws as *bidirectional* rewrites, and extract the

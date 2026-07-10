@@ -1,5 +1,5 @@
 /**
- * Re-folding port (PLAN.md Phase 2): the pure boundary between a `Node` term and
+ * Re-folding port (ADR 0002): the pure boundary between a `Node` term and
  * the egg-via-WASM re-sugarer. This module is Pixi/DOM-free — it only knows how
  * to serialise a term to the egg s-expression syntax, parse the folded result
  * back to a `Node`, and wrap a raw string→string re-folder behind a guard. The

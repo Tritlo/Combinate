@@ -325,7 +325,7 @@ apply (named buttons don't encode the fn=left/arg=right spatial split the bumper
 A reducing H-tree reflows each step in O(changed), not O(n): the layout freezes its arm scale
 (`L0`) across a reduction and patches only the changed subtree, so a big tree animates step-by-step
 instead of snapping to a full recompute. Powers the live incremental view (retained edge geometry,
-`applyPatch`; see `tree.ts`/`edgeBuffer.ts`/`layout.ts`).
+`applyPatch`; see `tree.ts`/`edgeBuffer.ts`/`core/layouts/htree.ts`).
 
 ## 19: Turbo honours the rules setting (wasm + rules + native + sharing)
 [docs/adr/0019-turbo-honours-rules.md](adr/0019-turbo-honours-rules.md) — **Accepted.**
@@ -353,7 +353,7 @@ animation (deferred), no editing in 3D, no labels/picking.
   renderer portability risk while still being "the wow." Three is **dynamic-imported on first
   3D entry** (the established lazy-heavy pattern — DuckDB-WASM, the MicroHs blob), so the main
   bundle stays lean.
-- **Layout — a new PURE `src/core/layout3d.ts`** (functional core, ADR 0001): a deterministic
+- **Layout — a new PURE `src/core/layouts/sphere.ts`** (functional core, ADR 0001): a deterministic
   **weighted spherical cone-tree** (Robertson et al. 1991), the direct 3D port of
   `layoutRadial`. Depth → radius (concentric shells); each subtree gets a solid-angle wedge
   proportional to its leaf count; an `app`'s `fn`/`arg` children become left/right lobes inside
@@ -378,7 +378,7 @@ picking / drag-to-edit, true DAG sphere-packing. **Risks:** bundle size (→ laz
 WebGPU (→ WebGL default), big-tree edge count (→ batched `LineSegments` + the cap), a hidden-tab
 resume delta, and keeping the "focused tree" coherent across the two renderers.
 
-**Implemented** (`src/core/layout3d.ts` pure layout + `src/view/sphere3d.ts` lazy renderer +
+**Implemented** (`src/core/layouts/sphere.ts` pure layout + `src/view/sphere3d.ts` lazy renderer +
 the View ▸ "Sphere (3D)" toggle). Magi-council review (Codex + Grok) caught and fixed three
 real blockers before commit: (1) WebGL context creation can throw (headless / blocklisted /
 mobile) — `show()` now try/catches and the toggle `.catch`es, backing out visibly with a

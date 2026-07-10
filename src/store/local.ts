@@ -1,5 +1,5 @@
 /**
- * localStorage-backed {@link Store} (PLAN.md Phase A): the working default, used
+ * localStorage-backed {@link Store} (ADR 0008): the working default, used
  * for all local persistence (discoveries, definitions, bests). The leaderboard
  * methods keep a *local* mirror only — the shared, networked leaderboard lands
  * with the DuckDB/quack adapter ({@link ./duckdb.ts}); both sit behind this port.

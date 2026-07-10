@@ -262,7 +262,7 @@ export function normalize(n: Node, cap = 10_000, fast = false, native?: NativeOp
  * The rule/combinator the next reduction step will fire — `"ι"`/`"I"`/`"K"`/`"S"`
  * for the built-ins, or a named bird's symbol — or `null` if `n` is in normal
  * form. Reads {@link redexAt}'s `sym` without building the contractum, so the
- * sonification layer (PLAN.md Phase A / ADR 0005) can pick a tone per reduction
+ * sonification layer (ADR 0005) can pick a tone per reduction
  * without allocating.
  */
 export function firingRule(n: Node, fast = false, native?: NativeOpts): string | null {

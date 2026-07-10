@@ -29,7 +29,6 @@ use wasm_bindgen::prelude::*;
 
 const TAG_IOTA: i32 = 0;
 const TAG_COMB: i32 = 1;
-const TAG_FREE: i32 = 2;
 const TAG_APP: i32 = 3;
 // tag 4 (IND) is the graph engine's indirection cell (see below). tag 5 is a rule-template
 // placeholder: on instantiation, substitute the `a`-th actual argument. Only lives in the prefix.

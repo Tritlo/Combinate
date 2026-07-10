@@ -4,7 +4,7 @@
 
 The domain lives in `src/core/` as a pure functional core — terms (`term.ts`),
 normal-order reduction (`reduce.ts`), behavioural recognition/discovery
-(`probe.ts`), layout geometry (`layout.ts`), and the combinator catalogue
+(`probe.ts`), layout geometry (`layouts/`), and the combinator catalogue
 (`catalog.ts`). It has **no Pixi, DOM, time, or randomness** and is deterministic
 and unit-testable in isolation. `src/view/` (Pixi adapters: tree, hotbar, zoo,
 toast, theme) plus `src/app.ts` (the composition root) are the imperative shell:
