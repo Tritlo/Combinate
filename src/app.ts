@@ -17,7 +17,7 @@ import { QuestTracker } from "./view/questTracker";
 import { Sound } from "./view/sound";
 import { CATALOG, type Law, expandDisplay, PAGES, displayLabel, countIotas, iotaTreeOf } from "./core/catalog";
 import { recognize } from "./core/probe";
-import { layoutAuto, layoutRadial, layoutHTree, layoutTopDown, layoutBotanical, layoutMobile, layoutHyperbolic, type LayoutFn } from "./core/layouts";
+import { countNodes, layoutAuto, layoutRadial, layoutHTree, layoutTopDown, layoutBotanical, layoutMobile, layoutHyperbolic, type LayoutFn } from "./core/layouts";
 import { layoutHTree3D, layoutSphere, layoutBotanical3D, layoutMobile3D } from "./core/layouts";
 import { recognizeDeep, fromEgg, parseComb, toEgg } from "./core/refold";
 import { read, render, type Ty } from "./core/types";
@@ -1718,7 +1718,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       // proof). Builds an inert H-tree of ~2^(depth+1) free-var nodes, then alternates a 1↔3-node swap
       // at a fixed deep anchor, timing only applyPatch. Off-canvas (never rendered), destroyed after.
       benchIncr: (depth: number, iters: number): { size: number; avgApplyUs: number; fullLayoutUs: number } | { error: string } => {
-        const count = (n: Node): number => { let c = 0; const s = [n]; while (s.length) { const m = s.pop()!; c++; if (m.kind === "app") s.push(m.fn, m.arg); } return c; };
         const buildBal = (d: number): Node => (d <= 0 ? freeVar("x") : mkApp(buildBal(d - 1), buildBal(d - 1)));
         const splice = (r: Node, path: number[], sub: Node, i = 0): Node => (i === path.length ? sub : r.kind !== "app" ? sub : path[i] === 0 ? { ...r, fn: splice(r.fn, path, sub, i + 1) } : { ...r, arg: splice(r.arg, path, sub, i + 1) });
         const root0 = buildBal(depth);
@@ -1727,7 +1726,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
         const subA = freeVar("A");
         const subB = mkApp(freeVar("B"), freeVar("C"));
         let cur = splice(root0, P, subA);
-        const size = count(cur);
+        const size = countNodes(cur);
         const view = new TreeView(cur, -1e6, -1e6, pixi.ticker, isDiscovered, layoutHTree, () => false, cameraTransform);
         if (!view.beginIncremental()) { view.destroy(); return { error: "not eligible for incremental" }; }
         let curSub = subA;

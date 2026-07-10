@@ -8,8 +8,7 @@
  */
 import { currentMode, onThemeChange, type Mode, MONO, PAPER, INK, ensureFont } from "./theme";
 import { MENUBAR_HEIGHT } from "./menubar";
-import { type QuestStage, type QuestLocation } from "../core/quest";
-import { CHAPTERS } from "../core/quest";
+import { CHAPTERS, type QuestStage, type QuestLocation } from "../core/quest";
 import { CATALOG, iotaTreeOf } from "../core/catalog";
 import { type Node } from "../core/term";
 
