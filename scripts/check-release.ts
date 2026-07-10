@@ -7,11 +7,10 @@
  *   npm run check:release
  */
 import { execSync } from "node:child_process";
-import { decode } from "../src/core/term";
+import { comb, decode } from "../src/core/term";
 import { CATALOG, META, PAGES, IOTA_CODE, IOTA_FASTEST, IOTA_STEPS, IOTA_BITCODE, countIotas, iotaTreeOf } from "../src/core/catalog";
 import { recognize } from "../src/core/probe";
 import { iotaCost } from "../src/core/challenges";
-import { comb } from "../src/core/term";
 
 let failures = 0;
 const check = (ok: boolean, msg: string): void => {
