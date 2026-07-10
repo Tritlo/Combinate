@@ -1038,7 +1038,8 @@ fn main() {
     let mut dp_checkpoint = false;
     let mut dp_snapshot = true; // layer-boundary state snapshots at depth (>=36): a marathon survives kills/reboots
     let mut resume_path: Option<String> = None;
-    let mut fpc_sweep = false; // post-hoc Böhm sweep over a hunt-state's opaque reps // per-layer findings snapshots (marathon hunts keep every completed layer) // --dp-slim: skip class census + samples in the JSON (deep runs; the dump gets fat past ~50k classes)
+    let mut fpc_sweep = false; // post-hoc Böhm sweep over a hunt-state's opaque reps
+    let mut fpc_max: u16 = u16::MAX; // --fpc-max N: sweep only opaque reps of size <= N // per-layer findings snapshots (marathon hunts keep every completed layer) // --dp-slim: skip class census + samples in the JSON (deep runs; the dump gets fat past ~50k classes)
     let mut dp_opaque_fn = false; // --dp-opaque-fn re-enables capped singletons as HEADS; default skips them (leftmost-outermost does the head's work first, so a capped head stays capped; the arg-side rescue is kept). Validated 0-mismatch vs brute at 17ι.
     let mut esc_mult: u64 = 100; // escalated-cap multiplier for frontier cap-outs (raise to chase down `conditional` statuses)
     let mut args = std::env::args().skip(1);
@@ -1066,6 +1067,7 @@ fn main() {
             "--no-checkpoint" => dp_checkpoint = false,
             "--resume" => resume_path = Some(args.next().unwrap()),
             "--fpc-sweep" => { resume_path = Some(args.next().unwrap()); fpc_sweep = true; dp = true; max_iotas = 1; }
+            "--fpc-max" => fpc_max = args.next().unwrap().parse().unwrap(),
             "--no-snapshot" => dp_snapshot = false,
             "--hunt" | "--smallest" => {
                 // THE hunt: smallest + fastest + fixpoint + per-layer checkpoints
@@ -1524,7 +1526,7 @@ fn main() {
             zc.wait().ok();
             eprintln!("resumed from {rp}: {} reps, {} classes, continuing at size {start_n}", reps.len(), classes_set.len);
             if fpc_sweep {
-                let opaque: Vec<u32> = reps.iter().filter(|r| !r.classed()).map(|r| r.term).collect();
+                let opaque: Vec<u32> = reps.iter().filter(|r| !r.classed() && r.size <= fpc_max).map(|r| r.term).collect();
                 eprintln!("fpc-sweep: Böhm-testing {} opaque reps on {workers} workers", opaque.len());
                 let p_nodes: &[u64] = &arena.p_nodes;
                 let p_dedup = &arena.p_dedup;
@@ -1558,9 +1560,15 @@ fn main() {
                 let mut all: Vec<(u32, String, u64)> = finds.into_iter().flatten().map(|(t, cs)| (iota_count(&arena, t), encode_bits(&arena, t), cs)).collect();
                 all.sort();
                 println!("fpc-sweep: {} fixpoint combinators found (Böhm prefix f^5)", all.len());
+                let mut out = String::new();
+                for (sz, bits, cs) in &all {
+                    out.push_str(&format!("{sz}|{cs}|{bits}\n"));
+                }
+                std::fs::write(&out_path, out).expect("write fpc finds");
                 for (sz, bits, cs) in all.iter().take(20) {
                     println!("  FPC {sz}ι (closes {cs} head steps): {bits}");
                 }
+                println!("full list → {out_path}");
                 return;
             }
         }
