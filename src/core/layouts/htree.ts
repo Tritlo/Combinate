@@ -74,11 +74,6 @@ function autoLayoutProbe(root: Node): { key: "topdown" | "htree"; topdown: Layou
   return { key: topdown.width > COMPACT_SPAN || topdown.height > COMPACT_SPAN ? "htree" : "topdown", topdown };
 }
 
-/** The explicit layout Auto would choose for a fresh tree. */
-export function resolveAutoLayout(root: Node): "topdown" | "htree" {
-  return autoLayoutProbe(root).key;
-}
-
 /** Auto layout: top-down while a tree fits, the compact H-tree once it grows too big. The H-tree is
  *  path-local, so a big reducing tree reflows in O(changed) per step; it threads the frozen arm scale so
  *  a node-count change mid-reduction doesn't rescale everything (deeper-perf, ADR 18). */

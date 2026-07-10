@@ -37,7 +37,7 @@ Scope notes (plan review, 2026-07-07): **2D landed first**; 3D followed the same
 a recorder-owned Sphere3D (injected clock, pixel-ratio 1, its canvas encoded directly;
 3D is allowed to be slow rather than silently truncating what it draws).
 The modal shows a first-frame preview of the current settings, layout is an explicit
-choice (Auto resolved via `resolveAutoLayout` at prefill), and the tone track is muted
+choice (Auto prefills H-tree), and the tone track is muted
 by picking base note **None** (no separate audio toggle).
 
 Round 3 (2026-07-07): 3D recording is **uncapped** (slow renders are fine), plus

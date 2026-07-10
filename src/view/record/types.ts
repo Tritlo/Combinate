@@ -29,7 +29,7 @@ export interface RecordSettings {
    * Reduction-to-video pacing. "fixed" (default): the clip runs at exactly
    * `stepMs` per step start to finish — plain `steps·stepMs + holdMs` frame math
    * (a step shorter than a frame batches naturally). "timelapse": the output
-   * time per step halves every {@link ACCEL_HALF_LIFE_SEC}s, so long reductions
+   * time per step halves every five seconds, so long reductions
    * accelerate into a time-lapse.
    */
   pacing: "fixed" | "timelapse";
