@@ -519,3 +519,15 @@ circle again, while an unmapped long sym (e.g. `uncons` on Programs) still boxes
 
 ## 24: MP4 recording — offline frame-perfect, with audio
 [docs/adr/0024-mp4-recording-offline-frame-perfect.md](adr/0024-mp4-recording-offline-frame-perfect.md)
+
+## 25: The 2D H-tree rotates per level, it doesn't mirror
+[docs/adr/0025-htree-rotates-not-mirrors.md](adr/0025-htree-rotates-not-mirrors.md)
+
+## 26: 3D H-tree — rotational congruence over the inward coil
+[docs/adr/0026-3d-htree-congruence-over-coil.md](adr/0026-3d-htree-congruence-over-coil.md)
+
+## 27: Minimal ι-forms certified by exhaustion + symbolic probing
+[docs/adr/0027-minimal-forms-by-exhaustion.md](adr/0027-minimal-forms-by-exhaustion.md)
+
+## 28: Deep minimal-form search composes behavior classes, not Catalan shapes
+[docs/adr/0028-semantic-class-dp.md](adr/0028-semantic-class-dp.md)
