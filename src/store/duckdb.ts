@@ -1,5 +1,5 @@
 /**
- * DuckDB-WASM {@link Store} (PLAN.md Phase A, ): the query/leaderboard
+ * DuckDB-WASM {@link Store} (): the query/leaderboard
  * backend, **lazy-loaded** — the multi-MB engine is dynamically imported only on
  * first use, never on first paint. Behind the same port as {@link ./local.ts}.
  *

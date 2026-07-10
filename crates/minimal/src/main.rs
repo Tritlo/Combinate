@@ -778,52 +778,6 @@ fn direct_steps<A: Red>(arena: &mut A, head: u32, arg: Option<u32>, arity: usize
     }
 }
 
-/// Fixpoint-property test (the Y hunt): HEAD-reduce t·f recording every whole-term
-/// reduct id; success iff some reduct is literally app(f, R) with R an earlier reduct —
-/// then t·f =β f·(t·f) by congruence, a sound machine-checkable certificate (Codex-
-/// verified; covers Curry-style and Turing-style FPCs; misses equation shapes needing
-/// non-head steps — finds are labeled "head-cycle certificate").
-/// Contract every `I x` -> `x` (administrative wrappers) so the cycle detector compares
-/// terms modulo bookkeeping — Y-style loops accrete I-wrappers each go-round.
-fn i_norm<A: Red>(arena: &mut A, t: u32, memo: &mut FastMap<u32, u32>) -> u32 {
-    if let Some(&r) = memo.get(&t) {
-        return r;
-    }
-    let n = arena.nd(t);
-    let out = if n.tag == TAG_APP {
-        let f2 = i_norm(arena, n.a, memo);
-        let x2 = i_norm(arena, n.b, memo);
-        if arena.nd(f2).tag == TAG_I {
-            x2
-        } else {
-            arena.mk(TAG_APP, f2, x2)
-        }
-    } else {
-        t
-    };
-    memo.insert(t, out);
-    out
-}
-
-fn term_str<A: Red>(arena: &A, t: u32, cap: usize) -> String {
-    fn go<A: Red>(arena: &A, t: u32, out: &mut String, cap: usize) {
-        if out.len() > cap { return; }
-        let n = arena.nd(t);
-        match n.tag {
-            TAG_APP => { out.push('('); go(arena, n.a, out, cap); out.push(' '); go(arena, n.b, out, cap); out.push(')'); }
-            TAG_IOTA => out.push('i'),
-            TAG_S => out.push('S'),
-            TAG_K => out.push('K'),
-            TAG_I => out.push('I'),
-            TAG_FREE => out.push('f'),
-            _ => out.push('?'),
-        }
-    }
-    let mut o = String::new();
-    go(arena, t, &mut o, cap);
-    o
-}
-
 fn head_trace_fpc<A: Red>(arena: &mut A, t: u32, budget: u64, bufs: &mut ReduceBufs) -> Option<u64> {
     // Fixpoint detector v3: the BÖHM-DESCENT test. A fixpoint combinator's Böhm tree is
     // f(f(f(...))) — every level, forever — so head-reduce to f·X, descend into X, and
@@ -1135,7 +1089,6 @@ fn decode_code(arena: &mut Arena, code: &[u8]) -> u32 {
 struct BruteItem {
     n: usize,
     striped_f: bool,
-    m_s: usize,
     m_o: usize,
     prefix: Vec<u8>,
     pending: usize,
@@ -1341,7 +1294,7 @@ fn main() {
                 let striped_f = fc >= xc;
                 let (m_s, m_o) = if striped_f { (i, n - i) } else { (n - i, i) };
                 if pairs <= CHUNK {
-                    items.push(BruteItem { n, striped_f, m_s, m_o, prefix: Vec::new(), pending: 1, leaves: m_s, est: pairs as u64 });
+                    items.push(BruteItem { n, striped_f, m_o, prefix: Vec::new(), pending: 1, leaves: m_s, est: pairs as u64 });
                 } else {
                     let mut k = 1usize;
                     while (pairs / CHUNK) >> k > 0 {
@@ -1351,7 +1304,7 @@ fn main() {
                     let oc = if striped_f { xc } else { fc };
                     for (prefix, pending, leaves) in gen_prefixes(m_s, k) {
                         let est = wt[leaves][pending].saturating_mul(oc);
-                        items.push(BruteItem { n, striped_f, m_s, m_o, prefix, pending, leaves, est });
+                        items.push(BruteItem { n, striped_f, m_o, prefix, pending, leaves, est });
                     }
                 }
             }
@@ -1516,7 +1469,7 @@ fn main() {
         // per-bird smallest suffix-matching class, recorded AT INSERT (sizes ascend, so the
         // first hit IS the winner) — this deletes the multi-GB rep-vector side map entirely.
         let mut bird_min: Vec<Option<(u32, u32)>> = vec![None; birds.len()]; // (size, term)
-        let mut mark_relevant = |v: &SigVec, key: (u64, u64), size: u32, term: u32, relevant: &mut FastMap<(u64, u64), u64>, bird_min: &mut Vec<Option<(u32, u32)>>| -> bool {
+        let mark_relevant = |v: &SigVec, key: (u64, u64), size: u32, term: u32, relevant: &mut FastMap<(u64, u64), u64>, bird_min: &mut Vec<Option<(u32, u32)>>| -> bool {
             let mut mask = 0u64;
             for (bi, bv) in bird_vecs.iter().enumerate() {
                 if let Some(bv) = bv {
@@ -1566,14 +1519,8 @@ fn main() {
                         opaque_by_size[r.size as usize].push(ri as u32);
                     }
                 }
-                let _ = &opaque_by_size;
         let mut findings: Vec<String> = Vec::new();
-        let esc_caps_steps = esc_caps.steps;
-        let _ = esc_caps_steps;
         let mut coin_groups: FastMap<(u64, u64), Vec<usize>> = FastMap::default();
-        let mut proven = 0usize;
-        let mut conditional = 0usize;
-        let mut improved = 0usize;
         for (bi, b) in birds.iter().enumerate() {
             let term = bird_terms[bi];
             let current_iotas = iota_count(&arena, term);
@@ -1586,8 +1533,6 @@ fn main() {
                 let bkey = fold_key(bv.slice());
                 coin_groups.entry(bkey).or_default().push(bi);
                 status = "not-found-within-bound".into();
-                let _ = &bkey;
-                let bslice = bv.slice();
                 // Equality for a bird lives at arities >= its DECLARED arity (equal at n
                 // implies equal above, says NOTHING below) — so match the sig-vector
                 // SUFFIX. Multiple classes can match (they differ only below declared
@@ -1645,14 +1590,6 @@ fn main() {
                         minimal_iotas = Some(winner.0);
                         minimal_nf = nf_string(&mut arena, winner.2, b.arity, &esc_caps, &mut bufs);
                         status = if unresolved == 0 { "proven".into() } else { "conditional".into() };
-                        if unresolved == 0 {
-                            proven += 1;
-                        } else {
-                            conditional += 1;
-                        }
-                        if winner.0 < current_iotas {
-                            improved += 1;
-                        }
                     } else {
                         status = "collision-rejected".into();
                     }
@@ -2026,10 +1963,8 @@ fn main() {
                         })
                         .collect::<Vec<_>>()
                         .into_iter()
-                        .enumerate()
-                        .map(|(i, h)| {
+                        .map(|h| {
                             let (d, out) = h.join().expect("worker panicked");
-                            let _ = i;
                             (d, out)
                         })
                         .collect()
@@ -2140,7 +2075,6 @@ fn main() {
         if let Some(bits) = &dp_probe {
             let t = decode_bits(&mut arena, bits).expect("bad probe bits");
             let tkey = match dp_sigvec(&mut arena, t, &caps, dp_a, &mut bufs) { SigRes::Full(v) => Some(fold_key(v.slice())), SigRes::Capped(_) => None };
-            let _ = &tkey;
             eprintln!("probe {bits}: key={tkey:?}");
             let n = arena.node(t);
             if n.tag == TAG_APP {
@@ -2290,7 +2224,6 @@ fn main() {
     }
     let capped_count = capped_terms.len();
     if prefilter { eprintln!("prefilter: {prefiltered_out} terms excluded by 1-var signature"); }
-    let _ = prefiltered_out;
     let t_sigs = t_start.elapsed();
 
     // -- per-bird certification at declared arity over a merged, ordered frontier --

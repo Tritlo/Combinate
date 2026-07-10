@@ -1,5 +1,5 @@
 /**
- * Permalink codec (PLAN.md Phase A): a tree + the active display modes packed into
+ * Permalink codec (): a tree + the active display modes packed into
  * a compact, URL-safe token — the unit of sharing (CONTEXT.md). A solution / a
  * leaderboard entry / a saved sandbox *is* a permalink.
  *
