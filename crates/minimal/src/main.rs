@@ -1711,7 +1711,10 @@ fn main() {
         }
         macro_rules! snap_state {
             ($completed:expr, $path:expr) => {{
-                let (mut zc, mut f) = zstd_writer($path);
+                // write-temp-then-rename: a kill during the ~40s stream must never
+                // leave a truncated snapshot at the real path
+                let tmp_path = format!("{}.tmp", $path);
+                let (mut zc, mut f) = zstd_writer(&tmp_path);
                 w_u64(&mut f, 0x1074_5747_0002); // magic + FORMAT version (v2: zstd + keys-only sets)
                 w_slice(&mut f, env!("CARGO_PKG_VERSION").as_bytes()); // creating binary's version
                 w_u64(&mut f, birds_hash());
@@ -1761,7 +1764,9 @@ fn main() {
                     w_slice(&mut f, bits.as_bytes());
                 }
                 drop(f);
-                zc.wait().expect("zstd write failed");
+                let st = zc.wait().expect("zstd write failed");
+                assert!(st.success(), "zstd exited nonzero writing the snapshot");
+                std::fs::rename(&tmp_path, $path).expect("snapshot rename");
             }};
         }
         let mut start_n = 2usize;
