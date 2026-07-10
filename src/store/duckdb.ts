@@ -50,14 +50,20 @@ export class DuckdbStore implements Store {
 
   private async run(sql: string, ...params: unknown[]): Promise<void> {
     const stmt = await (await this.conn()).prepare(sql);
-    await stmt.query(...params);
-    await stmt.close();
+    try {
+      await stmt.query(...params);
+    } finally {
+      await stmt.close();
+    }
   }
   private async rows<T>(sql: string, ...params: unknown[]): Promise<T[]> {
     const stmt = await (await this.conn()).prepare(sql);
-    const result = await stmt.query(...params);
-    await stmt.close();
-    return result.toArray() as T[];
+    try {
+      const result = await stmt.query(...params);
+      return result.toArray() as T[];
+    } finally {
+      await stmt.close();
+    }
   }
 
   async getDefinitions(): Promise<Definition[]> {
