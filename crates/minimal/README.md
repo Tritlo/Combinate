@@ -52,6 +52,14 @@ Knobs:
   `--prefilter` — 1-var necessary-condition pass (net loss today; scaffold);
   `--dp-probe BITS` — trace why a witness's class was(n't) reached;
   `--hunt N` — the everything hunt (smallest + fastest + fixpoint) with tuned defaults.
+- `--fpc-sweep STATE` — post-hoc Böhm-f^5 fixpoint sweep over a snapshot's opaque reps
+  (`--fpc-max N` bounds candidate size); finds land in `--out` as `iotas|close-steps|bits`.
+- `--fpc-brute N` — EXHAUSTIVE fixpoint census: streams every shape ≤ N (no DP, no
+  pruning — closes the delegate-congruence completeness hole for FPC search). Sizes
+  ascend with a per-size finds flush + Catalan-count assert, so an interrupted run still
+  certifies "exhaustive ≤ last completed size"; `--fpc-from M` composes runs across
+  sizes; a planted 26ι positive control gates every run (the scratch-aliasing lesson).
+  Certificates are budget-labeled: "no FPC ≤ N within 2000 total head-steps".
 
 What deeper/bigger buys, and what it can't: a deeper bound only adds LARGER candidates
 (finds floors not yet reached); smaller-than-known winners can only come from bigger
