@@ -9,5 +9,8 @@ import { mountSplash } from "./splash";
 const splash = mountSplash(4);
 void mountApp((label) => splash.next(label)).then(
   () => splash.done(),
-  () => splash.done(), // even on a startup error, drop the overlay so the page is usable
+  (error) => {
+    console.error("[combinate] startup failed", error);
+    splash.done(); // drop the overlay so any successfully-mounted shell remains usable
+  },
 );

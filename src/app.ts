@@ -951,8 +951,12 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
    *  still clears. The opt-in DuckDB prototype is in-memory, so reload clears it too. */
   function resetProgression(): void {
     if (!confirm("Reset all progress? This permanently clears your quest, discovered combinators, and custom combinators.")) return;
-    for (const k of Object.keys(localStorage)) {
-      if (k.startsWith("combinate:quest") || k.startsWith("combinate:discovered") || k === "combinate:v1:definitions") localStorage.removeItem(k);
+    try {
+      for (const k of Object.keys(localStorage)) {
+        if (k.startsWith("combinate:quest") || k.startsWith("combinate:discovered") || k === "combinate:v1:definitions") localStorage.removeItem(k);
+      }
+    } catch {
+      /* storage unavailable — reload still resets the in-memory state */
     }
     location.reload();
   }
@@ -1061,7 +1065,12 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
 
   // ---- controls (ADR 17): keyboard/controller play via a hand cursor, always live in 2D.
   // The visuals adapt to the active input device; "Show controls" (default on) gates the hints. ----
-  let showControls = localStorage.getItem("combinate.showControls") !== "0";
+  let showControls = true;
+  try {
+    showControls = localStorage.getItem("combinate.showControls") !== "0";
+  } catch {
+    /* default on */
+  }
   const hintBar = new HintBar();
   hud.addChild(hintBar.container);
   hintBar.place(window.innerWidth, hotbar.topEdge);
@@ -1082,7 +1091,11 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   /** View ▸ "Show controls": gate the on-screen hints only (persisted; visuals/actions unaffected). */
   function setShowControls(v: boolean): void {
     showControls = v;
-    localStorage.setItem("combinate.showControls", v ? "1" : "0");
+    try {
+      localStorage.setItem("combinate.showControls", v ? "1" : "0");
+    } catch {
+      /* persistence is best-effort */
+    }
     hintBar.setShowControls(v);
     paintRail();
   }
