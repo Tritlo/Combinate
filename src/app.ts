@@ -229,8 +229,6 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   let layoutControls: LayoutControls | undefined; // the top-right toggle bar (wired once the shell is built)
   let recordModal: RecordModal | undefined; // lazy: the MP4 recorder lives off the first-load path
   let recordPreview: RecordPreviewOverlay | undefined;
-  let recordModalLoad: Promise<typeof import("./view/record/modal")> | undefined;
-  let recordDriverLoad: Promise<typeof import("./view/record/driver")> | undefined;
   let recording = false;
 
   // What a recognized tree collapses into: a single named node. I/K/S reduce by
@@ -1130,8 +1128,10 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const setAllNative = (on: boolean): void => {
     for (const k of NATIVE_KEYS) setOpt(k, on);
   };
-  const loadRecordModal = (): Promise<typeof import("./view/record/modal")> => (recordModalLoad ??= import("./view/record/modal"));
-  const loadRecordDriver = (): Promise<typeof import("./view/record/driver")> => (recordDriverLoad ??= import("./view/record/driver"));
+  // Dynamic import already coalesces/evaluates a module once. Do not cache its Promise here:
+  // retaining a rejected preload would poison every later attempt to open the recorder.
+  const loadRecordModal = (): Promise<typeof import("./view/record/modal")> => import("./view/record/modal");
+  const loadRecordDriver = (): Promise<typeof import("./view/record/driver")> => import("./view/record/driver");
   const ensureRecordPreview = async (): Promise<RecordPreviewOverlay> => {
     if (recordPreview) return recordPreview;
     const mod = await loadRecordModal();
@@ -1671,8 +1671,8 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   // the behavioral-only re-folder bridges until it's ready.
   if (isOpt("wasm")) void loadWasmReducer(); // persisted Turbo → warm the wasm so the first reduction uses it
   void preloadSphere3D(); // warm the Three.js chunk so the first 3D view is instant
-  void loadRecordModal(); // warm the recorder chunks during boot — the ● must be instant,
-  void loadRecordDriver(); // but their weight stays out of the main chunk's first paint
+  void loadRecordModal().catch(() => {}); // warm the recorder chunks during boot — the ● must be instant,
+  void loadRecordDriver().catch(() => {}); // but a failed background fetch stays best-effort and retryable
   onStep("lenses"); // splash step 3/4
 
   // Warm the MicroHs live-compile runtime in the BACKGROUND (like the reducer / 3D /
