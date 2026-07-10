@@ -45,6 +45,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm run check:release # catalog/encoding coherence + generated rules/birds freshness
       - run: npm run build:wasm # gen rules from the catalog, then wasm-pack build both crates → crates/{refold,reduce}/pkg/
 
       # ---- Build the MicroHs live-compile runtime (the Rust web dist) from the
