@@ -518,6 +518,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const hotbar = new Hotbar(
     (node, e) => {
       if (drag.active()) return; // already carrying — put it down first
+      if (sphere.active()) sphere.toggle(); // grabbing a fresh combinator drops you back to 2D to place it
       if (sound.enabled) sound.play(headSym(node)); // grabbing a combinator off the hotbar plays its tone
       const t = spawnTree(node, e.global.x, e.global.y);
       t.container.eventMode = "none"; // passive while carried
