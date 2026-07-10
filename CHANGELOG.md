@@ -191,9 +191,10 @@ v6–v8 roadmap (), landed together.
   combinator family, from the rule that fires), gated by a toggle.
 - **Authoring** (): **Define** a settled subtree into a named hotbar block,
   and **Abstract** one hole out of a tree as a free variable (bracket abstraction).
-- **DuckDB-WASM storage** (): a lazy `Store` adapter (discovered set, user
-  definitions, bests, leaderboard) behind a port; `LocalStore` is the default,
-  `?store=duckdb` opts into DuckDB.
+- **DuckDB-WASM query prototype** (): a lazy, in-memory `Store` adapter
+  (user definitions, bests, leaderboard) behind a port; persistent discoveries and
+  other default player state remain in `LocalStore`, while `?store=duckdb` opts into
+  the non-durable DuckDB experiment.
 - **In-browser Haskell → ι** (), the *wow*: a "haskell" panel compiles real
   Haskell to combinators and drops the tree on the canvas to reduce. Implemented by
   **post-processing a stock MicroHs `-ddump-combinator` dump — no fork**: literals →
