@@ -31,11 +31,17 @@ Three tiers, two independent tests, controls in both directions:
   f-headed levels, and *descend until the budget dies* — any non-f floor within
   budget is a definitive rejection. Budget 2,000 head-steps; the memoless walk
   cannot reach deep floors, so its accepts are **candidates**, never verdicts.
-- **Impostor killer** (TS, authoritative): memoized `normalize(t·f)` at 400k
-  steps / 4M nodes. A sage's `t·f` can never have a normal form (`N =β f·N` is
-  impossible for a finite `N`), so *any* NF is a definitive kill — and the
-  memoized walk reaches floors the head-walk cannot (the 90-story tower's NF
-  lands at 59,847 steps; the head-walk is still f-headed after 10⁶ steps).
+- **Impostor killer** (authoritative): memoized `normalize(t·f)`. A sage's
+  `t·f` can never have a normal form (`N =β f·N` is impossible for a finite
+  `N`), so *any* NF is a definitive kill — and the memoized walk reaches floors
+  the head-walk cannot (the 90-story tower's NF lands at 59,847 steps; the
+  head-walk is still f-headed after 10⁶ steps). Depth matters: the TS pass at
+  4M nodes killed floors ≤ 90, but the 186-floors below needed the Rust
+  reducer (`--nf-probe`, 8-byte nodes, 500M-node ceiling from the 31-bit id
+  packing; reducer parity with TS is the repo's standing oracle). A diagnostic
+  that pairs with it: true sages' Böhm level count *climbs* with budget
+  (Y-54: 427 levels at 10⁶ head-steps; Θ: 305) while a deep tower *saturates*
+  (the 27ι stalled at 22 levels from 10⁵ to 10⁷).
 - **Planted controls**: Curry's Y (54ι) must fire at census budget; the
   retracted 26ι tower must be rejected at vetting budget. Both gate every run.
 
@@ -48,25 +54,30 @@ So the tiers are:
 | tier | meaning |
 |---|---|
 | `tower-k` | impostor, proven: `t·f` has an NF, `fᵏ(…)` |
-| `candidate` | no NF found (2M steps / 4M+ nodes), f-headed descent past 10⁶ head-steps — *evidence*, FPC-ness open |
+| `candidate` | no NF found (200M memoized steps, node ceiling untouched), f-headed descent past 10⁶ head-steps — *evidence*, FPC-ness open |
 | proven | a β-conversion certificate of `t f =β f (t f)` |
 
 ## Results (the 26 entries of the retracted census, re-vetted)
 
-**18 impostors** — finite towers, floors from 15 to 90 f-levels. The retracted
-26ι headline is `tower-16`.
+**23 impostors** — finite towers. Floors from 15 to 90 f-levels for the
+ι-tailed X-towers (the retracted 26ι headline is `tower-16`), and — the second
+twist — **the whole `X (X (X O)) I` family is `tower-186`**. The ι → I tail
+swap that briefly made the 27ι the headline candidate doesn't create a sage;
+it makes a *much deeper mirage*: `t·f =β f¹⁸⁶ (…)`, floor at 213,529 memoized
+steps — far past the first vetting pass's caps, caught on a re-check (its
+Böhm level count saturating at 22 was the tell).
 
-**8 candidates** in two families (`fixpoint-combinators.txt`, format
-`iotas|f⁵-steps|verdict|bits`):
+**3 candidates** stand (`fixpoint-combinators.txt`, format
+`iotas|f⁵-steps|verdict|bits`), from two families unrelated to the X-tower:
 
-- **27ι `X (X (X O)) I`** — the *same tower as the retracted 26ι with the tail
-  swapped ι → I*. The tail changes everything: `(X O) I = O I O = M O = O O`,
-  and the unfolding `T f = f (G₁ f)` re-exposes `f` at every level with
-  quasi-periodically growing arguments (no exact recurrence — the same
-  signature Curry's Y shows under SK head-reduction). Still f-headed after 10⁶
-  head-steps; no NF at 2M steps / 20M nodes. **Smallest surviving candidate.**
-  The 29–30ι entries of its family are padded re-encodings of the same shape.
-- A second family, `ι (X I) (S ι (S X A))`-shaped, at 29–30ι.
+- **29ι `ι (X I) (S ι (S X A))`-shaped** — **smallest surviving candidate** —
+  and a 30ι sibling of the same family;
+- **30ι `X (S (S (K O)) I) ι`-shaped**.
+
+All three: no NF after **200,000,000 memoized steps** (node ceiling untouched)
+and sage-like level-growth (274/189/132 levels at 10⁵ head-steps, climbing).
+That is three orders of magnitude past the deepest known floor — but evidence,
+not proof; they stay candidates.
 
 **Smallest proven fixpoint combinators** in the catalog remain:
 
@@ -75,18 +86,19 @@ So the tiers are:
 - **Y (Curry), 54ι** — the textbook derivation.
 
 Whether any ≤30ι candidate is a strict FPC — or a genuinely non-standard one —
-is **open**. A β-proof for the 27ι would cut the proven record by 19ι.
+is **open**. A β-proof for the 29ι would cut the proven record by 17ι.
 
 ## The exhaustive floor (brute census, `--fpc-brute`)
 
 Streaming enumeration of *every* ι-shape, Catalan-count-asserted per size,
 planted controls both ways:
 
-> **No term of ≤ 21ι reaches Böhm f⁵ within 2,000 head-steps.**
-> (8,987,427,467 shapes, exhaustive; sizes 22–25 in flight under v3.)
+> **No term of ≤ 23ι reaches Böhm f⁵ within 2,000 head-steps.**
+> (124,936,258,127 shapes, exhaustive; stopped by decision after size 23 —
+> size 24 alone is another 343B shapes, ~28h.)
 
 Since any true FPC closes every Böhm level, this bounds strict FPCs and
-non-standard candidates alike: below 22ι there is *nothing* within budget.
+non-standard candidates alike: below 24ι there is *nothing* within budget.
 The budget label is permanent (a hypothetical slower-than-2,000-step sage
 would be missed; no finite budget removes this caveat).
 
@@ -95,5 +107,9 @@ would be missed; no finite budget removes this caveat).
 The same class of bug lived in the app: the sage probe `Y (K a) ≡ a` accepted
 any `λx. x·u` impostor (`O ι O`, 15ι, recognized and display-folded as the 54ι
 Sage). Fixed in `probe.ts`: an NF pre-pass (`t·f` normalizing ⇒ not a sage)
-plus the v3 Böhm descent, shared by discovery and the fold. All 18 towers are
-rejected in-game; Curry's Y, Θ = U U, and the 8 candidates recognize as Y.
+plus the v3 Böhm descent, shared by discovery and the fold. The 18 towers with
+floors ≤ 90 are rejected in-game; Curry's Y, Θ = U U, and the 3 candidates
+recognize as Y.
+(Cap honesty: the in-game pre-pass cannot reach a 186-deep floor, so a
+deliberately built deep tower can still fold as Y in play — the census tiers
+here, not the in-game probe, are the source of truth.)

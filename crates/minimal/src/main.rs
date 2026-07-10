@@ -1231,6 +1231,37 @@ fn main() {
             "--dp-slim" => dp_slim = true,
             "--fixpoint" => dp_fixpoint = true,
             "--fpc-probe" => { let bits = args.next().unwrap(); let budget: u64 = std::env::var("FPC_BUDGET").ok().and_then(|v| v.parse().ok()).unwrap_or(2000); let mut arena = Arena::new(); let mut bufs = ReduceBufs::default(); let t = decode_bits(&mut arena, &bits).expect("bad bits"); match head_trace_fpc(&mut arena, t, budget, &mut bufs) { Some(n) => println!("candidate: f^5 at {n} head steps, still f-headed at budget {budget}"), None => println!("rejected within budget {budget} (floor or too slow)") } return; }
+
+            "--nf-probe" => {
+                // memoized-NF vetting probe: does t·f have a normal form? A sage's never
+                // does; a tower's floor is reachable here far past the memoless head-walk
+                // (caps via NF_STEPS / NF_NODES, default 20M / 500M).
+                let bits = args.next().unwrap();
+                let steps_cap: u64 = std::env::var("NF_STEPS").ok().and_then(|v| v.parse().ok()).unwrap_or(20_000_000);
+                let nodes_cap: usize = std::env::var("NF_NODES").ok().and_then(|v| v.parse().ok()).unwrap_or(500_000_000);
+                let mut arena = Arena::new();
+                let mut bufs = ReduceBufs::default();
+                let t = decode_bits(&mut arena, &bits).expect("bad bits");
+                arena.s_clear();
+                let f = arena.mk_leaf(TAG_FREE, 0);
+                let applied = arena.mk_app(t, f);
+                let caps = Caps { steps: steps_cap, nodes: nodes_cap };
+                let mut steps = 0u64;
+                match normalize(&mut arena, applied, &caps, &mut steps, &mut bufs) {
+                    NfResult::Done(nf) => {
+                        // walk the f-spine of the NF to report the tower height
+                        let mut d = 0u64;
+                        let mut c = nf;
+                        loop {
+                            let n = arena.nd(c);
+                            if n.tag == TAG_APP && n.a == f { d += 1; c = n.b; } else { break; }
+                        }
+                        println!("NF FOUND at {steps} steps — f-tower {d}: IMPOSTOR");
+                    }
+                    NfResult::Capped => println!("no NF: capped after {steps} actual steps (caps {steps_cap} steps / {nodes_cap} nodes)"),
+                }
+                return;
+            }
             "--fastest" => dp_fastest = true, // default; kept for compat
             "--no-fastest" => dp_fastest = false,
             "--checkpoint" => dp_checkpoint = true,
