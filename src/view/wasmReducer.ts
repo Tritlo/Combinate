@@ -30,6 +30,8 @@ export async function loadWasmReducer(): Promise<WasmModule | null> {
       } catch (e) {
         console.warn(`[combinate] Turbo reduce wasm FAILED after ${(performance.now() - t0).toFixed(0)}ms — falling back to the TS reducer`, e);
         return null; // wasm unavailable — the shell keeps using the TS reducer
+      } finally {
+        loading = null; // a transient failure may be retried; success stays cached in `mod`
       }
     })();
   }
