@@ -55,7 +55,17 @@ function freshVars(n: number, used: Set<string>): Node[] {
  * Returns false if the term fails to reach a normal form within the step cap.
  */
 export function probe(tree: Node, law: Law, cap = 2000): boolean {
-  if (law.fpc) return bohmSage(tree, cap); // no NF to compare — Böhm-prefix test
+  if (law.fpc) {
+    // Impostor pre-pass: a sage's t·f can never normalize (N =β f·N is impossible
+    // for a finite NF), but a deep finite tower f^k·u looks f-headed to any
+    // budgeted descent — the memoized normalize walks towers to their floor far
+    // past what the memoless head-walk can reach (the 90-story 30ι tower's NF
+    // lands at ~60k steps). Generous caps: this runs once per built tree.
+    const f = freshVars(1, freeNames(tree))[0];
+    const nf = normalize(app(tree, f), 400_000, true, undefined, 4_000_000);
+    if (nf.done) return false; // finite behavior — not a sage, however tall
+    return bohmSage(tree, cap);
+  }
   const vars = freshVars(law.arity, freeNames(tree));
   const applied = vars.reduce((acc, v) => app(acc, v), tree);
   const nf = normalize(applied, cap, true, undefined, 20_000); // fast mode + a size guard so a probe that explodes (not a value) bails instead of freezing
@@ -109,28 +119,33 @@ function headSpine(t: Node, fuel: { steps: number }): { head: Node; args: Node[]
   }
 }
 
-/** How many nested `f`-heads certify a sage (matches the Rust census detector). */
+/** Minimum nested `f`-heads before fuel-death counts as sage evidence. */
 const BOHM_DEPTH = 5;
+/** Head-steps are cheap; a deep impostor tower must be walked to its floor
+ *  (the 26ι pseudo-sage bottoms out at level 17 — a fixed 5-level check called
+ *  it Y, and so did the census until it was walked deeper). */
+const BOHM_FUEL = 20_000;
 
 /**
- * The Böhm-prefix sage test: a fixpoint combinator's Böhm tree is `f (f (f …))`,
- * so head-reduce `t·f` (f fresh), demand the spine head is literally `f` applied
- * to exactly one argument, descend into that argument, repeat. Five nested
- * f-heads = the certificate — the same test and depth as the census detector
- * (crates/minimal `head_trace_fpc`); an impostor now needs `f⁵·u` baked in
- * syntactically rather than a single `λx. x·u` shell.
+ * The Böhm-prefix sage test: a fixpoint combinator's Böhm tree is `f (f (f …))`
+ * — every level, forever. Head-reduce `t·f` (f fresh), demand the spine head is
+ * literally `f` applied to exactly one argument, descend into that argument,
+ * and KEEP descending until the fuel dies. Any non-f floor within the budget is
+ * a definitive rejection (a finite tower `fᵏ·u` is not a sage, however deep);
+ * fuel-death after ≥ BOHM_DEPTH f-levels is the certificate — the strongest
+ * finite evidence a semi-decidable property allows (Scott–Curry).
  */
 function bohmSage(tree: Node, cap: number): boolean {
   const f = freshVars(1, freeNames(tree))[0];
   if (f.kind !== "free") return false; // freshVars only mints free vars
-  const fuel = { steps: cap };
+  const fuel = { steps: Math.max(cap, BOHM_FUEL) };
   let cur: Node = app(tree, f);
-  for (let d = 0; d < BOHM_DEPTH; d++) {
+  for (let depth = 0; ; depth++) {
     const sp = headSpine(cur, fuel);
-    if (!sp || sp.head.kind !== "free" || sp.head.name !== f.name || sp.args.length !== 1) return false;
+    if (!sp) return depth >= BOHM_DEPTH; // fuel died with every level so far f-headed
+    if (sp.head.kind !== "free" || sp.head.name !== f.name || sp.args.length !== 1) return false; // bottomed out
     cur = sp.args[0];
   }
-  return true;
 }
 
 /** Structural key: trees are equal iff their keys match (free vars by name,

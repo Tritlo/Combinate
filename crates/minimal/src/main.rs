@@ -825,12 +825,17 @@ fn term_str<A: Red>(arena: &A, t: u32, cap: usize) -> String {
 }
 
 fn head_trace_fpc<A: Red>(arena: &mut A, t: u32, budget: u64, bufs: &mut ReduceBufs) -> Option<u64> {
-    // Fixpoint detector v2: the BÖHM-PREFIX test. A fixpoint combinator's Böhm tree is
-    // f(f(f(...))), and Curry-style SK cycles are quasi-periodic (terms grow each round,
-    // so literal-trace recurrence — v1 — never fires; measured on Y-54). Head-reduce to
-    // f·X, descend into X, demand f again; DEPTH nested f-heads = the certificate,
-    // honestly labeled "Böhm prefix f^DEPTH" (strong evidence, not a totality proof;
-    // the TS side can verify deeper).
+    // Fixpoint detector v3: the BÖHM-DESCENT test. A fixpoint combinator's Böhm tree is
+    // f(f(f(...))) — every level, forever — so head-reduce to f·X, descend into X, and
+    // KEEP descending until the budget dies. Any non-f floor within budget is a
+    // definitive rejection: v2 stopped at five levels and accepted finite towers f^k·u —
+    // the retracted "26ι FPC" bottoms out at level 17 (t·f =β f^16 (O f), found by hand
+    // probing; its NF lands 138 steps past the 2000 budget, which is why v2 never saw
+    // it). Budget death after >= DEPTH f-levels is the certificate, honestly labeled
+    // "Böhm descent, still f-headed at budget" (the strongest finite evidence a
+    // semi-decidable property allows); the value returned is the f^DEPTH timestamp.
+    // (v1 — literal-trace recurrence — never fires at all: Curry-style SK cycles are
+    // quasi-periodic, terms grow each round; measured on Y-54.)
     const DEPTH: u32 = 5;
     let dbg = std::env::var("FPC_TRACE").is_ok();
     arena.s_clear();
@@ -840,17 +845,23 @@ fn head_trace_fpc<A: Red>(arena: &mut A, t: u32, budget: u64, bufs: &mut ReduceB
     let mut cur = arena.mk_app(t, f);
     let mut steps_left = budget;
     let mut total = 0u64;
+    let mut depth = 0u32;
+    let mut close5 = 0u64;
     let spine = &mut bufs.spine;
-    for depth in 0..DEPTH {
-        // head-reduce `cur` until it is literally f · X (or stuck/budget out)
+    loop {
+        // head-reduce `cur` until it is literally f · X (or a floor/budget out)
         loop {
             if steps_left == 0 {
-                return None;
+                return if depth >= DEPTH { Some(close5) } else { None };
             }
             let cn = arena.nd(cur);
             if cn.tag == TAG_APP && cn.a == f {
+                depth += 1;
+                if depth == DEPTH {
+                    close5 = total;
+                }
                 if dbg {
-                    eprintln!("  Böhm level {} reached after {} steps", depth + 1, total);
+                    eprintln!("  Böhm level {depth} reached after {total} steps");
                 }
                 cur = cn.b; // descend into the argument
                 break;
@@ -912,11 +923,11 @@ fn head_trace_fpc<A: Red>(arena: &mut A, t: u32, budget: u64, bufs: &mut ReduceB
             steps_left -= 1;
             total += 1;
             if arena.s_len() > 500_000 {
-                return None;
+                // resource death, not a floor — same evidence rule as budget death
+                return if depth >= DEPTH { Some(close5) } else { None };
             }
         }
     }
-    Some(total)
 }
 
 fn dp_sigvec<A: Red>(arena: &mut A, t: u32, caps: &Caps, dp_a: usize, bufs: &mut ReduceBufs) -> SigRes {
@@ -1219,7 +1230,7 @@ fn main() {
             "--dp-opaque-fn" => dp_opaque_fn = true,
             "--dp-slim" => dp_slim = true,
             "--fixpoint" => dp_fixpoint = true,
-            "--fpc-probe" => { let bits = args.next().unwrap(); let mut arena = Arena::new(); let mut bufs = ReduceBufs::default(); let t = decode_bits(&mut arena, &bits).expect("bad bits"); match head_trace_fpc(&mut arena, t, 2000, &mut bufs) { Some(n) => println!("FPC: closes in {n} head steps"), None => println!("no head-cycle within budget") } return; }
+            "--fpc-probe" => { let bits = args.next().unwrap(); let budget: u64 = std::env::var("FPC_BUDGET").ok().and_then(|v| v.parse().ok()).unwrap_or(2000); let mut arena = Arena::new(); let mut bufs = ReduceBufs::default(); let t = decode_bits(&mut arena, &bits).expect("bad bits"); match head_trace_fpc(&mut arena, t, budget, &mut bufs) { Some(n) => println!("candidate: f^5 at {n} head steps, still f-headed at budget {budget}"), None => println!("rejected within budget {budget} (floor or too slow)") } return; }
             "--fastest" => dp_fastest = true, // default; kept for compat
             "--no-fastest" => dp_fastest = false,
             "--checkpoint" => dp_checkpoint = true,
@@ -1252,16 +1263,25 @@ fn main() {
         // "no FPC <= N within FPC_BUDGET total head-steps / 500k scratch nodes".
         const FPC_BUDGET: u64 = 2000;
         const CHUNK: u128 = 4_000_000;
-        // planted positive control: the known 26ι FPC must fire through this exact
-        // decode -> persistent-build -> detector path before any size is trusted.
-        const FPC26: &str = "000101010101100101010101100101010101100101010110111";
+        // planted controls through the exact decode -> build -> detector path, both ways:
+        // Curry's Y (54ι) must fire; the retracted "26ι FPC" — a 16-story impostor whose
+        // t·f =β f^16 (O f) — must NOT (its floor is what v2's fixed depth never reached).
+        const Y54: &str = "00010101011001010110001010101101101100010101011000101010110010101101010101101010110010101100010101011011011";
+        const TOWER26: &str = "000101010101100101010101100101010101100101010110111";
         {
             let mut arena = Arena::new();
             let mut bufs = ReduceBufs::default();
-            let plant = decode_bits(&mut arena, FPC26).expect("bad planted bits");
-            let cs = head_trace_fpc(&mut arena, plant, FPC_BUDGET, &mut bufs)
-                .expect("planted 26ι FPC did not fire — detector integration broken");
-            println!("fpc-brute: planted control fires (26ι FPC closes Böhm f^5 in {cs} head steps)");
+            let y = decode_bits(&mut arena, Y54).expect("bad planted bits");
+            let cs = head_trace_fpc(&mut arena, y, FPC_BUDGET, &mut bufs)
+                .expect("planted Curry Y did not fire — detector integration broken");
+            let tw = decode_bits(&mut arena, TOWER26).expect("bad planted bits");
+            // vetting-scale budget: the tower floor (level 17) sits just past the census
+            // budget — the census reports such terms as CANDIDATES; vetting rejects them
+            assert!(
+                head_trace_fpc(&mut arena, tw, 10_000, &mut bufs).is_none(),
+                "planted 16-story tower fired at vetting budget — floor rejection broken"
+            );
+            println!("fpc-brute: controls pass (Y-54 fires, f^5 at {cs} head steps; the 26ι tower is rejected)");
         }
         let workers = worker_override.unwrap_or_else(|| std::thread::available_parallelism().map(|v| v.get()).unwrap_or(8).min(16));
         let n_max = fpc_brute;
