@@ -62,7 +62,7 @@ export class ReadoutLens {
   // the named view (one-shot, never per-frame), plus the dev seam. Starts as the instant pure-TS
   // behavioral pass; upgraded to the full behavioral→egg pipeline once the wasm loads at boot.
   private refolder: Refolder = behavioralRefolder;
-  private refolderLoading = false;
+  private refolderLoad: Promise<void> | null = null;
   private refoldRaw: ((sexpr: string) => string) | null = null;
   private typeOn = false;
   // render memo: only repaint when the node / view / type / reading mode changes
@@ -181,24 +181,27 @@ export class ReadoutLens {
   // Called eagerly at boot (no lazy load) so a normal-form re-fold + the dev seam are ready up front.
   // `quiet` suppresses the fallback toast — the boot load passes it, since a missing wasm just leaves
   // the graceful behavioral refolder and isn't something to nag the user about at startup.
-  async ensureRefolder(quiet = false): Promise<void> {
-    if (this.refoldRaw || this.refolderLoading) return;
-    this.refolderLoading = true;
+  ensureRefolder(quiet = false): Promise<void> {
+    if (this.refoldRaw) return Promise.resolve();
+    if (this.refolderLoad) return this.refolderLoad;
     const t0 = performance.now();
     console.log("[combinate] loading re-folder wasm (crates/refold)…");
-    try {
-      const mod = await import("../../crates/refold/pkg/refold.js");
-      await mod.default();
-      this.refoldRaw = mod.refold;
-      this.refolder = makeRefolder(mod.refold);
-      console.log(`[combinate] re-folder wasm ready — ${(performance.now() - t0).toFixed(0)}ms (egg pipeline live)`);
-      this.invalidate(); // re-render now the egg stage is live
-    } catch (e) {
-      console.warn(`[combinate] re-folder wasm FAILED after ${(performance.now() - t0).toFixed(0)}ms — behavioral fallback only`, e);
-      if (!quiet) this.deps.toast.show("re-folder: behavioral only (wasm unavailable)");
-    } finally {
-      this.refolderLoading = false;
-    }
+    this.refolderLoad = (async () => {
+      try {
+        const mod = await import("../../crates/refold/pkg/refold.js");
+        await mod.default();
+        this.refoldRaw = mod.refold;
+        this.refolder = makeRefolder(mod.refold);
+        console.log(`[combinate] re-folder wasm ready — ${(performance.now() - t0).toFixed(0)}ms (egg pipeline live)`);
+        this.invalidate(); // re-render now the egg stage is live
+      } catch (e) {
+        console.warn(`[combinate] re-folder wasm FAILED after ${(performance.now() - t0).toFixed(0)}ms — behavioral fallback only`, e);
+        if (!quiet) this.deps.toast.show("re-folder: behavioral only (wasm unavailable)");
+      } finally {
+        this.refolderLoad = null; // a failed load may be retried
+      }
+    })();
+    return this.refolderLoad;
   }
 
   /** Advance the read-out view (the F key + the View menu). */
