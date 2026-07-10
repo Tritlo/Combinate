@@ -3,10 +3,11 @@
  * backend, **lazy-loaded** — the multi-MB engine is dynamically imported only on
  * first use, never on first paint. Behind the same port as {@link ./local.ts}.
  *
- * This is the local DuckDB prototype that de-risks the quack/leaderboard path
+ * This is an in-memory DuckDB prototype that de-risks the quack/leaderboard path
  * (decision b). The shared, networked leaderboard (verify-by-replay over an
  * append-only remote DuckDB / httpfs) is wired on top of `topN`/`submit` in the
- * golf/leaderboard stream — this class is the local store + the seam for that.
+ * golf/leaderboard stream. Cross-reload persistence remains with the default
+ * LocalStore: DuckDB-WASM itself has no durable cross-session storage.
  */
 import type { Store, Definition, Best, LeaderEntry } from "./port";
 
@@ -21,8 +22,8 @@ interface Conn {
 }
 
 const SCHEMA = `
-  CREATE TABLE IF NOT EXISTS definitions(name VARCHAR, egg VARCHAR);
-  CREATE TABLE IF NOT EXISTS bests(challengeId VARCHAR, metric INTEGER, permalink VARCHAR);
+  CREATE TABLE IF NOT EXISTS definitions(name VARCHAR PRIMARY KEY, egg VARCHAR);
+  CREATE TABLE IF NOT EXISTS bests(challengeId VARCHAR PRIMARY KEY, metric INTEGER, permalink VARCHAR);
   CREATE TABLE IF NOT EXISTS leaderboard(challengeId VARCHAR, bitcode VARCHAR, metric INTEGER, handle VARCHAR);
 `;
 
@@ -70,18 +71,19 @@ export class DuckdbStore implements Store {
     return this.rows<Definition>("SELECT name, egg FROM definitions");
   }
   async putDefinition(d: Definition): Promise<void> {
-    await this.run("DELETE FROM definitions WHERE name = ?", d.name);
-    await this.run("INSERT INTO definitions VALUES (?, ?)", d.name, d.egg);
+    await this.run("INSERT INTO definitions VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET egg = excluded.egg", d.name, d.egg);
   }
   async getBest(challengeId: string): Promise<Best | null> {
-    const r = await this.rows<Best>("SELECT challengeId, metric, permalink FROM bests WHERE challengeId = ? ORDER BY metric LIMIT 1", challengeId);
+    const r = await this.rows<Best>("SELECT challengeId, metric, permalink FROM bests WHERE challengeId = ?", challengeId);
     return r[0] ?? null;
   }
   async putBest(b: Best): Promise<void> {
-    const cur = await this.getBest(b.challengeId);
-    if (cur && cur.metric <= b.metric) return;
-    await this.run("DELETE FROM bests WHERE challengeId = ?", b.challengeId);
-    await this.run("INSERT INTO bests VALUES (?, ?, ?)", b.challengeId, b.metric, b.permalink);
+    await this.run(
+      "INSERT INTO bests VALUES (?, ?, ?) ON CONFLICT (challengeId) DO UPDATE SET metric = excluded.metric, permalink = excluded.permalink WHERE excluded.metric < bests.metric",
+      b.challengeId,
+      b.metric,
+      b.permalink,
+    );
   }
   async topN(challengeId: string, n: number): Promise<LeaderEntry[]> {
     return this.rows<LeaderEntry>(

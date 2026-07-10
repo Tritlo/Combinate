@@ -27,7 +27,7 @@ Keep it terse and honest — short enough that people actually read it.
 ## 7: In-browser MicroHs Haskell→combinator compiler
 [docs/adr/0007-microhs-in-browser-compiler.md](adr/0007-microhs-in-browser-compiler.md)
 
-## 8: DuckDB-WASM for local storage
+## 8: DuckDB-WASM query prototype
 [docs/adr/0008-duckdb-wasm-storage.md](adr/0008-duckdb-wasm-storage.md)
 
 ---

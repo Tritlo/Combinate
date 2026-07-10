@@ -1,6 +1,6 @@
-# 8. DuckDB-WASM for local storage (and future quack-protocol leaderboards)
+# 8. DuckDB-WASM query prototype (and future quack-protocol leaderboards)
 
-**Status:** accepted (finalised in a grill-with-docs pass; remaining open items are implementation defaults)
+**Status:** accepted, with the shipped adapter explicitly in-memory
 
 ## Context
 
@@ -13,12 +13,13 @@ leaderboards break the current "static, no backend" shape.
 
 ## Decision
 
-Adopt `@duckdb/duckdb-wasm` **now** (decision b) as a **lazy driven adapter** for
-client-side storage, behind a pure `Store` port — `src/core/` stays DB/DOM/wasm-free
-(extends ADR 0001). The DB lives in the browser (persistence via OPFS/IndexedDB),
-and the **quack-protocol leaderboard architecture is prototyped early** rather than
-deferred — that is the reason for taking the dependency now instead of starting on
-localStorage. DuckDB-WASM is lazy-loaded (never on first paint); a first-time
+Adopt `@duckdb/duckdb-wasm` **now** (decision b) as a **lazy driven adapter** behind
+a pure `Store` port — `src/core/` stays DB/DOM/wasm-free (extends ADR 0001). The
+opt-in `?store=duckdb` adapter is an **in-memory query/leaderboard prototype**;
+durable player state remains in the default `LocalStore`, because DuckDB-WASM has
+no durable cross-session storage. The **quack-protocol leaderboard architecture is
+prototyped early** rather than deferred — that is the reason for taking the
+dependency now. DuckDB-WASM is lazy-loaded (never on first paint); a first-time
 visitor who only plays ships none of it.
 
 ## Why
@@ -30,8 +31,8 @@ maintainer's house DB, with the core kept pure (storage as an adapter).
 
 ## Consequences
 
-- DuckDB-WASM is heavy (multi-MB) — must be lazy/gated, fetched only when
-  persistence/queries are actually used; the default first paint ships none of it.
+- DuckDB-WASM is heavy (multi-MB) — must be lazy/gated, fetched only when the
+  prototype is explicitly selected; the default first paint ships none of it.
 - Leaderboards (quack) introduce networking, but the trust model keeps the backend
   thin: **verify-by-replay** — a leaderboard entry *is* a re-runnable permalink
   (`{challenge, bitcode, metric, handle}`); because the reducer is pure and fast,
@@ -41,8 +42,7 @@ maintainer's house DB, with the core kept pure (storage as an adapter).
   trusted validator, near-static. Cheating requires actually finding a better
   solution. (This is the domain-native anti-cheat and the reason DuckDB-over-quack
   is a clean fit: store + query *verifiable* rows.)
-- A persistence schema to design (discoveries, definitions, challenge bests,
-  leaderboard entries).
+- A durable storage design is still needed before DuckDB can replace `LocalStore`.
 
 ## Open questions (for the grill)
 
@@ -55,5 +55,7 @@ maintainer's house DB, with the core kept pure (storage as an adapter).
   unlike the MicroHs runtime which we vendor on a Release (ADR 0007).**
 - Where the shared (append-only) leaderboard DB physically lives: DuckDB file over
   httpfs on object storage vs a one-line serverless write endpoint.
-- What is actually stored locally, and the schema.
-- Lazy-load trigger and where the adapter is wired.
+- ~~What is actually stored locally?~~ **Resolved:** durable definitions/bests live
+  in `LocalStore`; the DuckDB experiment holds definitions, bests, and leaderboard
+  rows only for the current page lifetime.
+- ~~Lazy-load trigger?~~ **Resolved:** the explicit `?store=duckdb` query parameter.
