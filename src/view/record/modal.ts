@@ -451,6 +451,9 @@ export class RecordModal extends Modal {
     this.hideTip();
     if (this.planTimer !== undefined) window.clearTimeout(this.planTimer);
     this.planTimer = undefined;
+    if (this.previewTimer !== undefined) window.clearTimeout(this.previewTimer);
+    this.previewTimer = undefined;
+    this.previewSeq++; // ignore a preview that was already rendering
     this.invalidatePlan();
     super.close();
   }
