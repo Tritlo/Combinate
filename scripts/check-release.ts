@@ -7,7 +7,7 @@
  *   npm run check:release
  */
 import { execSync } from "node:child_process";
-import { type Node, decode } from "../src/core/term";
+import { decode } from "../src/core/term";
 import { CATALOG, META, PAGES, IOTA_CODE, IOTA_FASTEST, IOTA_STEPS, IOTA_BITCODE, countIotas, iotaTreeOf } from "../src/core/catalog";
 import { recognize } from "../src/core/probe";
 import { iotaCost } from "../src/core/challenges";
