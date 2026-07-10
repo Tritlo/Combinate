@@ -68,24 +68,33 @@ export async function createRecordingEncoder(
     bitrateMode: "variable",
     latencyMode: "quality",
   });
-  output.addVideoTrack(videoSource, { frameRate: settings.fps, maximumPacketCount: plan.totalFrames });
 
   let audioSource: AudioBufferSource | null = null;
-  if (settings.audio && plan.tones.length > 0 && audioBuffer) {
-    const codec = await audioCodec();
-    if (codec) {
-      audioSource = new AudioBufferSource({ codec: codec as AudioCodec, bitrate: AUDIO_BITRATE });
-      output.addAudioTrack(audioSource, { maximumPacketCount: Math.ceil(plan.durationSec * 100) + 16 });
-    }
-  }
-
   try {
+    output.addVideoTrack(videoSource, { frameRate: settings.fps, maximumPacketCount: plan.totalFrames });
+    if (settings.audio && plan.tones.length > 0 && audioBuffer) {
+      const codec = await audioCodec();
+      if (codec) {
+        audioSource = new AudioBufferSource({ codec: codec as AudioCodec, bitrate: AUDIO_BITRATE });
+        output.addAudioTrack(audioSource, { maximumPacketCount: Math.ceil(plan.durationSec * 100) + 16 });
+      }
+    }
     await output.start();
     if (audioSource && audioBuffer) {
       await audioSource.add(audioBuffer);
       audioSource.close();
     }
   } catch (error) {
+    try {
+      videoSource.close();
+    } catch {
+      /* preserve the setup error */
+    }
+    try {
+      audioSource?.close();
+    } catch {
+      /* preserve the setup error */
+    }
     await output.cancel().catch(() => {});
     throw error;
   }
