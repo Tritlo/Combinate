@@ -14,7 +14,7 @@ export const IOTA_CODE: Record<string, string> = {
   A: "01011",
   K: "0101011",
   S: "010101011",
-  // Census-born bird (): M3's code is its PROVEN-minimal ι-form — certified by
+  // Census-born bird: M3's code is its PROVEN-minimal ι-form — certified by
   // exhaustive enumeration + the TS re-proof (spec/minimal-forms.md), canonical from birth.
 
 
@@ -28,7 +28,7 @@ export const IOTA_CODE: Record<string, string> = {
   Q4: "0101001010101011010010101010110010101011010000101010111010101011001010110010101011011", // 43ι — smallest known ≤43ι hunt (was 59ι recipe, 67ι def)
   V: "0001010010101010110110010000101010110110001010101111000101010111010101101010110001000010101011011000101010111100010101011101010110101011011", // 70ι — recipe composition B C (C I) (was 74ι)
   Y: "00010101011001010110001010101101101100010101011000101010110010101101010101101010110010101100010101011011011", // 54ι — Curry's textbook Y, S(K(SII))(S(S(KS)K)(K(SII))); display-only (no NF, never probe-recognized; was 99ι via B M (C B M))
-  // The great shrinking (): every entry below is a CERTIFIED-EQUAL form — proven
+  // The great shrinking: every entry below is a CERTIFIED-EQUAL form — proven
   // in TypeScript to share the bird's normal form on fresh variables at its declared arity
   // (equality at n implies equality above; adoption can never change behavior). Minimality
   // is proven by exhaustion where marked; otherwise it is the smallest form the class-DP
@@ -151,7 +151,7 @@ export interface Law {
    * built-in rules.
    */
   def?: () => Node;
-  /** True for a player-authored combinator (): it lives in the catalog
+  /** True for a player-authored combinator: it lives in the catalog
    *  like any other, but the behavioral probe skips it (it is *defined*, not
    *  *discovered*, so it never auto-collapses another tree). */
   userDefined?: boolean;
@@ -614,7 +614,7 @@ export const PAGES: PageDef[] = [
 
 /**
  * Resolve a combinator's DISPLAYED short name — the one naming model shared by the hotbar cell, the
- * zoo list row, and (page-context-sensitive) the canvas node glyph (): a page-scoped override
+ * zoo list row, and (page-context-sensitive) the canvas node glyph: a page-scoped override
  * beats the sym-level short form beats the page's wordy alias beats the raw symbol. `sym` itself is
  * never affected — it stays the semantic identifier for permalinks/probe/mhs/rules; this is cosmetic
  * display only. `entry` is the `PageEntry` (or entry-shaped record, e.g. the Zoo's own row) for `sym`

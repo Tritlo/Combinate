@@ -1,5 +1,5 @@
 /**
- * The Haskell → ι panel (): a DOM overlay (text editing is far nicer in
+ * The Haskell → ι panel: a DOM overlay (text editing is far nicer in
  * the DOM than in Pixi). It leads with curated examples — click one to load its
  * source, then "Compile & run" drops the resulting combinator tree on the canvas
  * (from a pre-compiled, vendored closure) — and the free-type editor compiles live

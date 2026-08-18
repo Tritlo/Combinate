@@ -1,5 +1,5 @@
 /**
- * Ground-truth certification for minimal-forms (): re-prove every claim in
+ * Ground-truth certification for minimal-forms: re-prove every claim in
  * spec/minimal-forms.json with the app's OWN reducer, then write the human report.
  *
  * The Rust enumerator (crates/minimal) exists for speed; nothing it says is trusted

@@ -1,6 +1,6 @@
 /**
  * 3D H-tree: the volumetric generalization of {@link import("./htree").layoutHTree}. No DOM/Pixi/Three
- * (functional core, ); the Three.js view renders the positions.
+ * (functional core); the Three.js view renders the positions.
  */
 import { type Node, type NodeId } from "../term";
 import { type Layout3, type Pos3, countNodes, HTREE_MIN_ARM, HTREE_SHRINK } from "./types";
@@ -22,7 +22,7 @@ const AXES3: V[] = [
  * shrinks geometrically per level (`HTREE_SHRINK` < 1/√2 ⇒ sibling subtrees never overlap), so the
  * term fills a shrinking cubic lattice. Initial arm scales with the node count. Root at the origin.
  *
- * Deep spines march outward along the (1,1,1) diagonal — DELIBERATE (): the cycle is a
+ * Deep spines march outward along the (1,1,1) diagonal — DELIBERATE: the cycle is a
  * proper rotation about that diagonal, which is what keeps every subterm a true rotated copy of
  * its standalone layout. The inward-coiling alternative (signed ±axis 6-cycle) was tried and
  * rejected — in 3D it necessarily mirrors nested subterms (det −1 per level).

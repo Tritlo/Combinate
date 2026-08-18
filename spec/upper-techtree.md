@@ -31,7 +31,7 @@ Section references like "§7.1" point into `iota-render.md` unless prefixed `U`.
    game does not hand them qsort. To make a large program authorable, two mechanics
    carry the weight (U2): **Define** (collapse a tree into a named block) and
    one-hole **Abstract** (bracket abstraction over a single placeholder variable).
-   Both shipped (). Probing confirms what you wired (U3).
+   Both shipped. Probing confirms what you wired (U3).
 
 2. **Discovery oracle = hybrid.** Free-variable normal-form matching (§7.1) stays
    for the pure-combinator tiers, where it's exact and pretty. The data/recursion
@@ -69,8 +69,8 @@ player mints their own from anything they build. **Discovery (auto, via probe) a
 Definition (manual, player-named) are two routes to the same object.** Implemented:
 the new leaf carries the subtree as its `def` so the reducer unfolds it when applied
 (arity 1 — it unfolds as soon as it has an argument). Persisted via the `Store`
-(`putDefinition`, ) and reloaded on startup; the name must not collide with
-a catalog symbol (rejected — ). Serialization (§3.2) is unchanged: a named
+(`putDefinition`) and reloaded on startup; the name must not collide with
+a catalog symbol. Duplicate names are rejected. Serialization (§3.2) is unchanged: a named
 block round-trips as its underlying tree through `toEgg`/`fromEgg`.
 
 ### U2.2 Abstract — bracket abstraction over a single hole
@@ -78,7 +78,7 @@ block round-trips as its underlying tree through `toEgg`/`fromEgg`.
 Combinatory logic has no λ, so a program is a *variable-free* tree. Hand-deriving
 that tree is not humanly reasonable. The bridge is the classic **bracket
 abstraction** compilation, surfaced as a player verb — restricted to **one hole**
-(no multi-hole / lambda editor until the one-hole verb feels good, ):
+(no multi-hole / lambda editor until the one-hole verb feels good):
 
 ```
 mark ONE leaf of a tree as a hole  x   (it becomes a §7.1 free-var placeholder)
@@ -134,7 +134,7 @@ type Law = {
 - Even `Y` gets a finite test: `Y (K a) ≡ a` — and that is exactly how the catalog
   probes it today (`args: v => [K a]`). Recursion is discoverable without ever
   reducing a non-terminating term.
-- **`userDefined` laws are never probed** (): they are *authored*, not
+- **`userDefined` laws are never probed**: they are *authored*, not
   discovered, so the probe skips them and they never auto-collapse another tree.
 
 ---
@@ -265,7 +265,7 @@ order — so the `[]` arm comes first, matching `null`/`head`/`tail` in the cata
 data/recursion tiers that inverts.** In pure ι, `2+2` is already hundreds of steps
 and `qsort [3,1,2]` astronomically many — far past the §6.4 cap, and unwatchable. So:
 
-- **Optimize mode** (the v5 toggle, ) — reduce named combinators by their
+- **Optimize mode** (the v5 toggle) — reduce named combinators by their
   catalog `rule` (the Scott recursion via named sub-combinators, no `Y`-blob
   grinding) — is the **default reducer from the nat tier up.** Step counts stay
   legible.
@@ -283,7 +283,7 @@ and `qsort [3,1,2]` astronomically many — far past the §6.4 cap, and unwatcha
 
 | phase | deliverable | status |
 |-------|-------------|--------|
-| **4 authoring** | The two U2 verbs: **Define** + one-hole **Abstract** (bracket abstraction with η), persisted via the Store, collision-checked. | **shipped** () |
+| **4 authoring** | The two U2 verbs: **Define** + one-hole **Abstract** (bracket abstraction with η), persisted via the Store, collision-checked. | **shipped** |
 | **5 data** | Example-based probe (U3 `tests`). Add `isZero`, `leq`, `gt`. Number-builder (stack `Succ`). The Scott alchemy-collision achievements (U4.1). | bool/nat/pair, `Succ`/`Pred`/`(+)`/`(-)`/`(*)` already in catalog; `leq`/`gt`/`isZero` + example probe pending |
 | **6 recursion** | `M` + `Y` (in catalog), the finite-`Y` probe (in catalog), the §U5 reveal animation. | `M`/`Y` shipped; reveal animation pending |
 | **7 lists → qsort** | Scott list blocks (in catalog) + list-builder (stack `cons`); `filter`; **qsort**, its example probe, and the §U6 payoff. Optimize mode primary (U7). | `cons`/`head`/`tail`/`null`/`uncons`/`<>`/`map`/`concat` shipped; `filter`/`qsort` + payoff pending |
@@ -294,11 +294,11 @@ Phases 4–7 sit on top of the existing 0–3; nothing below changes.
 
 ## U9. Open decisions (recommendations in **bold**)
 
-- **Include bracket abstraction (U2.2)?** → **Yes — shipped** as one-hole Abstract
-  (). It's the only thing that makes the build-it-yourself path tractable
+- **Include bracket abstraction (U2.2)?** → **Yes — shipped** as one-hole Abstract.
+  It's the only thing that makes the build-it-yourself path tractable
   past the data tier, and it teaches λ→CL for free. *Open:* multi-hole later, or is
   one hole + composition enough forever?
-- **List encoding?** → **Scott** (`cons h t n c = c h t`) — decided ().
+- **List encoding?** → **Scott** (`cons h t n c = c h t`) — decided.
   Pattern-matching falls out of the encoding (`l caseNil caseCons`), which is what
   the recursive list fns need, and it matches MicroHs's `data` encoding for the
   import path.
@@ -308,7 +308,7 @@ Phases 4–7 sit on top of the existing 0–3; nothing below changes.
   MicroHs-compile-and-drop (the §11.4 spectacle path, deferred to the WASM phase).
 - **Discovery oracle?** → **hybrid free-var + example** *(decided, U1)*. The example
   half is still pending (recursive birds use the `noProbe` sentinel today).
-- **Naming/collisions?** → **reject duplicates** against catalog symbols ();
+- **Naming/collisions?** → **reject duplicates** against catalog symbols;
   *open:* a namespace (`my/foo`) if rejection chafes in playtest.
 - **Risks to watch:** (1) point-free authoring difficulty even *with* U2.2 — needs
   playtesting; (2) rendering/perf of large trees and their reduction (§5.3 tween

@@ -1,5 +1,5 @@
 /**
- * Authoring (): the player verb for *building* your own combinators
+ * Authoring: the player verb for *building* your own combinators
  * rather than only discovering them — **Define** (name a tree you built). This
  * module is the pure core of it: leaf/subtree surgery, name validation, and
  * registering a user combinator into the shared catalog. The UI gesture +
@@ -46,7 +46,7 @@ export function isNameTaken(name: string): boolean {
  * Validate a proposed combinator name. Returns an error message to show the
  * player, or null when the name is acceptable. Names must be non-empty, short,
  * free of characters that would break the s-expression wire format, and must not
- * collide with an existing combinator (: reject duplicates).
+ * collide with an existing combinator (reject duplicates).
  */
 export function validateName(name: string): string | null {
   const n = name.trim();

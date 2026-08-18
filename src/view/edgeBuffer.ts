@@ -2,7 +2,7 @@ import { Container, Mesh, MeshGeometry, Rectangle, Texture } from "pixi.js";
 import { edgeTierColor } from "./theme";
 
 /**
- * A retained, incrementally-updatable geometry for tree edges (deeper-perf, ).
+ * A retained, incrementally-updatable geometry for tree edges (deeper-perf).
  *
  * The Graphics `drawEdges` path re-tessellates EVERY segment on each redraw — O(n) per reduction
  * step. This keeps the edges resident in two GPU line-list buffers (one per depth TIER — the

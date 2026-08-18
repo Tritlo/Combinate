@@ -1,5 +1,5 @@
 /**
- * Cheap record planning (): reduce a snapshot of the term headlessly with
+ * Cheap record planning: reduce a snapshot of the term headlessly with
  * the same engine options the recording will use, then apply the deterministic
  * adaptive output schedule. No layout or rendering happens here.
  */

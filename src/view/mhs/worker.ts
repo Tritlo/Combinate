@@ -1,5 +1,5 @@
 /**
- * Live MicroHs compile worker () — the **rust-js-ffi** backend.
+ * Live MicroHs compile worker — the **rust-js-ffi** backend.
  *
  * A *module* worker that owns ONE warm runtime instance across every compile
  * (the old emscripten path spawned a fresh classic worker per compile). On

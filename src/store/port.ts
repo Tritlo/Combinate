@@ -1,11 +1,11 @@
 /**
- * The `Store` port (): the interface the shell talks to
+ * The `Store` port: the interface the shell talks to
  * for persistence, independent of backend. The default impl is localStorage
  * ({@link ./local.ts}); a lazy DuckDB-WASM impl ({@link ./duckdb.ts}) backs the
  * query/leaderboard surface. The core (`src/core/`) never imports this — storage
  * is a driven adapter.
  *
- * Leaderboards follow the **verify-by-replay** trust model (): the store
+ * Leaderboards follow the **verify-by-replay** trust model: the store
  * is dumb and append-only — it just holds re-runnable rows; the *client* verifies
  * each entry (replaying the bit-code against the challenge) and drops fakes.
  */
@@ -17,14 +17,14 @@ export interface Definition {
   egg: string;
 }
 
-/** A personal best for a challenge (): the metric + the solution permalink. */
+/** A personal best for a challenge: the metric + the solution permalink. */
 export interface Best {
   challengeId: string;
   metric: number;
   permalink: string;
 }
 
-/** A leaderboard row (): a re-runnable solution. `bitcode` is the solution
+/** A leaderboard row: a re-runnable solution. `bitcode` is the solution
  *  term; clients re-verify it against the challenge before trusting `metric`. */
 export interface LeaderEntry {
   challengeId: string;

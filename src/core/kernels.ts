@@ -1,5 +1,5 @@
 /**
- * The kernel registry () — bind a named combinator to a **pure** native JS
+ * The kernel registry — bind a named combinator to a **pure** native JS
  * primitive (MicroHs-FFI style, but no IO). One registry + one reducer hook: at a
  * saturated `comb` head, `reduce.ts` asks {@link kernelFor}; if a kernel is registered
  * and its gate is open, the redex's `build` runs `kernel.run(args)` and falls back to the
@@ -51,7 +51,7 @@ export function kernelArity(sym: string): number | undefined {
   return KERNELS.get(sym)?.arity;
 }
 
-// ---- built-in kernels: native values (), gated by their optimize toggle ----
+// ---- built-in kernels: native values, gated by their optimize toggle ----
 for (const sym of NUM_OPS) registerKernel(sym, { arity: 2, enabled: (o) => !!o.numbers, run: (a) => numberOp(sym, a) });
 for (const sym of LIST_OPS) registerKernel(sym, { arity: sym === "concat" ? 1 : 2, enabled: (o) => !!o.lists, run: (a) => listOp(sym, a) });
 for (const sym of BOOL_OPS) registerKernel(sym, { arity: sym === "not" ? 1 : 2, enabled: (o) => !!o.booleans, run: (a) => boolOp(sym, a) });

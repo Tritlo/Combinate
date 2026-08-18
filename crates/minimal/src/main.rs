@@ -1,4 +1,4 @@
-//! minimal-forms — exhaustive search for minimal pure-ι combinator forms ().
+//! minimal-forms — exhaustive search for minimal pure-ι combinator forms.
 //!
 //! Enumerate every pure-ι term up to `--max-iotas` leaves (valid IOTA_CODEs = binary
 //! tree shapes, Catalan-many per size), compute each term's SYMBOLIC SIGNATURE — the

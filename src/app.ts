@@ -138,7 +138,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   let expandAll = false; // "Expand" view: draw every combinator as its full ι-tree
   let fastMode = isOpt("rules"); // "optimize" mode — mirror of view/optimize (the source of truth); reduce named combinators by their rule (not raw SKI)
   let shareMode = isOpt("graph"); // "graph" mode mirror: call-by-need graph reduction, shared subterms drawn as one node
-  // The active native-value optimizations (), or undefined if none — read from
+  // The active native-value optimizations, or undefined if none — read from
   // the optimize store each reduction, passed into the reducer alongside `fastMode`.
   const nativeOpts = (): NativeOpts | undefined => {
     const o: NativeOpts = {};
@@ -189,11 +189,11 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   };
   const isDiscovered = (sym: string): boolean => discovered.has(sym);
 
-  // ---- authoring (): load the player's own combinators from the store
+  // ---- authoring: load the player's own combinators from the store
   // and register each into the shared catalog *before* the Zoo/hotbar are built,
   // so both pick them up. A user comb is the same object as a discovery — a named
   // leaf backed by a tree — so it is also marked discovered. ----
-  // The shared persistence store (): LocalStore by default; `?store=duckdb`
+  // The shared persistence store: LocalStore by default; `?store=duckdb`
   // swaps in the DuckDB-WASM prototype behind the same port (lazy-loaded). Used by
   // both authoring (definitions) and golf (bests/leaderboard).
   const store = new URLSearchParams(location.search).get("store") === "duckdb" ? new DuckdbStore() : new LocalStore();
@@ -209,7 +209,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
   onStep("catalog"); // splash step 2/4
 
-  // The read-out lens (): the focused tree's live expression in the read-out box, with the
+  // The read-out lens: the focused tree's live expression in the read-out box, with the
   // cyclable views + the orthogonal type badge. Owns the lens state, `exprOf`, and the per-frame
   // render; the box owns the chrome/placement. Created here so `isDiscovered` exists.
   const readout = new ReadoutLens({
@@ -296,7 +296,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     paintRail();
   }
 
-  // ---- authoring verb (): Define (name a subtree → a new block). The player-facing path is
+  // ---- authoring verb: Define (name a subtree → a new block). The player-facing path is
   // right-click → "Name combinator" (the on-screen keyboard); this armed select-mode + window.prompt
   // path stays for the dev/e2e seam (author.setMode). ----
   type AuthorMode = "define" | null;
@@ -309,7 +309,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
 
   // Prompt for a fresh combinator name, validating against the catalog + existing
-  // user combinators (: reject collisions). Returns the trimmed name, or
+  // user combinators (reject collisions). Returns the trimmed name, or
   // null if the player canceled or entered an invalid one.
   function promptName(): string | null {
     const raw = window.prompt("name this combinator:");
@@ -388,7 +388,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     });
   }
 
-  // ---- auto-reduce + transport (extracted to view/reduction.ts, ). The Pixi
+  // ---- auto-reduce + transport (extracted to view/reduction.ts). The Pixi
   // side effects (the transport bar) stay here and are injected. ----
   const reduce = new ReductionController({
     getFast: () => fastMode,
@@ -427,7 +427,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   });
 
   // Transport bar (top-right): rate read-out + Pause/Step/Play/FF — a thin view over the
-  // ReductionController (extracted to view/transportBar.ts, ).
+  // ReductionController (extracted to view/transportBar.ts).
   const transportBar = new TransportBar(pixi.ticker, reduce, sound, () => void openRecord());
 
   // Reduction progress bar (plan 02): a thin fill along the top edge of the hotbar box, showing how
@@ -529,14 +529,14 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   );
   hotbar.refresh();
   hud.addChild(hotbar.container);
-  // Canvas node glyphs follow the hotbar's currently-open page as a context lens (): with
+  // Canvas node glyphs follow the hotbar's currently-open page as a context lens: with
   // Lists open, a `K` node reads "[]"; no entry on the open page falls back to displayLabel's own
   // sym-level/raw-sym tail of the chain. Passed to every TreeView as its `labelFor` dep.
   const canvasLabelFor = (sym: string): string =>
     displayLabel(sym, PAGES.find((p) => p.name === hotbar.page)?.entries.find((e) => e.sym === sym));
   hud.addChild(zoo.container); // last → the Zoo overlay sits on top of the hotbar
 
-  // ---- golf challenges + leaderboard + sonification () ----
+  // ---- golf challenges + leaderboard + sonification  ----
   // (the shared `store` is declared up top; `sound` is constructed up by the Zoo,
   // which needs sound.play for its tones.)
   const challenges = new ChallengePanel(store, { notify: (m) => toast.show(m), onShare: (token) => shareToken(token) });
@@ -548,7 +548,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     },
     onReset: () => resetProgress(),
   });
-  // Tracked-quest HUD (): a glanceable side card mirroring the current stage,
+  // Tracked-quest HUD: a glanceable side card mirroring the current stage,
   // refreshed whenever the quest advances. The panel stays the sole owner of progress.
   const questTracker = new QuestTracker({
     current: () => quest.current,
@@ -561,7 +561,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   });
   hud.addChild(challenges.container); // overlays the hotbar, like the Zoo
 
-  // Haskell → ι panel (): compile a curated or free-typed program (stock
+  // Haskell → ι panel: compile a curated or free-typed program (stock
   // MicroHs dump, post-processed) and drop the resulting combinator tree on the
   // canvas. A DOM overlay, so it lives outside the Pixi HUD. The result's read-out
   // lens (Int/List/Char/Bool) is set by jumping to the matching hotbar page.
@@ -570,7 +570,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     (tree, read, sourceTitle) => {
       // Reduce under the user's current settings (no auto-enabling optimizations — Turbo / native
       // numbers stay opt-in via the Optimizations menu). Compiled programs get big, so lay out as an
-      // H-tree (path-local → incremental O(changed) reflow, ) + zoom to fit; the progress bar
+      // H-tree (path-local → incremental O(changed) reflow) + zoom to fit; the progress bar
       // shows how the reduction is going.
       setLayoutMode(layoutHTree);
       const view = spawnTree(tree, window.innerWidth / 2, window.innerHeight / 2);
@@ -754,7 +754,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
 
   // Forget + remove + destroy a tree (and release any bucket it filled, so game-mode slot
-  // state stays in sync — the one mouse/controller desync rule, ).
+  // state stays in sync — the one mouse/controller desync rule).
   function removeTree(tree: TreeView): void {
     reduce.forget(tree);
     const i = trees.indexOf(tree);
@@ -765,7 +765,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   }
 
   /** Build `app(fn, arg)` at a world anchor and start it reducing — the non-spatial apply
-   *  shared by mouse-snap and the game controller (X/Y choose direction, ). `fromWorld`
+   *  shared by mouse-snap and the game controller (X/Y choose direction). `fromWorld`
    *  (the consumed trees' node positions) glides the merge; without it the result pops in. */
   function applyTerms(fnNode: Node, argNode: Node, anchor: { x: number; y: number }, fromWorld?: Map<NodeId, { x: number; y: number }>): TreeView {
     const merged = new TreeView(mkApp(fnNode, argNode), anchor.x, anchor.y, pixi.ticker, isDiscovered, layoutFn, () => expandAll, cameraTransform, canvasLabelFor);
@@ -961,7 +961,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     location.reload();
   }
 
-  // ---- 3D "packed sphere" view (): a lazy Three.js render of the focused term ----
+  // ---- 3D "packed sphere" view: a lazy Three.js render of the focused term ----
   // The whole subsystem lives in SphereController: it owns the view3D flag, the Sphere3D renderer +
   // its Pixi-composited sprite (a layer between `world` and `hud`), orbit/momentum state, and the
   // orbit ticker. The shell forwards raw input, supplies the display term / 3D layout / toasts, and
@@ -1036,7 +1036,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     camera.place(cx, cy, scale, window.innerWidth / 2, window.innerHeight / 2);
   }
 
-  // Game mode's spatial buckets (): a stable horizontal strip BUCKET_SPACING apart, keyed by k.
+  // Game mode's spatial buckets: a stable horizontal strip BUCKET_SPACING apart, keyed by k.
   const BUCKET_SPACING = 640;
   // Center the camera on a bucket's world x at a fixed "region" zoom so the neighbors (±spacing)
   // peek faded at the screen edges — the faded-neighbor spatial cue. Anchors sit at world y=0; we
@@ -1063,7 +1063,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
   const help = new Help();
   const addRule = new AddRule({ reveal: revealRule, toast: (m) => toast.show(m) });
 
-  // ---- controls (): keyboard/controller play via a hand cursor, always live in 2D.
+  // ---- controls: keyboard/controller play via a hand cursor, always live in 2D.
   // The visuals adapt to the active input device; "Show controls" (default on) gates the hints. ----
   let showControls = true;
   try {
@@ -1351,7 +1351,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     menuBar?.refresh();
   }
 
-  // ---- permalinks (): a tree + active modes <-> a URL-safe token. ----
+  // ---- permalinks: a tree + active modes <-> a URL-safe token. ----
   const MAX_HASH = 1800; // beyond this, share a downloadable .json instead of a link
 
   /** The currently-active display modes, packed for a permalink. */
@@ -1464,7 +1464,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
     }
   }
 
-  /** Download an MP4 with the  timestamped filename format. */
+  /** Download an MP4 with the timestamped filename format. */
   function downloadRecording(blob: Blob): void {
     const d = new Date();
     const pad = (n: number): string => String(n).padStart(2, "0");
@@ -1618,7 +1618,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
       if (e.key === "ArrowLeft") return e.preventDefault(), zoo.cyclePage(-1);
       if (e.key === "Escape") return zoo.close();
     }
-    // The keyboard belongs to the game-mode controls (): only Build/Inspect's bound keys act,
+    // The keyboard belongs to the game-mode controls: only Build/Inspect's bound keys act,
     // and every command else lives in the menu bar (no desktop letter-accelerators). Never while an
     // overlay or text field is up, and modifier combos (Ctrl/Cmd/Alt — browser shortcuts like Ctrl-R)
     // always pass through.
@@ -1826,7 +1826,7 @@ export async function mountApp(onStep: (label: string) => void = () => {}): Prom
         // spawn a term from an egg s-expression and focus it (drives the read-out)
         spawn: (s: string) => sexp(spawnTree(fromEgg(s), window.innerWidth / 2, window.innerHeight / 2).node),
       },
-      // wasm turbo reducer (): load + drive a resident session to NF, for tests.
+      // wasm turbo reducer: load + drive a resident session to NF, for tests.
       wasm: {
         load: async () => !!(await loadWasmReducer()),
         ready: () => wasmReady(),

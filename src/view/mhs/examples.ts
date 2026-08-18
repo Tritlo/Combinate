@@ -1,6 +1,6 @@
 /**
  * Curated, primitive-free Haskell examples for the in-browser compiler panel
- * (). Each compiles to pure ι via the post-processor (`core/mhs.ts`) and
+ * Each compiles to pure ι via the post-processor (`core/mhs.ts`) and
  * reduces in the sandbox. They lead the panel so the first experience is "watch
  * *this* real Haskell become birds and run" — free-typing is the power feature.
  *

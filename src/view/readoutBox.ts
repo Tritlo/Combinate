@@ -1,5 +1,5 @@
 /**
- * The read-out box (, revised): the focused tree's live expression in a small System-1 card,
+ * The read-out box (revised): the focused tree's live expression in a small System-1 card,
  * top-center. Click the title bar to cycle the *view* — combinators (the current state, no
  * reduction), named + native (birds + ints/lists/…, an explicit "what does it evaluate to" lens),
  * and the raw Barker ι bit-code (0/1). An expand toggle in the title bar swaps the single scrolling

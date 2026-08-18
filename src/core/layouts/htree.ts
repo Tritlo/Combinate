@@ -8,7 +8,7 @@ import { layoutTopDown } from "./topdown";
  * opposite), so the split axis still alternates horizontal/vertical, but one level deeper is a true
  * 90° rotation of the same layout, not a mirror. A subterm therefore draws as a rotated copy of its
  * standalone picture (expanded S visibly contains expanded K turned a quarter-turn) — the 2D analog
- * of the 3D H-tree, whose X→Y→Z axis cycle is already a rotation (). The arm length shrinks
+ * of the 3D H-tree, whose X→Y→Z axis cycle is already a rotation. The arm length shrinks
  * geometrically per level (`HTREE_SHRINK`), so a deep spine coils into a shrinking rectangular
  * spiral with the leaves fringing off it. Because the shrink stays below 1/√2 sibling subtrees
  * never overlap (the extent bound is per split axis, so the sign of the direction doesn't matter).
@@ -17,7 +17,7 @@ import { layoutTopDown } from "./topdown";
 export function layoutHTree(root: Node, frozen?: { l0?: number }): Layout {
   // Modest initial arm, scaled by node count — the tree stays COMPACT (no giant span / zoom-out); deep
   // tips stay legible by shrinking the NODES to their arm (the `scale` map below), NOT by inflating L0.
-  // FROZEN across a reduction (deeper-perf, ): a reducing tree passes its cached L0 so a changing
+  // FROZEN across a reduction (deeper-perf): a reducing tree passes its cached L0 so a changing
   // node count doesn't rescale every node each step — which would defeat the incremental O(changed)
   // reflow. Re-fit only on an explicit event (fresh tree, layout switch, discovery).
   const L0 = frozen?.l0 ?? (80 + 40 * Math.log2(countNodes(root) + 2));
@@ -53,7 +53,7 @@ const HTREE_DIRS: ReadonlyArray<readonly [number, number]> = [[1, 0], [0, 1], [-
 
 /**
  * Re-place just `subtreeRoot` and its descendants as an H-tree hung from (`x`, `y`) at depth `d`,
- * reusing the frozen arm scale `l0`. For the incremental reflow (deeper-perf, ): the anchor
+ * reusing the frozen arm scale `l0`. For the incremental reflow (deeper-perf): the anchor
  * slot + depth come from the unchanged spine, so the subtree lands EXACTLY where a full relayout
  * would put it — letting the view recompute only the changed neighbourhood. Cost is O(subtree).
  */
@@ -76,7 +76,7 @@ function autoLayoutProbe(root: Node): { key: "topdown" | "htree"; topdown: Layou
 
 /** Auto layout: top-down while a tree fits, the compact H-tree once it grows too big. The H-tree is
  *  path-local, so a big reducing tree reflows in O(changed) per step; it threads the frozen arm scale so
- *  a node-count change mid-reduction doesn't rescale everything (deeper-perf, ). */
+ *  a node-count change mid-reduction doesn't rescale everything (deeper-perf). */
 export function layoutAuto(root: Node, frozen?: { l0?: number }): Layout {
   // A frozen arm scale means the tree is already an H-tree mid-reduction — stay H-tree and skip the O(n)
   // top-down probe on every full recompute. A fresh tree (no frozen l0) probes to pick a layout.

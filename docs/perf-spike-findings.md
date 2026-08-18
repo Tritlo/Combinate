@@ -15,7 +15,7 @@ Step counts match exactly across all three (1202 / 3002 / 6002 for N=200/500/100
 correctness cross-checked. The wasm number is the boundary-free best case (only a u32
 crosses); a real adapter pays marshaling on the way in + (for tree results) out.
 
-## Native value kernels (already shipped, )
+## Native value kernels (already shipped)
 
 `(*) 12 12`: Scott recursion 31/s vs native kernel 8189/s = **264×**. Kernels compute
 `a*b` in JS and emit the canonical Scott tree directly. The residual cost on heavy compute

@@ -1,5 +1,5 @@
 /**
- * The read-out lens (): the per-frame driver behind the top-center read-out box. It reads the
+ * The read-out lens: the per-frame driver behind the top-center read-out box. It reads the
  * focused tree's *current* term every frame and renders it in the box's active view:
  *
  *  - **ski** (default) — `exprOf`: the combinator s-expression of the current term, masking

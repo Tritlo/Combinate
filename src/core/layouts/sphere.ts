@@ -1,6 +1,6 @@
 /**
- * The 3D "packed sphere" layout () — a pure 3D generalization of {@link import("./radial").layoutRadial}.
- * No DOM/Pixi/Three here (functional core, ): term → node positions in 3-space, which
+ * The 3D "packed sphere" layout — a pure 3D generalization of {@link import("./radial").layoutRadial}.
+ * No DOM/Pixi/Three here (functional core): term → node positions in 3-space, which
  * the Three.js view renders.
  *
  * It's a binary spherical cone-tree (Robertson et al. 1991, adapted): the root sits at the

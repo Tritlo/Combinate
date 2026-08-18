@@ -1,5 +1,5 @@
 /**
- * The offline frame-perfect recording driver (): a recorder-owned Pixi
+ * The offline frame-perfect recording driver: a recorder-owned Pixi
  * pipeline stepped on a manual clock — no wall time, no live controller —
  * rendering each frame at the chosen resolution, encoding as it goes, and
  * handing every frame to the preview hook.

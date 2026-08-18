@@ -1,5 +1,5 @@
 /**
- * Sonification (): a tiny WebAudio layer that plays one tone per
+ * Sonification: a tiny WebAudio layer that plays one tone per
  * reduction tick, pitched by the *family* of the rule that fires (`firingRule`'s
  * symbol). The fundamentals (ι/I/K/S) get fixed low notes; every other bird is
  * hashed onto a major-pentatonic scale, so a reduction plays an (always

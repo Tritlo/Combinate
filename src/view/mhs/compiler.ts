@@ -1,5 +1,5 @@
 /**
- * The compile surface for the Haskell panel (, post-process approach).
+ * The compile surface for the Haskell panel (post-process approach).
  * Both paths end in `core/mhs.ts`'s `combinatorsToTree` over a `toCombinators`
  * JSON closure (`{ root, defs }`):
  *

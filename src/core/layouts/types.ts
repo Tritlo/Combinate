@@ -1,5 +1,5 @@
 /**
- * Shared layout vocabulary (functional core, ): the position/layout types, the bounds
+ * Shared layout vocabulary (functional core): the position/layout types, the bounds
  * helper, and the small tree measures (node/leaf counts) every layout builds on. No DOM/Pixi/Three.
  * The individual layout algorithms live in sibling modules and are re-exported from `./index`.
  */

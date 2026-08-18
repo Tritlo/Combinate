@@ -77,7 +77,7 @@ const COMB_GLYPH_STYLE = new TextStyle({ fontFamily: MONO, fontSize: 15 });
 
 /** The disc radius, tint, and (optional) text glyph for each node kind; `boxed` marks a comb node
  *  whose DISPLAYED name is too long for the disc (see {@link PILL_MIN_LEN}) — it renders as a pill
- *  instead. `labelFor` resolves a comb node's glyph text (: context-sensitive on the hotbar's
+ *  instead. `labelFor` resolves a comb node's glyph text (context-sensitive on the hotbar's
  *  open page, e.g. `K` reads "[]" with Lists open) — `n.sym` stays the tint/identity key, only the
  *  glyph text and (transitively) the boxed measurement follow the resolved label. */
 function visSpec(
@@ -235,7 +235,7 @@ export class TreeView {
     this.glyphRes = level;
     for (const vis of this.objs.values()) if (vis.glyph) vis.glyph.resolution = level;
   };
-  // Heavy incremental H-tree renderer (deeper-perf, ): resident edge geometry + an O(changed)
+  // Heavy incremental H-tree renderer (deeper-perf): resident edge geometry + an O(changed)
   // applyPatch. Active only for a big H-tree tree reducing on the raw/optimize path; small trees, non-H
   // layouts, graph/DAG, and any display-expansion change stay on the Graphics animateTo path.
   private edgeBuffer: EdgeBuffer | null = null;
@@ -255,7 +255,7 @@ export class TreeView {
     /** The camera (world container) transform, so edges can be viewport-culled
      *  while animating a huge tree. Null → no culling (all edges drawn). */
     private readonly getCamera: (() => { x: number; y: number; scale: number }) | null = null,
-    /** Resolve a comb node's DISPLAYED glyph text () — defaults to the raw sym. `n.sym` stays
+    /** Resolve a comb node's DISPLAYED glyph text — defaults to the raw sym. `n.sym` stays
      *  the semantic identifier everywhere else (edges, tint, hit-testing); only the glyph text (and,
      *  transitively, the pill/circle sizing) follows this. Call {@link refresh} after it would return
      *  a different answer (e.g. the hotbar's open page changed) to re-render with the new labels. */
@@ -575,7 +575,7 @@ export class TreeView {
     this.finish();
   }
 
-  // ---- Heavy incremental H-tree path (deeper-perf, ) ----
+  // ---- Heavy incremental H-tree path (deeper-perf) ----
 
   /** Eligible for the O(changed) incremental path? True only for a big H-tree tree (`l0`/`depth`
    *  set) drawn as a plain tree — small trees and non-H layouts stay on {@link animateTo}; the

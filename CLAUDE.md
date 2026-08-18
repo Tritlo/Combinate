@@ -26,11 +26,11 @@ trees; golf; etc.
 
 ## Architecture
 
-- **Functional core** `src/core/` — pure, no DOM/Pixi/wasm (), ~21 modules.
+- **Functional core** `src/core/` — pure, no DOM/Pixi/wasm, ~21 modules.
   Terms & reduction: `term.ts` (the `Node` model: ι, app, comb, free), `reduce.ts`
   (tree reducer), `graph.ts` (call-by-need graph reducer with sharing, drawn as a
   DAG), `native.ts`/`kernels.ts`/`church.ts` (native-value peephole + the kernel
-  registry, ). Reading: `catalog.ts` (combinator laws, the hotbar pages
+  registry). Reading: `catalog.ts` (combinator laws, the hotbar pages
   incl. Char), `value.ts` (Scott value matchers), `types.ts`/`infer.ts` (value
   read-back + HM types), `refold.ts` (re-sugaring), `probe.ts`. Layout:
   `layouts/` (2D/3D H-tree, radial, and the other layout algorithms). Sharing/authoring:
@@ -54,7 +54,7 @@ trees; golf; etc.
   (`?store=duckdb`, lazy, DuckDB-WASM from the jsDelivr CDN).
 - **`crates/refold/`** — Rust → wasm re-folder (egg), built in CI from source.
 - **`crates/reduce/`** — Rust → wasm combinator reducer, the "Turbo" engine (a call-by-need
-  graph reducer with native kernels + catalog rules, ); built in CI from source.
+  graph reducer with native kernels + catalog rules); built in CI from source.
 - **`src/splash.ts`** boot splash; **`src/vendorUrl.ts`** base-aware URLs for vendored
   public assets.
 
@@ -62,8 +62,7 @@ trees; golf; etc.
 
 - Keep it simple, minimal deps, functional-core / imperative-shell. Match the
   surrounding style. Add haddock-style doc comments to new functions/types.
-- Significant decisions → an  in  (terse). The PR/commit
-  should carry the "why".
+- Explain significant decisions in the PR or commit. Include the "why".
 - Releases: one integer major per release (`vN.0`). Bump `package.json`, add a
   `CHANGELOG.md` section, `--no-ff` merge the feature branch into `main`, tag `vN.0`.
 - Branch before starting work. **Never push/deploy unless explicitly asked.**

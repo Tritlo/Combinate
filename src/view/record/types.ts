@@ -1,5 +1,5 @@
 /**
- * The record-pipeline contract (): what the record modal hands the
+ * The record-pipeline contract: what the record modal hands the
  * offline driver, what cheap planning yields, and the progress shapes.
  * Types only — no Pixi/DOM/WebCodecs imports belong here.
  */

@@ -1,5 +1,5 @@
 /**
- * The active input device () — "last input wins", the video-game standard: the moment a
+ * The active input device — "last input wins", the video-game standard: the moment a
  * gamepad action is detected the UI switches to gamepad glyphs/prompts; the moment you touch the
  * keyboard or mouse it switches back. The three devices are distinct (mouse vs keyboard vs pad):
  * mouse means the controls' visuals/hints stay hidden, keyboard/pad show them. Keyed off detected

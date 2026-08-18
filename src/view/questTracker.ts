@@ -1,5 +1,5 @@
 /**
- * The tracked-quest HUD (): a glanceable, always-visible card on the right rail
+ * The tracked-quest HUD: a glanceable, always-visible card on the right rail
  * showing the *current* SKI-Quest objective while you build on the canvas — WoW-style.
  * A read-only reflection of {@link QuestPanel}'s state (it stays the sole owner/advancer
  * of `QuestProgress`); the tracker subscribes via `onAdvance` and reads `current/

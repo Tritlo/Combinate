@@ -1,5 +1,5 @@
 /**
- * The layout system: pure `term → node positions` algorithms (functional core, ), one per
+ * The layout system: pure `term → node positions` algorithms (functional core), one per
  * module. This barrel is the single import surface — `import { ... } from "../core/layouts"`.
  */
 export * from "./types";

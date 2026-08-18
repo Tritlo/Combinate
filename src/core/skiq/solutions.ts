@@ -23,7 +23,7 @@ export const SOLUTIONS: Record<string, string> = {
   BzhFzwua: "B C C",
   // Plan first / if: `c x` (→ K/KI) selects `t x` vs `e x`.
   uvtknMlN: "c -> t -> e -> x -> c x (t x) (e x)",
-  // gcd — kernel-assisted (): Euclid (Y + iszero) over a pure Church `cmod` kernel.
+  // gcd — kernel-assisted: Euclid (Y + iszero) over a pure Church `cmod` kernel.
   // Raw Church Euclid is over budget; the native `cmod` makes each step O(1).
   u1Sr43PU: "Y (g -> m -> n -> (m (K (KI)) K) n (g (cmod n m) m))",
   // — combinator constructions (unrestricted): the λ from the case —

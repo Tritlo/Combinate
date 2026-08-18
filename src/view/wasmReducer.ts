@@ -1,9 +1,9 @@
 /**
- * Browser adapter for the wasm raw reducer (`crates/reduce`) — a driven adapter (),
+ * Browser adapter for the wasm raw reducer (`crates/reduce`) — a driven adapter,
  * lazy-loaded like the egg re-folder. Wraps the resident `GraphSession` so the shell can run a
  * big raw reduction mostly in wasm (escaping the per-call codec floor): encode the term in
  * once, `stepBudget()` thousands of contractions resident, `snapshot()` the current term out
- * only for display. Used by the "turbo" reduction path () for big raw-combinator
+ * only for display. Used by the "turbo" reduction path for big raw-combinator
  * trees — MicroHaskell-compiled programs — where the TS persistent reducer is GC-bound.
  */
 import { type Node } from "../core/term";

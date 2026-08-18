@@ -57,7 +57,7 @@ export class Hotbar {
     private readonly spawnFor: (sym: string) => Node,
     /** Fired whenever the open page actually changes (a tab click, {@link cycleTab}, or a discovery
      *  jumping tabs) — NOT on every {@link layout} call, and not on ‹/› sub-paging within a tab.
-     *  Lets a canvas node glyph that reads the open page as a context lens () know when to
+     *  Lets a canvas node glyph that reads the open page as a context lens know when to
      *  re-render. */
     private readonly onPageChange?: () => void,
   ) {
@@ -95,7 +95,7 @@ export class Hotbar {
     if (i >= 0) this.setTab(i);
   }
 
-  // ---- game-mode cursor (): a keyboard/controller selection over the toolbar ----
+  // ---- game-mode cursor: a keyboard/controller selection over the toolbar ----
   /** Discovered symbols on the current page — what the game cursor navigates. */
   visibleSyms(): string[] {
     return this.visible(this.tab);
@@ -280,7 +280,7 @@ export class Hotbar {
     v.addChild(new Graphics().rect(-SLOT / 2, -SLOT / 2, SLOT, SLOT).fill({ color: paper }).stroke({ width: 1, color: ink }));
     if (sym === "ι") v.addChild(new Graphics().circle(0, 0, 15).fill({ color: iotaDot(currentMode()) }));
     if (sym === this.cursorSymCache) {
-      // game-mode cursor: an accent selection ring around the cell ()
+      // game-mode cursor: an accent selection ring around the cell
       v.addChild(new Graphics().rect(-SLOT / 2 - 3, -SLOT / 2 - 3, SLOT + 6, SLOT + 6).stroke({ width: 2.5, color: theme.iota }));
     }
     const glyph = new Text({ text: this.labelOf(sym), style: { fontFamily: "monospace", fontSize: 22, fill: glyphColor } });

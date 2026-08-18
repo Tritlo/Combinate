@@ -1,5 +1,5 @@
 /**
- * Reduction-count estimator (, plan 02). Counts the EXACT number of contractions a term takes
+ * Reduction-count estimator (plan 02). Counts the EXACT number of contractions a term takes
  * to normal form in the SAME reduction mode the visible reducer uses — run in the background,
  * chunked on a small time budget so it never janks the main thread. The visible reducer then plays
  * the SAME reduction slowly; the progress bar fills as `visible steps / this total`.

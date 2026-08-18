@@ -5,7 +5,7 @@
  * shorter moment arm). The beam DIRECTION twists azimuthally by the golden angle each level so the
  * beams don't all lie in one plane — the beams stay horizontal (as under gravity), only their heading
  * rotates. The beam span shrinks geometrically per level. Nodes taper with the beam (the shared
- * `scale` map). No DOM/Pixi/Three (functional core, ). Root at the origin; the mobile hangs
+ * `scale` map). No DOM/Pixi/Three (functional core). Root at the origin; the mobile hangs
  * below it (−Y). The 3D view draws straight parent→child edges — the diagonal drop reads as the string.
  */
 import { type Node, type NodeId } from "../term";

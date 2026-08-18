@@ -1,8 +1,8 @@
 # iota-render — an interactive iota combinator sandbox
 
 > **Status: HISTORICAL.** The original build spec (phases 0-3). MicroHs-via-WASM (§11) is no
-> longer a later phase — it's a submodule now, and live in-browser compile shipped in v8
-> (). Kept for the ι-cycle/sandbox semantics it still documents; not maintained
+> longer a later phase — it's a submodule now, and live in-browser compile shipped in v8.
+> Kept for the ι-cycle/sandbox semantics it still documents; not maintained
 > against later features.
 
 A drag-and-drop game for building, reducing, and **discovering** combinators out of a

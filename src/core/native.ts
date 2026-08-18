@@ -1,5 +1,5 @@
 /**
- * Native value evaluation () — an opt-in reducer peephole. When a *saturated
+ * Native value evaluation — an opt-in reducer peephole. When a *saturated
  * named catalog op* (`(+)`, `(*)`, `<>`, `not`, …) is applied to args the
  * {@link value.ts} matchers recognize as values, compute the result natively and emit
  * the **canonical pure tree** straight away (e.g. `(*) 12 15` → the Scott numeral `180`,
@@ -7,14 +7,14 @@
  * round-trip invariant holds by construction: permalinks, the behavioral probe, and
  * toggling-off all keep seeing ordinary pure terms. Default off = plain pure reduction.
  *
- * These ops are registered as **kernels** () in `kernels.ts`; the reducer
+ * These ops are registered as **kernels** in `kernels.ts`; the reducer
  * dispatches through that one registry (cheap arity discovery, the match in the redex's
  * `build`, fall back to the catalog rule). Each op mirrors its catalog rule's forcing —
  * it never reduces an operand the pure rule wouldn't — and the materialised numeral size
  * is capped (a huge product falls back to the step-capped pure reducer instead).
  *
  * Scope: a catalog-Scott (named-op) fast path; it does NOT touch arithmetic built from
- * raw S/K/I (the SKI-Quest's Church numerals — no named op to intercept). See .
+ * raw S/K/I (the SKI-Quest's Church numerals — no named op to intercept).
  * Chars are Scott numerals (codepoints), so the number ops already cover char
  * comparison; there's no separate char peephole.
  */
@@ -63,7 +63,7 @@ const CMP: Record<string, (a: number, b: number) => Node> = {
 };
 
 // The op sets + the per-class compute functions are registered as kernels in
-// `kernels.ts` (); the reducer dispatches through that one registry. The matching
+// `kernels.ts`; the reducer dispatches through that one registry. The matching
 // + canonical re-encode + forcing logic lives here, unchanged.
 
 export function numberOp(sym: string, args: Node[]): Node | null {

@@ -6,7 +6,7 @@ this project uses a single integer major per release (`vN.0`).
 
 ## [12.0.0] — 2026-07-09
 
-The minimal-forms engine (): certified-minimal ι-encodings, three new birds,
+The minimal-forms engine: certified-minimal ι-encodings, three new birds,
 and a Zoo that knows the difference between small and fast.
 
 ### Added
@@ -45,11 +45,11 @@ and a Zoo that knows the difference between small and fast.
 
 ## [11.0.0] — 2026-07-07
 
-Offline MP4 recording of reductions (), an ι restyle, and a 3D fix.
+Offline MP4 recording of reductions, an ι restyle, and a 3D fix.
 
 ### Added
 
-- **Record MP4** () — a red ● in the transport bar and File ▸ Record… render
+- **Record MP4** — a red ● in the transport bar and File ▸ Record… render
   the focused reduction to an MP4, offline and frame-perfect: a recorder-owned
   pipeline stepped on a manual clock (no wall time, no live controller), H.264 via
   WebCodecs + Mediabunny, the sonification rendered through an OfflineAudioContext
@@ -150,7 +150,7 @@ and a recognition fix.
   serve correctly on GitHub Pages' `/Combinate/` subpath (a bare `/vendor/...` would
   404 there). The deploy workflow fetches the MicroHs runtime (blob + cache + gallery
   dumps) from the **`vendor-assets` GitHub Release** at build time — too heavy to
-  build in CI, never committed ().
+  build in CI, never committed.
 
 ## [7.0.0] — 2026-06-26
 
@@ -178,24 +178,24 @@ and a recognition fix.
 ## [6.0.0] — 2026-06-26
 
 Shareability, authoring, local storage, and the in-browser Haskell compiler — the
-v6–v8 roadmap (), landed together.
+v6–v8 roadmap, landed together.
 
 ### Added
 
-- **Permalinks & sharing** (): a versioned codec round-trips a tree + active
+- **Permalinks & sharing**: a versioned codec round-trips a tree + active
   modes through the URL; a solution / leaderboard entry *is* a permalink.
-- **Golf challenges & leaderboards** (): a challenge layer (target predicate,
+- **Golf challenges & leaderboards**: a challenge layer (target predicate,
   best-metric) with **verify-by-replay** leaderboards — the store is dumb and
   append-only; clients re-run and re-verify each entry.
-- **Sonification** (): a WebAudio layer plays a tone per reduction (one per
+- **Sonification**: a WebAudio layer plays a tone per reduction (one per
   combinator family, from the rule that fires), gated by a toggle.
-- **Authoring** (): **Define** a settled subtree into a named hotbar block,
+- **Authoring**: **Define** a settled subtree into a named hotbar block,
   and **Abstract** one hole out of a tree as a free variable (bracket abstraction).
-- **DuckDB-WASM query prototype** (): a lazy, in-memory `Store` adapter
+- **DuckDB-WASM query prototype**: a lazy, in-memory `Store` adapter
   (user definitions, bests, leaderboard) behind a port; discoveries and other
   default player state persist through the localStorage-backed paths, while
   `?store=duckdb` opts into the non-durable DuckDB experiment.
-- **In-browser Haskell → ι** (), the *wow*: a "haskell" panel compiles real
+- **In-browser Haskell → ι**, the *wow*: a "haskell" panel compiles real
   Haskell to combinators and drops the tree on the canvas to reduce. Implemented by
   **post-processing a stock MicroHs `-ddump-combinator` dump — no fork**: literals →
   Scott numerals/strings, `primInt*`/`primChar*` → catalog Scott combinators (a Char
@@ -251,7 +251,7 @@ v6–v8 roadmap (), landed together.
 
 ### Added
 
-- **Type lens** (): a rail toggle badges a term's principal **Hindley–Milner**
+- **Type lens**: a rail toggle badges a term's principal **Hindley–Milner**
   simple type, or marks it untypable (self-application / the fixpoint `Y`) — the
   typed/untyped boundary as the lesson.
 - **Type-guided value reader**: sibling propagation (one element fixes an ambiguous
@@ -260,14 +260,14 @@ v6–v8 roadmap (), landed together.
 
 ### Changed
 
-- **Switched data encoding from Church to MicroHs Scott** (): Nat/list/bool/
+- **Switched data encoding from Church to MicroHs Scott**: Nat/list/bool/
   pair as Scott data; the structural matchers and read-back follow.
 
 ## [2.0.0] — 2026-06-25
 
 ### Added
 
-- **Re-folding lens** (): a Phase-1 value reader shows compact data
+- **Re-folding lens**: a Phase-1 value reader shows compact data
   values (numbers, lists, booleans, pairs) in the read-out, and a Phase-2
   **egg-via-WASM** re-folder names combinators by behaviour — built from source in
   CI, never committed.

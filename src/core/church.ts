@@ -1,5 +1,5 @@
 /**
- * Church numerals + bracket abstraction () — reducer-free, so the SKI-Quest parser,
+ * Church numerals + bracket abstraction — reducer-free, so the SKI-Quest parser,
  * the engine, and the Church kernels all share it without an import cycle (this module
  * imports only `term`). `bracket` is the standard λ→SKI compiler; `church`
  * builds `λf x. fⁿ x`; `matchChurch` reads one back by applying to two fresh markers and

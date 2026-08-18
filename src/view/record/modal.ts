@@ -1,5 +1,5 @@
 /**
- * The MP4 recording UI (): a System-1 modal that gathers record settings
+ * The MP4 recording UI: a System-1 modal that gathers record settings
  * and a lightweight preview window that shows the offline render as frames land.
  */
 import type { Node } from "../../core/term";

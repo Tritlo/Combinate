@@ -1,5 +1,5 @@
 /**
- * Gamepad input (), designed with the Magi council (consensus). A third input producer
+ * Gamepad input, designed with the Magi council (consensus). A third input producer
  * parallel to mouse + keyboard. Polled every frame so a pad is always detectable (Y enters/exits
  * 3D) and the hints can flip to pad glyphs the moment it's used. The Gamepad API is poll-based,
  * so we sample `navigator.getGamepads()` fresh every Pixi-ticker frame (never cache the snapshot),

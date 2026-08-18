@@ -1,5 +1,5 @@
 /**
- * The contextual hint bar () — a bottom action-bar showing the current context's actions,
+ * The contextual hint bar — a bottom action-bar showing the current context's actions,
  * each as a `[glyph] label` chip ("Q Apply fn", "Ⓐ Pick"). The glyph adapts to the active input
  * device (keyboard vs gamepad, {@link activeDevice}), the video-game "E to use" affordance. Shown
  * only when the active device is keyboard/gamepad (not mouse) AND the View ▸ "Show controls"

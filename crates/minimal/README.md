@@ -1,7 +1,7 @@
 # minimal-forms — the ι-minimality engine
 
-Finds, for every symbolic catalog bird, the provably smallest pure-ι term equal to it
-(), and the equivalence-class census that comes free with the search ().
+Finds the provably smallest pure-ι term for each symbolic catalog bird. It also
+produces the equivalence-class census that comes free with the search.
 Equality is **symbolic**: the full normal form of `t v₁…vₙ` on fresh free variables is,
 by Church–Rosser, a *proof* of extensional equality at that arity — never a test.
 Everything the tool claims is re-proven in TypeScript against the app's own reducer

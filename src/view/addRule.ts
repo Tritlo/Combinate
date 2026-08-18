@@ -1,7 +1,7 @@
 /**
  * The Add Rule window (Edit menu): the player types a rewrite rule like
  * `W f x = f x x` and it becomes a real combinator with a one-step law. On the
- * shared System-1 {@link Modal} chrome () — so it is an `.md-root` overlay,
+ * shared System-1 {@link Modal} chrome — so it is an `.md-root` overlay,
  * which the app's keydown guard treats as "an overlay is up", yielding the game
  * controls to this focused text field so physical typing works. Parsing +
  * registration live in the pure core ({@link parseRule}/{@link defineRule}); this

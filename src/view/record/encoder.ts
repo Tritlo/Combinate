@@ -1,5 +1,5 @@
 /**
- * Encoder seam (): Mediabunny-backed MP4 output (WebCodecs underneath).
+ * Encoder seam: Mediabunny-backed MP4 output (WebCodecs underneath).
  * Probe first — a null video codec means recording is unavailable here.
  */
 import {

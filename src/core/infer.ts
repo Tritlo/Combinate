@@ -1,5 +1,5 @@
 /**
- * Simple-type inference lens (): Hindley–Milner over a combinator tree.
+ * Simple-type inference lens: Hindley–Milner over a combinator tree.
  * It answers the conceptual question the value reader can't — *does this term
  * have a simple type, and what is it?* — and so draws the typed/untyped boundary
  * that is the heart of the calculus: `S`, `K`, `B`, `C`, `W` and friends type

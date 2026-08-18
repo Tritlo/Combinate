@@ -2,9 +2,9 @@
  * 3D botanical: the volumetric generalization of {@link import("./botanical").layoutBotanical}. Each
  * application forks its two children off the parent's growth direction by a fixed ±α, the arm shrinking
  * geometrically per level; the split PLANE is twisted by the golden angle each level so the branchings
- * fan into 3-space instead of staying coplanar (the same trick the packed sphere uses, ). The
+ * fan into 3-space instead of staying coplanar (the same trick the packed sphere uses). The
  * heavier subtree tilts a little less (leaf-weighted bias), so a lopsided term still grows naturally.
- * Nodes taper with their arm (the shared `scale` map). No DOM/Pixi/Three (functional core, );
+ * Nodes taper with their arm (the shared `scale` map). No DOM/Pixi/Three (functional core);
  * the Three.js view renders the positions. Root at the origin, growing up (+Y).
  */
 import { type Node, type NodeId } from "../term";

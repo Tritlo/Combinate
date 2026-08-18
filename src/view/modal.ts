@@ -1,5 +1,5 @@
 /**
- * The shared System-1 modal chrome (). `Modal` owns *only* the window — the
+ * The shared System-1 modal chrome. `Modal` owns *only* the window — the
  * paper/ink card, titlebar + close box, backdrop + ESC close, the once-injected
  * `@font-face`/stylesheet, light/dark palette, and the scroll fix — exposing a protected
  * `body` for subclasses to fill and an `onOpen()` refresh hook. Subclasses (Help/About/

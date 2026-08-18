@@ -1,6 +1,6 @@
 /**
  * Pure codec between the `Node` term model and the flat `Int32Array` wire format the
- * wasm reducer (`crates/reduce`) speaks. No wasm/DOM here — just data (): the
+ * wasm reducer (`crates/reduce`) speaks. No wasm/DOM here — just data: the
  * driven adapter that loads + calls the module lives in the view.
  *
  * The encoder closes over every named combinator reachable from the term (and, recursively,
@@ -8,7 +8,7 @@
  * own — the rules come entirely from `catalog.ts`'s `def()`. S/K/I (and the ι rule's fresh
  * S/K) are primitives wasm handles directly; their symIds are passed in the header.
  *
- * FAST (rules) mode (: Turbo honours the rules setting): when `fast` is set, each catalog
+ * FAST (rules) mode (Turbo honours the rules setting): when `fast` is set, each catalog
  * combinator that carries a `rule` also ships a **rule template** — its `rule` applied to
  * placeholder args `$warg0…` — as an immutable-prefix subtree (`ruleRoot`). The wasm graph
  * engine then reduces a saturated combinator by instantiating that template (cloning it with

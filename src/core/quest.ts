@@ -225,7 +225,7 @@ function locate(stageIndex: number): QuestLocation | null {
   return null;
 }
 
-/** Tracks how far the player has got. Pure (): persistence is injected — the
+/** Tracks how far the player has got. Pure: persistence is injected — the
  *  shell loads the starting stage and supplies a `persist` callback (so `core/` does no
  *  localStorage of its own). */
 export class QuestProgress {

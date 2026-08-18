@@ -1,6 +1,6 @@
 /**
  * The About window (opened from the ι menu): who made it, what's clever about it, and the
- * credits / licenses. On the shared System-1 {@link Modal} chrome (); this file is
+ * credits / licenses. On the shared System-1 {@link Modal} chrome; this file is
  * just the content + its body CSS.
  */
 import { Modal } from "./modal";

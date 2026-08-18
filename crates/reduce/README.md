@@ -9,7 +9,7 @@ points:
 - **`GraphSession`** — a resident call-by-need GRAPH engine (sharing, so Scott arithmetic / fac-scale
   computations never materialise the blown-up tree). It does native KERNELS (clean Scott numbers /
   lists / booleans) and, in FAST mode, RULE-based reduction: a saturated named combinator reduces by
-  its catalog law in one step instead of def-unfolding the Y/SKI recursion ().
+  its catalog law in one step instead of def-unfolding the Y/SKI recursion.
 
 All def trees, kernel gates, and rule templates are supplied by TS (`catalog.ts`) over the wire
 (`wasmCodec.ts`), so there is **zero** rule/kernel *logic* in Rust — the engine just instantiates a
@@ -19,7 +19,7 @@ template it was handed (the same mechanism for a rule as for a def-unfold). Only
 ## What it powers
 
 The **Turbo** optimization (Optimizations menu). Turbo forwards the current options into the resident
-session, so `wasm + rules + native + sharing` is the fastest reduction tier (): fewest steps
+session, so `wasm + rules + native + sharing` is the fastest reduction tier: fewest steps
 via rules, no blow-up via sharing, fast wall-clock via wasm. Big raw trees — MicroHaskell-compiled
 programs — reduce in ~1 s instead of minutes. Turbo steps aside for Graph mode (which drives its own
 loop); the TS reducer stays canonical for normal play.
@@ -45,5 +45,5 @@ npm run check:reduce-wasm   # build (nodejs target) + cross-check vs the TS redu
 The cross-check runs the RAW `reduce_to_nf` oracle against the TS non-fast reducer over the full
 catalog + an arithmetic grid + church numerals (plus session-invariance: def-survives-compaction +
 batch-invariance), and FAST-mode parity (`wasm+rules+native` vs the TS fast path) over hundreds of
-cases + the vendored MicroHs example dumps — see  for the current counts. Built from source;
+cases + the vendored MicroHs example dumps. Built from source;
 artifacts git-ignored.

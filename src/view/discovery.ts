@@ -1,5 +1,5 @@
 /**
- * The discovery card (, plan 05): when you discover a combinator, a small card pops under the
+ * The discovery card (plan 05): when you discover a combinator, a small card pops under the
  * tracked quest showing its catalog entry (glyph · bird · law · ι-count) beside a 2D picture of its
  * ι-tree. It appears, holds, then fades like a toast — with a dismiss [×]. DOM (matches the quest
  * tracker's System-1 chrome). The picture is a plain 2D canvas drawing (reliable everywhere) — an

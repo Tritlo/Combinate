@@ -15,7 +15,7 @@ const PALETTE: Record<Mode, Record<string, string>> = {
 };
 
 // The player's quest stage, persisted here in the view (the shell) — `core/quest.ts`
-// stays pure () and just gets the starting stage + a persist callback.
+// stays pure and just gets the starting stage + a persist callback.
 const QUEST_STORE_KEY = "combinate:quest:v6"; // Prologue is the ι-only tower (I→A→K→S)
 function loadStage(): number {
   try {
@@ -179,7 +179,7 @@ export class QuestPanel {
   get stageIndex(): number {
     return this.progress.stage;
   }
-  // Read-only views of quest state, for the tracked-quest HUD () — the panel
+  // Read-only views of quest state, for the tracked-quest HUD — the panel
   // stays the sole owner/advancer of progress; the tracker only reflects it.
   get current(): QuestStage | null {
     return this.progress.current;

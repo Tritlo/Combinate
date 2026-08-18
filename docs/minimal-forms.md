@@ -1,8 +1,8 @@
 # The minimal-forms research program — results
 
 *(The capstone summary. Deep artifacts: `spec/minimal-forms-deep.md` — the per-bird
-certificate table; `spec/fixpoint-combinators.md` — the FPC census;  — the
-methodology decision; `crates/minimal/README.md` — the engine. Status: closed
+certificate table; `spec/fixpoint-combinators.md` — the FPC census;
+`crates/minimal/README.md` — the engine. Status: closed
 2026-07-10 after the FPC retraction saga; open threads listed at the end.)*
 
 ## What we set out to do

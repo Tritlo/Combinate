@@ -1,6 +1,6 @@
 /**
  * MicroHs `toCombinators` closure → Combinate tree, by **post-processing a stock
- * compile** (). No MicroHs fork: the stock Rust MicroHs, given an entry
+ * compile**. No MicroHs fork: the stock Rust MicroHs, given an entry
  * value (the `--entry` flag), returns that value's *pruned, rooted* combinator
  * closure as structured JSON — an ordered `[{name, body}]` over the fixed basis
  * `S K I B C A U Z P R O S' B' C' C'B K2 K3 K4 J Y`, plus *primitive* leaves
@@ -401,4 +401,3 @@ export function combinatorsToTree(defs: CombDef[], root: string): DumpResult {
   }
   return rejectForcedSentinels(tree, sink);
 }
-

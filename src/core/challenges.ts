@@ -1,5 +1,5 @@
 /**
- * Golf challenges (): a data-driven set of goals, each with a *target*
+ * Golf challenges: a data-driven set of goals, each with a *target*
  * (a behavioral predicate over a built tree). Pure — no Pixi/DOM. A *solution*
  * is a tree whose target predicate holds; its score is {@link iotaCost} (lower is
  * better). The shell evaluates a challenge when a tree settles at normal form,

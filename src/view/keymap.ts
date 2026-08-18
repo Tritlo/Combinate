@@ -1,5 +1,5 @@
 /**
- * The control scheme as data (, redesigned for 2D Build + 3D Inspect). The single source
+ * The control scheme as data (redesigned for 2D Build + 3D Inspect). The single source
  * for BOTH input (key/button → intent, per context) AND the on-screen hints (each action's
  * keyboard + gamepad glyph). The contexts are mutually exclusive for the discrete layer: the
  * same directional input NAVIGATES in Build and ORBITS in Inspect, so bindings are looked up per

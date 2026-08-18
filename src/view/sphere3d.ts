@@ -1,5 +1,5 @@
 /**
- * The 3D "packed sphere" view () — a lazy Three.js renderer for the focused term. It
+ * The 3D "packed sphere" view — a lazy Three.js renderer for the focused term. It
  * renders a 3D layout (layoutHTree3D / layoutSphere) as instanced spheres + colored edges into its OWN off-DOM
  * canvas; the owner draws that canvas as a Pixi texture sprite so the Pixi HUD composites on
  * top (compositing "A", Magi-consensus — no separate overlay covering the HUD). Re-renders on
@@ -83,7 +83,7 @@ interface Morph {
   duration: number;
 }
 
-// Lazily-loaded Three module (WebGL — see ; WebGPU was dropped as not worth the
+// Lazily-loaded Three module. WebGPU was dropped as not worth the
 // maintenance/portability cost for this static scene).
 let THREE: typeof T | null = null;
 async function loadThree(): Promise<void> {

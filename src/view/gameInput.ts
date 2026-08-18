@@ -1,5 +1,5 @@
 /**
- * The game-mode input controller (): a keyboard/controller state machine over the
+ * The game-mode input controller: a keyboard/controller state machine over the
  * "regions + hand" model. It owns the discrete game state — which surface the cursor is on (the
  * toolbar or the buckets), the focused bucket, and the held term ("hand") — and turns key intents
  * ({@link keymap}) into scene actions through an injected {@link GameScene}.
@@ -158,7 +158,7 @@ export class GameInputController {
     }
   }
 
-  // ---- the input sink (): the same intents, plus analog pan/zoom + a speed cycle. These
+  // ---- the input sink: the same intents, plus analog pan/zoom + a speed cycle. These
   // ALWAYS act (they're only ever called in 2D); the `on` flag gates VISUALS, not actions — it
   // must, since the gamepad layer fires dispatch before note(), so `on` may still be stale here. ----
   /** Pan the camera by a (world-space) delta — the right stick, magnitude-scaled. */
@@ -218,7 +218,7 @@ export class GameInputController {
   private move(d: number): void {
     if (this.zone === "hotbar") {
       // d-pad/arrows page the toolbar by pushing past its edge (the gamepad has no spare
-      // button for paging, ); otherwise step the cursor within the page.
+      // button for paging); otherwise step the cursor within the page.
       const i = this.scene.hotbar.gameCursorIndex();
       const n = this.scene.hotbar.visibleSyms().length;
       if (d < 0 && i <= 0) this.scene.hotbar.cycleTab(-1);

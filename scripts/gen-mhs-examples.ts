@@ -1,5 +1,5 @@
 /**
- * Build-time gallery generator (, post-process approach). For each curated
+ * Build-time gallery generator (post-process approach). For each curated
  * example: compile with the **Rust MicroHs dist**'s `toCombinators` (the `--entry`
  * flag — a pruned, rooted JSON closure), sanity-check it post-processes and reduces
  * to the expected value, and write the closure (`{ root, defs }`) to

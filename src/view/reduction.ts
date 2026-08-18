@@ -1,5 +1,5 @@
 /**
- * The auto-reduce + transport subsystem, extracted from app.ts (reorg, ). Owns the
+ * The auto-reduce + transport subsystem, extracted from app.ts (reorg). Owns the
  * per-tree reduction loop (each settled tree plays itself to normal form one tween at a
  * time, canceled on touch), the playback transport (play / pause / fast-forward), the
  * non-termination guard, and the graph-mode lifecycle. Pure-ish imperative shell: the Pixi
@@ -28,7 +28,7 @@ const GRAPH_STEP_CAP = 100_000; // graph mode shares (cheap steps) — let fac-s
 // small enough to draw in a frame, or reaches normal form — so the UI stays live + the bar keeps moving.
 const HEAVY_RENDER_CAP = 2500;
 const HEAVY_TS_BUDGET_MS = 6; // wall-clock spent building contractions per batch before yielding to rAF
-// Incremental H-tree path (deeper-perf, ): a big H-tree tree reflows each step in O(changed), so
+// Incremental H-tree path (deeper-perf): a big H-tree tree reflows each step in O(changed), so
 // it renders live (batched a few steps per frame) instead of hiding in the background. Same 6ms frame
 // budget; the step cap keeps churn perceptible yet far faster than one tween/step.
 const INCR_BUDGET_MS = 6;
@@ -162,7 +162,7 @@ export class ReductionController {
   private tinySource(a: AutoState): boolean {
     return !!a.source && !exceedsNodes(a.source, 3);
   }
-  // Pacing honours the transport (): play/ff keep their advertised per-step gap no matter
+  // Pacing honours the transport: play/ff keep their advertised per-step gap no matter
   // how big the tree draws — a display-cost threshold (TreeView.heavy(), the 600-particle
   // jump-cut) must never change playback speed; it used to, silently running "play" at ~40 red/s.
   // Only "max" (≈ as-fast-as-it-animates) takes the short fixed gap.
@@ -376,7 +376,7 @@ export class ReductionController {
     if (this.transport === "pause") return; // frozen — resume re-kicks from setTransport
     const share = this.deps.getShare();
     const fast = this.deps.getFast();
-    // A big H-tree tree reflows each step in O(changed) (), so render it LIVE, batched a few
+    // A big H-tree tree reflows each step in O(changed), so render it LIVE, batched a few
     // steps per frame — no O(n) reflow, no hiding it in the background. Gated to non-graph (sharing
     // conflicts with the path-local layout), non-3D (the morph drives that cadence via stepTo), and
     // within the render cap (a ballooning term hands to the background path). beginIncremental() is a
@@ -526,7 +526,7 @@ export class ReductionController {
     });
   }
 
-  /** Reduce a big H-tree tree LIVE through the incremental path (): a short budgeted batch of
+  /** Reduce a big H-tree tree LIVE through the incremental path: a short budgeted batch of
    *  {@link stepWithPatch} + {@link TreeView.applyPatch} — each O(changed) — then one edge/particle
    *  commit, so the tree stays on screen and reflows only what moved. Re-enters {@link stepAuto} after
    *  the gap; a stale-cache patch bails to a full {@link stepTo} (which exits incremental mode). */

@@ -85,7 +85,7 @@ function redexAtGo(n: Node, argsAbove: number, fast: boolean, native: NativeOpts
   if (n.kind !== "app") return null;
 
   // optimize / native mode: reduce the leftmost-outermost *named* head redex — by a
-  // native value op () when recognized, else by its catalog rule (fast mode).
+  // native value op when recognized, else by its catalog rule (fast mode).
   if ((fast || native) && !headChecked) {
     // Collect the applied spine head-first. `push`+`reverse` is O(spine); the old
     // `unshift` was O(spine²) (it shifts the whole array each arg), which — re-run at
@@ -192,7 +192,7 @@ export function step(n: Node, fast = false, native?: NativeOpts): Node | null {
 }
 
 /**
- * A structural description of one reduction step, for the incremental view (deeper-perf, ):
+ * A structural description of one reduction step, for the incremental view (deeper-perf):
  * the whole new `root`, the rule that fired (`sym`), and — the point of it — WHERE it fired.
  * `path` locates the contracted node from the root (`0` = fn, `1` = arg); `oldRedex` is the subtree
  * there BEFORE the step and `replacement` the contractum that took its place. Everything outside
@@ -262,7 +262,7 @@ export function normalize(n: Node, cap = 10_000, fast = false, native?: NativeOp
  * The rule/combinator the next reduction step will fire — `"ι"`/`"I"`/`"K"`/`"S"`
  * for the built-ins, or a named bird's symbol — or `null` if `n` is in normal
  * form. Reads {@link redexAt}'s `sym` without building the contractum, so the
- * sonification layer () can pick a tone per reduction
+ * sonification layer can pick a tone per reduction
  * without allocating.
  */
 export function firingRule(n: Node, fast = false, native?: NativeOpts): string | null {

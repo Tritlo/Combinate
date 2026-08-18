@@ -1,5 +1,5 @@
 /**
- * Offline audio rendering for  recording. The live WebAudio path cannot
+ * Offline audio rendering for recording. The live WebAudio path cannot
  * be captured deterministically, so the recorder schedules the same tone
  * envelope into an OfflineAudioContext at exact output timestamps.
  */

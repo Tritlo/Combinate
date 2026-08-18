@@ -1,5 +1,5 @@
 /**
- * The Golf panel (): a toggled overlay listing the challenge pack, the
+ * The Golf panel: a toggled overlay listing the challenge pack, the
  * goal + your best for each, a "share solution" button, and a verify-by-replay
  * leaderboard. It owns the challenge<->Store glue: when a tree settles at normal
  * form the shell calls {@link ChallengePanel.onNormalForm}, which checks every

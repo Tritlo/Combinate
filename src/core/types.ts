@@ -3,7 +3,7 @@ import { matchNumeral, matchList, matchPair, matchBool } from "./value";
 import { recognizeDeep } from "./refold";
 
 /**
- * Type-guided reading (): a tag points at a tree and reads it as a value,
+ * Type-guided reading: a tag points at a tree and reads it as a value,
  * never a gate that blocks a build. Built on the re-folder's structural matchers
  * (`value.ts`), this adds the two things the flat auto-reader can't do:
  *

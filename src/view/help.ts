@@ -1,6 +1,6 @@
 /**
  * The Help window — the basics for a new player. Opened automatically on first launch and from the
- * menu. On the shared System-1 {@link Modal} chrome (). Mouse basics + how to read a tree only
+ * menu. On the shared System-1 {@link Modal} chrome. Mouse basics + how to read a tree only
  * — no keyboard / gamepad controls here (those live in the on-screen hint bar).
  */
 import { Modal } from "./modal";
