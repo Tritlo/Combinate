@@ -24,9 +24,10 @@ path if Chrome is not at the macOS default path. The script reads the checkpoint
 from the repository that contains `bin/ccc-spike/graphics-data.json`.
 It counts each packed weight field. It does not estimate the distribution.
 
-The output contains seven 3200 × 1800 PNGs, seven vector SVG cards, and three
+The output contains eight 3200 × 1800 PNGs, eight vector SVG cards, and three
 transparent SVG layouts for each of eight functions. `data.json` contains exact
-counts and the source, combinators, graph, and WGSL for each function.
+counts, the complete retained-leaf inventory, and the source, combinators, graph,
+and WGSL for each function.
 
 Open `index.html` to inspect the images and compiler outputs. For the WebGPU run,
 serve the output directory on localhost and open it in a WebGPU browser:
@@ -42,9 +43,34 @@ source in the browser. The small scalar example does not load the model weights.
 
 ## Read the graphics
 
-Dots mark iota leaves. Squares mark retained numeric operations, dictionaries,
-literals, and array intrinsics. Solid edges select the function. Dashed edges
-select the argument. The atlas shows program functions. Model weights remain data.
+Dots mark iota leaves. Colored squares mark named, unexpanded leaves:
+
+- Teal: numeric method references and integer conversion functions.
+- Blue: array-function references, such as `map`, `zipWith`, `sum`, and `maximum`.
+- Gold: concrete typeclass dictionaries, such as `Num Float`.
+- Violet: literal values, such as `1.0`.
+
+The pictures expand the combinator basis. They do not expand the implementations
+or transitive dependencies of the retained references. Array traversal, numeric
+implementations, and dictionary contents are outside these pictures. Supported
+method-plus-dictionary applications become numeric graph operations during CCC
+lowering. Array-function references become array graph operations. Dictionaries
+do not become WGSL values. Literal leaves retain their actual values.
+
+Counts measure leaf occurrences. They do not measure distinct symbols or GPU
+instructions. Softmax has ten retained occurrences: `map` twice, `sum`, `maximum`,
+`/`, `exp`, `-`, and the `Fractional Float`, `Floating Float`, and `Num Float`
+dictionaries. The scalar example has eight: `*`, `+`, `-`, three `Num Float`
+dictionary references, and two occurrences of `1.0`.
+
+The eighth card explains every softmax square. Each function in the preview has
+a table with the exact symbol, meaning, category, and occurrence count. Standalone
+SVGs include the same symbol and meaning in square tooltips. Unknown references
+retain their names and use the reference category. The `structure.primitives`
+field remains in `data.json` for compatibility. It counts these retained leaves.
+
+Solid edges select the function. Dashed edges select the argument. The atlas
+shows program functions. Model weights remain data.
 
 The MicroHs basis passes through `combinatorsToTree` before iota expansion.
 This preserves the MicroHs meanings of `O`, `U`, and `J`. Those names have

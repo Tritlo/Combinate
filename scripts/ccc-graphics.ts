@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModuleKind, ScriptTarget, transpileModule } from "typescript";
 import { chromium } from "playwright-core";
-import { buildStructure, renderStructure, structureStats } from "./ccc-structure";
+import { buildStructure, renderStructure, retainedLeaves, structureStats, type RetainedLeaf } from "./ccc-structure";
 
 /** Compiler records exported by the CCC graphics driver. */
 interface Entry {
@@ -33,6 +33,9 @@ const { entries } = data;
 if (!data.scalarShader) throw new Error("Export graphics-data again to include the scalar shader");
 const terms = new Map(entries.map((entry) => [entry.id, buildStructure(entry.combinators)]));
 const colors = { ink: "#1d2528", red: "#d84132", muted: "#697375", line: "#dbded9", paper: "#f7f7f2", teal: "#087f83", blue: "#355fc1", gold: "#ad7720", violet: "#8055a7" };
+const leafColors = { operation: colors.teal, array: colors.blue, dictionary: colors.gold, constant: colors.violet, reference: colors.muted };
+const inventories = new Map(entries.map((entry) => [entry.id, retainedLeaves(terms.get(entry.id)!)]));
+const categoryNames = { operation: "Method / conversion", array: "Array function", dictionary: "Typeclass dictionary", constant: "Literal", reference: "Reference" };
 await mkdir(output, { recursive: true });
 
 /** Escape text used in SVG and HTML. */
@@ -59,7 +62,30 @@ function metric(value: string, label: string, x: number, y: number, color = colo
 function tree(id: string, x: number, y: number, width: number, height: number, color = colors.red, layout: "htree" | "radial" | "botanical" = "htree"): string {
   const node = terms.get(id);
   if (!node) throw new Error(`Missing term ${id}`);
-  return `<g transform="translate(${x} ${y})">${renderStructure(node, { width, height, color, primitiveColor: colors.teal, layout })}</g>`;
+  return `<g transform="translate(${x} ${y})">${renderStructure(node, { width, height, color, primitiveColor: colors.teal, leafColors, layout })}</g>`;
+}
+
+/** Count retained occurrences in one category. */
+function leafCount(id: string, category: RetainedLeaf["category"]): number {
+  return inventories.get(id)!.filter((leaf) => leaf.category === category).reduce((sum, leaf) => sum + leaf.count, 0);
+}
+
+/** List the exact retained names and their repeated occurrences. */
+function leafNames(id: string, category: RetainedLeaf["category"]): string {
+  return inventories.get(id)!.filter((leaf) => leaf.category === category).map((leaf) => leaf.label + (leaf.count > 1 ? ` (${leaf.count})` : "")).join(" · ");
+}
+
+/** Show the four retained leaf categories with concrete examples. */
+function leafLegend(y: number): string {
+  return text("■ numeric: +, exp", 66, y, 16, leafColors.operation) +
+    text("■ array functions: map, sum", 410, y, 16, leafColors.array) +
+    text("■ dictionaries: Num Float", 847, y, 16, leafColors.dictionary) +
+    text("■ literals: 1.0", 1260, y, 16, leafColors.constant);
+}
+
+/** List each retained symbol with its meaning and occurrence count. */
+function leafTable(id: string): string {
+  return `<h3>Exact unexpanded leaf inventory</h3><p>Counts are leaf occurrences. Function bodies, dictionary contents, and literal representations are not expanded into ι.</p><div class="leaf-table"><table><thead><tr><th>Leaf</th><th>Kind</th><th>Count</th><th>Meaning and exact compiler symbol</th></tr></thead><tbody>${inventories.get(id)!.map((leaf) => `<tr><td style="color:${leafColors[leaf.category]}">${esc(leaf.label)}</td><td>${categoryNames[leaf.category]}</td><td>${leaf.count}</td><td>${esc(leaf.description)}<br><code>${esc(leaf.symbol)}</code></td></tr>`).join("")}</tbody></table></div>`;
 }
 
 /** Provide common typography, dimensions, and provenance for one tweet image. */
@@ -112,6 +138,7 @@ const model = await modelStats();
 const scalar = entries.find((entry) => entry.id === "scalar")!;
 const softmax = entries.find((entry) => entry.id === "softmax")!;
 const b = (value: unknown): string => (Number(value) / 1e9).toFixed(2);
+const scalarStats = structureStats(terms.get("scalar")!);
 const hero = frame(
   text("A NUMERICAL PROGRAM, FOUR WAYS", 64, 70, 17, colors.red, 'font-weight="600" letter-spacing="2.8"') +
   text("Haskell in.", 64, 163, 80, colors.ink, 'font-weight="700" letter-spacing="-3"') +
@@ -122,8 +149,10 @@ const hero = frame(
   code(scalar.source, 88, 434, 19, 34) +
   text("The picture is this function’s compiled structure.", 88, 530, 18, colors.muted) +
   tree("scalar", 661, 120, 865, 551) +
-  text("02 / EXPANDED INTO ι", 1020, 119, 15, colors.red, 'letter-spacing="1.7"') +
-  text("ι structure", 997, 652, 19, colors.red) + text("■ primitive leaves", 1139, 652, 18, colors.teal) +
+  text("02 / ι + NAMED UNEXPANDED LEAVES", 970, 119, 15, colors.red, 'letter-spacing="1.7"') +
+  text(`${scalarStats.iotas} ι dots + ${scalarStats.primitives} unexpanded leaf occurrences`, 848, 678, 19, colors.ink) +
+  text(`■ methods: ${leafNames("scalar", "operation")}`, 848, 707, 18, leafColors.operation) + text(`■ literals: ${leafNames("scalar", "constant")}`, 1210, 707, 18, leafColors.constant) +
+  text(`■ dictionary: ${leafNames("scalar", "dictionary")}`, 848, 736, 18, leafColors.dictionary) +
   text("BITNET b1.58 2B4T / MODEL STATISTICS", 68, 616, 15, colors.muted, 'letter-spacing="1.4"') +
   metric(b(model.logicalWeights) + "B", "weight values", 68, 683) + metric(String(model.layers), "decoder layers", 300, 683) + metric(b(model.fileBytes) + " GB", "packed checkpoint", 506, 683) +
   `<line x1="64" y1="754" x2="1536" y2="754" stroke="${colors.line}"/>` +
@@ -138,17 +167,18 @@ const subjects = [
 ] as const;
 const atlas = frame(
   text("THE SHAPES OF THE PROGRAM", 64, 65, 17, colors.red, 'letter-spacing="2.8" font-weight="600"') +
-  text("Different functions. The same ι.", 64, 135, 60, colors.ink, 'letter-spacing="-2" font-weight="700"') +
-  text("Real MicroHs terms, expanded with Combinate’s layouts.", 66, 176, 23, colors.muted) +
+  text("ι structure. Named leaves.", 64, 135, 60, colors.ink, 'letter-spacing="-2" font-weight="700"') +
+  text("The combinator structure is expanded. Function references, dictionaries, and literals remain as leaves.", 66, 176, 23, colors.muted) +
   subjects.map(([id, title, color], i) => {
     const x = 64 + (i % 3) * 500;
     const y = 214 + Math.floor(i / 3) * 290;
     const stats = structureStats(terms.get(id)!);
     return `<rect x="${x}" y="${y}" width="472" height="268" rx="7" fill="#fff" stroke="${colors.line}"/>` +
-      tree(id, x + 12, y + 15, 448, 197, color) + text(title, x + 22, y + 234, 24, color, 'font-weight="600"') +
-      text(`${stats.iotas} ι  ·  ${stats.primitives} primitive leaves`, x + 22, y + 257, 14, colors.muted);
+      tree(id, x + 12, y + 15, 448, 177, color) + text(title, x + 22, y + 214, 24, color, 'font-weight="600"') +
+      text(`${stats.iotas} ι  ·  ${stats.primitives} unexpanded leaf occurrences`, x + 22, y + 236, 14, colors.muted) +
+      text((["array", "operation", "dictionary", "constant", "reference"] as const).filter((category) => leafCount(id, category) > 0).map((category) => `${leafCount(id, category)} ${ { array: "array", operation: "numeric", dictionary: "dictionary", constant: "literal", reference: "reference" }[category]}`).join(" · "), x + 22, y + 257, 12.5, colors.muted);
   }).join("") +
-  text("Dots are ι. Squares retain numeric operations, dictionaries, literals, and array intrinsics.", 66, 827, 18, colors.muted), "Iota atlas of model program parts");
+  text("Squares are named, unexpanded leaves. Counts include repeated occurrences.", 66, 800, 17, colors.muted) + leafLegend(829), "Iota atlas of model program parts");
 
 const ops = [
   { term: "C P", value: "−1", action: "NEGATE", color: colors.red, count: Number(model.negative), note: "(P x 0) (C P) = P 0 x" },
@@ -186,27 +216,29 @@ const softmaxCard = frame(
   `<rect x="64" y="239" width="700" height="420" rx="8" fill="#fff" stroke="${colors.line}"/>` +
   text("HASKELL / EXACT SOURCE", 90, 277, 15, colors.red, 'letter-spacing="1.7"') +
   code(softmax.source, 90, 324, 16.5, 35) +
-  tree("softmax", 792, 212, 744, 505, colors.red, "htree") +
-  metric(String(softStats.iotas), "ι leaves in this structure", 800, 769, colors.red) +
-  metric(String(softStats.primitives), "primitive leaves retained", 1176, 769, colors.teal) +
+  tree("softmax", 792, 212, 744, 440, colors.red, "htree") +
+  text(`${leafCount("softmax", "array")} array leaves: ${leafNames("softmax", "array")}`, 800, 693, 19, leafColors.array) +
+  text(`${leafCount("softmax", "operation")} method leaves: ${leafNames("softmax", "operation")}`, 800, 730, 19, leafColors.operation) +
+  text(`${leafCount("softmax", "dictionary")} dictionaries: Fractional / Floating / Num Float`, 800, 767, 17.5, leafColors.dictionary) +
+  text(`${softStats.iotas} ι dots + ${softStats.primitives} unexpanded leaf occurrences`, 800, 808, 20, colors.ink) +
   text("maximum → map exp → ordered sum → map divide", 66, 716, 22, colors.ink, 'font-family="Menlo,monospace"') +
-  text("MicroHs emits the term.", 66, 763, 22, colors.muted) +
-  text("The CCC backend derives its workgroup plan.", 66, 797, 22, colors.muted) +
-  text("The picture retains numeric and array primitives.", 66, 827, 17, colors.muted), "Softmax source and its actual iota structure");
+  text("Array functions and Float arithmetic", 66, 763, 22, colors.muted) +
+  text("are lowered separately to GPU operations.", 66, 797, 22, colors.muted) +
+  text("Their implementations are not expanded into ι.", 66, 827, 17, colors.muted), "Softmax source and its actual iota structure");
 
 const rms = terms.get("rmsNorm")!;
 const rmsStats = structureStats(rms);
 const views = frame(
   text("COMBINATE / THREE LAYOUTS OF THE SAME TERM", 64, 65, 17, colors.red, 'letter-spacing="2.2" font-weight="600"') +
   text("One function. Three ways to see it.", 64, 143, 60, colors.ink, 'letter-spacing="-2.2" font-weight="700"') +
-  text(`RMSNorm  ·  ${rmsStats.iotas} ι leaves  ·  ${rmsStats.primitives} primitive leaves  ·  no changes to the program`, 66, 191, 23, colors.muted) +
+  text(`RMSNorm  ·  ${rmsStats.iotas} ι leaves  ·  ${rmsStats.primitives} unexpanded leaf occurrences  ·  no changes to the program`, 66, 191, 23, colors.muted) +
   (["htree", "radial", "botanical"] as const).map((layout, i) => {
     const x = 64 + i * 500;
     const color = [colors.red, colors.teal, colors.blue][i]!;
     const title = ["H-tree", "Radial", "Botanical"][i]!;
     return `<rect x="${x}" y="247" width="472" height="492" rx="8" fill="#fff" stroke="${colors.line}"/>` +
       tree("rmsNorm", x + 12, 260, 448, 403, color, layout) + text(title, x + 24, 708, 27, color, 'font-weight="600"');
-  }).join("") + text("The layout changes. The application tree and its leaves stay the same.", 66, 801, 24, colors.muted), "Three Combinate layouts of RMSNorm");
+  }).join("") + text("Same application tree. Same leaf inventory. The layout changes.", 66, 790, 23, colors.muted) + leafLegend(829), "Three Combinate layouts of RMSNorm");
 
 const modelCard = frame(
   text("THE MODEL / COUNTS FROM THE ACTUAL CHECKPOINT", 64, 65, 17, colors.red, 'letter-spacing="2.2" font-weight="600"') +
@@ -230,9 +262,26 @@ const modelCard = frame(
   text("■ gate / up / down", 322, 790, 21, colors.teal, 'font-weight="600"') +
   text("Ternary projections: 86.37% of weight values. Embeddings and norms retain their stored precision.", 66, 827, 18, colors.muted), "BitNet model statistics and its 210 ternary matrices");
 
+const leafKey = frame(
+  text("READING THE STRUCTURE / SOFTMAX", 64, 65, 17, colors.red, 'letter-spacing="2.2" font-weight="600"') +
+  text("The squares are named leaves.", 64, 144, 66, colors.ink, 'letter-spacing="-2.2" font-weight="700"') +
+  text(`${softStats.iotas} ι leaves + ${softStats.primitives} unexpanded leaves. Counts include repeated occurrences.`, 66, 192, 24, colors.muted) +
+  tree("softmax", 64, 245, 700, 465) +
+  text(`${leafCount("softmax", "array")} ARRAY-FUNCTION REFERENCES`, 820, 280, 17, leafColors.array, 'letter-spacing="1.2" font-weight="600"') +
+  text(leafNames("softmax", "array"), 820, 327, 29, leafColors.array, 'font-weight="600"') +
+  text("Function bodies and traversal are not expanded.", 820, 366, 19, colors.muted) +
+  text(`${leafCount("softmax", "operation")} NUMERIC METHOD REFERENCES`, 820, 444, 17, leafColors.operation, 'letter-spacing="1.2" font-weight="600"') +
+  text(leafNames("softmax", "operation"), 820, 491, 35, leafColors.operation, 'font-weight="600"') +
+  text("Arithmetic implementations are not expanded.", 820, 530, 19, colors.muted) +
+  text(`${leafCount("softmax", "dictionary")} TYPECLASS DICTIONARY REFERENCES`, 820, 608, 17, leafColors.dictionary, 'letter-spacing="1.2" font-weight="600"') +
+  text(leafNames("softmax", "dictionary"), 820, 652, 20, leafColors.dictionary, 'font-weight="600"') +
+  text("They select the Float implementation of each method.", 820, 691, 19, colors.muted) +
+  text("Other functions also retain literals such as 1.0 and 1.0e-5.", 66, 772, 22, leafColors.constant) +
+  text("CCC lowering resolves the supported symbols into GPU arithmetic and array operations.", 66, 816, 21, colors.muted), "Exact meaning of every retained leaf in softmax");
+
 /** Apply the dark palette without changing the drawing geometry. */
 function night(svg: string): string {
-  return [[colors.paper, "#0b1117"], [colors.ink, "#f1f2e9"], [colors.muted, "#a7b3b8"], [colors.line, "#2b3942"], [colors.red, "#ff8970"], [colors.teal, "#63dbc3"], ["#fff\"", "#101c25\""]].reduce((result, [from, to]) => result.split(from!).join(to!), svg);
+  return [[colors.paper, "#0b1117"], [colors.ink, "#f1f2e9"], [colors.muted, "#a7b3b8"], [colors.line, "#2b3942"], [colors.red, "#ff8970"], [colors.teal, "#63dbc3"], [colors.blue, "#80a7ff"], [colors.gold, "#e8b961"], [colors.violet, "#bd98f0"], ["#fff\"", "#101c25\""]].reduce((result, [from, to]) => result.split(from!).join(to!), svg);
 }
 
 const cards = [
@@ -243,9 +292,10 @@ const cards = [
   { id: "05-three-layouts", title: "One function, three views", svg: views },
   { id: "06-haskell-to-gpu-night", title: "Source to GPU, dark variant", svg: night(hero) },
   { id: "07-model-statistics", title: "The model in numbers", svg: modelCard },
+  { id: "08-what-the-leaves-mean", title: "What the squares mean", svg: leafKey },
 ];
 for (const entry of entries) {
-  for (const layout of ["htree", "radial", "botanical"] as const) await writeFile(resolve(output, `tree-${entry.id}-${layout}.svg`), renderStructure(terms.get(entry.id)!, { width: 1200, height: 1200, color: colors.red, primitiveColor: colors.teal, layout }));
+  for (const layout of ["htree", "radial", "botanical"] as const) await writeFile(resolve(output, `tree-${entry.id}-${layout}.svg`), renderStructure(terms.get(entry.id)!, { width: 1200, height: 1200, color: colors.red, primitiveColor: colors.teal, leafColors, layout }));
 }
 for (const card of cards) await writeFile(resolve(output, `${card.id}.svg`), card.svg);
 const browser = await chromium.launch({ executablePath: process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true });
@@ -256,10 +306,10 @@ try {
     await page.screenshot({ path: resolve(output, `${card.id}.png`), clip: { x: 0, y: 0, width: 1600, height: 900 } });
   }
 } finally { await browser.close(); }
-const provenance = { model, entries: entries.map((entry) => ({ ...entry, structure: structureStats(terms.get(entry.id)!) })), note: "Iota expands combinator structure. Numeric operations, dictionaries, literals, and array intrinsics remain opaque leaves. The weight-operation card uses equivalent compact pure-iota forms of I, K, and MicroHs C P." };
+const provenance = { model, entries: entries.map((entry) => ({ ...entry, structure: structureStats(terms.get(entry.id)!), retainedLeaves: inventories.get(entry.id)! })), note: "Iota expands the combinator basis. Other function references, concrete type dictionaries, and literals remain unexpanded leaves. Counts are occurrences, not distinct symbols or GPU instructions. The legacy structure.primitives field counts these retained occurrences. Implementations and transitive dependencies are not expanded. The weight-operation card uses equivalent compact pure-iota forms of I, K, and MicroHs C P." };
 await writeFile(resolve(output, "data.json"), JSON.stringify(provenance, null, 2) + "\n");
 const previewScript = transpileModule(await readFile(fileURLToPath(new URL("./ccc-preview.ts", import.meta.url)), "utf8"), { compilerOptions: { target: ScriptTarget.ES2020, module: ModuleKind.ESNext } }).outputText;
-const live = `<section id="live-demo"><h2>Follow one function to the GPU</h2><p>These compiler outputs come from the source below. The generated shader runs here on your GPU.</p><nav role="tablist" aria-label="Compiler outputs">${["source", "combinators", "tree", "graph", "wgsl"].map((stage, i) => `<button type="button" role="tab" data-view="${stage}" aria-selected="${i === 0}">${i + 1} / ${["Haskell", "Combinators", "Iota", "CCC", "WGSL"][i]}</button>`).join("")}</nav><div class="representations"><pre data-stage="source">${esc(scalar.source)}</pre><pre data-stage="combinators" hidden>${esc(scalar.combinators)}</pre><div data-stage="tree" hidden>${renderStructure(terms.get("scalar")!, { width: 850, height: 340, color: colors.red, primitiveColor: colors.teal, layout: "htree" })}</div><pre data-stage="graph" hidden>${esc(scalar.graph)}</pre><pre data-stage="wgsl" hidden>${esc(scalar.wgsl)}</pre></div><div class="run"><label for="gpu-input">Input <output id="input-value">3</output></label><input id="gpu-input" type="range" min="-8" max="8" step="0.5" value="3"><button id="gpu-tour" type="button">Follow source to GPU</button><button id="gpu-run" type="button">Run on GPU</button><span class="result">GPU result <output id="gpu-result" aria-live="polite">—</output></span></div><p id="gpu-status" role="status">Run the generated shader with this input.</p><p class="note">Compilation runs when the graphics data is exported. This preview executes the exported shader. The model weights do not load in this small example.</p></section>`;
+const live = `<section id="live-demo"><h2>Follow one function to the GPU</h2><p>These compiler outputs come from the source below. The generated shader runs here on your GPU.</p><nav role="tablist" aria-label="Compiler outputs">${["source", "combinators", "tree", "graph", "wgsl"].map((stage, i) => `<button type="button" role="tab" data-view="${stage}" aria-selected="${i === 0}">${i + 1} / ${["Haskell", "Combinators", "Iota", "CCC", "WGSL"][i]}</button>`).join("")}</nav><div class="representations"><pre data-stage="source">${esc(scalar.source)}</pre><pre data-stage="combinators" hidden>${esc(scalar.combinators)}</pre><div data-stage="tree" hidden>${renderStructure(terms.get("scalar")!, { width: 850, height: 340, color: colors.red, primitiveColor: colors.teal, leafColors, layout: "htree" })}</div><pre data-stage="graph" hidden>${esc(scalar.graph)}</pre><pre data-stage="wgsl" hidden>${esc(scalar.wgsl)}</pre></div><p class="note">Dots are ι. Squares retain the method names +, −, ×; three Num Float dictionary references; and two occurrences of 1.0. Their implementations are not expanded.</p><div class="run"><label for="gpu-input">Input <output id="input-value">3</output></label><input id="gpu-input" type="range" min="-8" max="8" step="0.5" value="3"><button id="gpu-tour" type="button">Follow source to GPU</button><button id="gpu-run" type="button">Run on GPU</button><span class="result">GPU result <output id="gpu-result" aria-live="polite">—</output></span></div><p id="gpu-status" role="status">Run the generated shader with this input.</p><p class="note">Compilation runs when the graphics data is exported. This preview executes the exported shader. The model weights do not load in this small example.</p></section>`;
 await writeFile(resolve(output, "scalar.wgsl"), data.scalarShader);
-await writeFile(resolve(output, "index.html"), `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>CCC · source to GPU</title><style>body{margin:0;padding:40px;background:${colors.paper};color:${colors.ink};font:18px/1.5 system-ui}main{max-width:1300px;margin:auto}h1{font-size:42px;letter-spacing:-1.5px}nav{display:flex;gap:12px;flex-wrap:wrap}a{color:${colors.red}}figure{margin:40px 0}img{width:100%;border:1px solid ${colors.line};border-radius:8px}summary{cursor:pointer;font-weight:600}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.6 Menlo,monospace;padding:20px;background:white;border:1px solid ${colors.line}}article{margin:32px 0}footer{margin-top:48px;color:${colors.muted}}#live-demo{margin:40px 0;padding:28px;border:1px solid ${colors.line};border-radius:12px;background:white}button{font:inherit;border:1px solid ${colors.line};border-radius:6px;padding:8px 14px;background:${colors.paper};color:${colors.ink};cursor:pointer}button[aria-selected="true"],#gpu-tour{background:${colors.red};color:white;border-color:${colors.red}}button:disabled{opacity:.5;cursor:wait}.representations{height:350px;overflow:auto;margin:20px 0}.representations pre{margin:0;border:0;font-size:18px}.representations svg{width:100%;height:340px}.run{display:flex;align-items:center;gap:16px;flex-wrap:wrap}#input-value{font-weight:700;font-variant-numeric:tabular-nums}#gpu-input{accent-color:${colors.red};width:180px}.result{margin-left:auto}#gpu-result{font-size:48px;font-weight:700;color:${colors.red};padding-left:15px}.note{font-size:14px;color:${colors.muted}}[hidden]{display:none!important}@media(max-width:700px){body{padding:18px}h1{font-size:32px}#live-demo{padding:18px}.representations{height:300px}.result{margin-left:0}}</style><main><h1>Haskell → combinators → GPU</h1><p>Tweet images drawn from actual MicroHs terms with Combinate’s layouts. PNGs are 3200 × 1800. SVGs retain vector detail.</p>${live}<nav>${cards.map((card) => `<a href="#${card.id}">${esc(card.title)}</a>`).join("")}</nav>${cards.map((card) => `<figure id="${card.id}"><img src="${card.id}.png" alt="${esc(card.title)}" loading="lazy"><figcaption><a href="${card.id}.png">PNG</a> · <a href="${card.id}.svg">SVG</a></figcaption></figure>`).join("")}<h2>Inspect the actual compilation</h2><p>Expand a function to read its source, emitted combinators, categorical graph, and generated WGSL. Green squares in the tree retain primitive operations.</p>${entries.map((entry) => `<article><details><summary>${esc(entry.label)} · ${esc(entry.path)} path</summary><img src="tree-${entry.id}-htree.svg" alt="${esc(entry.label)} iota structure" style="max-width:650px" loading="lazy"><p>${["htree", "radial", "botanical"].map((layout) => `<a href="tree-${entry.id}-${layout}.svg">${layout} SVG</a>`).join(" · ")}</p><h3>Haskell</h3><pre>${esc(entry.source)}</pre><h3>MicroHs combinators</h3><pre>${esc(entry.combinators)}</pre><h3>CCC / array graph</h3><pre>${esc(entry.graph)}</pre><h3>Generated WGSL expression or body</h3><pre>${esc(entry.wgsl)}</pre></details></article>`).join("")}<footer><a href="data.json">Source data and exact counts</a> · <a href="scalar.wgsl">Runnable scalar shader</a> · <a href="https://github.com/Tritlo/Combinate">Combinate renderer</a><p>Float operations remain primitive leaves. Ternary weight operators have pure ι forms. Weights remain model data; the atlas shows program functions.</p></footer></main><script type="application/json" id="scalar-shader">${JSON.stringify(data.scalarShader).replace(/</g, "\\u003c")}</script><script type="module">${previewScript}</script></html>`);
+await writeFile(resolve(output, "index.html"), `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>CCC · source to GPU</title><style>body{margin:0;padding:40px;background:${colors.paper};color:${colors.ink};font:18px/1.5 system-ui}main{max-width:1300px;margin:auto}h1{font-size:42px;letter-spacing:-1.5px}nav{display:flex;gap:12px;flex-wrap:wrap}a{color:${colors.red}}figure{margin:40px 0}img{width:100%;border:1px solid ${colors.line};border-radius:8px}summary{cursor:pointer;font-weight:600}.leaf-table{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:15px}th,td{text-align:left;vertical-align:top;padding:12px;border-bottom:1px solid ${colors.line}}td code{overflow-wrap:anywhere;font-size:12px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.6 Menlo,monospace;padding:20px;background:white;border:1px solid ${colors.line}}article{margin:32px 0}footer{margin-top:48px;color:${colors.muted}}#live-demo{margin:40px 0;padding:28px;border:1px solid ${colors.line};border-radius:12px;background:white}button{font:inherit;border:1px solid ${colors.line};border-radius:6px;padding:8px 14px;background:${colors.paper};color:${colors.ink};cursor:pointer}button[aria-selected="true"],#gpu-tour{background:${colors.red};color:white;border-color:${colors.red}}button:disabled{opacity:.5;cursor:wait}.representations{height:350px;overflow:auto;margin:20px 0}.representations pre{margin:0;border:0;font-size:18px}.representations svg{width:100%;height:340px}.run{display:flex;align-items:center;gap:16px;flex-wrap:wrap}#input-value{font-weight:700;font-variant-numeric:tabular-nums}#gpu-input{accent-color:${colors.red};width:180px}.result{margin-left:auto}#gpu-result{font-size:48px;font-weight:700;color:${colors.red};padding-left:15px}.note{font-size:14px;color:${colors.muted}}[hidden]{display:none!important}@media(max-width:700px){body{padding:18px}h1{font-size:32px}#live-demo{padding:18px}.representations{height:300px}.result{margin-left:0}}</style><main><h1>Haskell → combinators → GPU</h1><p>Tweet images drawn from actual MicroHs terms with Combinate’s layouts. PNGs are 3200 × 1800. SVGs retain vector detail.</p>${live}<nav>${cards.map((card) => `<a href="#${card.id}">${esc(card.title)}</a>`).join("")}</nav>${cards.map((card) => `<figure id="${card.id}"><img src="${card.id}.png" alt="${esc(card.title)}" loading="lazy"><figcaption><a href="${card.id}.png">PNG</a> · <a href="${card.id}.svg">SVG</a></figcaption></figure>`).join("")}<h2>Inspect the actual compilation</h2><p>Expand a function to read its source, emitted combinators, categorical graph, and generated WGSL. Squares mark unexpanded compiler leaves: array-function references, numeric method references, concrete typeclass dictionaries, and literal values. Their colors match the inventory below each tree.</p>${entries.map((entry) => `<article><details><summary>${esc(entry.label)} · ${esc(entry.path)} path</summary><img src="tree-${entry.id}-htree.svg" alt="${esc(entry.label)} iota structure" style="max-width:650px" loading="lazy"><p>${["htree", "radial", "botanical"].map((layout) => `<a href="tree-${entry.id}-${layout}.svg">${layout} SVG</a>`).join(" · ")}</p>${leafTable(entry.id)}<h3>Haskell</h3><pre>${esc(entry.source)}</pre><h3>MicroHs combinators</h3><pre>${esc(entry.combinators)}</pre><h3>CCC / array graph</h3><pre>${esc(entry.graph)}</pre><h3>Generated WGSL expression or body</h3><pre>${esc(entry.wgsl)}</pre></details></article>`).join("")}<footer><a href="data.json">Source data and exact counts</a> · <a href="scalar.wgsl">Runnable scalar shader</a> · <a href="https://github.com/Tritlo/Combinate">Combinate renderer</a><p>Only the combinator basis is expanded into ι. Other function bodies and transitive dependencies remain outside these pictures. Ternary weight operators have pure ι forms. Weights remain model data; the atlas shows program functions.</p></footer></main><script type="application/json" id="scalar-shader">${JSON.stringify(data.scalarShader).replace(/</g, "\\u003c")}</script><script type="module">${previewScript}</script></html>`);
 console.log(JSON.stringify({ output, model, cards: cards.map((card) => card.id), terms: provenance.entries.map(({ id, structure }) => ({ id, ...structure })) }, null, 2));
