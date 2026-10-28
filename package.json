@@ -16,7 +16,8 @@
     "build:reduce-wasm": "wasm-pack build crates/reduce --target nodejs --release --out-dir pkg-node",
     "check:reduce-wasm": "npm run build:reduce-wasm && tsx scripts/wasm-reduce-check.mts",
     "minimal-forms": "tsx scripts/gen-minimal-birds.ts && cargo run --release --manifest-path crates/minimal/Cargo.toml -- --max-iotas 13 && tsx scripts/certify-minimal.ts",
-    "check:release": "tsx scripts/check-release.ts"
+    "check:release": "tsx scripts/check-release.ts",
+    "graphics:ccc": "node --import tsx scripts/ccc-graphics.ts"
   },
   "dependencies": {
     "@duckdb/duckdb-wasm": "^1.33.1-dev57.0",
