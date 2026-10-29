@@ -9,13 +9,35 @@ const tour = document.querySelector<HTMLButtonElement>("#gpu-tour")!;
 const tabs = [...document.querySelectorAll<HTMLButtonElement>("[data-view]")];
 const stages = [...document.querySelectorAll<HTMLElement>("[data-stage]")];
 
-/** Select one representation of the same compiled source. */
+/** Select a representation and keep only its tab in the keyboard order. */
 function selectStage(name: string): void {
-  for (const tab of tabs) tab.setAttribute("aria-selected", String(tab.dataset.view === name));
+  for (const tab of tabs) {
+    const selected = tab.dataset.view === name;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  }
   for (const stage of stages) stage.hidden = stage.dataset.stage !== name;
 }
 
-for (const tab of tabs) tab.addEventListener("click", () => selectStage(tab.dataset.view!));
+for (const [index, tab] of tabs.entries()) {
+  tab.addEventListener("click", () => selectStage(tab.dataset.view!));
+  tab.addEventListener("keydown", (event) => {
+    let next: number;
+    switch (event.key) {
+      case "ArrowRight":
+      case "ArrowDown": next = (index + 1) % tabs.length; break;
+      case "ArrowLeft":
+      case "ArrowUp": next = (index + tabs.length - 1) % tabs.length; break;
+      case "Home": next = 0; break;
+      case "End": next = tabs.length - 1; break;
+      default: return;
+    }
+    event.preventDefault();
+    selectStage(tabs[next]!.dataset.view!);
+    tabs[next]!.focus();
+  });
+}
+selectStage("source");
 slider.addEventListener("input", () => {
   inputValue.value = slider.value;
   result.value = "—";
@@ -36,7 +58,10 @@ async function execute(showStages: boolean): Promise<void> {
       }
     }
     status.textContent = "Requesting a GPU and compiling the generated WGSL…";
-    if (!navigator.gpu) throw new Error("WebGPU is unavailable. Open this page on localhost in a WebGPU browser.");
+    if (!navigator.gpu) {
+      const reason = isSecureContext ? "This browser does not expose WebGPU." : "WebGPU requires HTTPS or localhost.";
+      throw new Error(`${reason} Use a browser with WebGPU support. The gallery and compiler outputs remain available.`);
+    }
     const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
     if (!adapter) throw new Error("No WebGPU adapter is available.");
     if (adapter.info.isFallbackAdapter) throw new Error("A physical GPU is required for this demo.");

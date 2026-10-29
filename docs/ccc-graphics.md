@@ -125,7 +125,7 @@ node_modules/.bin/tsc --noEmit --strict --noUnusedLocals --noUnusedParameters \
   --target ES2022 --module ESNext --moduleResolution bundler \
   --lib ES2022,DOM,DOM.Iterable --skipLibCheck \
   scripts/ccc-graphics.ts scripts/ccc-structure.ts scripts/ccc-preview.ts \
-  scripts/ccc-raster.ts
+  scripts/ccc-raster.ts scripts/ccc-page.ts scripts/ccc-package.ts
 ```
 
 The 2026-10-28 check on Apple M4 used a physical `apple metal-3` adapter.
@@ -149,3 +149,38 @@ the stock evaluator. Each iota was encoded as `S (S I (K S)) (K K)`. Runtime and
 literal tokens retained their stock encodings. All eight operations produced
 byte-identical output. The comparison gallery and its six-stage GPU tour passed
 on a physical Apple Metal adapter.
+
+## Package the public research demo
+
+The landing page starts with the paired softmax image. It contains the eight
+operation pairs, exact leaf inventories, compiler outputs, and a small WebGPU
+example. The tabs support the arrow keys, Home, and End. Images reserve their
+layout space. The gallery does not fetch remote resources.
+
+Build the optional model runtime first. It uses an explicit start button and
+pins the model and tokenizer to the checked Hugging Face snapshot. The small
+example does not load that model.
+
+```sh
+npm --prefix ../microhsbitnet-ccc-review/spike/ccc/web ci
+make -C ../microhsbitnet-ccc-review/spike/ccc web-demo
+npm run demo:ccc -- \
+  ../microhsbitnet-ccc-review/bin/ccc-expanded-graphics \
+  ../microhsbitnet-ccc-review \
+  ../microhsbitnet-ccc-review/bin/ccc-public-demo
+```
+
+The destination must be empty. The package includes `ccc-demo.zip`, a scoped
+`source.zip`, exact source revisions, and license notices. It includes the model
+runtime when all its assets are available. It never includes model weights.
+The source archive records the selected files and their SHA-256 hashes. It
+references the pinned MicroHs checkout instead of copying that full repository.
+
+Extract the demo archive and serve that directory with Python's HTTP server.
+No build or dependency install is required to view it. Public hosting must use
+HTTPS for WebGPU. Packaging does not publish anything.
+
+The compiler is a research implementation for a defined subset. The physical
+M4 model check matched 52/52 reference tokens, but its 1% numerical error target
+still fails. The five-prompt full showcase was not rerun for the page changes.
+Do not describe this package as a production compiler or full numerical parity.
