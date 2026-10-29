@@ -187,3 +187,15 @@ limit per prompt. It generated 76 tokens across 216 positions on the physical
 M4 GPU. That run used the local verified checkpoint and pinned remote tokenizer.
 It did not compare reference outputs. Do not describe the package as a
 production compiler or full numerical parity.
+
+## Published gallery
+
+The reviewed static bundle is published at
+[github.mpg.is/microhsbitnet](https://github.mpg.is/microhsbitnet/).
+GitHub Pages serves `codex/ccc-demo-pages` in `Tritlo/microhsbitnet` with HTTPS.
+The compiler and renderer source branches are named `codex/ccc-public-demo`.
+The bundle records the exact revisions used to build it.
+
+The 2026-10-29 public check passed on a physical M4 GPU. It checked four scalar
+inputs, 81 linked files, mobile layout, keyboard tabs, and the model download
+gate. The public HTML and demo ZIP match the reviewed local files byte for byte.
