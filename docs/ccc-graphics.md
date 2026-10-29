@@ -1,4 +1,4 @@
-# CCC graphics
+# CCC graphics and full H-tree expansion
 
 Generate tweet images from the MicroHs CCC export and the local BitNet checkpoint.
 The renderer uses Combinate's H-tree, radial, and botanical layout functions.
@@ -24,10 +24,18 @@ path if Chrome is not at the macOS default path. The script reads the checkpoint
 from the repository that contains `bin/ccc-spike/graphics-data.json`.
 It counts each packed weight field. It does not estimate the distribution.
 
-The output contains eight 3200 × 1800 PNGs, eight vector SVG cards, and three
-transparent SVG layouts for each of eight functions. `data.json` contains exact
-counts, the complete retained-leaf inventory, and the source, combinators, graph,
-and WGSL for each function.
+The output contains eight paired comparison cards and the eight compact/model
+cards. Each comparison has a 3200 × 1800 PNG and an SVG poster. Each operation
+also has separate compact and expanded H-tree PNGs. Compact trees keep their
+three vector layouts. Expanded trees have a full SVG source and an indexed
+H-tree grammar. `closure.json` stores the actual rooted compiler definitions.
+`data.json` stores both inventories and exact occurrence counts.
+
+Comparison SVG posters embed the full-tree raster image. The separate expanded
+SVG stores the complete vector tree with shared graphical definitions. Use the
+PNG previews in the browser. Large full SVGs can exceed browser DOM capacity.
+The full-tree PNG renderer visits every occurrence and checks its count. It does
+not omit deep subtrees. `expanded-render-check.json` records these visit counts.
 
 Open `index.html` to inspect the images and compiler outputs. For the WebGPU run,
 serve the output directory on localhost and open it in a WebGPU browser:
@@ -43,31 +51,57 @@ source in the browser. The small scalar example does not load the model weights.
 
 ## Read the graphics
 
-Dots mark iota leaves. Colored squares mark named, unexpanded leaves:
+Dots mark iota leaves. Squares mark named terminal leaves. In compact views,
+the colors identify these categories:
 
 - Teal: numeric method references and integer conversion functions.
 - Blue: array-function references, such as `map`, `zipWith`, `sum`, and `maximum`.
 - Gold: concrete typeclass dictionaries, such as `Num Float`.
 - Violet: literal values, such as `1.0`.
 
-The pictures expand the combinator basis. They do not expand the implementations
-or transitive dependencies of the retained references. Array traversal, numeric
-implementations, and dictionary contents are outside these pictures. Supported
-method-plus-dictionary applications become numeric graph operations during CCC
-lowering. Array-function references become array graph operations. Dictionaries
-do not become WGSL values. Literal leaves retain their actual values.
+Expanded views use teal for runtime operations and foreign calls. They use violet
+for typed literals. They have no named Haskell function or dictionary leaves.
+
+The compact pictures expand the combinator basis. They retain other function
+references, dictionary references, and literal values. Their implementation
+bodies are outside the compact picture.
+
+The expanded H-trees include every reachable compiled Haskell body and dictionary.
+They include array traversal, method selectors, dictionary fields, and error
+paths. Unused dictionary methods remain visible because the full view shows the
+complete definition, not an execution trace. Recursive groups use the same finite
+`Y` and tuple construction as the pinned MicroHs compiler. Constructor and tuple
+machinery also expands into iota. No Haskell definition remains a named leaf.
+
+Runtime primitives, foreign calls, and typed literal values remain named in the
+expanded view. Native Float and machine Int operations retain their original
+semantics. They are not replaced with Scott natural-number arithmetic. The full
+view has no unresolved-reference or truncation fallback. Missing definitions
+and unlowered cycles cause an error.
+
+The indexed grammar reuses identical subtrees in storage. Every reference denotes
+an occurrence in the full H-tree. Canvas walks all occurrences without creating
+millions of browser DOM nodes. At overview scale, deep nodes overlap or become
+smaller than one pixel. The raster uses minimum mark sizes for visibility. The
+full SVG retains the exact nested H-tree transforms. It has no three-decimal
+coordinate rounding. These counts describe program syntax, not GPU instructions.
+
+The compact GPU compiler behavior is unchanged. During CCC lowering, supported
+method-plus-dictionary applications become numeric graph operations. Array
+references become array graph operations. Dictionaries do not become WGSL values.
 
 Counts measure leaf occurrences. They do not measure distinct symbols or GPU
-instructions. Softmax has ten retained occurrences: `map` twice, `sum`, `maximum`,
+instructions. Compact softmax has ten retained occurrences: `map` twice, `sum`, `maximum`,
 `/`, `exp`, `-`, and the `Fractional Float`, `Floating Float`, and `Num Float`
 dictionaries. The scalar example has eight: `*`, `+`, `-`, three `Num Float`
 dictionary references, and two occurrences of `1.0`.
 
-The eighth card explains every softmax square. Each function in the preview has
-a table with the exact symbol, meaning, category, and occurrence count. Standalone
+The compact leaf-key card explains every compact softmax square. Each function
+in the preview has a table with the exact symbol, meaning, category, and occurrence count. Standalone
 SVGs include the same symbol and meaning in square tooltips. Unknown references
 retain their names and use the reference category. The `structure.primitives`
-field remains in `data.json` for compatibility. It counts these retained leaves.
+field remains in `data.json` for compatibility. It counts the terminal leaf
+occurrences at the selected expansion level.
 
 Solid edges select the function. Dashed edges select the argument. The atlas
 shows program functions. Model weights remain data.
@@ -90,7 +124,8 @@ Run the strict check for these scripts without the main app's generated modules:
 node_modules/.bin/tsc --noEmit --strict --noUnusedLocals --noUnusedParameters \
   --target ES2022 --module ESNext --moduleResolution bundler \
   --lib ES2022,DOM,DOM.Iterable --skipLibCheck \
-  scripts/ccc-graphics.ts scripts/ccc-structure.ts scripts/ccc-preview.ts
+  scripts/ccc-graphics.ts scripts/ccc-structure.ts scripts/ccc-preview.ts \
+  scripts/ccc-raster.ts
 ```
 
 The 2026-10-28 check on Apple M4 used a physical `apple metal-3` adapter.
@@ -101,3 +136,16 @@ An independent packed-data count matched all three weight totals.
 The full `npm run typecheck` also needs the generated Rust modules described
 in `CLAUDE.md`. A clean clone without those modules reports missing imports
 for `crates/refold/pkg/refold.js` and `crates/reduce/pkg/reduce.js`.
+
+The expanded export passed a stock-runtime witness for all eight operations.
+Outputs before and after recursive-group normalization were byte-identical.
+The witness includes mutual-recursion groups of up to 51 definitions. Constructor
+encodings match the pinned runtime equations. Grammar counts and bounds match
+materialized small trees. Full rasters visit every counted occurrence. The
+expanded trees contain only runtime/foreign operations and typed literal leaves.
+
+The 2026-10-29 check also round-tripped the actual TypeScript iota grammar through
+the stock evaluator. Each iota was encoded as `S (S I (K S)) (K K)`. Runtime and
+literal tokens retained their stock encodings. All eight operations produced
+byte-identical output. The comparison gallery and its six-stage GPU tour passed
+on a physical Apple Metal adapter.

@@ -29,7 +29,7 @@ async function execute(showStages: boolean): Promise<void> {
   try {
     result.value = "…";
     if (showStages) {
-      for (const name of ["source", "combinators", "tree", "graph", "wgsl"]) {
+      for (const name of ["source", "combinators", "tree", "expanded", "graph", "wgsl"]) {
         selectStage(name);
         status.textContent = "Following the compiler outputs…";
         if (!matchMedia("(prefers-reduced-motion: reduce)").matches) await new Promise((resolve) => setTimeout(resolve, 650));
