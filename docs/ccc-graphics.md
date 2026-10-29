@@ -182,5 +182,8 @@ HTTPS for WebGPU. Packaging does not publish anything.
 
 The compiler is a research implementation for a defined subset. The physical
 M4 model check matched 52/52 reference tokens, but its 1% numerical error target
-still fails. The five-prompt full showcase was not rerun for the page changes.
-Do not describe this package as a production compiler or full numerical parity.
+still fails. The five-prompt showcase completed on 2026-10-29 with a 24-token
+limit per prompt. It generated 76 tokens across 216 positions on the physical
+M4 GPU. That run used the local verified checkpoint and pinned remote tokenizer.
+It did not compare reference outputs. Do not describe the package as a
+production compiler or full numerical parity.
