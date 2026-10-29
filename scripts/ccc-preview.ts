@@ -103,4 +103,12 @@ async function execute(showStages: boolean): Promise<void> {
 run.addEventListener("click", () => void execute(false));
 tour.addEventListener("click", () => void execute(true));
 
+// The extracted archive does not contain another copy of itself.
+const bundleDownload = document.querySelector<HTMLAnchorElement>("[data-demo-download]");
+if (bundleDownload) {
+  void fetch(bundleDownload.href, { method: "HEAD" })
+    .then((response) => { if (!response.ok) bundleDownload.remove(); })
+    .catch(() => bundleDownload.remove());
+}
+
 export {};
